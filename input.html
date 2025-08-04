@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Input Page - Real-time Communication</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        #numberInput {
+            width: 300px;
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            text-align: center;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        #numberInput:focus {
+            border-color: #4CAF50;
+        }
+        .info {
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Input Page</h1>
+        <p>Type any number below and it will appear on the display page in real-time:</p>
+        
+        <input type="text" id="numberInput" placeholder="Enter any number..." autocomplete="off">
+        
+        <div id="connectionStatus" class="status disconnected">
+            Connecting to server...
+        </div>
+        
+        <div class="info">
+            <p>💡 Tip: Open the <a href="display.html" target="_blank">Display Page</a> in another tab to see the real-time updates!</p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const input = document.getElementById('numberInput');
+        const status = document.getElementById('connectionStatus');
+
+        // Connection status handling
+        socket.on('connect', () => {
+            status.textContent = '✅ Connected to server';
+            status.className = 'status connected';
+        });
+
+        socket.on('disconnect', () => {
+            status.textContent = '❌ Disconnected from server';
+            status.className = 'status disconnected';
+        });
+
+        // Real-time input handling
+        input.addEventListener('input', (e) => {
+            const value = e.target.value;
+            socket.emit('input-change', {
+                value: value,
+                timestamp: new Date().toLocaleTimeString()
+            });
+        });
+
+        // Focus on input when page loads
+        window.onload = () => {
+            input.focus();
+        };
+    </script>
+</body>
+</html>
