@@ -1,0 +1,80 @@
+/* Additional styles for KSG Production System */
+
+/* Ensure mobile responsiveness */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    .grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .flex.space-x-2 {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+}
+
+/* Loading animation improvements */
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Flash effects for user feedback */
+.flash-success {
+    background-color: #d1fae5 !important;
+    transition: background-color 0.3s ease;
+}
+
+.flash-error {
+    background-color: #fecaca !important;
+    transition: background-color 0.3s ease;
+}
+
+/* Modal improvements */
+.modal {
+    backdrop-filter: blur(2px);
+}
+
+/* Status indicator pulse animation */
+.status-pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
