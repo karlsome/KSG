@@ -234,6 +234,15 @@ class AuthManager {
             console.log('⏰ Starting status monitoring...');
             this.startStatusMonitoring();
             
+            // Check for and process any offline submissions
+            await this.processOfflineSubmissions();
+            
+            // Check if there are still offline submissions to show notification
+            const offlineData = JSON.parse(localStorage.getItem('ksg_offline_submissions') || '[]');
+            if (offlineData.length > 0) {
+                this.showOfflineQueueNotification(offlineData.length);
+            }
+            
             console.log('✅ App initialized successfully');
         } catch (error) {
             console.error('❌ App initialization failed:', error);
@@ -367,6 +376,9 @@ class AuthManager {
                     if (isRPiOnline) {
                         this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
                         console.log(`✅ RPi status: ONLINE, device_id=${rpiStatus.device_id}`);
+                        
+                        // Process any offline submissions when back online
+                        this.processOfflineSubmissions();
                     } else {
                         this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
                         console.log(`❌ RPi status: OFFLINE, device_id=${rpiStatus.device_id}`);
@@ -428,6 +440,8 @@ class AuthManager {
                             
                             this.updateStatusUI(true, `オンライン (${deviceInfo.device_name})`);
                             
+                            // Process any offline submissions when back online
+                            this.processOfflineSubmissions();
                             // Update current hinban if exists
                             if (rpiStatus.current_hinban) {
                                 document.getElementById('hinban').value = rpiStatus.current_hinban;
@@ -451,6 +465,8 @@ class AuthManager {
                 
                 this.updateStatusUI(true);
                 
+                // Process any offline submissions when back online
+                this.processOfflineSubmissions();
                 // Show device selection if user is logged in but no device selected
                 if (this.currentUser && !deviceInfo) {
                     this.showDeviceSelection();
@@ -939,77 +955,286 @@ class AuthManager {
     
     async submitData() {
         try {
+            // Show loading animation
+            this.showSubmissionStatus('データを送信中...', 'loading');
             this.showLoadingIndicator(true);
             
             // Collect all form data
             const formData = this.collectFormData();
             
-            // Validate required fields
+            // Validate required fields only if we have basic data
             if (!formData.品番) {
                 throw new Error('品番は必須です');
             }
             
-            if (!formData["技能員①"]) {
+            // Allow submission without operator if this is offline test data
+            if (!formData["技能員①"] && !systemStatus.rpi_direct) {
                 throw new Error('技能員①は必須です');
             }
             
-            // Get current cycle logs (mock data for development)
-            const mockCycleData = {
-                status: 'success',
-                logs: [] // Empty logs for development mode
-            };
+            // Detect environment and handle submission accordingly
+            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
             
-            if (mockCycleData.status === 'success') {
-                formData.生産ログ = mockCycleData.logs;
+            if (isRunningOnRPi) {
+                // Running on RPi - try RPi submission endpoint first
+                console.log('🔧 RPi mode: Submitting data through RPi endpoint');
+                this.showSubmissionStatus('RPi経由で送信中...', 'loading');
                 
-                // Calculate automatic fields (mock data)
-                if (mockCycleData.logs.length > 0) {
-                    formData.良品数 = mockCycleData.logs.length;
-                    formData.開始時間 = mockCycleData.logs[0].initial_time;
-                    formData.終了時間 = mockCycleData.logs[mockCycleData.logs.length - 1].final_time;
+                try {
+                    // Get current cycle logs from RPi if available
+                    try {
+                        const cycleResponse = await fetch(`${window.PYTHON_API_BASE_URL}/get-all-cycle-logs-for-submission`);
+                        if (cycleResponse.ok) {
+                            const cycleData = await cycleResponse.json();
+                            if (cycleData.status === 'success') {
+                                formData.生産ログ = cycleData.logs;
+                                
+                                // Calculate automatic fields from real cycle data
+                                if (cycleData.logs.length > 0) {
+                                    formData.良品数 = cycleData.logs.length;
+                                    formData.開始時間 = cycleData.logs[0].initial_time;
+                                    formData.終了時間 = cycleData.logs[cycleData.logs.length - 1].final_time;
+                                    
+                                    const totalCycleTime = cycleData.logs.reduce((sum, log) => sum + log.cycle_time, 0);
+                                    formData.平均サイクル時間 = totalCycleTime / cycleData.logs.length;
+                                }
+                            }
+                        }
+                    } catch (cycleError) {
+                        console.log('⚠️ Could not get cycle logs, using form data');
+                        // Use form data as fallback
+                        formData.良品数 = parseInt(document.getElementById('goodCount').value) || 0;
+                        formData.開始時間 = document.getElementById('initialTimeDisplay').value || new Date().toISOString();
+                        formData.終了時間 = document.getElementById('finalTimeDisplay').value || new Date().toISOString();
+                        formData.平均サイクル時間 = parseFloat(document.getElementById('averageCycleTime').value) || 0;
+                    }
                     
-                    const totalCycleTime = mockCycleData.logs.reduce((sum, log) => sum + log.cycle_time, 0);
-                    formData.平均サイクル時間 = totalCycleTime / mockCycleData.logs.length;
-                } else {
-                    // Set some default values for development
-                    formData.良品数 = parseInt(document.getElementById('goodCount').value) || 0;
-                    formData.開始時間 = new Date().toISOString();
-                    formData.終了時間 = new Date().toISOString();
-                    formData.平均サイクル時間 = 0;
+                    // Submit through RPi endpoint (handles offline queuing automatically)
+                    const rpiSubmitResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/submit-production-data`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
+                    });
+                    
+                    if (rpiSubmitResponse.ok) {
+                        const rpiSubmitData = await rpiSubmitResponse.json();
+                        
+                        if (rpiSubmitData.success) {
+                            if (rpiSubmitData.queued) {
+                                this.showSubmissionStatus('オフラインモード - RPiに保存しました', 'warning');
+                                this.showStatusMessage('データを一時保存しました（オフライン）- RPiで管理中', 'warning');
+                            } else {
+                                this.showSubmissionStatus('送信完了！', 'success');
+                                this.showStatusMessage('データを正常に送信しました（RPi経由）', 'success');
+                            }
+                            
+                            // Clear form after successful submission
+                            setTimeout(() => {
+                                this.resetForm();
+                            }, 2000);
+                            return;
+                        } else {
+                            throw new Error(rpiSubmitData.error || 'RPi submission failed');
+                        }
+                    } else {
+                        throw new Error(`RPi endpoint returned ${rpiSubmitResponse.status}`);
+                    }
+                    
+                } catch (rpiError) {
+                    console.error('❌ RPi submission failed:', rpiError);
+                    // If RPi submission fails, fall back to direct server submission if online
+                    if (systemStatus.online) {
+                        console.log('⚠️ Falling back to direct server submission...');
+                        this.showSubmissionStatus('RPi接続失敗 - サーバー直接送信中...', 'loading');
+                    } else {
+                        // Completely offline - save to browser local storage as last resort
+                        this.showSubmissionStatus('オフライン - ブラウザに保存中...', 'offline');
+                        this.saveToLocalStorage(formData);
+                        this.showSubmissionStatus('オフライン保存完了', 'warning');
+                        this.showStatusMessage('RPi接続不可 - ブラウザに一時保存しました', 'warning');
+                        return;
+                    }
                 }
             }
             
-            // Submit to database via ksgServer
-            const submitResponse = await fetch(`${window.KSG_SERVER_URL}/api/submit-production-data`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-Device-ID': '4Y02SX'  // Required for authentication
-                },
-                body: JSON.stringify(formData)
-            });
-            
-            const submitData = await submitResponse.json();
-            
-            if (submitData.success) {
-                if (submitData.queued) {
-                    this.showStatusMessage('データを一時保存しました（オフライン）', 'warning');
-                } else {
-                    this.showStatusMessage('データを正常に送信しました', 'success');
+            // Not on RPi or RPi submission failed - try direct server submission
+            if (systemStatus.online || !isRunningOnRPi) {
+                console.log('🌐 Direct server submission mode');
+                this.showSubmissionStatus('サーバーに直接送信中...', 'loading');
+                
+                // Prepare form data for direct submission
+                if (!formData.生産ログ) {
+                    // No cycle logs available - use form data
+                    formData.生産ログ = [];
+                    formData.良品数 = parseInt(document.getElementById('goodCount').value) || 0;
+                    formData.開始時間 = document.getElementById('initialTimeDisplay').value || new Date().toISOString();
+                    formData.終了時間 = document.getElementById('finalTimeDisplay').value || new Date().toISOString();
+                    formData.平均サイクル時間 = parseFloat(document.getElementById('averageCycleTime').value) || 0;
                 }
                 
-                // Clear form after successful submission
-                setTimeout(() => {
-                    this.resetForm();
-                }, 2000);
+                try {
+                    const directSubmitResponse = await fetch(`${window.KSG_SERVER_URL}/api/submit-production-data`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-Device-ID': '4Y02SX'  // Required for authentication
+                        },
+                        body: JSON.stringify(formData)
+                    });
+                    
+                    if (directSubmitResponse.ok) {
+                        const directSubmitData = await directSubmitResponse.json();
+                        
+                        if (directSubmitData.success) {
+                            this.showSubmissionStatus('送信完了！', 'success');
+                            this.showStatusMessage('データを正常に送信しました（直接）', 'success');
+                            
+                            // Clear form after successful submission
+                            setTimeout(() => {
+                                this.resetForm();
+                            }, 2000);
+                            return;
+                        } else {
+                            throw new Error(directSubmitData.error || 'Direct submission failed');
+                        }
+                    } else {
+                        throw new Error(`Server returned ${directSubmitResponse.status}`);
+                    }
+                    
+                } catch (directError) {
+                    console.error('❌ Direct server submission failed:', directError);
+                    // Save to local storage as last resort
+                    this.showSubmissionStatus('サーバー接続失敗 - ローカル保存中...', 'offline');
+                    this.saveToLocalStorage(formData);
+                    this.showSubmissionStatus('オフライン保存完了', 'warning');
+                    this.showStatusMessage('サーバー接続不可 - ブラウザに一時保存しました', 'warning');
+                    return;
+                }
             } else {
-                throw new Error(submitData.error || 'Submission failed');
+                // Completely offline
+                this.showSubmissionStatus('オフライン - ローカル保存中...', 'offline');
+                this.saveToLocalStorage(formData);
+                this.showSubmissionStatus('オフライン保存完了', 'warning');
+                this.showStatusMessage('オフライン - ブラウザに一時保存しました', 'warning');
             }
+            
         } catch (error) {
             console.error('Error submitting data:', error);
+            this.showSubmissionStatus('送信エラー', 'error');
             this.showStatusMessage(`送信エラー: ${error.message}`, 'error');
         } finally {
             this.showLoadingIndicator(false);
+        }
+    }
+    
+    saveToLocalStorage(formData) {
+        try {
+            // Get existing offline submissions
+            const existingData = JSON.parse(localStorage.getItem('ksg_offline_submissions') || '[]');
+            
+            // Add current submission with timestamp
+            existingData.push({
+                data: formData,
+                saved_at: new Date().toISOString(),
+                submission_id: `offline_${Date.now()}`
+            });
+            
+            // Save back to localStorage
+            localStorage.setItem('ksg_offline_submissions', JSON.stringify(existingData));
+            
+            console.log(`💾 Saved submission to localStorage. Total offline: ${existingData.length}`);
+            
+            // Show offline queue notification
+            this.showOfflineQueueNotification(existingData.length);
+            
+        } catch (storageError) {
+            console.error('❌ Failed to save to localStorage:', storageError);
+        }
+    }
+    
+    async processOfflineSubmissions() {
+        try {
+            const offlineData = JSON.parse(localStorage.getItem('ksg_offline_submissions') || '[]');
+            
+            if (offlineData.length === 0) {
+                this.hideOfflineQueueNotification();
+                return;
+            }
+            
+            console.log(`🔄 Processing ${offlineData.length} offline submissions...`);
+            this.showSubmissionStatus(`${offlineData.length}件のオフラインデータを送信中...`, 'loading');
+            
+            let successCount = 0;
+            const remainingData = [];
+            
+            for (const submission of offlineData) {
+                try {
+                    // Try to submit through appropriate endpoint
+                    const isOnRPi = await this.detectRPiEnvironmentAsync();
+                    let success = false;
+                    
+                    if (isOnRPi) {
+                        // Try RPi endpoint
+                        const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/submit-production-data`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(submission.data)
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            success = result.success;
+                        }
+                    } else {
+                        // Try direct server
+                        const response = await fetch(`${window.KSG_SERVER_URL}/api/submit-production-data`, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'X-Device-ID': '4Y02SX'
+                            },
+                            body: JSON.stringify(submission.data)
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            success = result.success;
+                        }
+                    }
+                    
+                    if (success) {
+                        successCount++;
+                        console.log(`✅ Submitted offline data: ${submission.data.品番}`);
+                    } else {
+                        remainingData.push(submission);
+                    }
+                    
+                } catch (submitError) {
+                    console.log(`⚠️ Failed to submit offline data: ${submitError.message}`);
+                    remainingData.push(submission);
+                }
+            }
+            
+            // Update localStorage with remaining unsent data
+            localStorage.setItem('ksg_offline_submissions', JSON.stringify(remainingData));
+            
+            if (successCount > 0) {
+                this.showSubmissionStatus(`${successCount}件のデータを送信完了！`, 'success');
+                this.showStatusMessage(`${successCount}件のオフラインデータを送信しました`, 'success');
+            }
+            
+            // Update or hide queue notification
+            if (remainingData.length > 0) {
+                this.showOfflineQueueNotification(remainingData.length);
+            } else {
+                this.hideOfflineQueueNotification();
+            }
+            
+        } catch (error) {
+            console.error('❌ Error processing offline submissions:', error);
+            this.showSubmissionStatus('オフラインデータ送信エラー', 'error');
         }
     }
     
@@ -1154,6 +1379,149 @@ class AuthManager {
             loadingDiv.classList.remove('hidden');
         } else {
             loadingDiv.classList.add('hidden');
+        }
+    }
+    
+    showSubmissionStatus(message, type, animated = false) {
+        // Create or get submission status element
+        let statusDiv = document.getElementById('submissionStatus');
+        if (!statusDiv) {
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'submissionStatus';
+            statusDiv.className = 'fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm transition-all duration-300';
+            document.body.appendChild(statusDiv);
+        }
+        
+        // Clear existing content
+        statusDiv.innerHTML = '';
+        statusDiv.className = 'fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm transition-all duration-300';
+        
+        // Set styling based on type
+        switch (type) {
+            case 'loading':
+                statusDiv.classList.add('bg-blue-50', 'text-blue-800', 'border', 'border-blue-200');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+                break;
+            case 'offline':
+                statusDiv.classList.add('bg-orange-50', 'text-orange-800', 'border', 'border-orange-200');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="flex space-x-1">
+                            <div class="w-2 h-2 bg-orange-600 rounded-full animate-bounce"></div>
+                            <div class="w-2 h-2 bg-orange-600 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                            <div class="w-2 h-2 bg-orange-600 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                        </div>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+                break;
+            case 'success':
+                statusDiv.classList.add('bg-green-50', 'text-green-800', 'border', 'border-green-200');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="text-green-600">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+                break;
+            case 'error':
+                statusDiv.classList.add('bg-red-50', 'text-red-800', 'border', 'border-red-200');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="text-red-600">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+                break;
+            case 'warning':
+                statusDiv.classList.add('bg-yellow-50', 'text-yellow-800', 'border', 'border-yellow-200');
+                statusDiv.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="text-yellow-600">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <span class="font-medium">${message}</span>
+                    </div>
+                `;
+                break;
+        }
+        
+        // Show the notification
+        statusDiv.classList.remove('opacity-0', 'translate-x-full');
+        statusDiv.classList.add('opacity-100', 'translate-x-0');
+        
+        // Auto-hide after delay (except for loading)
+        if (type !== 'loading') {
+            setTimeout(() => {
+                this.hideSubmissionStatus();
+            }, type === 'success' ? 3000 : 5000);
+        }
+    }
+    
+    hideSubmissionStatus() {
+        const statusDiv = document.getElementById('submissionStatus');
+        if (statusDiv) {
+            statusDiv.classList.remove('opacity-100', 'translate-x-0');
+            statusDiv.classList.add('opacity-0', 'translate-x-full');
+            
+            setTimeout(() => {
+                if (statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                }
+            }, 300);
+        }
+    }
+    
+    showOfflineQueueNotification(count) {
+        // Create or get offline queue notification
+        let queueDiv = document.getElementById('offlineQueueNotification');
+        if (!queueDiv) {
+            queueDiv = document.createElement('div');
+            queueDiv.id = 'offlineQueueNotification';
+            queueDiv.className = 'fixed bottom-4 right-4 z-50 p-3 rounded-lg shadow-lg transition-all duration-300 bg-purple-50 text-purple-800 border border-purple-200';
+            document.body.appendChild(queueDiv);
+        }
+        
+        queueDiv.innerHTML = `
+            <div class="flex items-center space-x-2">
+                <div class="animate-pulse w-2 h-2 bg-purple-600 rounded-full"></div>
+                <span class="text-sm font-medium">${count}件のデータが送信待ち</span>
+                <button onclick="authManager.processOfflineSubmissions()" class="text-xs bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700">
+                    送信
+                </button>
+            </div>
+        `;
+        
+        queueDiv.classList.remove('opacity-0', 'translate-y-full');
+        queueDiv.classList.add('opacity-100', 'translate-y-0');
+    }
+    
+    hideOfflineQueueNotification() {
+        const queueDiv = document.getElementById('offlineQueueNotification');
+        if (queueDiv) {
+            queueDiv.classList.remove('opacity-100', 'translate-y-0');
+            queueDiv.classList.add('opacity-0', 'translate-y-full');
+            
+            setTimeout(() => {
+                if (queueDiv.parentNode) {
+                    queueDiv.parentNode.removeChild(queueDiv);
+                }
+            }, 300);
         }
     }
 }
