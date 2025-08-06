@@ -114,7 +114,7 @@ offline_submission_queue = []  # Queue for offline data submissions
 WEBAPP_UPDATE_INTERVAL = 24 * 3600  # 24 hours
 WEBAPP_UPDATE_TIME = 4  # 4 AM JST
 last_webapp_update = 0
-WEBAPP_LOCAL_PATH = "/home/pi/webapp/"
+WEBAPP_LOCAL_PATH = os.path.expanduser("~/webapp/")
 
 # --- Data Sync Functions ---
 
@@ -357,12 +357,32 @@ def update_webapp_from_github():
     try:
         print("🔄 Updating webapp from GitHub...")
         
+        # GitHub repository URL
+        REPO_URL = "https://github.com/karlsome/KSG.git"
+        
         # Ensure webapp directory exists
         os.makedirs(WEBAPP_LOCAL_PATH, exist_ok=True)
         
-        # Change to webapp directory and pull latest
+        # Check if it's already a git repository
+        git_dir = os.path.join(WEBAPP_LOCAL_PATH, '.git')
+        
+        if not os.path.exists(git_dir):
+            # Clone the repository
+            print("📁 Cloning KSG repository...")
+            result = subprocess.run(
+                ["git", "clone", REPO_URL, WEBAPP_LOCAL_PATH],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                print(f"❌ Git clone failed: {result.stderr}")
+                return False
+        
+        # Navigate to webapp directory and pull latest changes
         result = subprocess.run(
-            ["git", "pull", "origin", "main"],
+            ["git", "fetch", "origin", "main"],
             cwd=WEBAPP_LOCAL_PATH,
             capture_output=True,
             text=True,
@@ -370,10 +390,38 @@ def update_webapp_from_github():
         )
         
         if result.returncode == 0:
-            print("✅ Webapp updated from GitHub")
-            return True
+            # Reset to latest origin/main (hard reset to avoid conflicts)
+            reset_result = subprocess.run(
+                ["git", "reset", "--hard", "origin/main"],
+                cwd=WEBAPP_LOCAL_PATH,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if reset_result.returncode == 0:
+                print("✅ Webapp updated from GitHub")
+                
+                # Verify the webapp files exist
+                webapp_files = ['webapp/index.html', 'webapp/script.js', 'webapp/style.css']
+                missing_files = []
+                
+                for file in webapp_files:
+                    file_path = os.path.join(WEBAPP_LOCAL_PATH, file)
+                    if not os.path.exists(file_path):
+                        missing_files.append(file)
+                
+                if missing_files:
+                    print(f"⚠️  Some webapp files are missing: {missing_files}")
+                else:
+                    print("✅ All webapp files present")
+                
+                return True
+            else:
+                print(f"❌ Git reset failed: {reset_result.stderr}")
+                return False
         else:
-            print(f"❌ Git pull failed: {result.stderr}")
+            print(f"❌ Git fetch failed: {result.stderr}")
             return False
             
     except subprocess.TimeoutExpired:
@@ -503,11 +551,20 @@ def device_info():
 def serve_webapp():
     """Serve the main webapp interface"""
     try:
-        webapp_file = os.path.join(WEBAPP_LOCAL_PATH, 'index.html')
+        # The webapp files are in the webapp subdirectory of the cloned repo
+        webapp_file = os.path.join(WEBAPP_LOCAL_PATH, 'webapp', 'index.html')
         if os.path.exists(webapp_file):
             with open(webapp_file, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
+            print(f"❌ Webapp file not found: {webapp_file}")
+            # Try to update from GitHub first
+            if update_webapp_from_github():
+                # Try again after update
+                if os.path.exists(webapp_file):
+                    with open(webapp_file, 'r', encoding='utf-8') as f:
+                        return f.read()
+            
             # Fallback to basic interface
             return render_basic_interface()
     except Exception as e:
@@ -518,7 +575,9 @@ def serve_webapp():
 def serve_webapp_assets(filename):
     """Serve webapp static files"""
     try:
-        return send_from_directory(WEBAPP_LOCAL_PATH, filename)
+        # Serve from webapp subdirectory
+        webapp_assets_path = os.path.join(WEBAPP_LOCAL_PATH, 'webapp')
+        return send_from_directory(webapp_assets_path, filename)
     except Exception as e:
         print(f"❌ Error serving asset {filename}: {e}")
         return "File not found", 404
@@ -986,6 +1045,13 @@ if __name__ == '__main__':
     print(f"[{get_jst_timestamp_ms()}] System: Loading users and products...")
     sync_users_database()
     sync_product_database()
+    
+    # Initialize webapp from GitHub
+    print(f"[{get_jst_timestamp_ms()}] System: Setting up webapp from GitHub...")
+    if update_webapp_from_github():
+        print(f"[{get_jst_timestamp_ms()}] System: Webapp ready")
+    else:
+        print(f"[{get_jst_timestamp_ms()}] System: Webapp update failed, will use fallback interface")
 
     # Create and start threads
     gpio_thread = threading.Thread(target=run_gpio_loop, name="GPIOThread")
