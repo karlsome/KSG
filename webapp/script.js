@@ -28,9 +28,26 @@ class AuthManager {
     
     async loadAuthorizedUsers() {
         try {
-            const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+            // Try local RPi endpoint first (for offline mode)
+            let response;
+            try {
+                response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
+                const data = await response.json();
+                
+                if (data.success && data.users.length > 0) {
+                    this.users = data.users;
+                    this.populateUserDropdown();
+                    console.log(`Loaded ${this.users.length} authorized users from RPi`);
+                    return true;
+                }
+            } catch (localError) {
+                console.log('Local RPi endpoint not available, trying main server...');
+            }
+            
+            // Fallback to main server
+            response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
                 headers: {
-                    'X-Device-ID': '4Y02SX'  // Required for authentication
+                    'X-Device-ID': '4Y02SX'
                 }
             });
             const data = await response.json();
@@ -41,6 +58,7 @@ class AuthManager {
                     user.role === 'admin' || user.role === 'masterUser'
                 );
                 this.populateUserDropdown();
+                console.log(`Loaded ${this.users.length} authorized users from main server`);
                 return true;
             } else {
                 throw new Error(data.error || 'Failed to load users');
@@ -188,9 +206,26 @@ class AuthManager {
     
     async loadWorkers() {
         try {
-            const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+            // Try local RPi endpoint first (for offline mode)
+            let response;
+            try {
+                response = await fetch(`${window.PYTHON_API_BASE_URL}/api/workers`);
+                const data = await response.json();
+                
+                if (data.success && data.workers.length > 0) {
+                    cachedWorkers = data.workers;
+                    this.populateWorkerDropdowns();
+                    console.log(`✅ Loaded ${data.workers.length} workers from RPi`);
+                    return;
+                }
+            } catch (localError) {
+                console.log('Local RPi workers endpoint not available, trying main server...');
+            }
+            
+            // Fallback to main server
+            response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
                 headers: {
-                    'X-Device-ID': '4Y02SX'  // Required for authentication
+                    'X-Device-ID': '4Y02SX'
                 }
             });
             const data = await response.json();
@@ -198,7 +233,7 @@ class AuthManager {
             if (data.success) {
                 cachedWorkers = data.users; // All users can be workers, not just admin/masterUser
                 this.populateWorkerDropdowns();
-                console.log(`✅ Loaded ${data.users.length} workers`);
+                console.log(`✅ Loaded ${data.users.length} workers from main server`);
             } else {
                 throw new Error(data.error || 'Failed to load workers');
             }
@@ -258,7 +293,42 @@ class AuthManager {
     
     async checkSystemStatus() {
         try {
-            // First try to connect to ksgServer to check if we're online
+            // Check if we're running directly on an RPi (offline mode)
+            // If the URL hostname matches an RPi pattern or we can detect RPi endpoints
+            const isRunningOnRPi = this.detectRPiEnvironment();
+            
+            if (isRunningOnRPi) {
+                // We're running directly on RPi - this is "offline mode"
+                try {
+                    const rpiResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
+                    const rpiStatus = await rpiResponse.json();
+                    
+                    systemStatus = {
+                        online: false, // Consider RPi as offline mode
+                        device_id: rpiStatus.device_id,
+                        current_hinban: rpiStatus.current_hinban,
+                        local_ip: rpiStatus.local_ip,
+                        device_name: rpiStatus.device_name,
+                        offline_mode: true,
+                        rpi_direct: true
+                    };
+                    
+                    this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
+                    
+                    // Update current hinban if exists
+                    if (rpiStatus.current_hinban) {
+                        document.getElementById('hinban').value = rpiStatus.current_hinban;
+                        await this.processHinban(rpiStatus.current_hinban);
+                    }
+                    return;
+                } catch (rpiError) {
+                    console.error('Error connecting to local RPi:', rpiError);
+                    this.updateStatusUI(false, 'オフライン (RPi接続エラー)');
+                    return;
+                }
+            }
+            
+            // Not on RPi - check online connectivity to ksgServer
             let ksgServerUrl = window.KSG_SERVER_URL;
             
             // Auto-detect environment: if we're running on tablet, try to find ksgServer
@@ -293,7 +363,7 @@ class AuthManager {
                                 device_name: deviceInfo.device_name
                             };
                             
-                            this.updateStatusUI(true);
+                            this.updateStatusUI(true, `オンライン (${deviceInfo.device_name})`);
                             
                             // Update current hinban if exists
                             if (rpiStatus.current_hinban) {
@@ -342,6 +412,30 @@ class AuthManager {
         }
     }
     
+    // RPi Environment Detection
+    detectRPiEnvironment() {
+        // Check if we're running on an RPi by looking at the hostname or trying RPi-specific endpoints
+        const hostname = window.location.hostname;
+        
+        // Common RPi hostname patterns
+        const rpiPatterns = [
+            /^192\.168\.\d+\.\d+$/, // Local IP addresses
+            /^10\.\d+\.\d+\.\d+$/,  // Private network IPs
+            /raspberrypi/i,         // RPi hostname
+            /rpi/i,                 // RPi short name
+            /ksg\d*/i               // KSG device names
+        ];
+        
+        // Check if hostname matches RPi patterns
+        const hostnameMatchesRPi = rpiPatterns.some(pattern => pattern.test(hostname));
+        
+        // Additional check: try to detect if we have RPi-specific endpoints available
+        // This is a quick synchronous check - the actual connection test happens later
+        const hasRPiPort = window.location.port === '5000' || window.location.port === '';
+        
+        return hostnameMatchesRPi || (hasRPiPort && hostname !== 'localhost' && hostname !== '127.0.0.1');
+    }
+
     // Device Selection Management
     getSelectedDevice() {
         const deviceData = localStorage.getItem('selectedDevice');
@@ -473,7 +567,7 @@ class AuthManager {
         }
     }
     
-    updateStatusUI(online) {
+    updateStatusUI(online, customMessage = null) {
         const statusDiv = document.getElementById('systemStatus');
         const indicator = document.getElementById('statusIndicator');
         const statusText = document.getElementById('statusText');
@@ -483,14 +577,18 @@ class AuthManager {
             statusDiv.className = 'status-online p-3 rounded-lg border flex items-center space-x-2';
             indicator.className = 'w-3 h-3 rounded-full bg-green-500';
             
-            // Show device info if connected to a device
-            const selectedDevice = this.getSelectedDevice();
-            if (selectedDevice) {
-                statusText.textContent = `オンライン (${selectedDevice.device_name})`;
-                statusText.title = `Device: ${selectedDevice.device_id}\nIP: ${selectedDevice.local_ip}`;
+            if (customMessage) {
+                statusText.textContent = customMessage;
             } else {
-                statusText.textContent = 'オンライン (デバイス未選択)';
-                statusText.title = 'ksgServerに接続済み、デバイスを選択してください';
+                // Show device info if connected to a device
+                const selectedDevice = this.getSelectedDevice();
+                if (selectedDevice) {
+                    statusText.textContent = `オンライン (${selectedDevice.device_name})`;
+                    statusText.title = `Device: ${selectedDevice.device_id}\nIP: ${selectedDevice.local_ip}`;
+                } else {
+                    statusText.textContent = 'オンライン (デバイス未選択)';
+                    statusText.title = 'ksgServerに接続済み、デバイスを選択してください';
+                }
             }
             
             // Enable device selection button
@@ -501,13 +599,26 @@ class AuthManager {
         } else {
             statusDiv.className = 'status-offline p-3 rounded-lg border flex items-center space-x-2';
             indicator.className = 'w-3 h-3 rounded-full bg-red-500';
-            statusText.textContent = 'オフライン';
-            statusText.title = 'ksgServerに接続できません';
             
-            // Disable device selection button
+            if (customMessage) {
+                statusText.textContent = customMessage;
+            } else {
+                statusText.textContent = 'オフライン';
+                statusText.title = 'ksgServerに接続できません';
+            }
+            
+            // For offline mode (RPi direct), keep device selection enabled
+            // For true offline, disable it
             if (deviceBtn) {
-                deviceBtn.disabled = true;
-                deviceBtn.className = 'bg-gray-400 text-white font-bold py-2 px-4 rounded-md text-sm cursor-not-allowed';
+                if (systemStatus.rpi_direct) {
+                    // Running directly on RPi - no need for device selection
+                    deviceBtn.disabled = true;
+                    deviceBtn.className = 'bg-gray-400 text-white font-bold py-2 px-4 rounded-md text-sm cursor-not-allowed';
+                    deviceBtn.textContent = 'RPi直接';
+                } else {
+                    deviceBtn.disabled = true;
+                    deviceBtn.className = 'bg-gray-400 text-white font-bold py-2 px-4 rounded-md text-sm cursor-not-allowed';
+                }
             }
         }
         
