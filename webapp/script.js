@@ -8,7 +8,7 @@ window.KSG_SERVER_URL = "http://localhost:3000"; // Default for development
 // Auto-detect KSG server URL based on environment
 if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     // Running on tablet - point to actual ksgServer
-    window.KSG_SERVER_URL = "http://192.168.0.25:3000"; // Update this to your actual ksgServer IP
+    window.KSG_SERVER_URL = "http://192.168.0.23:3000"; // Update this to your actual ksgServer IP
 }
 let currentUser = null;
 let isOnline = true;
@@ -30,11 +30,14 @@ class AuthManager {
     async loadAuthorizedUsers() {
         try {
             console.log('🔄 Loading authorized users...');
+            console.log('Trying RPi endpoint:', `${window.PYTHON_API_BASE_URL}/api/auth/users`);
             
             // Always try local RPi endpoint first when running on RPi
             try {
                 const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
+                console.log('RPi endpoint response status:', response.status);
                 const data = await response.json();
+                console.log('RPi endpoint response data:', data);
                 
                 if (data.success && data.users.length > 0) {
                     this.users = data.users;
@@ -43,17 +46,21 @@ class AuthManager {
                     return true;
                 }
             } catch (localError) {
-                console.log('⚠️  Local RPi endpoint not available, trying main server...');
+                console.log('⚠️  Local RPi endpoint error:', localError.message);
+                console.log('⚠️  Trying main server instead...');
             }
             
             // Fallback to main server if RPi endpoint fails
+            console.log('Trying main server endpoint:', `${window.KSG_SERVER_URL}/api/users/KSG`);
             try {
                 const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
                     headers: {
                         'X-Device-ID': '4Y02SX'
                     }
                 });
+                console.log('Main server response status:', response.status);
                 const data = await response.json();
+                console.log('Main server response data:', data);
                 
                 if (data.success) {
                     // Filter users to only include admin/masterUser roles
@@ -65,7 +72,7 @@ class AuthManager {
                     return true;
                 }
             } catch (serverError) {
-                console.log('⚠️  Main server not available');
+                console.log('⚠️  Main server error:', serverError.message);
             }
             
             throw new Error('No user data source available');
@@ -97,20 +104,30 @@ class AuthManager {
             ];
             
             this.populateUserDropdown();
+            console.log(`✅ Loaded ${this.users.length} fallback test users`);
             return true;
         }
     }
     
     populateUserDropdown() {
+        console.log('📝 Populating user dropdown with', this.users.length, 'users');
         const userSelect = document.getElementById('username');
+        if (!userSelect) {
+            console.error('❌ Username select element not found!');
+            return;
+        }
+        
         userSelect.innerHTML = '<option value="">選択してください</option>';
         
-        this.users.forEach(user => {
+        this.users.forEach((user, index) => {
+            console.log(`Adding user ${index + 1}:`, user);
             const option = document.createElement('option');
             option.value = user.username;
             option.textContent = `${user.firstName} ${user.lastName} (${user.username})`;
             userSelect.appendChild(option);
         });
+        
+        console.log('✅ User dropdown populated with', this.users.length, 'options');
     }
     
     async login(username) {
@@ -1094,6 +1111,9 @@ const authManager = new AuthManager();
 // Document ready
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 KSG Production System - Enhanced Version');
+    console.log('Environment:', window.location.href);
+    console.log('PYTHON_API_BASE_URL:', window.PYTHON_API_BASE_URL);
+    console.log('KSG_SERVER_URL:', window.KSG_SERVER_URL);
     
     // Check if user is already logged in
     const savedUser = sessionStorage.getItem('ksg_user');
@@ -1115,7 +1135,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
         // Load users for login
         console.log('🔑 No saved session, loading users for login...');
-        await authManager.loadAuthorizedUsers();
+        try {
+            await authManager.loadAuthorizedUsers();
+        } catch (error) {
+            console.error('❌ Critical error loading users:', error);
+        }
     }
     
     // Setup login form
