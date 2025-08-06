@@ -237,6 +237,10 @@ class AuthManager {
             // Check for and process any offline submissions
             await this.processOfflineSubmissions();
             
+            // Load saved form data
+            console.log('📋 Loading saved form data...');
+            this.loadFormData();
+            
             // Check if there are still offline submissions to show notification
             const offlineData = JSON.parse(localStorage.getItem('ksg_offline_submissions') || '[]');
             if (offlineData.length > 0) {
@@ -842,6 +846,9 @@ class AuthManager {
                 
                 input.value = value;
                 this.calculateBreakTime();
+                
+                // Save form data after quantity change
+                this.saveFormData();
             });
         });
         
@@ -855,6 +862,20 @@ class AuthManager {
                 });
                 input.value = timeString;
                 this.calculateBreakTime();
+                
+                // Save form data after time change
+                this.saveFormData();
+            });
+            
+            // Add change event listener for manual time edits
+            input.addEventListener('change', () => {
+                this.calculateBreakTime();
+                this.saveFormData();
+            });
+            
+            // Add input event listener for real-time updates
+            input.addEventListener('input', () => {
+                this.calculateBreakTime();
             });
         });
         
@@ -865,6 +886,9 @@ class AuthManager {
                 document.getElementById(`${breakId}From`).value = '';
                 document.getElementById(`${breakId}To`).value = '';
                 this.calculateBreakTime();
+                
+                // Save form data after break reset
+                this.saveFormData();
             });
         });
         
@@ -886,6 +910,65 @@ class AuthManager {
                 this.logout();
             }
         });
+        
+        // Add persistence event listeners for form fields
+        this.setupFormPersistence();
+    }
+    
+    setupFormPersistence() {
+        console.log('💾 Setting up form persistence...');
+        
+        // Worker dropdowns
+        ['operator1', 'operator2'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', () => {
+                    this.saveFormData();
+                    console.log(`💾 Saved ${id}: ${element.value}`);
+                });
+            }
+        });
+        
+        // Defect counts (with quantity buttons)
+        ['defectCount1', 'defectCount2', 'defectCount3', 'defectCount4', 'defectCount5'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.saveFormData();
+                });
+            }
+        });
+        
+        // Comments
+        const comments = document.getElementById('comments');
+        if (comments) {
+            comments.addEventListener('input', () => {
+                this.saveFormData();
+            });
+        }
+        
+        // Break time fields
+        ['break1From', 'break1To', 'break2From', 'break2To', 
+         'break3From', 'break3To', 'break4From', 'break4To'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', () => {
+                    this.saveFormData();
+                });
+            }
+        });
+        
+        // Other fields
+        ['productName', 'lhRh'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.saveFormData();
+                });
+            }
+        });
+        
+        console.log('✅ Form persistence setup complete');
     }
     
     setupQRKeyboardListener() {
@@ -1031,6 +1114,9 @@ class AuthManager {
                             operator2Select.value = previousOperator1Value;
                             this.showStatusMessage(`技能員を更新しました: ①${displayName} ②${previousOperator1Text}`, 'info');
                         }
+                        
+                        // Save form data after worker assignment
+                        this.saveFormData();
                     } else {
                         // No matching worker found - set directly as text (for custom names)
                         console.log(`⚠️ Worker "${workerName}" not found in database, setting as custom value`);
@@ -1170,7 +1256,13 @@ class AuthManager {
             }
         });
         
-        document.getElementById('breakTime').value = Math.round(totalMinutes);
+        const calculatedBreakTime = Math.round(totalMinutes);
+        document.getElementById('breakTime').value = calculatedBreakTime;
+        
+        // Save form data after break time calculation
+        this.saveFormData();
+        
+        console.log(`🕐 Break time calculated: ${calculatedBreakTime} minutes`);
     }
     
     parseTime(timeString) {
@@ -1495,6 +1587,124 @@ class AuthManager {
         }
     }
     
+    // Form Data Persistence Management
+    saveFormData() {
+        try {
+            const formData = {
+                // Worker dropdowns
+                operator1: document.getElementById('operator1')?.value || '',
+                operator2: document.getElementById('operator2')?.value || '',
+                
+                // Defect counts
+                defectCount1: document.getElementById('defectCount1')?.value || '0',
+                defectCount2: document.getElementById('defectCount2')?.value || '0',
+                defectCount3: document.getElementById('defectCount3')?.value || '0',
+                defectCount4: document.getElementById('defectCount4')?.value || '0',
+                defectCount5: document.getElementById('defectCount5')?.value || '0',
+                
+                // Comments
+                comments: document.getElementById('comments')?.value || '',
+                
+                // Break times
+                break1From: document.getElementById('break1From')?.value || '',
+                break1To: document.getElementById('break1To')?.value || '',
+                break2From: document.getElementById('break2From')?.value || '',
+                break2To: document.getElementById('break2To')?.value || '',
+                break3From: document.getElementById('break3From')?.value || '',
+                break3To: document.getElementById('break3To')?.value || '',
+                break4From: document.getElementById('break4From')?.value || '',
+                break4To: document.getElementById('break4To')?.value || '',
+                
+                // Calculated break time (minutes)
+                breakTime: document.getElementById('breakTime')?.value || '0',
+                
+                // Other fields
+                productName: document.getElementById('productName')?.value || '',
+                lhRh: document.getElementById('lhRh')?.value || ''
+            };
+            
+            localStorage.setItem('ksg_form_data', JSON.stringify(formData));
+            console.log('💾 Form data saved to localStorage');
+        } catch (error) {
+            console.error('❌ Error saving form data:', error);
+        }
+    }
+    
+    loadFormData() {
+        try {
+            const savedData = localStorage.getItem('ksg_form_data');
+            if (!savedData) return;
+            
+            const formData = JSON.parse(savedData);
+            console.log('📋 Loading saved form data:', formData);
+            
+            // Worker dropdowns
+            if (formData.operator1) {
+                const operator1 = document.getElementById('operator1');
+                if (operator1) operator1.value = formData.operator1;
+            }
+            if (formData.operator2) {
+                const operator2 = document.getElementById('operator2');
+                if (operator2) operator2.value = formData.operator2;
+            }
+            
+            // Defect counts
+            ['defectCount1', 'defectCount2', 'defectCount3', 'defectCount4', 'defectCount5'].forEach(id => {
+                if (formData[id]) {
+                    const element = document.getElementById(id);
+                    if (element) element.value = formData[id];
+                }
+            });
+            
+            // Comments
+            if (formData.comments) {
+                const comments = document.getElementById('comments');
+                if (comments) comments.value = formData.comments;
+            }
+            
+            // Break times
+            ['break1From', 'break1To', 'break2From', 'break2To', 
+             'break3From', 'break3To', 'break4From', 'break4To'].forEach(id => {
+                if (formData[id]) {
+                    const element = document.getElementById(id);
+                    if (element) element.value = formData[id];
+                }
+            });
+            
+            // Calculated break time
+            if (formData.breakTime) {
+                const breakTime = document.getElementById('breakTime');
+                if (breakTime) breakTime.value = formData.breakTime;
+            }
+            
+            // Other fields
+            if (formData.productName) {
+                const productName = document.getElementById('productName');
+                if (productName) productName.value = formData.productName;
+            }
+            if (formData.lhRh) {
+                const lhRh = document.getElementById('lhRh');
+                if (lhRh) lhRh.value = formData.lhRh;
+            }
+            
+            // Recalculate break time after loading
+            this.calculateBreakTime();
+            
+            console.log('✅ Form data loaded from localStorage');
+        } catch (error) {
+            console.error('❌ Error loading form data:', error);
+        }
+    }
+    
+    clearFormData() {
+        try {
+            localStorage.removeItem('ksg_form_data');
+            console.log('🗑️ Form data cleared from localStorage');
+        } catch (error) {
+            console.error('❌ Error clearing form data:', error);
+        }
+    }
+    
     collectFormData() {
         const now = new Date();
         
@@ -1602,20 +1812,14 @@ class AuthManager {
         document.getElementById('manHours').value = '0';
         
         // Reset defect counts
-        const defectFields = [
-            'materialDefect', 'doubleDefect', 'peelingDefect', 'foreignMatterDefect',
-            'wrinkleDefect', 'deformationDefect', 'greaseDefect', 'screwLooseDefect',
-            'otherDefect', 'shoulderDefect', 'silverDefect', 'shoulderScratchDefect',
-            'shoulderOtherDefect'
-        ];
-        
-        defectFields.forEach(field => {
-            document.getElementById(field).value = '0';
+        ['defectCount1', 'defectCount2', 'defectCount3', 'defectCount4', 'defectCount5'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.value = '0';
         });
         
         // Reset text areas
-        document.getElementById('otherDescription').value = '';
-        document.getElementById('remarks').value = '';
+        const commentsField = document.getElementById('comments');
+        if (commentsField) commentsField.value = '';
         
         // Reset break times
         ['break1', 'break2', 'break3', 'break4'].forEach(breakId => {
@@ -1628,6 +1832,10 @@ class AuthManager {
         
         // Reinitialize date
         this.initializeDate();
+        
+        // Clear saved form data
+        this.clearFormData();
+        console.log('🗑️ Form reset and saved data cleared');
     }
     
     showStatusMessage(message, type) {
