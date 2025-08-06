@@ -389,6 +389,9 @@ class AuthManager {
                         document.getElementById('hinban').value = rpiStatus.current_hinban;
                         await this.processHinban(rpiStatus.current_hinban);
                     }
+                    
+                    // Update cycle statistics from RPi
+                    await this.updateCycleStatsFromRPi();
                     return;
                 } catch (rpiError) {
                     console.error('❌ Error connecting to local RPi:', rpiError);
@@ -742,6 +745,54 @@ class AuthManager {
         setInterval(async () => {
             await this.checkSystemStatus();
         }, 30000);
+        
+        // Update cycle stats more frequently (every 5 seconds) when running on RPi
+        if (this.detectRPiEnvironment()) {
+            setInterval(async () => {
+                await this.updateCycleStatsFromRPi();
+            }, 5000);
+        }
+    }
+    
+    async updateCycleStatsFromRPi() {
+        try {
+            const response = await fetch(`${window.PYTHON_API_BASE_URL}/get-current-cycle-stats`);
+            if (response.ok) {
+                const stats = await response.json();
+                if (stats.status === 'success') {
+                    // Update the good count display
+                    const goodCountInput = document.getElementById('goodCount');
+                    if (goodCountInput && stats.quantity !== undefined) {
+                        goodCountInput.value = stats.quantity;
+                        console.log(`🔄 Updated good count to: ${stats.quantity}`);
+                    }
+                    
+                    // Update other fields if they exist
+                    if (stats.initial_time && stats.initial_time !== "N/A") {
+                        const initialTimeInput = document.getElementById('initialTimeDisplay');
+                        if (initialTimeInput) {
+                            initialTimeInput.value = stats.initial_time;
+                        }
+                    }
+                    
+                    if (stats.final_time && stats.final_time !== "N/A") {
+                        const finalTimeInput = document.getElementById('finalTimeDisplay');
+                        if (finalTimeInput) {
+                            finalTimeInput.value = stats.final_time;
+                        }
+                    }
+                    
+                    if (stats.average_cycle_time !== undefined) {
+                        const avgTimeInput = document.getElementById('averageCycleTime');
+                        if (avgTimeInput) {
+                            avgTimeInput.value = stats.average_cycle_time.toFixed(2);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('⚠️ Could not fetch cycle stats from RPi:', error.message);
+        }
     }
     
     setupEventListeners() {
