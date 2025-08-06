@@ -28,34 +28,7 @@ class AuthManager {
     
     async loadAuthorizedUsers() {
         try {
-            // If we're online and not running directly on RPi, try main server first
-            const isRPiDirect = await this.detectRPiEnvironmentAsync();
-            
-            if (!isRPiDirect || systemStatus.online) {
-                // Try main server first (tablet mode or RPi online)
-                try {
-                    const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                        headers: {
-                            'X-Device-ID': '4Y02SX'
-                        }
-                    });
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        // Filter users to only include admin/masterUser roles
-                        this.users = data.users.filter(user => 
-                            user.role === 'admin' || user.role === 'masterUser'
-                        );
-                        this.populateUserDropdown();
-                        console.log(`✅ Loaded ${this.users.length} authorized users from main server`);
-                        return true;
-                    }
-                } catch (serverError) {
-                    console.log('Main server not available, trying local RPi...');
-                }
-            }
-            
-            // Fallback to local RPi endpoint
+            // Always try local RPi endpoint first when running on RPi
             try {
                 const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
                 const data = await response.json();
@@ -67,7 +40,29 @@ class AuthManager {
                     return true;
                 }
             } catch (localError) {
-                console.log('Local RPi endpoint not available');
+                console.log('Local RPi endpoint not available, trying main server...');
+            }
+            
+            // Fallback to main server if RPi endpoint fails
+            try {
+                const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+                    headers: {
+                        'X-Device-ID': '4Y02SX'
+                    }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Filter users to only include admin/masterUser roles
+                    this.users = data.users.filter(user => 
+                        user.role === 'admin' || user.role === 'masterUser'
+                    );
+                    this.populateUserDropdown();
+                    console.log(`✅ Loaded ${this.users.length} authorized users from main server`);
+                    return true;
+                }
+            } catch (serverError) {
+                console.log('Main server not available');
             }
             
             throw new Error('No user data source available');
@@ -215,31 +210,7 @@ class AuthManager {
     
     async loadWorkers() {
         try {
-            // If we're online and not running directly on RPi, try main server first
-            const isRPiDirect = await this.detectRPiEnvironmentAsync();
-            
-            if (!isRPiDirect || systemStatus.online) {
-                // Try main server first (tablet mode or RPi online)
-                try {
-                    const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                        headers: {
-                            'X-Device-ID': '4Y02SX'
-                        }
-                    });
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        cachedWorkers = data.users; // All users can be workers
-                        this.populateWorkerDropdowns();
-                        console.log(`✅ Loaded ${data.users.length} workers from main server`);
-                        return;
-                    }
-                } catch (serverError) {
-                    console.log('Main server not available, trying local RPi...');
-                }
-            }
-            
-            // Fallback to local RPi endpoint
+            // Always try local RPi endpoint first when running on RPi
             try {
                 const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/workers`);
                 const data = await response.json();
@@ -251,7 +222,26 @@ class AuthManager {
                     return;
                 }
             } catch (localError) {
-                console.log('Local RPi workers endpoint not available');
+                console.log('Local RPi workers endpoint not available, trying main server...');
+            }
+            
+            // Fallback to main server if RPi endpoint fails
+            try {
+                const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+                    headers: {
+                        'X-Device-ID': '4Y02SX'
+                    }
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    cachedWorkers = data.users; // All users can be workers
+                    this.populateWorkerDropdowns();
+                    console.log(`✅ Loaded ${data.users.length} workers from main server`);
+                    return;
+                }
+            } catch (serverError) {
+                console.log('Main server not available');
             }
             
             throw new Error('No worker data available');
@@ -316,12 +306,12 @@ class AuthManager {
             const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
             
             if (isRunningOnRPi) {
-                // We're running directly on RPi - check if RPi can reach ksgServer
+                // We're running directly on RPi - get actual status from RPi
                 try {
                     const rpiResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
                     const rpiStatus = await rpiResponse.json();
                     
-                    // Check if the RPi itself is online (can reach ksgServer)
+                    // Use the RPi's actual online status (it tests ksgServer connectivity)
                     const isRPiOnline = rpiStatus.online || false;
                     
                     systemStatus = {
@@ -454,9 +444,15 @@ class AuthManager {
     // RPi Environment Detection (Async with endpoint testing)
     async detectRPiEnvironmentAsync() {
         // First do quick hostname check
+        const hostname = window.location.hostname;
         const hostnameCheck = this.detectRPiEnvironment();
         
-        // Then try to verify with actual RPi endpoint
+        // For localhost, we're definitely not on RPi
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return false;
+        }
+        
+        // If hostname suggests RPi, verify with endpoint test
         try {
             const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`, {
                 timeout: 2000
@@ -464,11 +460,14 @@ class AuthManager {
             
             if (response.ok) {
                 const data = await response.json();
-                // Check if response looks like RPi data (has device_id, etc.)
-                return data.device_id && data.device_name;
+                // Check if response looks like RPi data (has device_id, device_name, etc.)
+                const isRPiResponse = data.device_id && data.device_name && data.local_ip;
+                console.log(`RPi detection: hostname=${hostname}, endpoint_works=${isRPiResponse}`);
+                return isRPiResponse;
             }
         } catch (error) {
-            // If RPi endpoint fails, fall back to hostname check
+            console.log(`RPi endpoint test failed: ${error.message}`);
+            // If RPi endpoint fails but hostname suggests RPi, assume we're on RPi with issues
             return hostnameCheck;
         }
         
