@@ -1030,6 +1030,16 @@ class AuthManager {
                                 this.showStatusMessage('データを正常に送信しました（RPi経由）', 'success');
                             }
                             
+                            // Reset RPi state after successful submission
+                            try {
+                                await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                                    method: 'POST'
+                                });
+                                console.log('✅ RPi state reset after submission');
+                            } catch (resetError) {
+                                console.log('⚠️ Failed to reset RPi state:', resetError.message);
+                            }
+                            
                             // Clear form after successful submission
                             setTimeout(() => {
                                 this.resetForm();
@@ -1090,6 +1100,19 @@ class AuthManager {
                         if (directSubmitData.success) {
                             this.showSubmissionStatus('送信完了！', 'success');
                             this.showStatusMessage('データを正常に送信しました（直接）', 'success');
+                            
+                            // Reset RPi state if we're connected to one
+                            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+                            if (isRunningOnRPi) {
+                                try {
+                                    await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                                        method: 'POST'
+                                    });
+                                    console.log('✅ RPi state reset after direct submission');
+                                } catch (resetError) {
+                                    console.log('⚠️ Failed to reset RPi state:', resetError.message);
+                                }
+                            }
                             
                             // Clear form after successful submission
                             setTimeout(() => {
@@ -1292,10 +1315,36 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // In development mode, just reset the form since RPi isn't available
-            console.log('🔧 Development mode: Resetting form data');
+            // Check if we're running on RPi and reset RPi state
+            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+            
+            if (isRunningOnRPi) {
+                try {
+                    // Reset RPi production state
+                    const resetResponse = await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                        method: 'POST'
+                    });
+                    
+                    if (resetResponse.ok) {
+                        const resetData = await resetResponse.json();
+                        if (resetData.status === 'success') {
+                            console.log('✅ RPi state reset successfully');
+                            this.showStatusMessage('RPi状態をリセットしました', 'success');
+                        } else {
+                            console.log('⚠️ RPi reset response:', resetData.message);
+                        }
+                    } else {
+                        console.log('⚠️ RPi reset endpoint returned:', resetResponse.status);
+                    }
+                } catch (rpiError) {
+                    console.log('⚠️ Failed to reset RPi state:', rpiError.message);
+                    // Continue with form reset even if RPi reset fails
+                }
+            }
+            
+            // Reset the form
             this.resetForm();
-            this.showStatusMessage('フォームをリセットしました（開発モード）', 'success');
+            this.showStatusMessage('フォームをリセットしました', 'success');
             
         } catch (error) {
             console.error('Error resetting data:', error);
