@@ -976,64 +976,29 @@ class AuthManager {
         
         console.log('🔧 Setting up QR keyboard listener - waiting for Enter key...');
         
-        document.addEventListener('keypress', (e) => {
-            console.log(`📥 Keypress detected: "${e.key}", target: ${e.target.tagName}, buffer: "${qrBuffer}"`);
-            
+        document.addEventListener('keydown', (event) => {
             // Skip if user is typing in an input field
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                console.log('⏭️ Skipping keypress - typing in input field');
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') {
+                console.log('⏭️ Skipping keydown - typing in input field');
                 return;
             }
             
             // Skip if modal is open (login, device selection, etc.)
             if (document.querySelector('.show, [style*="display: block"]')) {
-                console.log('⏭️ Skipping keypress - modal is open');
+                console.log('⏭️ Skipping keydown - modal is open');
                 return;
             }
             
-            // Add character to buffer (except Enter)
-            if (e.key !== 'Enter') {
-                qrBuffer += e.key;
-                console.log(`📝 Added to buffer: "${e.key}", new buffer: "${qrBuffer}"`);
-            } else {
-                // Enter key pressed - process the QR code if we have data
-                if (qrBuffer.length > 0) {
-                    console.log(`📱 Keypress Enter detected, processing QR: "${qrBuffer}"`);
-                    this.processQRCode(qrBuffer);
-                    qrBuffer = '';
-                    e.preventDefault();
-                } else {
-                    console.log('⚠️ Keypress Enter detected but buffer is empty');
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (qrBuffer.trim()) {
+                    console.log(`📱 Processing QR code: "${qrBuffer.trim()}"`);
+                    this.processQRCode(qrBuffer.trim());
                 }
-            }
-        });
-        
-        // Also listen for keydown Enter (some QR scanners only send keydown)
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                console.log(`🔽 Keydown Enter detected, buffer: "${qrBuffer}", target: ${e.target.tagName}`);
-                
-                // Skip if user is typing in an input field
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-                    console.log('⏭️ Skipping keydown - typing in input field');
-                    return;
-                }
-                
-                // Skip if modal is open
-                if (document.querySelector('.show, [style*="display: block"]')) {
-                    console.log('⏭️ Skipping keydown - modal is open');
-                    return;
-                }
-                
-                // Process the QR code if we have data
-                if (qrBuffer.length > 0) {
-                    console.log(`📱 Keydown Enter processing QR: "${qrBuffer}"`);
-                    this.processQRCode(qrBuffer);
-                    qrBuffer = '';
-                    e.preventDefault();
-                } else {
-                    console.log('⚠️ Keydown Enter detected but buffer is empty');
-                }
+                qrBuffer = '';
+            } else if (event.key.length === 1 || event.key === ' ') {
+                qrBuffer += event.key;
+                console.log(`📝 Added to buffer: "${event.key}", full buffer: "${qrBuffer}"`);
             }
         });
     }
@@ -1048,27 +1013,41 @@ class AuthManager {
             return;
         }
         
-        // Check for hinban QR code format: "hinban:aaa"
-        if (cleanValue.startsWith('hinban:')) {
-            const hinban = cleanValue.substring(7); // Remove "hinban:" prefix
-            if (hinban) {
-                console.log(`📋 Setting hinban: "${hinban}"`);
-                const hinbanInput = document.getElementById('hinban');
-                if (hinbanInput) {
-                    hinbanInput.value = hinban;
-                    // Trigger the hinban processing
-                    this.processHinban(hinban);
-                    this.showStatusMessage(`品番を設定しました: ${hinban}`, 'success');
-                }
-            }
+        // Handle potential keyboard layout issues - replace common colon alternatives
+        let normalizedValue = cleanValue;
+        // Replace common alternatives for colon that might occur with different keyboard layouts
+        normalizedValue = normalizedValue.replace(/[''`]/g, ':'); // Replace apostrophes/backticks with colon
+        
+        console.log(`📝 Normalized QR value: "${normalizedValue}"`);
+        
+        // Split on colon to get parts
+        const parts = normalizedValue.split(':');
+        if (parts.length < 2) {
+            console.warn('❌ Invalid QR format (no colon found):', cleanValue);
+            this.showStatusMessage(`無効なQRコード形式: ${cleanValue}`, 'error');
             return;
         }
         
-        // Check for worker QR code format: "worker:karl handsome"
-        if (cleanValue.startsWith('worker:')) {
-            const workerName = cleanValue.substring(7); // Remove "worker:" prefix
-            if (workerName) {
-                console.log(`👤 Setting worker: "${workerName}"`);
+        const key = parts[0].trim().toLowerCase();
+        const value = parts.slice(1).join(':').trim(); // Rejoin in case value contains colons
+        
+        console.log(`🔑 QR Key: "${key}", Value: "${value}"`);
+        
+        switch (key) {
+            case 'hinban':
+                console.log(`📋 Setting hinban: "${value}"`);
+                const hinbanInput = document.getElementById('hinban');
+                if (hinbanInput) {
+                    hinbanInput.value = value;
+                    // Trigger the hinban processing
+                    this.processHinban(value);
+                    this.showStatusMessage(`品番を設定しました: ${value}`, 'success');
+                }
+                break;
+                
+            case 'worker':
+            case 'name': // Support both formats for backward compatibility
+                console.log(`👤 Setting worker: "${value}"`);
                 
                 const operator1Select = document.getElementById('operator1');
                 const operator2Select = document.getElementById('operator2');
@@ -1080,15 +1059,15 @@ class AuthManager {
                     // Try exact match first
                     matchedWorker = cachedWorkers.find(worker => {
                         const fullName = worker.fullName || `${worker.firstName} ${worker.lastName}`;
-                        return fullName.toLowerCase() === workerName.toLowerCase();
+                        return fullName.toLowerCase() === value.toLowerCase();
                     });
                     
                     // If no exact match, try partial match
                     if (!matchedWorker) {
                         matchedWorker = cachedWorkers.find(worker => {
                             const fullName = worker.fullName || `${worker.firstName} ${worker.lastName}`;
-                            return fullName.toLowerCase().includes(workerName.toLowerCase()) ||
-                                   workerName.toLowerCase().includes(fullName.toLowerCase());
+                            return fullName.toLowerCase().includes(value.toLowerCase()) ||
+                                   value.toLowerCase().includes(fullName.toLowerCase());
                         });
                     }
                     
@@ -1119,25 +1098,26 @@ class AuthManager {
                         this.saveFormData();
                     } else {
                         // No matching worker found - set directly as text (for custom names)
-                        console.log(`⚠️ Worker "${workerName}" not found in database, setting as custom value`);
+                        console.log(`⚠️ Worker "${value}" not found in database, setting as custom value`);
                         
                         // For custom names, we need to add them as options or handle differently
                         // For now, show a warning
-                        this.showStatusMessage(`作業者 "${workerName}" がデータベースにありません`, 'warning');
+                        this.showStatusMessage(`作業者 "${value}" がデータベースにありません`, 'warning');
                     }
                 }
-            }
-            return;
-        }
-        
-        // If it doesn't match any specific format, treat as regular hinban
-        console.log(`📋 Treating as regular hinban: "${cleanValue}"`);
-        const hinbanInput = document.getElementById('hinban');
-        if (hinbanInput) {
-            hinbanInput.value = cleanValue;
-            // Trigger the hinban processing
-            this.processHinban(cleanValue);
-            this.showStatusMessage(`品番を設定しました: ${cleanValue}`, 'success');
+                break;
+                
+            default:
+                // If it doesn't match any specific format, treat as regular hinban
+                console.log(`📋 Treating as regular hinban: "${cleanValue}"`);
+                const hinbanInputElement = document.getElementById('hinban');
+                if (hinbanInputElement) {
+                    hinbanInputElement.value = cleanValue;
+                    // Trigger the hinban processing
+                    this.processHinban(cleanValue);
+                    this.showStatusMessage(`品番を設定しました: ${cleanValue}`, 'success');
+                }
+                break;
         }
     }
     
