@@ -796,6 +796,9 @@ class AuthManager {
     }
     
     setupEventListeners() {
+        // Global QR code keyboard listener (for QR scanner input)
+        this.setupQRKeyboardListener();
+        
         // QR code / hinban input
         const hinbanInput = document.getElementById('hinban');
         let hinbanTimeout;
@@ -808,6 +811,19 @@ class AuthManager {
                     await this.processHinban(hinban);
                 }
             }, 500);
+        });
+        
+        // Prevent form submission on Enter key for all input fields except submit button
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                // Allow Enter only on the submit button
+                if (e.target.id === 'submitDataBtn') {
+                    return; // Let the button handle it
+                }
+                // Prevent form submission for all other elements
+                e.preventDefault();
+                e.stopPropagation();
+            }
         });
         
         // Quantity buttons
@@ -870,6 +886,137 @@ class AuthManager {
                 this.logout();
             }
         });
+    }
+    
+    setupQRKeyboardListener() {
+        let qrBuffer = '';
+        
+        console.log('🔧 Setting up QR keyboard listener - waiting for Enter key...');
+        
+        document.addEventListener('keypress', (e) => {
+            // Skip if user is typing in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                return;
+            }
+            
+            // Skip if modal is open (login, device selection, etc.)
+            if (document.querySelector('.show, [style*="display: block"]')) {
+                return;
+            }
+            
+            // Add character to buffer (except Enter)
+            if (e.key !== 'Enter') {
+                qrBuffer += e.key;
+            } else {
+                // Enter key pressed - process the QR code if we have data
+                if (qrBuffer.length > 0) {
+                    console.log(`📱 Enter key detected, processing QR: "${qrBuffer}"`);
+                    this.processQRCode(qrBuffer);
+                    qrBuffer = '';
+                    e.preventDefault();
+                }
+            }
+        });
+    }
+    
+    processQRCode(qrValue) {
+        console.log(`📱 QR Code detected: "${qrValue}"`);
+        
+        // Remove any whitespace
+        const cleanValue = qrValue.trim();
+        
+        if (!cleanValue) {
+            return;
+        }
+        
+        // Check for hinban QR code format: "hinban:aaa"
+        if (cleanValue.startsWith('hinban:')) {
+            const hinban = cleanValue.substring(7); // Remove "hinban:" prefix
+            if (hinban) {
+                console.log(`📋 Setting hinban: "${hinban}"`);
+                const hinbanInput = document.getElementById('hinban');
+                if (hinbanInput) {
+                    hinbanInput.value = hinban;
+                    // Trigger the hinban processing
+                    this.processHinban(hinban);
+                    this.showStatusMessage(`品番を設定しました: ${hinban}`, 'success');
+                }
+            }
+            return;
+        }
+        
+        // Check for worker QR code format: "worker:karl handsome"
+        if (cleanValue.startsWith('worker:')) {
+            const workerName = cleanValue.substring(7); // Remove "worker:" prefix
+            if (workerName) {
+                console.log(`👤 Setting worker: "${workerName}"`);
+                
+                const operator1Select = document.getElementById('operator1');
+                const operator2Select = document.getElementById('operator2');
+                
+                if (operator1Select && operator2Select) {
+                    // Find the worker by matching the scanned name with cached workers
+                    let matchedWorker = null;
+                    
+                    // Try exact match first
+                    matchedWorker = cachedWorkers.find(worker => {
+                        const fullName = worker.fullName || `${worker.firstName} ${worker.lastName}`;
+                        return fullName.toLowerCase() === workerName.toLowerCase();
+                    });
+                    
+                    // If no exact match, try partial match
+                    if (!matchedWorker) {
+                        matchedWorker = cachedWorkers.find(worker => {
+                            const fullName = worker.fullName || `${worker.firstName} ${worker.lastName}`;
+                            return fullName.toLowerCase().includes(workerName.toLowerCase()) ||
+                                   workerName.toLowerCase().includes(fullName.toLowerCase());
+                        });
+                    }
+                    
+                    if (matchedWorker) {
+                        const workerUsername = matchedWorker.username;
+                        const displayName = matchedWorker.fullName || `${matchedWorker.firstName} ${matchedWorker.lastName}`;
+                        
+                        // Check if operator1 already has a value
+                        if (!operator1Select.value || operator1Select.value.trim() === '') {
+                            // Set as operator1
+                            operator1Select.value = workerUsername;
+                            this.showStatusMessage(`技能員①を設定しました: ${displayName}`, 'success');
+                        } else if (!operator2Select.value || operator2Select.value.trim() === '') {
+                            // operator1 is filled, set as operator2
+                            operator2Select.value = workerUsername;
+                            this.showStatusMessage(`技能員②を設定しました: ${displayName}`, 'success');
+                        } else {
+                            // Both operators are filled, replace operator1 and move current operator1 to operator2
+                            const previousOperator1Value = operator1Select.value;
+                            const previousOperator1Text = operator1Select.options[operator1Select.selectedIndex].text;
+                            
+                            operator1Select.value = workerUsername;
+                            operator2Select.value = previousOperator1Value;
+                            this.showStatusMessage(`技能員を更新しました: ①${displayName} ②${previousOperator1Text}`, 'info');
+                        }
+                    } else {
+                        // No matching worker found - set directly as text (for custom names)
+                        console.log(`⚠️ Worker "${workerName}" not found in database, setting as custom value`);
+                        
+                        // For custom names, we need to add them as options or handle differently
+                        // For now, show a warning
+                        this.showStatusMessage(`作業者 "${workerName}" がデータベースにありません`, 'warning');
+                    }
+                }
+            }
+            return;
+        }
+        
+        // If it doesn't match any specific format, treat as regular hinban
+        console.log(`📋 Treating as regular hinban: "${cleanValue}"`);
+        const hinbanInput = document.getElementById('hinban');
+        if (hinbanInput) {
+            hinbanInput.value = cleanValue;
+            // Trigger the hinban processing
+            this.processHinban(cleanValue);
+            this.showStatusMessage(`品番を設定しました: ${cleanValue}`, 'success');
+        }
     }
     
     async processHinban(hinban) {
