@@ -1035,12 +1035,30 @@ def run_data_sync_loop():
     
     last_network_registration = time.time()
     last_data_sync = time.time()
+    last_offline_queue_check = time.time()
+    last_online_status = False
+    
     NETWORK_REGISTRATION_INTERVAL = 3600  # 1 hour
     DATA_SYNC_INTERVAL = 300  # 5 minutes
+    OFFLINE_QUEUE_CHECK_INTERVAL = 30  # 30 seconds - check offline queue more frequently
     
     try:
         while True:
             current_time = time.time()
+            
+            # Check online status more frequently
+            current_online_status = False
+            try:
+                response = requests.get(f"{SERVER_URL}/ping", timeout=3)
+                current_online_status = response.status_code == 200
+            except:
+                pass
+            
+            # If we just came back online, immediately process offline queue
+            if current_online_status and not last_online_status:
+                print(f"[{get_jst_timestamp_ms()}] Data Sync: Back online! Processing offline queue immediately...")
+                process_offline_queue()
+                last_offline_queue_check = current_time
             
             # Network registration (hourly)
             if current_time - last_network_registration > NETWORK_REGISTRATION_INTERVAL:
@@ -1053,11 +1071,23 @@ def run_data_sync_loop():
                 sync_users_database()
                 process_offline_queue()
                 last_data_sync = current_time
+                last_offline_queue_check = current_time
+            
+            # More frequent offline queue processing (every 30 seconds when online)
+            if (current_online_status and 
+                current_time - last_offline_queue_check > OFFLINE_QUEUE_CHECK_INTERVAL):
+                if len(offline_submission_queue) > 0:
+                    print(f"[{get_jst_timestamp_ms()}] Data Sync: Periodic offline queue check...")
+                    process_offline_queue()
+                last_offline_queue_check = current_time
             
             # Check webapp update schedule (daily at 4 AM)
             check_webapp_update_schedule()
             
-            time.sleep(60)  # Check every minute
+            # Update last online status
+            last_online_status = current_online_status
+            
+            time.sleep(30)  # Check every 30 seconds instead of 60
             
     except KeyboardInterrupt:
         print(f"\n[{get_jst_timestamp_ms()}] Data Sync: Exiting due to Ctrl+C...")

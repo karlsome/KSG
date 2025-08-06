@@ -139,78 +139,145 @@ async function ensureDevicesLoaded() {
     return Object.keys(AUTHORIZED_DEVICES).length > 0;
 }
 
-// 📍 FIXED PIN CONFIGURATION - No dynamic config needed
-const FIXED_PIN_CONFIG = {
-    version: "2.0.0",
-    updated: new Date().toISOString(),
-    
-    // Standard GPIO pins that are always available
-    input_pins: {
-        17: 'gpio17',   // GPIO17 - Pin 11
-        27: 'gpio27',   // GPIO27 - Pin 13  
-        22: 'gpio22',   // GPIO22 - Pin 15
-        23: 'gpio23',   // GPIO23 - Pin 16
-        24: 'gpio24',   // GPIO24 - Pin 18
-        25: 'gpio25'    // GPIO25 - Pin 22
-    },
-    output_pins: {
-        18: 'gpio18',   // GPIO18 - Pin 12 (PWM capable)
-        19: 'gpio19',   // GPIO19 - Pin 35
-        26: 'gpio26',   // GPIO26 - Pin 37
-        16: 'gpio16',   // GPIO16 - Pin 36
-        20: 'gpio20',   // GPIO20 - Pin 38
-        21: 'gpio21'    // GPIO21 - Pin 40
-    }
-};
+// 🎯 DEVICE-SPECIFIC FUNCTION REPOSITORY
+const DEVICE_FUNCTIONS = {
+    "4Y02SX": {  // KSG Production Device
+        version: "1.0.0",
+        updated: new Date().toISOString(),
+        hash: "",
+        device_name: "KSG Production Line 1",
+        functions: {
+            productionCycleMonitor: {
+                enabled: true,
+                description: "Monitor complete production cycle for KSG parts",
+                logic: `current_time = sensors.get('timestamp', 0)
 
-// 🎯 FUNCTION REPOSITORY
-const GLOBAL_FUNCTIONS = {
-    version: "2.2.4",
-    updated: new Date().toISOString(),
-    hash: "",
-    
-    functions: {
-        buttonBlink3Seconds: {
-            enabled: true,
-            description: "GPIO17 button triggers GPIO26 to blink for exactly 3 seconds",
-            logic: `current_time = sensors.get('timestamp', 0)
-
-# GPIO17 button pressed - start 3-second blink sequence
+# Start switch pressed - begin production cycle
 if sensors.get('gpio17') == 0 and sensors.get('gpio17_prev', 1) == 1:
-    config['blink_start_time'] = current_time
-    config['blink_3sec_active'] = True
-    config['blink_3sec_state'] = False
-    executeCommand({'type': 'gpio26', 'state': False})  # Start with LED ON
-    print(" GPIO17 pressed: Starting 3-second blink on GPIO26")
-
-# Handle 3-second blink sequence
-if config.get('blink_3sec_active', False):
-    blink_start = config.get('blink_start_time', 0)
-    elapsed_time = current_time - blink_start
-    
-    # Check if 5 seconds have passed
-    if elapsed_time >= 2.0:
-        # Stop blinking and turn LED OFF
-        config['blink_3sec_active'] = False
-        executeCommand({'type': 'gpio26', 'state': True})  # Turn OFF
-        print("⏹️  2-second blink completed - LED OFF")
+    if current_hinban_being_processed is None:
+        print("⚠️  START pressed but no hinban set. Ignoring.")
     else:
-        # Continue blinking every 200ms (fast blink)
-        if current_time - config.get('last_3sec_blink', 0) > 0.2:
-            current_blink_state = config.get('blink_3sec_state', False)
-            new_state = not current_blink_state
-            executeCommand({'type': 'gpio26', 'state': not new_state})  # Invert for LED logic
-            config['blink_3sec_state'] = new_state
-            config['last_3sec_blink'] = current_time
+        config['cycle_start_time'] = current_time
+        config['cycle_active'] = True
+        config['clamps_closing_start'] = current_time
+        config['state'] = 'CLAMPS_CLOSING'
+        executeCommand({'type': 'gpio18', 'state': False})  # Status LED ON
+        print(f"🚀 Production cycle started for {current_hinban_being_processed}")
+
+# Monitor production cycle states
+if config.get('cycle_active', False):
+    state = config.get('state', 'WAITING')
+    
+    if state == 'CLAMPS_CLOSING':
+        # Check if all clamps are closed (gpio27, gpio22, gpio23)
+        if (sensors.get('gpio27') == 1 and 
+            sensors.get('gpio22') == 1 and 
+            sensors.get('gpio23') == 1):
+            config['state'] = 'MACHINE_READY'
+            print("🔧 All clamps closed - waiting for machine ready")
+        
+        # Timeout check for clamp closing (60 seconds)
+        elif current_time - config.get('clamps_closing_start', 0) > 60.0:
+            print("⏰ TIMEOUT: Clamps closing took too long!")
+            config['cycle_active'] = False
+            config['state'] = 'WAITING'
+            executeCommand({'type': 'gpio18', 'state': True})  # Status LED OFF
+            executeCommand({'type': 'gpio26', 'state': False})  # Error LED ON
+    
+    elif state == 'MACHINE_READY':
+        # Check if all machines are ready (gpio24, gpio25, gpio19)
+        if (sensors.get('gpio24') == 1 and 
+            sensors.get('gpio25') == 1 and 
+            sensors.get('gpio19') == 1):
+            config['state'] = 'PRODUCT_RELEASE'
+            print("✅ All machines ready - waiting for product release")
+    
+    elif state == 'PRODUCT_RELEASE':
+        # Check for product release signal (gpio16)
+        if sensors.get('gpio16') == 1:
+            cycle_time = current_time - config.get('cycle_start_time', current_time)
+            cycle_start_time = config.get('cycle_start_time', current_time)
+            print(f"📦 Product released! Cycle time: {cycle_time:.2f}s")
             
-            # Show remaining time
-            remaining = 2.0 - elapsed_time
-            print(f"💫 Blinking GPIO26 - {remaining:.1f}s remaining")`,
-            config: {
-                blink_3sec_active: false,
-                blink_3sec_state: false,
-                blink_start_time: 0,
-                last_3sec_blink: 0
+            # Add cycle to main system logs using callback function
+            if 'add_cycle_log' in globals():
+                add_cycle_log({
+                    'initial_time': datetime.datetime.fromtimestamp(cycle_start_time).strftime('%H:%M:%S.%f')[:-3],
+                    'final_time': datetime.datetime.fromtimestamp(current_time).strftime('%H:%M:%S.%f')[:-3],
+                    'cycle_time': round(cycle_time, 3),
+                    'hinban': current_hinban_being_processed
+                })
+            
+            # Also keep local config logs for compatibility
+            if 'cycle_logs' not in config:
+                config['cycle_logs'] = []
+            
+            config['cycle_logs'].append({
+                'hinban': current_hinban_being_processed,
+                'cycle_time': round(cycle_time, 3),
+                'timestamp': current_time
+            })
+            
+            # Reset for next cycle
+            config['cycle_active'] = False
+            config['state'] = 'WAITING'
+            executeCommand({'type': 'gpio18', 'state': True})  # Status LED OFF
+            executeCommand({'type': 'gpio26', 'state': True})  # Error LED OFF
+            
+            # Get total from main system if available
+            total_cycles = len(get_cycle_logs()) if 'get_cycle_logs' in globals() else len(config.get('cycle_logs', []))
+            print(f"📊 Total cycles completed: {total_cycles}")
+
+# Reset button pressed - clear current cycle and data
+if sensors.get('gpio20') == 0 and sensors.get('gpio20_prev', 1) == 1:
+    print("🔄 RESET button pressed - clearing all data")
+    config['cycle_active'] = False
+    config['state'] = 'WAITING'
+    config['cycle_logs'] = []
+    reset_all_data()  # Call the Python reset function
+    executeCommand({'type': 'gpio18', 'state': True})  # Status LED OFF
+    executeCommand({'type': 'gpio26', 'state': True})  # Error LED OFF`,
+                config: {
+                    cycle_active: false,
+                    state: 'WAITING',
+                    current_hinban: null,
+                    cycle_start_time: 0,
+                    clamps_closing_start: 0,
+                    cycle_logs: []
+                }
+            },
+            
+            hinbanQRProcessor: {
+                enabled: true,
+                description: "Process QR code scans to set current hinban",
+                logic: `current_time = sensors.get('timestamp', 0)
+
+# QR scanner input simulation (using gpio21)
+if sensors.get('gpio21') == 0 and sensors.get('gpio21_prev', 1) == 1:
+    # In real implementation, this would read from QR scanner
+    # For now, simulate with a test hinban
+    test_hinban = f"TEST{int(current_time) % 1000}"
+    
+    if config.get('current_hinban') != test_hinban:
+        config['current_hinban'] = test_hinban
+        config['cycle_logs'] = []  # Reset logs for new product
+        print(f"📱 New hinban scanned: {test_hinban}")
+        
+        # Brief confirmation blink
+        executeCommand({'type': 'gpio26', 'state': False})  # LED ON
+        config['qr_confirm_time'] = current_time
+        config['qr_confirming'] = True
+
+# Handle QR confirmation blink
+if config.get('qr_confirming', False):
+    if current_time - config.get('qr_confirm_time', 0) > 0.5:  # 500ms
+        executeCommand({'type': 'gpio26', 'state': True})  # LED OFF
+        config['qr_confirming'] = False`,
+                config: {
+                    current_hinban: null,
+                    qr_confirm_time: 0,
+                    qr_confirming: false
+                }
             }
         }
     }
@@ -256,16 +323,24 @@ async function authenticateDevice(req, res, next) {
     next();
 }
 
-// 🔄 Generate hash for version checking
-function updateFunctionHash() {
-    GLOBAL_FUNCTIONS.hash = crypto.createHash('sha256')
-        .update(JSON.stringify(GLOBAL_FUNCTIONS.functions))
-        .digest('hex')
-        .substring(0, 16);
+// 🔄 Generate hash for version checking per device
+function updateFunctionHash(deviceId) {
+    if (!DEVICE_FUNCTIONS[deviceId]) {
+        return "";
+    }
+    
+    DEVICE_FUNCTIONS[deviceId].hash = crypto.createHash('sha256')
+        .update(JSON.stringify(DEVICE_FUNCTIONS[deviceId].functions))
+        .digest('hex').substring(0, 16);
+    
+    return DEVICE_FUNCTIONS[deviceId].hash;
 }
 
-// Initialize hash
-updateFunctionHash();
+// Initialize hashes for all devices
+Object.keys(DEVICE_FUNCTIONS).forEach(deviceId => {
+    updateFunctionHash(deviceId);
+    console.log(`🔑 Device ${deviceId} function hash: ${DEVICE_FUNCTIONS[deviceId].hash}`);
+});
 
 // 📡 API ENDPOINTS
 
@@ -683,87 +758,179 @@ app.get('/api/functions/check/:currentHash?', authenticateDevice, (req, res) => 
     const currentHash = req.params.currentHash;
     const deviceId = req.deviceId;
     
-    console.log(`📡 Function update check from ${deviceId} - Current: ${currentHash}, Latest: ${GLOBAL_FUNCTIONS.hash}`);
+    // Check if device has specific functions
+    const deviceFunctions = DEVICE_FUNCTIONS[deviceId];
+    if (!deviceFunctions) {
+        return res.status(404).json({
+            error: 'No functions available for this device',
+            device_id: deviceId
+        });
+    }
     
-    if (currentHash === GLOBAL_FUNCTIONS.hash) {
+    console.log(`📡 Function update check from ${deviceId} - Current: ${currentHash}, Latest: ${deviceFunctions.hash}`);
+    
+    if (currentHash === deviceFunctions.hash) {
         // No update needed
         res.json({
             updateAvailable: false,
-            currentVersion: GLOBAL_FUNCTIONS.version,
+            currentVersion: deviceFunctions.version,
             message: "Functions up to date",
             device_id: deviceId
         });
     } else {
-        // Update available - include pin config if it exists
+        // Update available
         const response = {
             updateAvailable: true,
-            version: GLOBAL_FUNCTIONS.version,
-            hash: GLOBAL_FUNCTIONS.hash,
-            updated: GLOBAL_FUNCTIONS.updated,
-            functions: GLOBAL_FUNCTIONS.functions,
-            device_id: deviceId
+            version: deviceFunctions.version,
+            hash: deviceFunctions.hash,
+            updated: deviceFunctions.updated,
+            functions: deviceFunctions.functions,
+            device_id: deviceId,
+            device_name: deviceFunctions.device_name
         };
         
-        // Include fixed pin configuration
-        response.pin_config = FIXED_PIN_CONFIG;
-        
-        console.log(`📥 Sending function update to ${deviceId} v${GLOBAL_FUNCTIONS.version}`);
+        console.log(`📥 Sending function update to ${deviceId} v${deviceFunctions.version}`);
         res.json(response);
     }
 });
 
-// Check for pin configuration updates - REMOVED (using fixed pins)
-
-// Update functions (admin interface)
+// Get latest functions for a device
 app.get('/api/functions/latest', authenticateDevice, (req, res) => {
     const deviceId = req.deviceId;
+    
+    // Check if device has specific functions
+    const deviceFunctions = DEVICE_FUNCTIONS[deviceId];
+    if (!deviceFunctions) {
+        return res.status(404).json({
+            error: 'No functions available for this device',
+            device_id: deviceId
+        });
+    }
+    
     console.log(`📥 Full function download requested by ${deviceId}`);
     
     const response = {
-        ...GLOBAL_FUNCTIONS,
-        pin_config: FIXED_PIN_CONFIG,
-        device_id: deviceId
+        version: deviceFunctions.version,
+        hash: deviceFunctions.hash,
+        updated: deviceFunctions.updated,
+        functions: deviceFunctions.functions,
+        device_id: deviceId,
+        device_name: deviceFunctions.device_name
     };
     
     res.json(response);
 });
 
-// Update functions (admin interface)
-app.post('/api/functions/update', (req, res) => {
+// Update functions for a specific device (admin interface)
+app.post('/api/functions/update/:deviceId?', (req, res) => {
     try {
-        if (req.body.functions) {
-            GLOBAL_FUNCTIONS.functions = { ...GLOBAL_FUNCTIONS.functions, ...req.body.functions };
+        const targetDeviceId = req.params.deviceId || req.body.device_id;
+        
+        if (!targetDeviceId) {
+            return res.status(400).json({
+                error: 'Device ID is required (in URL param or body)'
+            });
         }
         
-        GLOBAL_FUNCTIONS.version = req.body.version || GLOBAL_FUNCTIONS.version;
-        GLOBAL_FUNCTIONS.updated = new Date().toISOString();
-        updateFunctionHash();
+        // Create device functions if not exists
+        if (!DEVICE_FUNCTIONS[targetDeviceId]) {
+            DEVICE_FUNCTIONS[targetDeviceId] = {
+                version: "1.0.0",
+                updated: new Date().toISOString(),
+                hash: "",
+                device_name: req.body.device_name || `Device ${targetDeviceId}`,
+                functions: {}
+            };
+        }
         
-        console.log(`🔄 Functions updated to v${GLOBAL_FUNCTIONS.version} - Hash: ${GLOBAL_FUNCTIONS.hash}`);
+        // Update functions
+        if (req.body.functions) {
+            DEVICE_FUNCTIONS[targetDeviceId].functions = { 
+                ...DEVICE_FUNCTIONS[targetDeviceId].functions, 
+                ...req.body.functions 
+            };
+        }
         
+        // Update metadata
+        DEVICE_FUNCTIONS[targetDeviceId].version = req.body.version || DEVICE_FUNCTIONS[targetDeviceId].version;
+        DEVICE_FUNCTIONS[targetDeviceId].updated = new Date().toISOString();
+        if (req.body.device_name) {
+            DEVICE_FUNCTIONS[targetDeviceId].device_name = req.body.device_name;
+        }
+        
+        // Update hash
+        updateFunctionHash(targetDeviceId);
+        
+        console.log(`🔄 Functions updated for ${targetDeviceId} to v${DEVICE_FUNCTIONS[targetDeviceId].version} - Hash: ${DEVICE_FUNCTIONS[targetDeviceId].hash}`);
+
         res.json({
             success: true,
-            version: GLOBAL_FUNCTIONS.version,
-            hash: GLOBAL_FUNCTIONS.hash,
-            message: "Functions updated successfully"
+            device_id: targetDeviceId,
+            version: DEVICE_FUNCTIONS[targetDeviceId].version,
+            hash: DEVICE_FUNCTIONS[targetDeviceId].hash,
+            updated: DEVICE_FUNCTIONS[targetDeviceId].updated
         });
         
     } catch (error) {
+        console.error('❌ Error updating functions:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
-// Update pin configuration - REMOVED (using fixed pins)
 
 // Device management
 app.get('/api/devices', (req, res) => {
     const devices = Object.keys(AUTHORIZED_DEVICES).map(id => ({
         device_id: id,
         ...AUTHORIZED_DEVICES[id],
-        pin_config: FIXED_PIN_CONFIG
+        has_functions: !!DEVICE_FUNCTIONS[id],
+        function_count: DEVICE_FUNCTIONS[id] ? Object.keys(DEVICE_FUNCTIONS[id].functions).length : 0,
+        function_version: DEVICE_FUNCTIONS[id] ? DEVICE_FUNCTIONS[id].version : null
     }));
     
     res.json({ devices, count: devices.length });
+});
+
+// Get all device functions (admin view)
+app.get('/api/devices/functions', (req, res) => {
+    const deviceFunctionSummary = {};
+    
+    Object.keys(DEVICE_FUNCTIONS).forEach(deviceId => {
+        const deviceFuncs = DEVICE_FUNCTIONS[deviceId];
+        deviceFunctionSummary[deviceId] = {
+            device_name: deviceFuncs.device_name,
+            version: deviceFuncs.version,
+            updated: deviceFuncs.updated,
+            hash: deviceFuncs.hash,
+            function_count: Object.keys(deviceFuncs.functions).length,
+            functions: Object.keys(deviceFuncs.functions).map(funcName => ({
+                name: funcName,
+                enabled: deviceFuncs.functions[funcName].enabled,
+                description: deviceFuncs.functions[funcName].description
+            }))
+        };
+    });
+    
+    res.json({
+        devices: deviceFunctionSummary,
+        total_devices: Object.keys(deviceFunctionSummary).length
+    });
+});
+
+// Get specific device functions (admin view)
+app.get('/api/devices/:deviceId/functions', (req, res) => {
+    const deviceId = req.params.deviceId;
+    
+    if (!DEVICE_FUNCTIONS[deviceId]) {
+        return res.status(404).json({
+            error: 'Device not found or has no functions',
+            device_id: deviceId
+        });
+    }
+    
+    res.json({
+        device_id: deviceId,
+        ...DEVICE_FUNCTIONS[deviceId]
+    });
 });
 
 // System status
@@ -829,9 +996,10 @@ app.get('/', async (req, res) => {
             <li><code>GET /api/status</code> - System status</li>
         </ul>
         
-        <h2>🔧 Fixed Pin Configuration</h2>
-        <p><strong>Input Pins:</strong> ${JSON.stringify(FIXED_PIN_CONFIG.input_pins, null, 2).replace(/\n/g, '<br>&nbsp;&nbsp;')}</p>
-        <p><strong>Output Pins:</strong> ${JSON.stringify(FIXED_PIN_CONFIG.output_pins, null, 2).replace(/\n/g, '<br>&nbsp;&nbsp;')}</p>
+        <h2>� Device-Specific Functions</h2>
+        <p>GPIO pin configuration is now hardcoded on each RPi device for reliability.</p>
+        <p>Business logic functions are managed centrally and distributed to devices.</p>
+        <p>Current active devices: <strong>${Object.keys(DEVICE_FUNCTIONS).length}</strong></p>
         
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; }
@@ -865,10 +1033,10 @@ async function startServer() {
     app.listen(PORT, () => {
         console.log(`🌟 Smart Pi Function Server running on port ${PORT}`);
         console.log(`📡 Ready to serve functions to Pi devices`);
-        console.log(`🔑 Function hash: ${GLOBAL_FUNCTIONS.hash}`);
-        console.log(`�️  MongoDB: ${mongoConnected ? 'Connected' : 'Disconnected'}`);
-        console.log(`�📱 Authorized devices: ${Object.keys(AUTHORIZED_DEVICES).length} (${Object.keys(AUTHORIZED_DEVICES).join(', ')})`);
-        console.log(`🔧 Fixed pin configuration loaded - Input: ${Object.keys(FIXED_PIN_CONFIG.input_pins).join(',')} Output: ${Object.keys(FIXED_PIN_CONFIG.output_pins).join(',')}`);
+        console.log(`🎯 Device functions loaded: ${Object.keys(DEVICE_FUNCTIONS).length} devices`);
+        console.log(`💾 MongoDB: ${mongoConnected ? 'Connected' : 'Disconnected'}`);
+        console.log(`📱 Authorized devices: ${Object.keys(AUTHORIZED_DEVICES).length} (${Object.keys(AUTHORIZED_DEVICES).join(', ')})`);
+        console.log(`🔧 GPIO configuration: Hardcoded on each Pi device`);
         console.log(`🌐 Admin interface: http://localhost:${PORT}`);
         console.log(`📊 Status API: http://localhost:${PORT}/api/status`);
     });
