@@ -894,19 +894,24 @@ class AuthManager {
         console.log('🔧 Setting up QR keyboard listener - waiting for Enter key...');
         
         document.addEventListener('keypress', (e) => {
+            console.log(`📥 Key detected: "${e.key}", target: ${e.target.tagName}, buffer: "${qrBuffer}"`);
+            
             // Skip if user is typing in an input field
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                console.log('⏭️ Skipping - typing in input field');
                 return;
             }
             
             // Skip if modal is open (login, device selection, etc.)
             if (document.querySelector('.show, [style*="display: block"]')) {
+                console.log('⏭️ Skipping - modal is open');
                 return;
             }
             
             // Add character to buffer (except Enter)
             if (e.key !== 'Enter') {
                 qrBuffer += e.key;
+                console.log(`📝 Added to buffer: "${e.key}", new buffer: "${qrBuffer}"`);
             } else {
                 // Enter key pressed - process the QR code if we have data
                 if (qrBuffer.length > 0) {
@@ -914,7 +919,16 @@ class AuthManager {
                     this.processQRCode(qrBuffer);
                     qrBuffer = '';
                     e.preventDefault();
+                } else {
+                    console.log('⚠️ Enter key detected but buffer is empty');
                 }
+            }
+        });
+        
+        // Also add keydown listener for debugging
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                console.log(`🔽 Keydown Enter detected, buffer: "${qrBuffer}", target: ${e.target.tagName}`);
             }
         });
     }
