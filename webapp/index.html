@@ -379,15 +379,6 @@
     </div>
 
     <!-- Enhanced script for step7.py integration -->
-    <script>
-        // Dynamically determine the correct script path based on environment
-        const scriptPath = window.location.hostname === 'localhost' && window.location.port === '5501' 
-            ? 'script.js'  // Development server serves from webapp/ directory directly
-            : 'webapp/script.js';  // RPi Flask serves via /webapp/ route
-        
-        const script = document.createElement('script');
-        script.src = scriptPath;
-        document.head.appendChild(script);
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>

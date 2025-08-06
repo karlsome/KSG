@@ -582,6 +582,16 @@ def serve_webapp_assets(filename):
         print(f"❌ Error serving asset {filename}: {e}")
         return "File not found", 404
 
+@app.route('/script.js')
+def serve_script_js():
+    """Serve script.js directly for development compatibility"""
+    try:
+        webapp_assets_path = os.path.join(WEBAPP_LOCAL_PATH, 'webapp')
+        return send_from_directory(webapp_assets_path, 'script.js')
+    except Exception as e:
+        print(f"❌ Error serving script.js: {e}")
+        return "File not found", 404
+
 def render_basic_interface():
     """Basic fallback interface when webapp files not available"""
     return """
