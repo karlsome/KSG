@@ -388,10 +388,10 @@ class AuthManager {
             // Not on RPi - check online connectivity to ksgServer (tablet mode)
             let ksgServerUrl = window.KSG_SERVER_URL;
             
-            // Auto-detect environment: if we're running on tablet, try to find ksgServer
+            // Auto-detect environment: if we're running on tablet, use the configured KSG server
             if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                // Running on tablet - try to find ksgServer on network
-                ksgServerUrl = `http://192.168.0.25:3000`; // Update this to your ksgServer IP
+                // Running on tablet - use the global KSG server URL
+                ksgServerUrl = window.KSG_SERVER_URL;
             }
             
             // Test ksgServer connectivity
@@ -558,7 +558,7 @@ class AuthManager {
             // Get available KSG devices from ksgServer
             let ksgServerUrl = window.KSG_SERVER_URL;
             if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                ksgServerUrl = `http://192.168.0.23:3000`;
+                ksgServerUrl = window.KSG_SERVER_URL;
             }
             
             const response = await fetch(`${ksgServerUrl}/api/devices/rpi/KSG`);
@@ -809,10 +809,63 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // In development mode, skip RPi hinban setting since step7.py isn't running
-            console.log(`🔧 Development mode: Setting hinban to ${hinban}`);
+            // Try local RPi endpoint first if we're running on RPi
+            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
             
-            // Get product info from ksgServer
+            if (isRunningOnRPi) {
+                console.log(`🔧 RPi mode: Getting product info for hinban ${hinban} from local database`);
+                
+                try {
+                    // Try local RPi product endpoint first
+                    const localResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/product/${hinban}`);
+                    console.log('Local RPi product endpoint response status:', localResponse.status);
+                    
+                    if (localResponse.ok) {
+                        const localData = await localResponse.json();
+                        console.log('Local RPi product response data:', localData);
+                        
+                        if (localData.success && localData.product) {
+                            const product = localData.product;
+                            // Auto-fill product information
+                            document.getElementById('productName').value = product.製品名 || '';
+                            document.getElementById('lhRh').value = product['LH/RH'] || '';
+                            
+                            this.showStatusMessage(`製品情報を取得しました: ${product.製品名} (ローカル)`, 'success');
+                            
+                            // Also set hinban on RPi for production tracking
+                            try {
+                                await fetch(`${window.PYTHON_API_BASE_URL}/set-current-hinban`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ hinban: hinban })
+                                });
+                                console.log(`✅ Set current hinban on RPi: ${hinban}`);
+                            } catch (hinbanError) {
+                                console.log('⚠️  Could not set hinban on RPi:', hinbanError.message);
+                            }
+                            
+                            return; // Success - exit early
+                        } else {
+                            console.log(`❌ Product ${hinban} not found in local database`);
+                        }
+                    } else {
+                        console.log(`❌ Local RPi product endpoint returned ${localResponse.status}`);
+                    }
+                } catch (localError) {
+                    console.log('⚠️  Local RPi product endpoint error:', localError.message);
+                }
+                
+                // If we get here, local RPi failed, but we're still on RPi
+                // Don't fallback to main server if we're offline
+                if (!systemStatus.online) {
+                    this.showStatusMessage(`品番 "${hinban}" がローカルデータベースに見つかりません (オフライン)`, 'warning');
+                    return;
+                }
+            }
+            
+            // Fallback to main server (either not on RPi, or RPi is online and local failed)
+            console.log(`🌐 Fallback: Getting product info from main server for hinban ${hinban}`);
+            
             const productResponse = await fetch(`${window.KSG_SERVER_URL}/api/products/KSG`, {
                 headers: {
                     'X-Device-ID': '4Y02SX'  // Required for authentication
@@ -831,7 +884,7 @@ class AuthManager {
                         document.getElementById('productName').value = product.製品名 || '';
                         document.getElementById('lhRh').value = product['LH/RH'] || '';
                         
-                        this.showStatusMessage(`製品情報を取得しました: ${product.製品名}`, 'success');
+                        this.showStatusMessage(`製品情報を取得しました: ${product.製品名} (サーバー)`, 'success');
                     } else {
                         this.showStatusMessage(`品番 "${hinban}" の製品情報が見つかりません`, 'warning');
                     }

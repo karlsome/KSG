@@ -711,6 +711,37 @@ def get_workers():
 
 # --- Product Data Endpoints ---
 
+@app.route('/api/products/KSG')
+def get_all_products():
+    """Get all product information for KSG company"""
+    try:
+        # Try to sync fresh data if online, fallback to cache
+        sync_product_database()
+        
+        # Test connectivity to determine source
+        online_status = False
+        try:
+            response = requests.get(f"{SERVER_URL}/ping", timeout=3)
+            online_status = response.status_code == 200
+        except:
+            pass
+        
+        # Convert cached_products dict to list format
+        products_list = []
+        for hinban, product_data in cached_products.items():
+            products_list.append(product_data)
+        
+        return jsonify({
+            'success': True,
+            'products': products_list,
+            'count': len(products_list),
+            'source': 'local_cache' if not online_status else 'synced'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error getting all products: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/product/<hinban>')
 def get_product_info(hinban):
     """Get product information by hinban"""
