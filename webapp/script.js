@@ -28,41 +28,50 @@ class AuthManager {
     
     async loadAuthorizedUsers() {
         try {
-            // Try local RPi endpoint first (for offline mode)
-            let response;
+            // If we're online and not running directly on RPi, try main server first
+            const isRPiDirect = await this.detectRPiEnvironmentAsync();
+            
+            if (!isRPiDirect || systemStatus.online) {
+                // Try main server first (tablet mode or RPi online)
+                try {
+                    const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+                        headers: {
+                            'X-Device-ID': '4Y02SX'
+                        }
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Filter users to only include admin/masterUser roles
+                        this.users = data.users.filter(user => 
+                            user.role === 'admin' || user.role === 'masterUser'
+                        );
+                        this.populateUserDropdown();
+                        console.log(`✅ Loaded ${this.users.length} authorized users from main server`);
+                        return true;
+                    }
+                } catch (serverError) {
+                    console.log('Main server not available, trying local RPi...');
+                }
+            }
+            
+            // Fallback to local RPi endpoint
             try {
-                response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
+                const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
                 const data = await response.json();
                 
                 if (data.success && data.users.length > 0) {
                     this.users = data.users;
                     this.populateUserDropdown();
-                    console.log(`Loaded ${this.users.length} authorized users from RPi`);
+                    console.log(`✅ Loaded ${this.users.length} authorized users from RPi`);
                     return true;
                 }
             } catch (localError) {
-                console.log('Local RPi endpoint not available, trying main server...');
+                console.log('Local RPi endpoint not available');
             }
             
-            // Fallback to main server
-            response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                headers: {
-                    'X-Device-ID': '4Y02SX'
-                }
-            });
-            const data = await response.json();
+            throw new Error('No user data source available');
             
-            if (data.success) {
-                // Filter users to only include admin/masterUser roles
-                this.users = data.users.filter(user => 
-                    user.role === 'admin' || user.role === 'masterUser'
-                );
-                this.populateUserDropdown();
-                console.log(`Loaded ${this.users.length} authorized users from main server`);
-                return true;
-            } else {
-                throw new Error(data.error || 'Failed to load users');
-            }
         } catch (error) {
             console.error('Error loading users:', error);
             
@@ -206,10 +215,33 @@ class AuthManager {
     
     async loadWorkers() {
         try {
-            // Try local RPi endpoint first (for offline mode)
-            let response;
+            // If we're online and not running directly on RPi, try main server first
+            const isRPiDirect = await this.detectRPiEnvironmentAsync();
+            
+            if (!isRPiDirect || systemStatus.online) {
+                // Try main server first (tablet mode or RPi online)
+                try {
+                    const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+                        headers: {
+                            'X-Device-ID': '4Y02SX'
+                        }
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        cachedWorkers = data.users; // All users can be workers
+                        this.populateWorkerDropdowns();
+                        console.log(`✅ Loaded ${data.users.length} workers from main server`);
+                        return;
+                    }
+                } catch (serverError) {
+                    console.log('Main server not available, trying local RPi...');
+                }
+            }
+            
+            // Fallback to local RPi endpoint
             try {
-                response = await fetch(`${window.PYTHON_API_BASE_URL}/api/workers`);
+                const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/workers`);
                 const data = await response.json();
                 
                 if (data.success && data.workers.length > 0) {
@@ -219,24 +251,11 @@ class AuthManager {
                     return;
                 }
             } catch (localError) {
-                console.log('Local RPi workers endpoint not available, trying main server...');
+                console.log('Local RPi workers endpoint not available');
             }
             
-            // Fallback to main server
-            response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                headers: {
-                    'X-Device-ID': '4Y02SX'
-                }
-            });
-            const data = await response.json();
+            throw new Error('No worker data available');
             
-            if (data.success) {
-                cachedWorkers = data.users; // All users can be workers, not just admin/masterUser
-                this.populateWorkerDropdowns();
-                console.log(`✅ Loaded ${data.users.length} workers from main server`);
-            } else {
-                throw new Error(data.error || 'Failed to load workers');
-            }
         } catch (error) {
             console.error('Error loading workers:', error);
             // Use cached workers if available
@@ -293,27 +312,32 @@ class AuthManager {
     
     async checkSystemStatus() {
         try {
-            // Check if we're running directly on an RPi (offline mode)
-            // If the URL hostname matches an RPi pattern or we can detect RPi endpoints
-            const isRunningOnRPi = this.detectRPiEnvironment();
+            // Check if we're running directly on an RPi (by checking for RPi-specific endpoints)
+            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
             
             if (isRunningOnRPi) {
-                // We're running directly on RPi - this is "offline mode"
+                // We're running directly on RPi - check if RPi can reach ksgServer
                 try {
                     const rpiResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
                     const rpiStatus = await rpiResponse.json();
                     
+                    // Check if the RPi itself is online (can reach ksgServer)
+                    const isRPiOnline = rpiStatus.online || false;
+                    
                     systemStatus = {
-                        online: false, // Consider RPi as offline mode
+                        online: isRPiOnline,
                         device_id: rpiStatus.device_id,
                         current_hinban: rpiStatus.current_hinban,
                         local_ip: rpiStatus.local_ip,
                         device_name: rpiStatus.device_name,
-                        offline_mode: true,
                         rpi_direct: true
                     };
                     
-                    this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
+                    if (isRPiOnline) {
+                        this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
+                    } else {
+                        this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
+                    }
                     
                     // Update current hinban if exists
                     if (rpiStatus.current_hinban) {
@@ -328,7 +352,7 @@ class AuthManager {
                 }
             }
             
-            // Not on RPi - check online connectivity to ksgServer
+            // Not on RPi - check online connectivity to ksgServer (tablet mode)
             let ksgServerUrl = window.KSG_SERVER_URL;
             
             // Auto-detect environment: if we're running on tablet, try to find ksgServer
@@ -412,28 +436,43 @@ class AuthManager {
         }
     }
     
-    // RPi Environment Detection
+    // RPi Environment Detection (Simple synchronous check)
     detectRPiEnvironment() {
-        // Check if we're running on an RPi by looking at the hostname or trying RPi-specific endpoints
+        // Quick check based on hostname patterns
         const hostname = window.location.hostname;
-        
-        // Common RPi hostname patterns
         const rpiPatterns = [
-            /^192\.168\.\d+\.\d+$/, // Local IP addresses
-            /^10\.\d+\.\d+\.\d+$/,  // Private network IPs
-            /raspberrypi/i,         // RPi hostname
-            /rpi/i,                 // RPi short name
-            /ksg\d*/i               // KSG device names
+            /^192\.168\.\d+\.\d+$/, 
+            /^10\.\d+\.\d+\.\d+$/,  
+            /raspberrypi/i,         
+            /rpi/i,                 
+            /ksg\d*/i              
         ];
         
-        // Check if hostname matches RPi patterns
-        const hostnameMatchesRPi = rpiPatterns.some(pattern => pattern.test(hostname));
+        return rpiPatterns.some(pattern => pattern.test(hostname));
+    }
+    
+    // RPi Environment Detection (Async with endpoint testing)
+    async detectRPiEnvironmentAsync() {
+        // First do quick hostname check
+        const hostnameCheck = this.detectRPiEnvironment();
         
-        // Additional check: try to detect if we have RPi-specific endpoints available
-        // This is a quick synchronous check - the actual connection test happens later
-        const hasRPiPort = window.location.port === '5000' || window.location.port === '';
+        // Then try to verify with actual RPi endpoint
+        try {
+            const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`, {
+                timeout: 2000
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                // Check if response looks like RPi data (has device_id, etc.)
+                return data.device_id && data.device_name;
+            }
+        } catch (error) {
+            // If RPi endpoint fails, fall back to hostname check
+            return hostnameCheck;
+        }
         
-        return hostnameMatchesRPi || (hasRPiPort && hostname !== 'localhost' && hostname !== '127.0.0.1');
+        return hostnameCheck;
     }
 
     // Device Selection Management
@@ -537,20 +576,19 @@ class AuthManager {
                 this.setSelectedDevice(deviceInfo);
                 this.cancelDeviceSelection();
                 
-                // Show success message and redirect option
-                const redirect = confirm(
-                    `デバイス "${deviceInfo.device_name}" に接続しました。\n\n` +
-                    `このデバイスのWebアプリに移動しますか？\n` +
-                    `(Move to this device's webapp?)`
-                );
-                
-                if (redirect) {
-                    // Redirect to the RPi's webapp
-                    window.location.href = `http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/webapp`;
-                } else {
-                    // Stay on current page but with device connected
-                    await this.checkSystemStatus();
+                // Show brief success message and auto-redirect
+                const statusMessage = document.getElementById('statusMessage');
+                if (statusMessage) {
+                    statusMessage.className = 'p-3 rounded-md text-center text-sm font-medium bg-green-50 border border-green-200 text-green-800';
+                    statusMessage.textContent = `デバイス "${deviceInfo.device_name}" に接続中... リダイレクトしています...`;
+                    statusMessage.classList.remove('hidden');
                 }
+                
+                // Auto-redirect to the RPi's webapp after a brief delay
+                setTimeout(() => {
+                    window.location.href = `http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/webapp`;
+                }, 1500);
+                
             } else {
                 alert(`デバイス "${deviceInfo.device_name}" に接続できません。デバイスがオンラインか確認してください。`);
             }
