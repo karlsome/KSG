@@ -1032,7 +1032,7 @@ class AuthManager {
                             
                             // Reset RPi state after successful submission
                             try {
-                                await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                                await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
                                     method: 'POST'
                                 });
                                 console.log('✅ RPi state reset after submission');
@@ -1105,7 +1105,7 @@ class AuthManager {
                             const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
                             if (isRunningOnRPi) {
                                 try {
-                                    await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                                    await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
                                         method: 'POST'
                                     });
                                     console.log('✅ RPi state reset after direct submission');
@@ -1321,7 +1321,7 @@ class AuthManager {
             if (isRunningOnRPi) {
                 try {
                     // Reset RPi production state
-                    const resetResponse = await fetch(`${window.PYTHON_API_BASE_URL}/reset-production-state`, {
+                    const resetResponse = await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
                         method: 'POST'
                     });
                     
