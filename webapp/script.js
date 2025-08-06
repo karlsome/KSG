@@ -24,10 +24,13 @@ class AuthManager {
     constructor() {
         this.users = [];
         this.currentUser = null;
+        this.isCheckingStatus = false; // Add flag to prevent concurrent status checks
     }
     
     async loadAuthorizedUsers() {
         try {
+            console.log('🔄 Loading authorized users...');
+            
             // Always try local RPi endpoint first when running on RPi
             try {
                 const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
@@ -40,7 +43,7 @@ class AuthManager {
                     return true;
                 }
             } catch (localError) {
-                console.log('Local RPi endpoint not available, trying main server...');
+                console.log('⚠️  Local RPi endpoint not available, trying main server...');
             }
             
             // Fallback to main server if RPi endpoint fails
@@ -62,16 +65,16 @@ class AuthManager {
                     return true;
                 }
             } catch (serverError) {
-                console.log('Main server not available');
+                console.log('⚠️  Main server not available');
             }
             
             throw new Error('No user data source available');
             
         } catch (error) {
-            console.error('Error loading users:', error);
+            console.error('❌ Error loading users:', error);
             
             // Fallback to test users for development
-            console.log('Using fallback test users...');
+            console.log('🔧 Using fallback test users...');
             this.users = [
                 {
                     username: 'admin',
@@ -186,19 +189,32 @@ class AuthManager {
     
     async initializeApp() {
         try {
+            console.log('🔧 Starting app initialization...');
+            
+            // Ensure users are loaded (important for session restore)
+            if (this.users.length === 0) {
+                console.log('👥 Users not loaded yet, loading now...');
+                await this.loadAuthorizedUsers();
+            }
+            
             // Load workers
+            console.log('� Loading workers...');
             await this.loadWorkers();
             
             // Initialize date
+            console.log('📅 Initializing date...');
             this.initializeDate();
             
             // Check system status
+            console.log('🌐 Checking system status...');
             await this.checkSystemStatus();
             
             // Set up event listeners
+            console.log('📡 Setting up event listeners...');
             this.setupEventListeners();
             
             // Start status monitoring
+            console.log('⏰ Starting status monitoring...');
             this.startStatusMonitoring();
             
             console.log('✅ App initialized successfully');
@@ -301,6 +317,14 @@ class AuthManager {
     }
     
     async checkSystemStatus() {
+        // Prevent concurrent status checks
+        if (this.isCheckingStatus) {
+            console.log('⏳ Status check already in progress, skipping...');
+            return;
+        }
+        
+        this.isCheckingStatus = true;
+        
         try {
             // Check if we're running directly on an RPi (by checking for RPi-specific endpoints)
             const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
@@ -325,8 +349,10 @@ class AuthManager {
                     
                     if (isRPiOnline) {
                         this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
+                        console.log(`✅ RPi status: ONLINE, device_id=${rpiStatus.device_id}`);
                     } else {
                         this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
+                        console.log(`❌ RPi status: OFFLINE, device_id=${rpiStatus.device_id}`);
                     }
                     
                     // Update current hinban if exists
@@ -336,7 +362,7 @@ class AuthManager {
                     }
                     return;
                 } catch (rpiError) {
-                    console.error('Error connecting to local RPi:', rpiError);
+                    console.error('❌ Error connecting to local RPi:', rpiError);
                     this.updateStatusUI(false, 'オフライン (RPi接続エラー)');
                     return;
                 }
@@ -352,9 +378,12 @@ class AuthManager {
             }
             
             // Test ksgServer connectivity
-            const ksgResponse = await fetch(`${ksgServerUrl}/ping`, {
-                timeout: 3000
-            });
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Request timeout')), 5000)
+            );
+            
+            const fetchPromise = fetch(`${ksgServerUrl}/ping`);
+            const ksgResponse = await Promise.race([fetchPromise, timeoutPromise]);
             
             if (ksgResponse.ok) {
                 // We're online with ksgServer - now check if we have an associated device
@@ -363,9 +392,12 @@ class AuthManager {
                 if (deviceInfo && deviceInfo.local_ip) {
                     // Try to connect to the selected RPi device
                     try {
-                        const rpiResponse = await fetch(`http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/api/system/status`, {
-                            timeout: 3000
-                        });
+                        const rpiTimeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Request timeout')), 3000)
+                        );
+                        
+                        const rpiFetchPromise = fetch(`http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/api/system/status`);
+                        const rpiResponse = await Promise.race([rpiFetchPromise, rpiTimeoutPromise]);
                         
                         if (rpiResponse.ok) {
                             const rpiStatus = await rpiResponse.json();
@@ -412,7 +444,7 @@ class AuthManager {
             }
             
         } catch (error) {
-            console.error('Error checking system status:', error);
+            console.error('❌ Error checking system status:', error);
             
             // Fallback - we're offline
             systemStatus = {
@@ -423,6 +455,9 @@ class AuthManager {
             };
             
             this.updateStatusUI(false);
+        } finally {
+            // Always reset the flag
+            this.isCheckingStatus = false;
         }
     }
     
@@ -449,29 +484,36 @@ class AuthManager {
         
         // For localhost, we're definitely not on RPi
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            console.log(`RPi detection: hostname=${hostname} -> not RPi (localhost)`);
             return false;
         }
         
         // If hostname suggests RPi, verify with endpoint test
         try {
-            const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`, {
-                timeout: 2000
-            });
+            // Create a promise that rejects after 3 seconds
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Request timeout')), 3000)
+            );
+            
+            const fetchPromise = fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
+            
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
             
             if (response.ok) {
                 const data = await response.json();
                 // Check if response looks like RPi data (has device_id, device_name, etc.)
                 const isRPiResponse = data.device_id && data.device_name && data.local_ip;
-                console.log(`RPi detection: hostname=${hostname}, endpoint_works=${isRPiResponse}`);
+                console.log(`✅ RPi detection: hostname=${hostname}, endpoint_works=${isRPiResponse}, device_id=${data.device_id}`);
                 return isRPiResponse;
+            } else {
+                console.log(`❌ RPi endpoint returned ${response.status}, falling back to hostname check`);
+                return hostnameCheck;
             }
         } catch (error) {
-            console.log(`RPi endpoint test failed: ${error.message}`);
+            console.log(`⚠️  RPi endpoint test failed: ${error.message}, falling back to hostname check (${hostnameCheck})`);
             // If RPi endpoint fails but hostname suggests RPi, assume we're on RPi with issues
             return hostnameCheck;
         }
-        
-        return hostnameCheck;
     }
 
     // Device Selection Management
@@ -1057,19 +1099,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     const savedUser = sessionStorage.getItem('ksg_user');
     if (savedUser) {
         try {
+            console.log('📋 Restoring session...');
             const user = JSON.parse(savedUser);
             authManager.currentUser = user;
             currentUser = user;
             
             // Hide login modal and initialize app
             document.getElementById('loginModal').classList.remove('show');
+            console.log('🔧 Initializing app after session restore...');
             await authManager.initializeApp();
         } catch (error) {
-            console.error('Error restoring session:', error);
+            console.error('❌ Error restoring session:', error);
             authManager.logout();
         }
     } else {
         // Load users for login
+        console.log('🔑 No saved session, loading users for login...');
         await authManager.loadAuthorizedUsers();
     }
     
