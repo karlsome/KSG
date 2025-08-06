@@ -558,7 +558,7 @@ class AuthManager {
             // Get available KSG devices from ksgServer
             let ksgServerUrl = window.KSG_SERVER_URL;
             if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                ksgServerUrl = `http://192.168.0.25:3000`;
+                ksgServerUrl = `http://192.168.0.23:3000`;
             }
             
             const response = await fetch(`${ksgServerUrl}/api/devices/rpi/KSG`);

@@ -34,7 +34,7 @@ def get_jst_datetime():
 
 # Device identification (same as pi_client_fixed.py)
 DEVICE_ID = "4Y02SX"
-SERVER_URL = "http://192.168.0.25:3000"  # ksgServer.js URL
+SERVER_URL = "http://192.168.0.23:3000"  # ksgServer.js URL
 COMPANY = "KSG"
 
 # GPIO numbering mode (BCM for Broadcom SoC channel numbers)
