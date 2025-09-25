@@ -1,16 +1,35 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
+const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    },
+    // � Fix for Arduino SocketIOclient compatibility
+    pingTimeout: 60000,          // 60s - increase from default 5s
+    pingInterval: 25000,         // 25s - standard interval
+    upgradeTimeout: 30000,       // 30s - time to wait for upgrade
+    allowUpgrades: true,         // Allow websocket upgrades
+    transports: ['polling', 'websocket'],  // Support both transports
+    // Force Engine.IO v3 compatibility for Arduino libraries
+    allowEIO3: true
+});
+
 app.use(express.json());
 
 // Enable CORS for all origins (development mode)
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID, X-Session-User, X-Session-Role, Authorization');
     
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
@@ -344,6 +363,70 @@ Object.keys(DEVICE_FUNCTIONS).forEach(deviceId => {
 
 // 📡 API ENDPOINTS
 
+// 🔐 LOGIN ENDPOINT
+app.post("/loginCustomer", async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    // Use the existing mongoClient connection
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const globalDB = mongoClient.db("Sasaki_Coating_MasterDB");
+    const masterUser = await globalDB.collection("masterUsers").findOne({ username });
+
+    // 1️⃣ MasterUser login
+    if (masterUser) {
+      const passwordMatch = await bcrypt.compare(password, masterUser.password);
+      if (!passwordMatch) return res.status(401).json({ error: "Invalid password" });
+
+      const today = new Date();
+      const validUntil = new Date(masterUser.validUntil);
+      if (today > validUntil) return res.status(403).json({ error: "Account expired. Contact support." });
+
+      return res.status(200).json({
+        username: masterUser.username,
+        role: masterUser.role,
+        dbName: masterUser.dbName
+      });
+    }
+
+    // 2️⃣ Sub-user login (loop all master users)
+    const allMasterUsers = await globalDB.collection("masterUsers").find({}).toArray();
+
+    for (const mu of allMasterUsers) {
+      const customerDB = mongoClient.db(mu.dbName);
+      const subUser = await customerDB.collection("users").findOne({ username });
+
+      if (subUser) {
+        // Check password
+        const passwordMatch = await bcrypt.compare(password, subUser.password);
+        if (!passwordMatch) return res.status(401).json({ error: "Invalid password" });
+
+        // Check if master account is valid
+        const today = new Date();
+        const validUntil = new Date(mu.validUntil);
+        if (today > validUntil) return res.status(403).json({ error: "Account expired. Contact support." });
+
+        return res.status(200).json({
+          username: subUser.username,
+          role: subUser.role,
+          dbName: mu.dbName,
+          masterUsername: mu.username
+        });
+      }
+    }
+
+    // Not found
+    return res.status(401).json({ error: "Account not found" });
+
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // 🆕 NEW ENDPOINTS FOR STEP7.PY INTEGRATION
 
 // RPi device registration endpoint (stores in KSG.deviceInfo)
@@ -356,8 +439,9 @@ app.post('/api/device/register-rpi', async (req, res) => {
         return res.status(400).json({ error: 'Invalid device ID' });
     }
     
-    if (company !== 'KSG') {
-        return res.status(400).json({ error: 'Only KSG company devices supported' });
+    // Validate company name (allow any valid company)
+    if (!company || company.trim().length === 0) {
+        return res.status(400).json({ error: 'Company name is required' });
     }
     
     try {
@@ -372,18 +456,18 @@ app.post('/api/device/register-rpi', async (req, res) => {
         const authDb = mongoClient.db('Sasaki_Coating_MasterDB');
         const masterUsersCollection = authDb.collection('masterUsers');
         
-        // Find KSG users who have this device ID
+        // Find users from the specified company who have this device ID
         const authorizedUser = await masterUsersCollection.findOne({
-            company: 'KSG',
+            company: company,
             role: 'masterUser',
             'devices.uniqueId': device_id
         });
         
         if (!authorizedUser) {
-            console.log(`🚫 Unauthorized RPi registration attempt: Device ${device_id} not found in KSG masterUsers`);
+            console.log(`🚫 Unauthorized device registration attempt: Device ${device_id} not found in ${company} masterUsers`);
             return res.status(403).json({ 
-                error: 'Device not authorized for KSG company',
-                message: 'This device is not registered to any KSG user'
+                error: `Device not authorized for ${company} company`,
+                message: `This device is not registered to any ${company} user`
             });
         }
         
@@ -403,18 +487,23 @@ app.post('/api/device/register-rpi', async (req, res) => {
         // Get device details from the authorized user's devices array
         const deviceDetails = authorizedUser.devices.find(device => device.uniqueId === device_id);
         
-        console.log(`✅ Device ${device_id} authorized for RPi registration - Owner: ${authorizedUser.username}`);
+        console.log(`✅ Device ${device_id} authorized for ${company} registration - Owner: ${authorizedUser.username}`);
         
-        // Now register in KSG.deviceInfo collection
-        const ksgDb = mongoClient.db('KSG');
-        const deviceInfoCollection = ksgDb.collection('deviceInfo');
+        // Register device in company's database
+        const companyDb = mongoClient.db(company);
+        const deviceInfoCollection = companyDb.collection('deviceInfo');
+        
+        // Auto-detect device type and brand from request data
+        const detectedBrand = req.body.device_brand || deviceDetails?.brand || 'Unknown';
+        const detectedType = req.body.device_type || 
+                           (detectedBrand.toLowerCase().includes('esp32') ? 'esp32' : 'raspberry_pi');
         
         // Prepare device registration data
         const deviceData = {
             device_id: device_id,
             company: company,
-            device_name: device_name || deviceDetails?.name || `RaspberryPi_${device_id}`,
-            device_brand: deviceDetails?.brand || 'Raspberry Pi',
+            device_name: device_name || deviceDetails?.name || `${detectedBrand}_${device_id}`,
+            device_brand: detectedBrand,
             owner: authorizedUser.username,
             owner_first_name: authorizedUser.firstName,
             owner_last_name: authorizedUser.lastName,
@@ -425,7 +514,7 @@ app.post('/api/device/register-rpi', async (req, res) => {
             last_seen: new Date(),
             last_ip_update: new Date(),
             registered_at: new Date(),
-            device_type: 'raspberry_pi',
+            device_type: detectedType,
             authorized_until: authorizedUser.validUntil
         };
         
@@ -436,17 +525,19 @@ app.post('/api/device/register-rpi', async (req, res) => {
             { upsert: true }
         );
         
-        console.log(`📍 RPi ${device_id} registered in KSG.deviceInfo: ${local_ip}:${local_port} (Owner: ${authorizedUser.username})`);
+        console.log(`📍 ${detectedBrand} ${device_id} registered in ${company}.deviceInfo: ${local_ip}:${local_port} (Owner: ${authorizedUser.username})`);
         res.json({ 
             success: true, 
-            message: 'RPi device registered successfully',
+            message: `${detectedBrand} device registered successfully`,
             device_id: device_id,
             owner: authorizedUser.username,
-            registered_at: deviceData.registered_at
+            registered_at: deviceData.registered_at,
+            device_type: detectedType,
+            company: company
         });
         
     } catch (error) {
-        console.error('RPi registration error:', error);
+        console.error(`${company} device registration error:`, error);
         res.status(500).json({ 
             success: false, 
             error: 'Registration failed',
@@ -575,7 +666,7 @@ app.get('/api/users/:company', authenticateDevice, async (req, res) => {
     }
 });
 
-// Submit production data
+// Submit production data to both MongoDB and Google Sheets
 app.post('/api/submit-production-data', authenticateDevice, async (req, res) => {
     const deviceId = req.deviceId;
     const submissionData = req.body;
@@ -594,7 +685,14 @@ app.post('/api/submit-production-data', authenticateDevice, async (req, res) => 
         }
         
         const device = AUTHORIZED_DEVICES[deviceId];
-        const company = device.company || 'KSG';
+        const company = device.company;
+        
+        if (!company) {
+            return res.status(400).json({ 
+                error: 'Device company not configured',
+                message: 'Device registration incomplete - no company associated'
+            });
+        }
         
         // Add submission metadata
         const finalData = {
@@ -605,28 +703,139 @@ app.post('/api/submit-production-data', authenticateDevice, async (req, res) => 
             company: company
         };
         
-        // Insert into company's submittedDB collection
-        const db = mongoClient.db(company);
-        const collection = db.collection('submittedDB');
+        let mongoResult = null;
+        let googleSheetsResult = null;
         
-        const result = await collection.insertOne(finalData);
+        // 1. Submit to MongoDB
+        try {
+            const db = mongoClient.db(company);
+            const collection = db.collection('submittedDB');
+            mongoResult = await collection.insertOne(finalData);
+            console.log(`📊 Production data submitted to MongoDB by ${deviceId}: ${finalData.品番}`);
+        } catch (mongoError) {
+            console.error('MongoDB submission error:', mongoError);
+            // Continue with Google Sheets even if MongoDB fails
+        }
         
-        console.log(`📊 Production data submitted by ${deviceId}: ${finalData.品番}`);
-        res.json({
-            success: true,
-            message: 'Data submitted successfully',
-            insertedId: result.insertedId,
-            submitted_at: finalData.タイムスタンプ
-        });
+        // 2. Submit to Google Sheets
+        try {
+            const googleSheetsData = await submitToGoogleSheets(finalData, company);
+            googleSheetsResult = googleSheetsData;
+            console.log(`� Production data submitted to Google Sheets by ${deviceId}: ${finalData.品番}`);
+        } catch (googleError) {
+            console.error('Google Sheets submission error:', googleError);
+            // Continue even if Google Sheets fails
+        }
+        
+        // Return success if at least one submission worked
+        const success = mongoResult || googleSheetsResult;
+        
+        if (success) {
+            res.json({
+                success: true,
+                message: 'Data submitted successfully',
+                mongodb: {
+                    success: !!mongoResult,
+                    insertedId: mongoResult?.insertedId || null
+                },
+                googleSheets: {
+                    success: !!googleSheetsResult,
+                    response: googleSheetsResult || null
+                },
+                submitted_at: finalData.タイムスタンプ
+            });
+        } else {
+            throw new Error('Both MongoDB and Google Sheets submissions failed');
+        }
         
     } catch (error) {
         console.error('Error submitting production data:', error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to submit data' 
+            error: 'Failed to submit data',
+            details: error.message
         });
     }
 });
+
+// Helper function to submit data to Google Sheets
+async function submitToGoogleSheets(data, company) {
+    const GOOGLE_SHEETS_URL = process.env.GOOGLE_SHEETS_WEBHOOK_URL;
+    
+    if (!GOOGLE_SHEETS_URL) {
+        console.log('⚠️  Google Sheets webhook URL not configured');
+        return null;
+    }
+    
+    try {
+        // Format data for Google Sheets (convert to array format expected by Apps Script)
+        const formattedData = {
+            timestamp: data.タイムスタンプ.toISOString(),
+            date_year: data['日付（年）'] || '',
+            date_month: data['日付（月）'] || '',
+            date_day: data['日付（日）'] || '',
+            hinban: data.品番 || '',
+            product_name: data.製品名 || '',
+            lh_rh: data['LH/RH'] || '',
+            operator1: data['技能員①'] || '',
+            operator2: data['技能員②'] || '',
+            good_count: data.良品数 || 0,
+            man_hours: data.工数 || 0,
+            material_defect: data['不良項目　素材不良'] || 0,
+            double_defect: data['不良項目　ダブり'] || 0,
+            peeling_defect: data['不良項目　ハガレ'] || 0,
+            foreign_matter_defect: data['不良項目　イブツ'] || 0,
+            wrinkle_defect: data['不良項目　シワ'] || 0,
+            deformation_defect: data['不良項目　ヘンケイ'] || 0,
+            grease_defect: data['不良項目　グリス付着'] || 0,
+            screw_loose_defect: data['不良項目　ビス不締まり'] || 0,
+            other_defect: data['不良項目　その他'] || 0,
+            other_description: data.その他説明 || '',
+            shoulder_defect: data['不良項目　ショルダー'] || 0,
+            silver_defect: data['不良項目　シルバー'] || 0,
+            shoulder_scratch_defect: data['不良項目　ショルダー　キズ'] || 0,
+            shoulder_other_defect: data['不良項目　ショルダー　その他'] || 0,
+            start_time: data.開始時間 || '',
+            end_time: data.終了時間 || '',
+            break_time: data.休憩時間 || 0,
+            break1_start: data.休憩1開始 || '',
+            break1_end: data.休憩1終了 || '',
+            break2_start: data.休憩2開始 || '',
+            break2_end: data.休憩2終了 || '',
+            break3_start: data.休憩3開始 || '',
+            break3_end: data.休憩3終了 || '',
+            break4_start: data.休憩4開始 || '',
+            break4_end: data.休憩4終了 || '',
+            remarks: data.備考 || '',
+            excluded_man_hours: data['工数（除外工数）'] || 0,
+            average_cycle_time: data.平均サイクル時間 || 0,
+            fastest_cycle_time: data.最速サイクルタイム || 0,
+            slowest_cycle_time: data['最も遅いサイクルタイム'] || 0,
+            device_id: data.device_id || '',
+            submitted_from: data.submitted_from || '',
+            company: company || 'KSG'
+        };
+        
+        const response = await fetch(GOOGLE_SHEETS_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formattedData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Google Sheets API returned ${response.status}`);
+        }
+        
+        const result = await response.json();
+        return result;
+        
+    } catch (error) {
+        console.error('Google Sheets submission error:', error);
+        throw error;
+    }
+}
 
 // Check if RPi device is registered
 app.get('/api/device/check/:deviceId', async (req, res) => {
@@ -710,23 +919,51 @@ app.get('/api/company-devices/:company', async (req, res) => {
     const company = req.params.company;
     
     try {
+        if (!mongoClient) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not connected' 
+            });
+        }
+        
+        // Get devices from the company's database
+        const companyDb = mongoClient.db(company);
+        const deviceInfoCollection = companyDb.collection('deviceInfo');
+        
+        // Fetch all devices for this company
+        const allDevices = await deviceInfoCollection.find({}).toArray();
+        
+        // Also check authorization from AUTHORIZED_DEVICES cache for additional validation
         await ensureDevicesLoaded();
         
-        const companyDevices = Object.entries(AUTHORIZED_DEVICES)
-            .filter(([id, device]) => device.company === company)
-            .map(([id, device]) => ({
-                device_id: id,
-                name: device.name || device.device_name,
+        const companyDevices = allDevices
+            .filter(device => {
+                // Ensure device is still authorized (exists in AUTHORIZED_DEVICES)
+                const isAuthorized = AUTHORIZED_DEVICES[device.device_id] && 
+                                   AUTHORIZED_DEVICES[device.device_id].company === company;
+                return isAuthorized;
+            })
+            .map(device => ({
+                device_id: device.device_id,
+                device_name: device.device_name,
+                name: device.device_name, // For compatibility
                 owner: device.owner,
+                owner_first_name: device.owner_first_name,
+                owner_last_name: device.owner_last_name,
                 company: device.company,
-                local_ip: device.local_ip || null,
-                local_port: device.local_port || 5000,
+                device_brand: device.device_brand,
+                device_type: device.device_type,
+                local_ip: device.local_ip,
+                local_port: device.local_port,
                 last_seen: device.last_seen,
-                status: device.network_status || 'unknown',
-                capabilities: device.capabilities || []
+                last_ip_update: device.last_ip_update,
+                registered_at: device.registered_at,
+                status: device.status,
+                capabilities: device.capabilities || [],
+                authorized_until: device.authorized_until
             }));
         
-        console.log(`📱 Served ${companyDevices.length} devices for company ${company}`);
+        console.log(`📱 Served ${companyDevices.length} devices for company ${company} from database`);
         res.json({
             success: true,
             company: company,
@@ -736,10 +973,11 @@ app.get('/api/company-devices/:company', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error fetching company devices:', error);
+        console.error(`Error fetching devices for company ${company}:`, error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to fetch devices' 
+            error: 'Failed to fetch devices',
+            details: error.message
         });
     }
 });
@@ -751,6 +989,98 @@ app.get('/ping', (req, res) => {
         message: 'Server is running',
         timestamp: new Date()
     });
+});
+
+// 🌐 WEBAPP FILE SERVING ENDPOINTS - For ESP32 file downloads
+const path = require('path');
+const fs = require('fs');
+
+// Serve webapp files from the webapp folder
+app.get('/webapp/index.html', (req, res) => {
+    const filePath = path.join(__dirname, 'webapp', 'index.html');
+    
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+        console.log('📁 Served index.html to ESP32');
+    } else {
+        console.log('❌ index.html not found at:', filePath);
+        res.status(404).send('File not found');
+    }
+});
+
+app.get('/webapp/script.js', (req, res) => {
+    const filePath = path.join(__dirname, 'webapp', 'script.js');
+    
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+        console.log('📁 Served script.js to ESP32');
+    } else {
+        console.log('❌ script.js not found at:', filePath);
+        res.status(404).send('File not found');
+    }
+});
+
+app.get('/webapp/style.css', (req, res) => {
+    const filePath = path.join(__dirname, 'webapp', 'style.css');
+    
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+        console.log('📁 Served style.css to ESP32');
+    } else {
+        console.log('❌ style.css not found at:', filePath);
+        res.status(404).send('File not found');
+    }
+});
+
+// Get webapp files version information for update checking
+app.get('/api/webapp/version', (req, res) => {
+    try {
+        const webappDir = path.join(__dirname, 'webapp');
+        const files = ['index.html', 'script.js', 'style.css'];
+        const fileInfo = {};
+        
+        console.log('🔍 ESP32 checking for webapp updates...');
+        
+        for (const filename of files) {
+            const filePath = path.join(webappDir, filename);
+            
+            if (fs.existsSync(filePath)) {
+                const stats = fs.statSync(filePath);
+                const content = fs.readFileSync(filePath);
+                const hash = crypto.createHash('md5').update(content).digest('hex');
+                
+                fileInfo[filename] = {
+                    hash: hash,
+                    size: stats.size,
+                    lastModified: stats.mtime.toISOString()
+                };
+                
+                console.log(`📄 ${filename}: hash=${hash.substr(0,8)}..., size=${stats.size}b`);
+            } else {
+                console.log(`❌ Webapp file not found: ${filename}`);
+                fileInfo[filename] = null;
+            }
+        }
+        
+        // Generate consistent version hash based on all file hashes
+        const allHashes = files.map(f => fileInfo[f]?.hash || 'missing').join('');
+        const versionHash = crypto.createHash('md5').update(allHashes).digest('hex').substr(0, 12);
+        
+        const response = {
+            success: true,
+            version: versionHash, // Consistent hash-based version
+            files: fileInfo,
+            timestamp: new Date().toISOString()
+        };
+        
+        res.json(response);
+    } catch (error) {
+        console.error('❌ Error generating webapp version info:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate version information'
+        });
+    }
 });
 
 // Check for function updates (Pi devices call this every 5 minutes)
@@ -1014,7 +1344,353 @@ app.get('/', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// 🚀 Start server with MongoDB connection
+// Helper function to update device last_seen in MongoDB
+async function updateDeviceLastSeen(deviceId, socketId) {
+    if (!mongoClient || !deviceId) return;
+    
+    try {
+        // Determine the device company from AUTHORIZED_DEVICES
+        await ensureDevicesLoaded();
+        const device = AUTHORIZED_DEVICES[deviceId];
+        
+        if (!device || !device.company) {
+            console.log(`⚠️  Cannot update last_seen for unknown device: ${deviceId}`);
+            return;
+        }
+        
+        const companyDb = mongoClient.db(device.company);
+        const deviceInfoCollection = companyDb.collection('deviceInfo');
+        
+        const result = await deviceInfoCollection.updateOne(
+            { device_id: deviceId },
+            { 
+                $set: { 
+                    last_seen: new Date(),
+                    status: 'online'
+                }
+            }
+        );
+        
+        if (result.modifiedCount > 0) {
+            console.log(`💓 Updated last_seen for device ${deviceId} (${device.company})`);
+        }
+    } catch (error) {
+        console.error(`❌ Failed to update last_seen for device ${deviceId}:`, error.message);
+    }
+}
+
+// Helper function to update device status in MongoDB
+async function updateDeviceStatus(deviceId, status) {
+    if (!mongoClient || !deviceId) return;
+    
+    try {
+        // Determine the device company from AUTHORIZED_DEVICES
+        await ensureDevicesLoaded();
+        const device = AUTHORIZED_DEVICES[deviceId];
+        
+        if (!device || !device.company) {
+            console.log(`⚠️  Cannot update status for unknown device: ${deviceId}`);
+            return;
+        }
+        
+        const companyDb = mongoClient.db(device.company);
+        const deviceInfoCollection = companyDb.collection('deviceInfo');
+        
+        const updateData = { status: status };
+        if (status === 'offline') {
+            updateData.last_seen = new Date(); // Record when it went offline
+        }
+        
+        const result = await deviceInfoCollection.updateOne(
+            { device_id: deviceId },
+            { $set: updateData }
+        );
+        
+        if (result.modifiedCount > 0) {
+            console.log(`📱 Updated device ${deviceId} status to ${status} (${device.company})`);
+        }
+    } catch (error) {
+        console.error(`❌ Failed to update status for device ${deviceId}:`, error.message);
+    }
+}
+
+// � Socket.IO Connection Handler
+io.on('connection', (socket) => {
+    console.log('📱 ESP32 device connected:', socket.id);
+    
+    // Start a heartbeat interval for this socket to ensure regular last_seen updates
+    const heartbeatInterval = setInterval(() => {
+        if (socket.deviceId && socket.connected) {
+            console.log(`💓 Heartbeat update for device ${socket.deviceId}`);
+            updateDeviceLastSeen(socket.deviceId, socket.id);
+        }
+    }, 30000); // Update every 30 seconds
+    
+    socket.heartbeatInterval = heartbeatInterval;
+    
+    // Handle WebSocket ping (heartbeat) - Update last_seen in MongoDB
+    socket.on('ping', () => {
+        console.log(`💓 Ping received from ${socket.deviceId || socket.id}`);
+        
+        // Update last_seen in MongoDB if device is identified
+        if (socket.deviceId) {
+            updateDeviceLastSeen(socket.deviceId, socket.id);
+        }
+        
+        // Send pong response (Socket.IO handles this automatically, but we can log it)
+        socket.emit('pong');
+    });
+    
+    // Handle WebSocket pong (response to our ping)
+    socket.on('pong', () => {
+        console.log(`💓 Pong received from ${socket.deviceId || socket.id}`);
+        
+        // Update last_seen in MongoDB if device is identified
+        if (socket.deviceId) {
+            updateDeviceLastSeen(socket.deviceId, socket.id);
+        }
+    });
+    
+    // Handle low-level WebSocket ping/pong events (for native WebSocket clients like ESP32)
+    socket.conn.on('ping', () => {
+        console.log(`💓 Low-level ping received from ${socket.deviceId || socket.id}`);
+        if (socket.deviceId) {
+            updateDeviceLastSeen(socket.deviceId, socket.id);
+        }
+    });
+    
+    socket.conn.on('pong', () => {
+        console.log(`💓 Low-level pong received from ${socket.deviceId || socket.id}`);
+        if (socket.deviceId) {
+            updateDeviceLastSeen(socket.deviceId, socket.id);
+        }
+    });
+    
+    // Handle generic messages from Arduino Socket.IO (with "type" field)
+    socket.on('message', (data) => {
+        try {
+            const eventData = typeof data === 'string' ? JSON.parse(data) : data;
+            console.log('📨 Received message:', eventData);
+            
+            // Route based on message type
+            // Route based on message type
+            switch(eventData.type) {
+                case 'device_online':
+                    console.log('📱 Device online:', eventData);
+                    
+                    // Store device info
+                    socket.deviceId = eventData.device_id;
+                    socket.deviceName = eventData.device_name;
+                    socket.deviceIP = eventData.ip;
+                    
+                    // Update last_seen in MongoDB when device comes online
+                    updateDeviceLastSeen(eventData.device_id, socket.id);
+                    
+                    // Send acknowledgment
+                    socket.emit('device_registered', {
+                        success: true,
+                        message: 'Device registered successfully'
+                    });
+                    break;
+                    
+                case 'production_count':
+                    console.log('🔢 Counter update from', socket.deviceId || 'unknown device', ':', eventData);
+                    
+                    // Broadcast to all connected clients (web interface)
+                    socket.broadcast.emit('counter_updated', {
+                        device_id: socket.deviceId,
+                        device_name: socket.deviceName,
+                        counter: eventData.count,
+                        timestamp: new Date().toISOString()
+                    });
+                    break;
+                    
+                case 'production_update':
+                    console.log('📊 Production update from', socket.deviceId || 'unknown device', ':', eventData);
+                    
+                    // Broadcast to all connected webapp clients
+                    socket.broadcast.emit('message', eventData);
+                    console.log('📤 Relayed production update to webapp clients');
+                    break;
+                    
+                default:
+                    console.log('❓ Unknown message type:', eventData.type);
+            }
+        } catch (error) {
+            console.error('❌ Error parsing message data:', error, 'Raw data:', data);
+        }
+    });
+    
+    // � DEBUG: Handle various event types that Arduino SocketIOclient might send
+    socket.onAny((eventName, ...args) => {
+        console.log(`🔍 DEBUG - Any event: "${eventName}", Args:`, args);
+    });
+    
+    // Handle direct events (ESP32 might send as specific event names)
+    socket.on('device_online', (data) => {
+        console.log('📱 Direct device_online event:', data);
+    });
+    
+    socket.on('production_count', (data) => {
+        console.log('🔢 Direct production_count event:', data);
+    });
+    
+    // Handle reset counter command from web interface
+    socket.on('reset_counter', (data) => {
+        console.log('🔄 Reset counter command for device:', data.device_id);
+        
+        // Forward to specific device (broadcast to all for now)
+        io.emit('reset_counter', {
+            device_id: data.device_id,
+            timestamp: new Date().toISOString()
+        });
+    });
+    
+    // Handle webapp client registration
+    socket.on('webapp_register', (data) => {
+        console.log('🌐 Webapp client registered:', data);
+        socket.isWebapp = true;
+        socket.clientType = 'webapp';
+    });
+    
+    // Handle validation requests from ESP32 devices
+    socket.on('validate_production_start', (data) => {
+        console.log('🔍 Validation request from ESP32:', socket.deviceId || socket.id, data);
+        
+        // Find webapp clients to handle validation
+        const webappSockets = Array.from(io.sockets.sockets.values())
+            .filter(s => s.isWebapp === true);
+        
+        if (webappSockets.length > 0) {
+            // Send validation request to all webapp clients
+            webappSockets.forEach(webappSocket => {
+                webappSocket.emit('validate_production_start', {
+                    device_id: socket.deviceId,
+                    device_name: socket.deviceName || 'Unknown ESP32',
+                    timestamp: Date.now(),
+                    ...data
+                });
+            });
+            
+            console.log(`📤 Sent validation request to ${webappSockets.length} webapp client(s)`);
+        } else {
+            console.log('⚠️  No webapp clients connected - cannot validate production start');
+            
+            // Send automatic approval if no webapp available
+            socket.emit('message', {
+                type: 'validation_response',
+                valid: true,
+                message: 'No webapp available - auto approved',
+                timestamp: Date.now()
+            });
+        }
+    });
+    
+    // Handle commands from webapp to ESP32
+    socket.on('esp32_command', (data) => {
+        console.log('📤 ESP32 command from webapp:', data);
+        
+        if (data.type === 'reset_production') {
+            // Broadcast reset command to all ESP32 devices (or specific device if device_id provided)
+            if (data.device_id) {
+                console.log('🎯 Sending reset command to device:', data.device_id);
+                // Find specific device socket and send command
+                const deviceSockets = Array.from(io.sockets.sockets.values())
+                    .filter(s => s.deviceId === data.device_id);
+                
+                deviceSockets.forEach(deviceSocket => {
+                    deviceSocket.emit('reset_production', {
+                        command: 'reset_all',
+                        timestamp: new Date().toISOString()
+                    });
+                });
+                
+                if (deviceSockets.length > 0) {
+                    console.log(`✅ Reset command sent to ${deviceSockets.length} device(s)`);
+                } else {
+                    console.log('⚠️  No connected devices found with ID:', data.device_id);
+                }
+            } else {
+                // Broadcast to all ESP32 devices
+                console.log('📡 Broadcasting reset command to all ESP32 devices');
+                socket.broadcast.emit('reset_production', {
+                    command: 'reset_all',
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } else if (data.type === 'validation_response') {
+            // Route validation response back to ESP32 device
+            console.log('🔍 Validation response from webapp:', data);
+            
+            if (data.device_id) {
+                // Find specific ESP32 device socket and send validation response
+                const deviceSockets = Array.from(io.sockets.sockets.values())
+                    .filter(s => s.deviceId === data.device_id);
+                
+                deviceSockets.forEach(deviceSocket => {
+                    deviceSocket.emit('message', {
+                        type: 'validation_response',
+                        valid: data.valid,
+                        message: data.message || '',
+                        hinban: data.hinban || '',
+                        timestamp: data.timestamp
+                    });
+                });
+                
+                if (deviceSockets.length > 0) {
+                    console.log(`✅ Validation response sent to ${deviceSockets.length} device(s):`, data.valid ? 'APPROVED' : 'REJECTED');
+                } else {
+                    console.log('⚠️  No connected ESP32 devices found for validation response');
+                }
+            } else {
+                console.log('❌ No device_id provided in validation response');
+            }
+        } else if (data.type === 'request_production_status') {
+            // Request current production status from ESP32 devices
+            console.log('📊 Status request from webapp for device sync');
+            
+            // Find ESP32 devices and request current status
+            const esp32Sockets = Array.from(io.sockets.sockets.values())
+                .filter(s => s.deviceId && !s.isWebapp);
+            
+            esp32Sockets.forEach(deviceSocket => {
+                deviceSocket.emit('message', {
+                    type: 'request_status_sync',
+                    requesting_client: socket.id,
+                    timestamp: Date.now()
+                });
+            });
+            
+            if (esp32Sockets.length > 0) {
+                console.log(`📤 Status sync request sent to ${esp32Sockets.length} ESP32 device(s)`);
+            } else {
+                console.log('⚠️  No ESP32 devices connected for status sync');
+            }
+        }
+    });
+    
+    // Handle disconnection
+    socket.on('disconnect', async () => {
+        console.log('📱 ESP32 device disconnected:', socket.deviceId || socket.id);
+        
+        // Clear the heartbeat interval
+        if (socket.heartbeatInterval) {
+            clearInterval(socket.heartbeatInterval);
+        }
+        
+        // Mark device as offline in MongoDB when it disconnects
+        if (socket.deviceId) {
+            await updateDeviceStatus(socket.deviceId, 'offline');
+        }
+    });
+    
+    // Handle errors
+    socket.on('error', (error) => {
+        console.error('❌ Socket error:', error);
+    });
+});
+
+// �🚀 Start server with MongoDB connection
 async function startServer() {
     console.log('🚀 Starting KSG IoT Function Server...');
     
@@ -1030,7 +1706,7 @@ async function startServer() {
     }
     
     // Start the HTTP server
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
         console.log(`🌟 Smart Pi Function Server running on port ${PORT}`);
         console.log(`📡 Ready to serve functions to Pi devices`);
         console.log(`🎯 Device functions loaded: ${Object.keys(DEVICE_FUNCTIONS).length} devices`);

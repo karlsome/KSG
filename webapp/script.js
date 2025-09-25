@@ -5,19 +5,269 @@
 window.PYTHON_API_BASE_URL = window.location.origin; // Use current host (RPi)
 window.KSG_SERVER_URL = "http://localhost:3000"; // Default for development
 
+// Auto-detect environment
+const isRunningOnRPi = window.location.hostname !== 'localhost' && 
+                      window.location.hostname !== '127.0.0.1' &&
+                      !window.location.hostname.includes('render.com');
+
 // Auto-detect KSG server URL based on environment
-if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    // Running on tablet - point to actual ksgServer
-    window.KSG_SERVER_URL = "http://192.168.0.23:3000"; // Update this to your actual ksgServer IP
+if (isRunningOnRPi) {
+    // Running on ESP32/RPi - point to actual ksgServer
+    window.KSG_SERVER_URL = "http://192.168.0.64:3000"; // Update this to your actual ksgServer IP
 }
+
 let currentUser = null;
 let isOnline = true;
 let cachedWorkers = [];
+let cachedProducts = [];
 let systemStatus = {
     online: false,
     device_id: null,
     current_hinban: null
 };
+
+// Production Manager for real-time Socket.IO communication
+class ProductionManager {
+    constructor() {
+        this.socket = null;
+        this.isConnected = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+    }
+    
+    async initialize() {
+        if (!window.io) {
+            console.log('⚠️  Socket.IO not available - skipping real-time updates');
+            return;
+        }
+        
+        try {
+            // Connect to ksgServer for real-time production updates
+            const serverUrl = window.KSG_SERVER_URL.replace(/\/$/, ''); // Remove trailing slash
+            console.log('🔌 Connecting to production server:', serverUrl);
+            
+            this.socket = window.io(serverUrl, {
+                transports: ['websocket', 'polling'],
+                timeout: 5000,
+                forceNew: true
+            });
+            
+            this.setupEventHandlers();
+            
+        } catch (error) {
+            console.error('❌ Failed to initialize production manager:', error);
+        }
+    }
+    
+    setupEventHandlers() {
+        this.socket.on('connect', () => {
+            console.log('✅ Connected to production server');
+            this.isConnected = true;
+            this.reconnectAttempts = 0;
+            
+            // Register this webapp as a client interested in production updates
+            this.socket.emit('webapp_register', {
+                type: 'webapp_client',
+                device_id: systemStatus.device_id || 'webapp',
+                timestamp: Date.now()
+            });
+            
+            // Request current production status from ESP32 for sync after a short delay
+            setTimeout(() => {
+                console.log('🔄 Requesting current production status from ESP32...');
+                this.socket.emit('esp32_command', {
+                    type: 'request_production_status',
+                    device_id: systemStatus.device_id || 'webapp',
+                    timestamp: Date.now()
+                });
+            }, 500); // 500ms delay to ensure registration is processed
+        });
+        
+        this.socket.on('disconnect', () => {
+            console.log('🔌 Disconnected from production server');
+            this.isConnected = false;
+        });
+        
+        this.socket.on('connect_error', (error) => {
+            console.log('❌ Production server connection error:', error.message);
+            this.isConnected = false;
+        });
+        
+        // Handle production updates from ESP32 devices
+        this.socket.on('message', (data) => {
+            this.handleProductionMessage(data);
+        });
+        
+        // Handle production validation requests from ESP32
+        this.socket.on('validate_production_start', (data) => {
+            this.handleValidationRequest(data);
+        });
+    }
+    
+    handleProductionMessage(data) {
+        console.log('📊 Received production update:', data);
+        
+        if (data.type === 'production_update') {
+            // Check if this is initial sync after page refresh
+            const currentValue = document.getElementById('goodCount')?.value || '0';
+            const isSync = currentValue === '0' && data.good_count > 0;
+            if (isSync) {
+                console.log('🔄 Initial sync - updating from ESP32 current state');
+            }
+            // Update good count field in real-time
+            const goodCountField = document.getElementById('goodCount');
+            const avgCycleTimeField = document.getElementById('averageCycleTime');
+            const initialTimeField = document.getElementById('initialTimeDisplay');
+            const finalTimeField = document.getElementById('finalTimeDisplay');
+            
+            if (goodCountField && data.good_count !== undefined) {
+                goodCountField.value = data.good_count;
+                console.log('🔄 Updated good count to:', data.good_count);
+                
+                // Flash the field to indicate update
+                goodCountField.classList.add('flash-green');
+                setTimeout(() => {
+                    goodCountField.classList.remove('flash-green');
+                }, 200);
+            }
+            
+            if (avgCycleTimeField && data.average_cycle_time !== undefined) {
+                avgCycleTimeField.value = data.average_cycle_time.toFixed(2);
+                console.log('🔄 Updated average cycle time to:', data.average_cycle_time.toFixed(2));
+            }
+            
+            if (initialTimeField && data.first_cycle_time) {
+                initialTimeField.value = data.first_cycle_time;
+            }
+            
+            if (finalTimeField && data.last_cycle_time) {
+                finalTimeField.value = data.last_cycle_time;
+            }
+        }
+    }
+    
+    // Send reset command to ESP32 via server
+    async resetProduction() {
+        if (!this.isConnected) {
+            console.log('⚠️  Not connected to production server - trying direct ESP32 reset');
+            return this.resetDirectESP32();
+        }
+        
+        try {
+            // Send reset command via Socket.IO
+            this.socket.emit('esp32_command', {
+                type: 'reset_production',
+                device_id: systemStatus.device_id,
+                timestamp: Date.now()
+            });
+            
+            console.log('📤 Sent production reset command via server');
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Failed to send reset via server:', error);
+            return this.resetDirectESP32();
+        }
+    }
+    
+    async resetDirectESP32() {
+        try {
+            // Direct HTTP call to ESP32 reset endpoint
+            const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/reset`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                console.log('✅ ESP32 production data reset successfully');
+                
+                // Reset local UI
+                document.getElementById('goodCount').value = '0';
+                document.getElementById('averageCycleTime').value = '';
+                document.getElementById('initialTimeDisplay').value = '';
+                document.getElementById('finalTimeDisplay').value = '';
+                
+                return true;
+            } else {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Failed to reset ESP32 directly:', error);
+            return false;
+        }
+    }
+    
+    // Handle production validation request from ESP32
+    handleValidationRequest(data) {
+        console.log('🔍 Received production validation request:', data);
+        
+        // Check if 品番 (part number) field is filled
+        const hinbanField = document.getElementById('hinban');
+        const hinbanValue = hinbanField ? hinbanField.value.trim() : '';
+        
+        const isValid = hinbanValue.length > 0;
+        
+        if (isValid) {
+            console.log('✅ Validation passed - 品番 is filled:', hinbanValue);
+        } else {
+            console.log('❌ Validation failed - 品番 field is empty');
+            // Show warning modal in webapp instead of ESP32 error
+            this.showValidationModal('品番警告', '品番を入力してください。<br>生産カウントは継続しますが、品番を設定することをお勧めします。');
+        }
+        
+        // ALWAYS allow production to proceed - just show warning in webapp
+        // Send validation response back to ESP32 (always valid to allow count increment)
+        if (this.isConnected && this.socket) {
+            this.socket.emit('esp32_command', {
+                type: 'validation_response',
+                valid: true, // Always allow production to proceed
+                message: isValid ? '品番が設定されています' : '品番未設定ですが生産を続行します',
+                hinban: hinbanValue,
+                device_id: systemStatus.device_id || 'webapp',
+                timestamp: Date.now()
+            });
+            
+            console.log('📤 Sent validation response (always allowing production):', { 
+                valid: true, 
+                message: isValid ? '品番が設定されています' : '品番未設定ですが生産を続行します'
+            });
+        } else {
+            console.error('❌ Cannot send validation response - not connected to server');
+        }
+    }
+    
+    // Show validation warning modal
+    showValidationModal(title, message) {
+        const modal = document.getElementById('validationModal');
+        const titleElement = document.getElementById('validationModalTitle');
+        const messageElement = document.getElementById('validationModalMessage');
+        const button = document.getElementById('validationModalBtn');
+        
+        if (modal && titleElement && messageElement && button) {
+            titleElement.textContent = title;
+            messageElement.innerHTML = message;
+            modal.classList.add('show');
+            
+            // Auto-close after 3 seconds, or manual close
+            const closeModal = () => {
+                modal.classList.remove('show');
+            };
+            
+            button.onclick = closeModal;
+            
+            // Auto-close timer
+            setTimeout(closeModal, 3000);
+            
+            console.log('🚨 Showed validation modal:', title, message);
+        }
+    }
+}
+
+// Global production manager instance
+let productionManager = null;
 
 // Authentication Management
 class AuthManager {
@@ -25,6 +275,7 @@ class AuthManager {
         this.users = [];
         this.currentUser = null;
         this.isCheckingStatus = false; // Add flag to prevent concurrent status checks
+        this.lastUpdateCheck = 0; // Add timestamp for caching update checks
     }
     
     async loadAuthorizedUsers() {
@@ -55,7 +306,7 @@ class AuthManager {
             try {
                 const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
                     headers: {
-                        'X-Device-ID': '4Y02SX'
+                        'X-Device-ID': systemStatus.device_id || '6C10F6'
                     }
                 });
                 console.log('Main server response status:', response.status);
@@ -148,14 +399,7 @@ class AuthManager {
                 // Initialize the app
                 await this.initializeApp();
                 
-                // Check if user needs to select a device
-                const selectedDevice = this.getSelectedDevice();
-                if (!selectedDevice && systemStatus.online) {
-                    // Show device selection after login
-                    setTimeout(() => {
-                        this.showDeviceSelection();
-                    }, 1000); // Small delay to let UI settle
-                }
+                // Device selection no longer needed - running directly on ESP32/RPi
                 
                 return true;
             } else {
@@ -173,11 +417,11 @@ class AuthManager {
         currentUser = null;
         sessionStorage.removeItem('ksg_user');
         
-        // Show login modal
-        document.getElementById('loginModal').classList.add('show');
-        
-        // Reset form
-        this.resetForm();
+        // Instead of showing login modal, redirect back to tablet login page
+        // You can update this URL to your render.com deployment URL
+        const tabletLoginUrl = 'http://192.168.0.64:5503'; // Update this for production
+        console.log('🔄 Redirecting to tablet login page...');
+        window.location.href = tabletLoginUrl;
     }
     
     showLoginError(message) {
@@ -208,6 +452,9 @@ class AuthManager {
         try {
             console.log('🔧 Starting app initialization...');
             
+            // Update user display
+            this.updateUserDisplay();
+            
             // Ensure users are loaded (important for session restore)
             if (this.users.length === 0) {
                 console.log('👥 Users not loaded yet, loading now...');
@@ -215,8 +462,12 @@ class AuthManager {
             }
             
             // Load workers
-            console.log('� Loading workers...');
+            console.log('👷 Loading workers...');
             await this.loadWorkers();
+            
+            // Load products
+            console.log('📦 Loading products...');
+            await this.loadProducts();
             
             // Initialize date
             console.log('📅 Initializing date...');
@@ -233,6 +484,10 @@ class AuthManager {
             // Start status monitoring
             console.log('⏰ Starting status monitoring...');
             this.startStatusMonitoring();
+            
+            // Start webapp update monitoring (ESP32 only)
+            console.log('🔄 Starting update monitoring...');
+            this.startUpdateMonitoring();
             
             // Check for and process any offline submissions
             await this.processOfflineSubmissions();
@@ -254,70 +509,263 @@ class AuthManager {
         }
     }
     
+    updateUserDisplay() {
+        const currentUserDisplay = document.getElementById('currentUserDisplay');
+        if (currentUserDisplay && this.currentUser) {
+            const displayName = this.currentUser.firstName && this.currentUser.lastName 
+                ? `${this.currentUser.firstName} ${this.currentUser.lastName}`
+                : this.currentUser.username;
+            currentUserDisplay.textContent = `ユーザー: ${displayName}`;
+            console.log('👤 User display updated:', displayName);
+        }
+    }
+    
     async loadWorkers() {
         try {
-            // Always try local RPi endpoint first when running on RPi
+            const userCompany = this.currentUser?.company || 'KSG';
+            
+            // Try main server with dynamic company database first
             try {
-                const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/workers`);
-                const data = await response.json();
-                
-                if (data.success && data.workers.length > 0) {
-                    cachedWorkers = data.workers;
-                    this.populateWorkerDropdowns();
-                    console.log(`✅ Loaded ${data.workers.length} workers from RPi`);
-                    return;
+                await this.loadWorkersFromServer(userCompany);
+                return; // Success - exit early
+            } catch (serverError) {
+                console.log('🌐 Server unavailable, trying ESP32 local backup...', serverError.message);
+            }
+            
+            // Fallback to ESP32 local backup (offline support)
+            try {
+                const localResponse = await fetch('/api/data/users');
+                if (localResponse.ok) {
+                    const localData = await localResponse.json();
+                    if (localData.success && localData.users && localData.users.length > 0) {
+                        cachedWorkers = localData.users;
+                        this.populateWorkerDropdowns();
+                        console.log(`💾 Loaded ${localData.users.length} workers from ESP32 local backup`);
+                        return;
+                    } else {
+                        console.log('❌ ESP32 local data exists but is empty or invalid');
+                    }
+                } else {
+                    console.log(`❌ ESP32 local backup returned ${localResponse.status}`);
                 }
             } catch (localError) {
-                console.log('Local RPi workers endpoint not available, trying main server...');
+                console.log('❌ ESP32 local backup not available:', localError.message);
             }
             
-            // Fallback to main server if RPi endpoint fails
-            try {
-                const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                    headers: {
-                        'X-Device-ID': '4Y02SX'
-                    }
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    cachedWorkers = data.users; // All users can be workers
-                    this.populateWorkerDropdowns();
-                    console.log(`✅ Loaded ${data.users.length} workers from main server`);
-                    return;
-                }
-            } catch (serverError) {
-                console.log('Main server not available');
-            }
-            
-            throw new Error('No worker data available');
+            // Final fallback to hardcoded workers
+            await this.loadFallbackWorkers();
             
         } catch (error) {
-            console.error('Error loading workers:', error);
-            // Use cached workers if available
-            if (cachedWorkers.length > 0) {
-                this.populateWorkerDropdowns();
-                console.log('💾 Using cached workers');
-            } else {
-                // Use fallback workers
-                cachedWorkers = [
-                    {
-                        username: 'worker1',
-                        firstName: '山田',
-                        lastName: '一郎',
-                        fullName: '山田 一郎'
-                    },
-                    {
-                        username: 'worker2',
-                        firstName: '鈴木',
-                        lastName: '二郎',
-                        fullName: '鈴木 二郎'
-                    }
-                ];
-                this.populateWorkerDropdowns();
-                console.log('💾 Using fallback workers');
-            }
+            console.error('❌ Error loading workers:', error);
+            await this.loadFallbackWorkers();
         }
+    }
+    
+    async loadWorkersFromServer(company) {
+        try {
+            console.log(`🔄 Loading workers from ${company} database...`);
+            const response = await fetch(`${window.KSG_SERVER_URL}/api/users/${company}`, {
+                headers: {
+                    'X-Device-ID': '6C10F6' // Use current ESP32 device ID
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.users && data.users.length > 0) {
+                cachedWorkers = data.users.map(user => ({
+                    username: user.username,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    fullName: `${user.lastName} ${user.firstName}`,
+                    email: user.email,
+                    role: user.role
+                }));
+                
+                this.populateWorkerDropdowns();
+                console.log(`✅ Loaded ${data.users.length} workers from ${company} database`);
+                
+                // Save to local backup for offline use
+                this.saveWorkersToLocal(cachedWorkers);
+                return;
+            } else {
+                throw new Error(`No users found in ${company} database`);
+            }
+        } catch (serverError) {
+            console.error(`❌ Failed to load workers from ${company}:`, serverError);
+            throw serverError;
+        }
+    }
+    
+    async updateWorkersFromServer(company) {
+        try {
+            await this.loadWorkersFromServer(company);
+        } catch (error) {
+            console.log('⚠️  Background update failed, using local data');
+        }
+    }
+    
+    async saveWorkersToLocal(workers) {
+        try {
+            const response = await fetch('/api/data/users', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ users: workers })
+            });
+            
+            if (response.ok) {
+                console.log('💾 Workers saved to local backup');
+            }
+        } catch (error) {
+            console.log('⚠️  Failed to save workers to local backup:', error);
+        }
+    }
+    
+    async loadFallbackWorkers() {
+        console.log('💾 Using fallback workers');
+        cachedWorkers = [
+            {
+                username: 'fallback1',
+                firstName: '山田',
+                lastName: '太郎',
+                fullName: '山田 太郎'
+            },
+            {
+                username: 'fallback2',
+                firstName: '田中',
+                lastName: '花子',
+                fullName: '田中 花子'
+            }
+        ];
+        this.populateWorkerDropdowns();
+    }
+    
+    async loadProducts() {
+        try {
+            const userCompany = this.currentUser?.company || 'KSG';
+            
+            // Try main server with dynamic company database first
+            try {
+                await this.loadProductsFromServer(userCompany);
+                return; // Success - exit early
+            } catch (serverError) {
+                console.log('🌐 Server unavailable, trying ESP32 local backup...', serverError.message);
+            }
+            
+            // Fallback to ESP32 local backup (offline support)
+            try {
+                const localResponse = await fetch('/api/data/products');
+                if (localResponse.ok) {
+                    const localData = await localResponse.json();
+                    if (localData.success && localData.products && localData.products.length > 0) {
+                        this.cachedProducts = localData.products;
+                        console.log(`💾 Loaded ${localData.products.length} products from ESP32 local backup`);
+                        return;
+                    } else {
+                        console.log('❌ ESP32 local product data exists but is empty or invalid');
+                    }
+                } else {
+                    console.log(`❌ ESP32 local product backup returned ${localResponse.status}`);
+                }
+            } catch (localError) {
+                console.log('❌ ESP32 local product backup not available:', localError.message);
+            }
+            
+            // Final fallback to empty products array
+            await this.loadFallbackProducts();
+            
+        } catch (error) {
+            console.error('❌ Error loading products:', error);
+            await this.loadFallbackProducts();
+        }
+    }
+    
+    async loadProductsFromServer(company) {
+        try {
+            console.log(`🔄 Loading products from ${company} database...`);
+            const response = await fetch(`${window.KSG_SERVER_URL}/api/products/${company}`, {
+                headers: {
+                    'X-Device-ID': '6C10F6' // Use current ESP32 device ID
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.products && data.products.length > 0) {
+                this.cachedProducts = data.products.map(product => ({
+                    品番: product.品番,        // Keep Japanese property names
+                    製品名: product.製品名,      // Keep Japanese property names  
+                    'LH/RH': product['LH/RH'],  // Keep Japanese property names
+                    // Also include English aliases for compatibility
+                    hinban: product.品番,
+                    productName: product.製品名,
+                    lhRh: product['LH/RH']
+                }));
+                
+                console.log(`✅ Loaded ${data.products.length} products from ${company} database`);
+                
+                // Save to local backup for offline use
+                this.saveProductsToLocal(this.cachedProducts);
+                return;
+            } else {
+                throw new Error(`No products found in ${company} database`);
+            }
+        } catch (serverError) {
+            console.error(`❌ Failed to load products from ${company}:`, serverError);
+            throw serverError;
+        }
+    }
+    
+    async updateProductsFromServer(company) {
+        try {
+            await this.loadProductsFromServer(company);
+        } catch (error) {
+            console.log('⚠️  Background product update failed, using local data');
+        }
+    }
+    
+    async saveProductsToLocal(products) {
+        try {
+            const response = await fetch('/api/data/products', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ products: products })
+            });
+            
+            if (response.ok) {
+                console.log('💾 Products saved to local backup');
+            }
+        } catch (error) {
+            console.log('⚠️  Failed to save products to local backup:', error);
+        }
+    }
+    
+    async loadFallbackProducts() {
+        console.log('💾 Using fallback products');
+        this.cachedProducts = [
+            {
+                品番: 'FALLBACK001',
+                製品名: 'フォールバック製品A',
+                'LH/RH': 'LH',
+                // Also include English aliases for compatibility
+                hinban: 'FALLBACK001',
+                productName: 'フォールバック製品A',
+                lhRh: 'LH'
+            },
+            {
+                品番: 'FALLBACK002', 
+                製品名: 'フォールバック製品B',
+                'LH/RH': 'RH',
+                // Also include English aliases for compatibility
+                hinban: 'FALLBACK002',
+                productName: 'フォールバック製品B',
+                lhRh: 'RH'
+            }
+        ];
     }
     
     populateWorkerDropdowns() {
@@ -356,52 +804,105 @@ class AuthManager {
         this.isCheckingStatus = true;
         
         try {
-            // Check if we're running directly on an RPi (by checking for RPi-specific endpoints)
-            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+            // Detect what type of device we're running on
+            const deviceResult = await this.detectDeviceEnvironmentAsync();
             
-            if (isRunningOnRPi) {
-                // We're running directly on RPi - get actual status from RPi
+            if (deviceResult.type === 'esp32') {
+                // We're running directly on ESP32 - get actual status from ESP32
+                const esp32Status = deviceResult.deviceInfo;
+                
+                // Check if ESP32 has server connectivity (via Socket.IO heartbeat or recent activity)
+                let isESP32Online = false;
                 try {
-                    const rpiResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
-                    const rpiStatus = await rpiResponse.json();
-                    
-                    // Use the RPi's actual online status (it tests ksgServer connectivity)
-                    const isRPiOnline = rpiStatus.online || false;
-                    
-                    systemStatus = {
-                        online: isRPiOnline,
-                        device_id: rpiStatus.device_id,
-                        current_hinban: rpiStatus.current_hinban,
-                        local_ip: rpiStatus.local_ip,
-                        device_name: rpiStatus.device_name,
-                        rpi_direct: true
-                    };
-                    
-                    if (isRPiOnline) {
-                        this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
-                        console.log(`✅ RPi status: ONLINE, device_id=${rpiStatus.device_id}`);
-                        
-                        // Process any offline submissions when back online
-                        this.processOfflineSubmissions();
-                    } else {
-                        this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
-                        console.log(`❌ RPi status: OFFLINE, device_id=${rpiStatus.device_id}`);
+                    // First check if ksgServer is reachable
+                    const serverTestResponse = await fetch(`${window.KSG_SERVER_URL}/ping`);
+                    if (serverTestResponse.ok) {
+                        // Server is reachable, now check ESP32's last_seen in database
+                        try {
+                            const deviceStatusResponse = await fetch(`${window.KSG_SERVER_URL}/api/device/check/${esp32Status.device_id}`);
+                            if (deviceStatusResponse.ok) {
+                                const deviceStatusData = await deviceStatusResponse.json();
+                                if (deviceStatusData.success && deviceStatusData.registered && deviceStatusData.device) {
+                                    const lastSeen = new Date(deviceStatusData.device.last_seen);
+                                    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+                                    isESP32Online = lastSeen > fiveMinutesAgo;
+                                    console.log(`ESP32 last seen: ${lastSeen.toISOString()}, 5min ago: ${fiveMinutesAgo.toISOString()}, online: ${isESP32Online}`);
+                                } else {
+                                    // Fallback to basic server connectivity if device status unknown
+                                    isESP32Online = true;
+                                }
+                            } else {
+                                // Fallback to basic server connectivity if API fails
+                                isESP32Online = true;
+                            }
+                        } catch (deviceStatusError) {
+                            console.log('Could not check ESP32 device status, using basic connectivity:', deviceStatusError.message);
+                            isESP32Online = true;
+                        }
                     }
-                    
-                    // Update current hinban if exists
-                    if (rpiStatus.current_hinban) {
-                        document.getElementById('hinban').value = rpiStatus.current_hinban;
-                        await this.processHinban(rpiStatus.current_hinban);
-                    }
-                    
-                    // Update cycle statistics from RPi
-                    await this.updateCycleStatsFromRPi();
-                    return;
-                } catch (rpiError) {
-                    console.error('❌ Error connecting to local RPi:', rpiError);
-                    this.updateStatusUI(false, 'オフライン (RPi接続エラー)');
-                    return;
+                } catch (serverError) {
+                    console.log('ESP32 cannot reach ksgServer:', serverError.message);
+                    isESP32Online = false;
                 }
+                
+                systemStatus = {
+                    online: isESP32Online,
+                    device_id: esp32Status.device_id,
+                    device_name: esp32Status.device_name,
+                    local_ip: esp32Status.ip,
+                    device_type: 'esp32',
+                    esp32_direct: true
+                };
+                
+                if (isESP32Online) {
+                    this.updateStatusUI(true, `オンライン (ESP32: ${esp32Status.device_id})`);
+                    console.log(`✅ ESP32 status: ONLINE, device_id=${esp32Status.device_id}`);
+                    
+                    // Process any offline submissions when back online
+                    this.processOfflineSubmissions();
+                } else {
+                    this.updateStatusUI(false, `オフライン (ESP32: ${esp32Status.device_id})`);
+                    console.log(`❌ ESP32 status: OFFLINE, device_id=${esp32Status.device_id}`);
+                }
+                
+                return;
+            } else if (deviceResult.type === 'rpi') {
+                // We're running directly on RPi - get actual status from RPi
+                const rpiStatus = deviceResult.deviceInfo;
+                
+                // Use the RPi's actual online status (it tests ksgServer connectivity)
+                const isRPiOnline = rpiStatus.online || false;
+                
+                systemStatus = {
+                    online: isRPiOnline,
+                    device_id: rpiStatus.device_id,
+                    current_hinban: rpiStatus.current_hinban,
+                    local_ip: rpiStatus.local_ip,
+                    device_name: rpiStatus.device_name,
+                    device_type: 'rpi',
+                    rpi_direct: true
+                };
+                
+                if (isRPiOnline) {
+                    this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
+                    console.log(`✅ RPi status: ONLINE, device_id=${rpiStatus.device_id}`);
+                    
+                    // Process any offline submissions when back online
+                    this.processOfflineSubmissions();
+                } else {
+                    this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
+                    console.log(`❌ RPi status: OFFLINE, device_id=${rpiStatus.device_id}`);
+                }
+                
+                // Update current hinban if exists
+                if (rpiStatus.current_hinban) {
+                    document.getElementById('hinban').value = rpiStatus.current_hinban;
+                    await this.processHinban(rpiStatus.current_hinban);
+                }
+                
+                // Update cycle statistics from RPi
+                await this.updateCycleStatsFromRPi();
+                return;
             }
             
             // Not on RPi - check online connectivity to ksgServer (tablet mode)
@@ -461,23 +962,18 @@ class AuthManager {
                     }
                 }
                 
-                // ksgServer is online but no device selected or device not accessible
+                // ksgServer is online - general tablet mode
                 systemStatus = {
                     online: true,
                     device_id: null,
                     current_hinban: null,
-                    local_ip: null,
-                    needs_device_selection: true
+                    local_ip: null
                 };
                 
                 this.updateStatusUI(true);
                 
                 // Process any offline submissions when back online
                 this.processOfflineSubmissions();
-                // Show device selection if user is logged in but no device selected
-                if (this.currentUser && !deviceInfo) {
-                    this.showDeviceSelection();
-                }
                 
             } else {
                 throw new Error('ksgServer not accessible');
@@ -516,181 +1012,90 @@ class AuthManager {
         return rpiPatterns.some(pattern => pattern.test(hostname));
     }
     
-    // RPi Environment Detection (Async with endpoint testing)
-    async detectRPiEnvironmentAsync() {
+    // Device Environment Detection (Async with endpoint testing) - ESP32 or RPi
+    async detectDeviceEnvironmentAsync() {
         // First do quick hostname check
         const hostname = window.location.hostname;
-        const hostnameCheck = this.detectRPiEnvironment();
         
-        // For localhost, we're definitely not on RPi
+        // For localhost, we're definitely not on a device
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            console.log(`RPi detection: hostname=${hostname} -> not RPi (localhost)`);
-            return false;
+            console.log(`Device detection: hostname=${hostname} -> not on device (localhost)`);
+            return { type: 'tablet', deviceInfo: null };
         }
         
-        // If hostname suggests RPi, verify with endpoint test
+        // Test for ESP32 endpoints first (port 8080)
         try {
-            // Create a promise that rejects after 3 seconds
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Request timeout')), 3000)
+            );
+            
+            const fetchPromise = fetch(`${window.location.origin}/api/status`);
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
+            
+            if (response.ok) {
+                const data = await response.json();
+                // Check if response looks like ESP32 data (has ffat, counter, etc.)
+                if (data.device_id && data.device_name && ('ffat' in data || 'counter' in data || 'uptime_ms' in data)) {
+                    console.log(`✅ ESP32 detection: hostname=${hostname}, device_id=${data.device_id}, device_name=${data.device_name}`);
+                    return { type: 'esp32', deviceInfo: data };
+                }
+            }
+        } catch (esp32Error) {
+            console.log('ESP32 endpoint test failed:', esp32Error.message);
+        }
+        
+        // Test for RPi Python endpoints (port 5000 or current port)
+        try {
             const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Request timeout')), 3000)
             );
             
             const fetchPromise = fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
-            
             const response = await Promise.race([fetchPromise, timeoutPromise]);
             
             if (response.ok) {
                 const data = await response.json();
-                // Check if response looks like RPi data (has device_id, device_name, etc.)
-                const isRPiResponse = data.device_id && data.device_name && data.local_ip;
-                console.log(`✅ RPi detection: hostname=${hostname}, endpoint_works=${isRPiResponse}, device_id=${data.device_id}`);
-                return isRPiResponse;
-            } else {
-                console.log(`❌ RPi endpoint returned ${response.status}, falling back to hostname check`);
-                return hostnameCheck;
+                // Check if response looks like RPi data (Python-based structure)
+                if (data.device_id && data.device_name && data.local_ip && !('ffat' in data)) {
+                    console.log(`✅ RPi detection: hostname=${hostname}, device_id=${data.device_id}, device_name=${data.device_name}`);
+                    return { type: 'rpi', deviceInfo: data };
+                }
             }
-        } catch (error) {
-            console.log(`⚠️  RPi endpoint test failed: ${error.message}, falling back to hostname check (${hostnameCheck})`);
-            // If RPi endpoint fails but hostname suggests RPi, assume we're on RPi with issues
-            return hostnameCheck;
+        } catch (rpiError) {
+            console.log('RPi endpoint test failed:', rpiError.message);
         }
+        
+        // No device endpoints worked - assume tablet mode
+        console.log(`❌ No device endpoints detected, hostname=${hostname} -> tablet mode`);
+        return { type: 'tablet', deviceInfo: null };
     }
 
-    // Device Selection Management
+    // Backward compatibility function
+    async detectRPiEnvironmentAsync() {
+        const result = await this.detectDeviceEnvironmentAsync();
+        return result.type === 'rpi';
+    }
+
+    // Device management methods (simplified for ESP32/RPi direct connection)
     getSelectedDevice() {
-        const deviceData = localStorage.getItem('selectedDevice');
-        return deviceData ? JSON.parse(deviceData) : null;
+        // Not needed for ESP32/RPi direct connection, but keeping for compatibility
+        return null;
     }
     
     setSelectedDevice(deviceInfo) {
-        localStorage.setItem('selectedDevice', JSON.stringify(deviceInfo));
-        systemStatus.device_id = deviceInfo.device_id;
-        systemStatus.local_ip = deviceInfo.local_ip;
-        systemStatus.device_name = deviceInfo.device_name;
+        // Not needed for ESP32/RPi direct connection
+        console.log('Device selection not needed - running directly on device');
     }
     
     clearSelectedDevice() {
-        localStorage.removeItem('selectedDevice');
-        systemStatus.device_id = null;
-        systemStatus.local_ip = null;
-        systemStatus.device_name = null;
-    }
-    
-    async showDeviceSelection() {
-        try {
-            // Get available KSG devices from ksgServer
-            let ksgServerUrl = window.KSG_SERVER_URL;
-            if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                ksgServerUrl = window.KSG_SERVER_URL;
-            }
-            
-            const response = await fetch(`${ksgServerUrl}/api/devices/rpi/KSG`);
-            const data = await response.json();
-            
-            if (data.success && data.devices.length > 0) {
-                this.displayDeviceSelectionModal(data.devices);
-            } else {
-                alert('No RPi devices found for KSG company. Please ensure your devices are registered.');
-            }
-        } catch (error) {
-            console.error('Error loading devices:', error);
-            alert('Failed to load available devices. Please check your connection.');
-        }
-    }
-    
-    displayDeviceSelectionModal(devices) {
-        // Create device selection modal
-        const modal = document.createElement('div');
-        modal.id = 'deviceSelectionModal';
-        modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-        
-        const modalContent = `
-            <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                <h3 class="text-lg font-semibold mb-4">デバイス選択 (Select Device)</h3>
-                <p class="text-gray-600 mb-4">使用するデバイスを選択してください</p>
-                
-                <div class="space-y-3">
-                    ${devices.map(device => `
-                        <div class="border rounded-lg p-3 cursor-pointer hover:bg-gray-50 device-option" 
-                             data-device='${JSON.stringify(device)}'>
-                            <div class="font-medium">${device.device_name}</div>
-                            <div class="text-sm text-gray-500">
-                                Device ID: ${device.device_id}<br>
-                                IP: ${device.local_ip}:${device.local_port}<br>
-                                Owner: ${device.owner}<br>
-                                Status: <span class="text-${device.status === 'online' ? 'green' : 'red'}-600">${device.status}</span>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-                
-                <div class="flex justify-end space-x-3 mt-6">
-                    <button onclick="authManager.cancelDeviceSelection()" 
-                            class="px-4 py-2 text-gray-600 border rounded hover:bg-gray-50">
-                        キャンセル
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        modal.innerHTML = modalContent;
-        document.body.appendChild(modal);
-        
-        // Add click handlers for device selection
-        modal.querySelectorAll('.device-option').forEach(option => {
-            option.addEventListener('click', () => {
-                const deviceData = JSON.parse(option.dataset.device);
-                this.selectDevice(deviceData);
-            });
-        });
-    }
-    
-    async selectDevice(deviceInfo) {
-        try {
-            // Test connection to the selected device
-            const testResponse = await fetch(`http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/device-info`, {
-                timeout: 5000
-            });
-            
-            if (testResponse.ok) {
-                // Device is accessible
-                this.setSelectedDevice(deviceInfo);
-                this.cancelDeviceSelection();
-                
-                // Show brief success message and auto-redirect
-                const statusMessage = document.getElementById('statusMessage');
-                if (statusMessage) {
-                    statusMessage.className = 'p-3 rounded-md text-center text-sm font-medium bg-green-50 border border-green-200 text-green-800';
-                    statusMessage.textContent = `デバイス "${deviceInfo.device_name}" に接続中... リダイレクトしています...`;
-                    statusMessage.classList.remove('hidden');
-                }
-                
-                // Auto-redirect to the RPi's webapp after a brief delay
-                setTimeout(() => {
-                    window.location.href = `http://${deviceInfo.local_ip}:${deviceInfo.local_port || 5000}/webapp`;
-                }, 1500);
-                
-            } else {
-                alert(`デバイス "${deviceInfo.device_name}" に接続できません。デバイスがオンラインか確認してください。`);
-            }
-        } catch (error) {
-            console.error('Error connecting to device:', error);
-            alert(`デバイスへの接続でエラーが発生しました: ${error.message}`);
-        }
-    }
-    
-    cancelDeviceSelection() {
-        const modal = document.getElementById('deviceSelectionModal');
-        if (modal) {
-            modal.remove();
-        }
+        // Not needed for ESP32/RPi direct connection
+        console.log('Device clearing not needed - running directly on device');
     }
     
     updateStatusUI(online, customMessage = null) {
         const statusDiv = document.getElementById('systemStatus');
         const indicator = document.getElementById('statusIndicator');
         const statusText = document.getElementById('statusText');
-        const deviceBtn = document.getElementById('deviceSelectBtn');
         
         if (online) {
             statusDiv.className = 'status-online p-3 rounded-lg border flex items-center space-x-2';
@@ -699,21 +1104,17 @@ class AuthManager {
             if (customMessage) {
                 statusText.textContent = customMessage;
             } else {
-                // Show device info if connected to a device
-                const selectedDevice = this.getSelectedDevice();
-                if (selectedDevice) {
-                    statusText.textContent = `オンライン (${selectedDevice.device_name})`;
-                    statusText.title = `Device: ${selectedDevice.device_id}\nIP: ${selectedDevice.local_ip}`;
+                // Show device info based on current environment
+                if (systemStatus.esp32_direct) {
+                    statusText.textContent = `オンライン (ESP32: ${systemStatus.device_id})`;
+                    statusText.title = `ESP32 Device: ${systemStatus.device_id}\nIP: ${systemStatus.local_ip}`;
+                } else if (systemStatus.rpi_direct) {
+                    statusText.textContent = `オンライン (RPi: ${systemStatus.device_id})`;
+                    statusText.title = `RPi Device: ${systemStatus.device_id}\nIP: ${systemStatus.local_ip}`;
                 } else {
-                    statusText.textContent = 'オンライン (デバイス未選択)';
-                    statusText.title = 'ksgServerに接続済み、デバイスを選択してください';
+                    statusText.textContent = 'オンライン';
+                    statusText.title = 'サーバーに接続済み';
                 }
-            }
-            
-            // Enable device selection button
-            if (deviceBtn) {
-                deviceBtn.disabled = false;
-                deviceBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm';
             }
         } else {
             statusDiv.className = 'status-offline p-3 rounded-lg border flex items-center space-x-2';
@@ -722,21 +1123,16 @@ class AuthManager {
             if (customMessage) {
                 statusText.textContent = customMessage;
             } else {
-                statusText.textContent = 'オフライン';
-                statusText.title = 'ksgServerに接続できません';
-            }
-            
-            // For offline mode (RPi direct), keep device selection enabled
-            // For true offline, disable it
-            if (deviceBtn) {
-                if (systemStatus.rpi_direct) {
-                    // Running directly on RPi - no need for device selection
-                    deviceBtn.disabled = true;
-                    deviceBtn.className = 'bg-gray-400 text-white font-bold py-2 px-4 rounded-md text-sm cursor-not-allowed';
-                    deviceBtn.textContent = 'RPi直接';
+                // Show appropriate offline message based on environment
+                if (systemStatus.esp32_direct) {
+                    statusText.textContent = `オフライン (ESP32: ${systemStatus.device_id})`;
+                    statusText.title = 'ESP32デバイスはksgServerに接続できません';
+                } else if (systemStatus.rpi_direct) {
+                    statusText.textContent = `オフライン (RPi: ${systemStatus.device_id})`;
+                    statusText.title = 'RPiデバイスはksgServerに接続できません';
                 } else {
-                    deviceBtn.disabled = true;
-                    deviceBtn.className = 'bg-gray-400 text-white font-bold py-2 px-4 rounded-md text-sm cursor-not-allowed';
+                    statusText.textContent = 'オフライン';
+                    statusText.title = 'ksgServerに接続できません';
                 }
             }
         }
@@ -755,6 +1151,154 @@ class AuthManager {
             setInterval(async () => {
                 await this.updateCycleStatsFromRPi();
             }, 5000);
+        }
+    }
+    
+    startUpdateMonitoring() {
+        // Only check for updates on ESP32 devices
+        this.detectDeviceEnvironmentAsync().then(deviceResult => {
+            if (deviceResult.type === 'esp32') {
+                console.log('🔄 Starting ESP32 webapp update monitoring...');
+                
+                // Check for updates every 10 minutes
+                setInterval(async () => {
+                    await this.checkForWebappUpdates();
+                }, 10 * 60 * 1000);
+                
+                // Initial check after 30 seconds
+                setTimeout(async () => {
+                    await this.checkForWebappUpdates();
+                }, 30000);
+            } else {
+                console.log('ℹ️  Update monitoring disabled (not on ESP32)');
+            }
+        });
+    }
+    
+    async checkForWebappUpdates() {
+        try {
+            // Only run if we're on ESP32
+            const deviceResult = await this.detectDeviceEnvironmentAsync();
+            if (deviceResult.type !== 'esp32') {
+                return;
+            }
+            
+            // Cache check results for 5 minutes to prevent excessive API calls
+            const now = Date.now();
+            if (this.lastUpdateCheck && (now - this.lastUpdateCheck) < 5 * 60 * 1000) {
+                console.log('⏰ Update check skipped (cached)');
+                return;
+            }
+            
+            console.log('🔍 Checking for webapp updates...');
+            
+            const response = await fetch('/api/webapp/check-updates');
+            if (response.ok) {
+                const data = await response.json();
+                this.lastUpdateCheck = now;
+                
+                if (data.updates_available) {
+                    console.log('🆕 Webapp updates available!');
+                    this.showUpdateNotification();
+                } else {
+                    console.log('✅ Webapp is up to date');
+                    // Hide notification if it exists but no updates are available
+                    const existingNotification = document.getElementById('updateNotification');
+                    if (existingNotification) {
+                        existingNotification.remove();
+                        console.log('🗑️ Removed outdated update notification');
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('⚠️  Update check failed:', error.message);
+        }
+    }
+    
+    showUpdateNotification() {
+        // Check if notification already exists
+        if (document.getElementById('updateNotification')) {
+            return;
+        }
+        
+        // Create update notification banner
+        const notification = document.createElement('div');
+        notification.id = 'updateNotification';
+        notification.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center space-x-4';
+        notification.innerHTML = `
+            <div class="flex items-center space-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                <span>新しいバージョンが利用可能です</span>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="authManager.applyUpdates()" class="bg-white text-blue-600 px-3 py-1 rounded text-sm font-medium hover:bg-gray-100">
+                    今すぐ更新
+                </button>
+                <button onclick="authManager.dismissUpdate()" class="border border-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                    後で
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        console.log('📢 Update notification displayed');
+    }
+    
+    async applyUpdates() {
+        try {
+            console.log('🔄 Applying webapp updates...');
+            
+            // Disable the update button and show loading state
+            const updateBtn = document.querySelector('#updateNotification button');
+            if (updateBtn) {
+                updateBtn.disabled = true;
+                updateBtn.innerHTML = `
+                    <svg class="animate-spin h-4 w-4 mr-2 inline-block" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    更新中...
+                `;
+                updateBtn.className = 'bg-gray-300 text-gray-600 px-3 py-1 rounded text-sm font-medium cursor-not-allowed';
+            }
+            
+            // Save current form data
+            this.saveFormData();
+            
+            const response = await fetch('/api/webapp/update', { method: 'POST' });
+            if (response.ok) {
+                const data = await response.json();
+                
+                if (data.success) {
+                    console.log('✅ Updates applied successfully');
+                    
+                    // Show success message and reload
+                    this.showStatusMessage('アップデート完了 - ページを再読み込みします...', 'success');
+                    
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    console.error('❌ Update failed:', data.message);
+                    this.showStatusMessage('アップデートに失敗しました', 'error');
+                }
+            }
+        } catch (error) {
+            console.error('❌ Update application failed:', error);
+            this.showStatusMessage('アップデートエラーが発生しました', 'error');
+        }
+        
+        // Remove notification
+        this.dismissUpdate();
+    }
+    
+    dismissUpdate() {
+        const notification = document.getElementById('updateNotification');
+        if (notification) {
+            notification.remove();
         }
     }
     
@@ -808,11 +1352,16 @@ class AuthManager {
         let hinbanTimeout;
         
         hinbanInput.addEventListener('input', (e) => {
+            // Save form data immediately when hinban changes
+            this.saveFormData();
+            
             clearTimeout(hinbanTimeout);
             hinbanTimeout = setTimeout(async () => {
                 const hinban = e.target.value.trim();
                 if (hinban) {
                     await this.processHinban(hinban);
+                    // Save again after product info is filled
+                    this.saveFormData();
                 }
             }, 500);
         });
@@ -911,6 +1460,17 @@ class AuthManager {
             }
         });
         
+        // Validation modal close button
+        const validationModalBtn = document.getElementById('validationModalBtn');
+        if (validationModalBtn) {
+            validationModalBtn.addEventListener('click', () => {
+                const modal = document.getElementById('validationModal');
+                if (modal) {
+                    modal.classList.remove('show');
+                }
+            });
+        }
+        
         // Add persistence event listeners for form fields
         this.setupFormPersistence();
     }
@@ -959,7 +1519,7 @@ class AuthManager {
         });
         
         // Other fields
-        ['productName', 'lhRh'].forEach(id => {
+        ['hinban', 'productName', 'lhRh'].forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.addEventListener('input', () => {
@@ -1125,10 +1685,10 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // Try local RPi endpoint first if we're running on RPi
-            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+            // Check what type of device we're running on
+            const deviceResult = await this.detectDeviceEnvironmentAsync();
             
-            if (isRunningOnRPi) {
+            if (deviceResult.type === 'rpi') {
                 console.log(`🔧 RPi mode: Getting product info for hinban ${hinban} from local database`);
                 
                 try {
@@ -1179,12 +1739,30 @@ class AuthManager {
                 }
             }
             
-            // Fallback to main server (either not on RPi, or RPi is online and local failed)
+            // Try cached product data from ESP32 local storage
+            if (this.cachedProducts && this.cachedProducts.length > 0) {
+                console.log(`📦 Checking cached product data for hinban ${hinban}`);
+                const cachedProduct = this.cachedProducts.find(p => p.品番 === hinban);
+                
+                if (cachedProduct) {
+                    console.log(`✅ Found product in cache:`, cachedProduct);
+                    // Auto-fill product information from cache
+                    document.getElementById('productName').value = cachedProduct.製品名 || '';
+                    document.getElementById('lhRh').value = cachedProduct['LH/RH'] || '';
+                    
+                    this.showStatusMessage(`製品情報を取得しました: ${cachedProduct.製品名} (キャッシュ)`, 'success');
+                    return; // Success from cache - exit early
+                } else {
+                    console.log(`❌ Product ${hinban} not found in cached data`);
+                }
+            }
+            
+            // Fallback to main server (either not on RPi, or RPi is online and local failed, or cache miss)
             console.log(`🌐 Fallback: Getting product info from main server for hinban ${hinban}`);
             
             const productResponse = await fetch(`${window.KSG_SERVER_URL}/api/products/KSG`, {
                 headers: {
-                    'X-Device-ID': '4Y02SX'  // Required for authentication
+                    'X-Device-ID': systemStatus.device_id || '6C10F6'  // Required for authentication
                 }
             });
             
@@ -1212,6 +1790,23 @@ class AuthManager {
             }
         } catch (error) {
             console.error('Error processing hinban:', error);
+            
+            // Final fallback to cached data if server fails
+            if (this.cachedProducts && this.cachedProducts.length > 0) {
+                console.log(`🔄 Server failed, trying cached data as final fallback for hinban ${hinban}`);
+                const cachedProduct = this.cachedProducts.find(p => p.品番 === hinban);
+                
+                if (cachedProduct) {
+                    console.log(`✅ Found product in cache (fallback):`, cachedProduct);
+                    // Auto-fill product information from cache
+                    document.getElementById('productName').value = cachedProduct.製品名 || '';
+                    document.getElementById('lhRh').value = cachedProduct['LH/RH'] || '';
+                    
+                    this.showStatusMessage(`製品情報を取得しました: ${cachedProduct.製品名} (オフライン)`, 'warning');
+                    return;
+                }
+            }
+            
             this.showStatusMessage('品番の処理に失敗しました - 製品データベースを確認してください', 'error');
         } finally {
             this.showLoadingIndicator(false);
@@ -1261,58 +1856,63 @@ class AuthManager {
     
     async submitData() {
         try {
-            // Show loading animation
-            this.showSubmissionStatus('データを送信中...', 'loading');
-            this.showLoadingIndicator(true);
-            
             // Collect all form data
             const formData = this.collectFormData();
             
-            // Validate required fields only if we have basic data
+            // Validate required fields FIRST (before showing loading indicators)
             if (!formData.品番) {
-                throw new Error('品番は必須です');
+                productionManager.showValidationModal('品番エラー', '品番は必須です。<br>データを送信する前に品番を入力してください。');
+                return;
             }
             
             // Allow submission without operator if this is offline test data
             if (!formData["技能員①"] && !systemStatus.rpi_direct) {
-                throw new Error('技能員①は必須です');
+                productionManager.showValidationModal('技能員エラー', '技能員①は必須です。<br>データを送信する前に技能員を選択してください。');
+                return;
             }
             
-            // Detect environment and handle submission accordingly
-            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+            // Validation passed - NOW show loading animation
+            this.showSubmissionStatus('データを送信中...', 'loading');
+            this.showLoadingIndicator(true);
             
-            if (isRunningOnRPi) {
+            // Detect environment and handle submission accordingly
+            const deviceResult = await this.detectDeviceEnvironmentAsync();
+            
+            if (deviceResult.type === 'rpi') {
                 // Running on RPi - try RPi submission endpoint first
                 console.log('🔧 RPi mode: Submitting data through RPi endpoint');
                 this.showSubmissionStatus('RPi経由で送信中...', 'loading');
                 
                 try {
-                    // Get current cycle logs from RPi if available
+                    // Get current production stats from ESP32 if available
                     try {
-                        const cycleResponse = await fetch(`${window.PYTHON_API_BASE_URL}/get-all-cycle-logs-for-submission`);
-                        if (cycleResponse.ok) {
-                            const cycleData = await cycleResponse.json();
-                            if (cycleData.status === 'success') {
-                                formData.生産ログ = cycleData.logs;
-                                
-                                // Calculate automatic fields from real cycle data
-                                if (cycleData.logs.length > 0) {
-                                    formData.良品数 = cycleData.logs.length;
-                                    formData.開始時間 = cycleData.logs[0].initial_time;
-                                    formData.終了時間 = cycleData.logs[cycleData.logs.length - 1].final_time;
-                                    
-                                    const totalCycleTime = cycleData.logs.reduce((sum, log) => sum + log.cycle_time, 0);
-                                    formData.平均サイクル時間 = totalCycleTime / cycleData.logs.length;
-                                }
+                        const productionResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/production/stats`);
+                        if (productionResponse.ok) {
+                            const productionData = await productionResponse.json();
+                            console.log('📊 ESP32 production stats:', productionData);
+                            
+                            // Use real production data from ESP32 button presses
+                            formData.生産ログ = productionData.production_log || [];
+                            formData.良品数 = productionData.good_count || 0;
+                            formData.平均サイクル時間 = productionData.average_cycle_time || 0;
+                            
+                            if (productionData.first_cycle_time) {
+                                formData.開始時間 = productionData.first_cycle_time;
                             }
+                            if (productionData.last_cycle_time) {
+                                formData.終了時間 = productionData.last_cycle_time;
+                            }
+                            
+                            console.log('✅ Using ESP32 production data for submission');
                         }
-                    } catch (cycleError) {
-                        console.log('⚠️ Could not get cycle logs, using form data');
+                    } catch (productionError) {
+                        console.log('⚠️ Could not get ESP32 production stats, using form data');
                         // Use form data as fallback
                         formData.良品数 = parseInt(document.getElementById('goodCount').value) || 0;
                         formData.開始時間 = document.getElementById('initialTimeDisplay').value || new Date().toISOString();
                         formData.終了時間 = document.getElementById('finalTimeDisplay').value || new Date().toISOString();
                         formData.平均サイクル時間 = parseFloat(document.getElementById('averageCycleTime').value) || 0;
+                        formData.生産ログ = [];
                     }
                     
                     // Submit through RPi endpoint (handles offline queuing automatically)
@@ -1333,7 +1933,13 @@ class AuthManager {
                                 this.showStatusMessage('データを一時保存しました（オフライン）- RPiで管理中', 'warning');
                             } else {
                                 this.showSubmissionStatus('送信完了！', 'success');
-                                this.showStatusMessage('データを正常に送信しました（RPi経由）', 'success');
+                                
+                                // Show detailed submission status
+                                let statusMessage = 'データを正常に送信しました（RPi経由）';
+                                if (rpiSubmitData.mongodb && rpiSubmitData.googleSheets) {
+                                    statusMessage += ` - MongoDB: ${rpiSubmitData.mongodb.success ? '✅' : '❌'}, Google Sheets: ${rpiSubmitData.googleSheets.success ? '✅' : '❌'}`;
+                                }
+                                this.showStatusMessage(statusMessage, 'success');
                             }
                             
                             // Reset RPi state after successful submission
@@ -1345,6 +1951,9 @@ class AuthManager {
                             } catch (resetError) {
                                 console.log('⚠️ Failed to reset RPi state:', resetError.message);
                             }
+                            
+                            // Reset ESP32 production data after successful submission
+                            await this.resetESP32ProductionData();
                             
                             // Clear form after successful submission
                             setTimeout(() => {
@@ -1370,6 +1979,14 @@ class AuthManager {
                         this.saveToLocalStorage(formData);
                         this.showSubmissionStatus('オフライン保存完了', 'warning');
                         this.showStatusMessage('RPi接続不可 - ブラウザに一時保存しました', 'warning');
+                        
+                        // Reset ESP32 production data after offline submission
+                        await this.resetESP32ProductionData();
+                        
+                        // Reset form after offline submission
+                        setTimeout(() => {
+                            this.resetForm();
+                        }, 2000);
                         return;
                     }
                 }
@@ -1395,7 +2012,7 @@ class AuthManager {
                         method: 'POST',
                         headers: { 
                             'Content-Type': 'application/json',
-                            'X-Device-ID': '4Y02SX'  // Required for authentication
+                            'X-Device-ID': systemStatus.device_id || '6C10F6'  // Use actual device ID
                         },
                         body: JSON.stringify(formData)
                     });
@@ -1405,11 +2022,17 @@ class AuthManager {
                         
                         if (directSubmitData.success) {
                             this.showSubmissionStatus('送信完了！', 'success');
-                            this.showStatusMessage('データを正常に送信しました（直接）', 'success');
                             
-                            // Reset RPi state if we're connected to one
-                            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
-                            if (isRunningOnRPi) {
+                            // Show detailed submission status
+                            let statusMessage = 'データを正常に送信しました（直接）';
+                            if (directSubmitData.mongodb && directSubmitData.googleSheets) {
+                                statusMessage += ` - MongoDB: ${directSubmitData.mongodb.success ? '✅' : '❌'}, Google Sheets: ${directSubmitData.googleSheets.success ? '✅' : '❌'}`;
+                            }
+                            this.showStatusMessage(statusMessage, 'success');
+                            
+                            // Reset device state if we're connected to one
+                            const deviceResult = await this.detectDeviceEnvironmentAsync();
+                            if (deviceResult.type === 'rpi') {
                                 try {
                                     await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
                                         method: 'POST'
@@ -1419,6 +2042,9 @@ class AuthManager {
                                     console.log('⚠️ Failed to reset RPi state:', resetError.message);
                                 }
                             }
+                            
+                            // Reset ESP32 production data after successful submission
+                            await this.resetESP32ProductionData();
                             
                             // Clear form after successful submission
                             setTimeout(() => {
@@ -1439,6 +2065,14 @@ class AuthManager {
                     this.saveToLocalStorage(formData);
                     this.showSubmissionStatus('オフライン保存完了', 'warning');
                     this.showStatusMessage('サーバー接続不可 - ブラウザに一時保存しました', 'warning');
+                    
+                    // Reset ESP32 production data after offline submission
+                    await this.resetESP32ProductionData();
+                    
+                    // Reset form after offline submission
+                    setTimeout(() => {
+                        this.resetForm();
+                    }, 2000);
                     return;
                 }
             } else {
@@ -1447,12 +2081,23 @@ class AuthManager {
                 this.saveToLocalStorage(formData);
                 this.showSubmissionStatus('オフライン保存完了', 'warning');
                 this.showStatusMessage('オフライン - ブラウザに一時保存しました', 'warning');
+                
+                // Reset form after offline submission
+                setTimeout(() => {
+                    this.resetForm();
+                }, 2000);
             }
             
         } catch (error) {
             console.error('Error submitting data:', error);
             this.showSubmissionStatus('送信エラー', 'error');
-            this.showStatusMessage(`送信エラー: ${error.message}`, 'error');
+            
+            // Show validation errors in modal, other errors in status message
+            if (error.message.includes('必須') || error.message.includes('入力') || error.message.includes('選択')) {
+                productionManager.showValidationModal('送信エラー', `${error.message}<br>必要な項目を入力してから再送信してください。`);
+            } else {
+                this.showStatusMessage(`送信エラー: ${error.message}`, 'error');
+            }
         } finally {
             this.showLoadingIndicator(false);
         }
@@ -1501,10 +2146,10 @@ class AuthManager {
             for (const submission of offlineData) {
                 try {
                     // Try to submit through appropriate endpoint
-                    const isOnRPi = await this.detectRPiEnvironmentAsync();
+                    const deviceResult = await this.detectDeviceEnvironmentAsync();
                     let success = false;
                     
-                    if (isOnRPi) {
+                    if (deviceResult.type === 'rpi') {
                         // Try RPi endpoint
                         const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/submit-production-data`, {
                             method: 'POST',
@@ -1522,7 +2167,7 @@ class AuthManager {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/json',
-                                'X-Device-ID': '4Y02SX'
+                                'X-Device-ID': systemStatus.device_id || '6C10F6'
                             },
                             body: JSON.stringify(submission.data)
                         });
@@ -1571,6 +2216,11 @@ class AuthManager {
     saveFormData() {
         try {
             const formData = {
+                // Product information
+                hinban: document.getElementById('hinban')?.value || '',
+                productName: document.getElementById('productName')?.value || '',
+                lhRh: document.getElementById('lhRh')?.value || '',
+                
                 // Worker dropdowns
                 operator1: document.getElementById('operator1')?.value || '',
                 operator2: document.getElementById('operator2')?.value || '',
@@ -1596,11 +2246,7 @@ class AuthManager {
                 break4To: document.getElementById('break4To')?.value || '',
                 
                 // Calculated break time (minutes)
-                breakTime: document.getElementById('breakTime')?.value || '0',
-                
-                // Other fields
-                productName: document.getElementById('productName')?.value || '',
-                lhRh: document.getElementById('lhRh')?.value || ''
+                breakTime: document.getElementById('breakTime')?.value || '0'
             };
             
             localStorage.setItem('ksg_form_data', JSON.stringify(formData));
@@ -1617,6 +2263,20 @@ class AuthManager {
             
             const formData = JSON.parse(savedData);
             console.log('📋 Loading saved form data:', formData);
+            
+            // Product information
+            if (formData.hinban) {
+                const hinban = document.getElementById('hinban');
+                if (hinban) hinban.value = formData.hinban;
+            }
+            if (formData.productName) {
+                const productName = document.getElementById('productName');
+                if (productName) productName.value = formData.productName;
+            }
+            if (formData.lhRh) {
+                const lhRh = document.getElementById('lhRh');
+                if (lhRh) lhRh.value = formData.lhRh;
+            }
             
             // Worker dropdowns
             if (formData.operator1) {
@@ -1655,16 +2315,6 @@ class AuthManager {
             if (formData.breakTime) {
                 const breakTime = document.getElementById('breakTime');
                 if (breakTime) breakTime.value = formData.breakTime;
-            }
-            
-            // Other fields
-            if (formData.productName) {
-                const productName = document.getElementById('productName');
-                if (productName) productName.value = formData.productName;
-            }
-            if (formData.lhRh) {
-                const lhRh = document.getElementById('lhRh');
-                if (lhRh) lhRh.value = formData.lhRh;
             }
             
             // Recalculate break time after loading
@@ -1739,10 +2389,24 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // Check if we're running on RPi and reset RPi state
-            const isRunningOnRPi = await this.detectRPiEnvironmentAsync();
+            // Reset ESP32 production data first
+            if (productionManager) {
+                console.log('🔄 Resetting ESP32 production data...');
+                const espResetSuccess = await productionManager.resetProduction();
+                
+                if (espResetSuccess) {
+                    console.log('✅ ESP32 production data reset successfully');
+                    this.showStatusMessage('ESP32生産データをリセットしました', 'success');
+                } else {
+                    console.log('⚠️ Failed to reset ESP32 production data');
+                    this.showStatusMessage('ESP32リセットに失敗しました', 'warning');
+                }
+            }
             
-            if (isRunningOnRPi) {
+            // Check if we're running on a device and reset device state  
+            const deviceResult = await this.detectDeviceEnvironmentAsync();
+            
+            if (deviceResult.type === 'rpi') {
                 try {
                     // Reset RPi production state
                     const resetResponse = await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
@@ -1791,20 +2455,32 @@ class AuthManager {
         document.getElementById('averageCycleTime').value = '';
         document.getElementById('manHours').value = '0';
         
-        // Reset defect counts
-        ['defectCount1', 'defectCount2', 'defectCount3', 'defectCount4', 'defectCount5'].forEach(id => {
+        // Reset all defect counts using correct IDs
+        const defectFields = [
+            'materialDefect', 'doubleDefect', 'peelingDefect', 'foreignMatterDefect',
+            'wrinkleDefect', 'deformationDefect', 'greaseDefect', 'screwLooseDefect',
+            'otherDefect', 'shoulderDefect', 'silverDefect', 'shoulderScratchDefect',
+            'shoulderOtherDefect'
+        ];
+        
+        defectFields.forEach(id => {
             const element = document.getElementById(id);
             if (element) element.value = '0';
         });
         
         // Reset text areas
-        const commentsField = document.getElementById('comments');
-        if (commentsField) commentsField.value = '';
+        const remarksField = document.getElementById('remarks');
+        if (remarksField) remarksField.value = '';
+        
+        const otherDescField = document.getElementById('otherDescription');
+        if (otherDescField) otherDescField.value = '';
         
         // Reset break times
         ['break1', 'break2', 'break3', 'break4'].forEach(breakId => {
-            document.getElementById(`${breakId}From`).value = '';
-            document.getElementById(`${breakId}To`).value = '';
+            const fromElement = document.getElementById(`${breakId}From`);
+            const toElement = document.getElementById(`${breakId}To`);
+            if (fromElement) fromElement.value = '';
+            if (toElement) toElement.value = '';
         });
         
         document.getElementById('breakTime').value = '0';
@@ -1816,6 +2492,23 @@ class AuthManager {
         // Clear saved form data
         this.clearFormData();
         console.log('🗑️ Form reset and saved data cleared');
+    }
+    
+    async resetESP32ProductionData() {
+        if (productionManager) {
+            try {
+                console.log('🔄 Resetting ESP32 production data after successful submission...');
+                const resetSuccess = await productionManager.resetProduction();
+                
+                if (resetSuccess) {
+                    console.log('✅ ESP32 production data reset successfully after submission');
+                } else {
+                    console.log('⚠️ Failed to reset ESP32 production data after submission');
+                }
+            } catch (error) {
+                console.error('❌ Error resetting ESP32 production data:', error);
+            }
+        }
     }
     
     showStatusMessage(message, type) {
@@ -2000,6 +2693,36 @@ class AuthManager {
 // Initialize the application
 const authManager = new AuthManager();
 
+// Helper function to get user info from URL parameters
+function getUserFromURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const userParam = urlParams.get('user');
+    const usernameParam = urlParams.get('username');
+    const companyParam = urlParams.get('company');
+    
+    if (userParam) {
+        try {
+            // If full user object is passed as JSON
+            return JSON.parse(decodeURIComponent(userParam));
+        } catch (e) {
+            console.warn('Failed to parse user parameter:', e);
+        }
+    }
+    
+    if (usernameParam) {
+        // If just username is passed, create basic user object
+        return {
+            username: usernameParam,
+            firstName: usernameParam,
+            lastName: '',
+            role: 'user',
+            company: companyParam || 'KSG'
+        };
+    }
+    
+    return null;
+}
+
 // Document ready
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 KSG Production System - Enhanced Version');
@@ -2007,7 +2730,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('PYTHON_API_BASE_URL:', window.PYTHON_API_BASE_URL);
     console.log('KSG_SERVER_URL:', window.KSG_SERVER_URL);
     
-    // Check if user is already logged in
+    // Initialize production manager for real-time updates
+    console.log('📊 Initializing production manager...');
+    productionManager = new ProductionManager();
+    await productionManager.initialize();
+    
+    // First, check if user info is passed via URL parameters (from tablet redirect)
+    const urlUser = getUserFromURL();
+    if (urlUser) {
+        console.log('👥 User info received from tablet:', urlUser);
+        authManager.currentUser = urlUser;
+        currentUser = urlUser;
+        
+        // Store in session for future page reloads
+        sessionStorage.setItem('ksg_user', JSON.stringify(urlUser));
+        
+        // Hide login modal and initialize app directly
+        const loginModal = document.getElementById('loginModal');
+        if (loginModal) {
+            loginModal.classList.remove('show');
+            loginModal.style.display = 'none';
+        }
+        
+        console.log('🔧 Initializing app with tablet user info...');
+        await authManager.initializeApp();
+        return;
+    }
+    
+    // Check if user is already logged in from previous session
     const savedUser = sessionStorage.getItem('ksg_user');
     if (savedUser) {
         try {
@@ -2017,7 +2767,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentUser = user;
             
             // Hide login modal and initialize app
-            document.getElementById('loginModal').classList.remove('show');
+            const loginModal = document.getElementById('loginModal');
+            if (loginModal) {
+                loginModal.classList.remove('show');
+                loginModal.style.display = 'none';
+            }
             console.log('🔧 Initializing app after session restore...');
             await authManager.initializeApp();
         } catch (error) {
@@ -2025,35 +2779,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             authManager.logout();
         }
     } else {
-        // Load users for login
-        console.log('🔑 No saved session, loading users for login...');
-        try {
-            await authManager.loadAuthorizedUsers();
-        } catch (error) {
-            console.error('❌ Critical error loading users:', error);
+        // Show message that user should access from tablet
+        console.log('⚠️  No user info available - should access from tablet login');
+        const loginModal = document.getElementById('loginModal');
+        if (loginModal) {
+            // Update login modal to show message instead of login form
+            const modalContent = loginModal.querySelector('.bg-white');
+            if (modalContent) {
+                modalContent.innerHTML = `
+                    <div class="text-center p-8">
+                        <h2 class="text-2xl font-bold text-blue-800 mb-6">KSG Production System</h2>
+                        <div class="text-red-600 mb-4">
+                            <svg class="w-16 h-16 mx-auto mb-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                            </svg>
+                            <p class="text-lg font-semibold mb-2">アクセスエラー</p>
+                            <p class="text-sm">このページにはタブレットのログインページからアクセスしてください。</p>
+                        </div>
+                        <button onclick="window.close()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            閉じる
+                        </button>
+                    </div>
+                `;
+            }
+            loginModal.classList.add('show');
         }
     }
-    
-    // Setup login form
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const username = document.getElementById('username').value;
-        if (!username) {
-            authManager.showLoginError('ユーザーを選択してください');
-            return;
-        }
-        
-        authManager.showLoginLoading(true);
-        
-        const success = await authManager.login(username);
-        
-        authManager.showLoginLoading(false);
-        
-        if (!success) {
-            // Error already shown by login method
-        }
-    });
 });
 
 // Handle online/offline events

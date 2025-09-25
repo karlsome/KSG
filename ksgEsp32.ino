@@ -23,6 +23,7 @@
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 #include <FFat.h>  // FATFS backend (matches LilyGO partition)
+#include <time.h>  // For NTP time synchronization
 
 // -------------------- Display (LilyGo T-Display S3) --------------------
 #define PIN_POWER_ON 15
@@ -55,8 +56,16 @@ const char* SERVER_HOST = "192.168.0.64";   // <-- your server IP/host
 const int   SERVER_PORT = 3000;
 
 // -------------------- GPIO --------------------
-const int GPIO_INPUT_PIN = 1;   // Button input (active LOW, pull-up)
-const int GPIO_LED_PIN   = 2;   // LED output (active LOW)
+const int GPIO_START_BUTTON = 1;   // Start button (active LOW, pull-up)
+const int GPIO_LED_PIN      = 2;   // LED output (active LOW)
+const int GPIO_END_BUTTON   = 3;   // End button (active LOW, pull-up)
+
+// -------------------- NTP Time Configuration --------------------
+const char* NTP_SERVER1 = "pool.ntp.org";
+const char* NTP_SERVER2 = "time.nist.gov";
+const char* NTP_SERVER3 = "ntp.jst.mfeed.ad.jp";  // Japan NTP server
+const long GMT_OFFSET_SEC = 9 * 3600;  // JST is UTC+9
+const int DAYLIGHT_OFFSET_SEC = 0;      // Japan doesn't use daylight saving
 
 // -------------------- WiFi credentials --------------------
 const char* ssidList[] = {
@@ -106,10 +115,29 @@ bool fsAvailable       = false;
 String localIP         = "";
 int productionCounter  = 0;
 
-bool lastGPIOState     = HIGH;
-bool currentGPIOState  = HIGH;
-unsigned long lastButtonPress = 0;
+// Production tracking state
+bool lastStartButtonState = HIGH;
+bool lastEndButtonState   = HIGH;
+unsigned long lastStartButtonPress = 0;
+unsigned long lastEndButtonPress   = 0;
 const unsigned long DEBOUNCE_DELAY = 50;
+
+// Cycle timing
+unsigned long cycleStartTime = 0;
+bool cycleInProgress = false;
+String currentCycleStartTimeStr = "";  // Store actual start time string
+
+// Production validation state
+bool pendingValidation = false;
+unsigned long validationRequestTime = 0;
+const unsigned long VALIDATION_TIMEOUT = 5000; // 5 seconds timeout for validation
+float totalCycleTime = 0.0;
+int completedCycles = 0;
+String firstCycleTime = "";
+String lastCycleTime = "";
+
+// Production log array (JSON string to save memory)
+String productionLog = "[]";
 
 // -------------------- Colors --------------------
 #define COLOR_BLACK     0x0000
@@ -126,15 +154,29 @@ void displayDeviceInfo();
 void logHeap(const char* tag);
 void connectToWiFi();
 void mountFFat();
+void initializeNTP();
 void setupWebServer();
 void setupSocketIO();
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
-void handleButtonPress();
+void handleStartButton();
+void handleEndButton();
+void startProductionCycle(unsigned long timestamp);
+void blinkLED(int times = 1);
+void updateProductionCount(int newCount);
+void resetProductionData();
+void addCycleToLog(float cycleTime, String startTime, String endTime);
+String getCurrentTimeString();
+void sendProductionUpdate();
 void registerDevice();
 bool downloadFile(const String& url, const String& path);
 void downloadWebAppFiles();
 void downloadUserData();
 void downloadProductData();
+void saveWebappVersion(const String& versionData);
+String loadWebappVersion();
+bool checkForWebappUpdates();
+bool downloadWebappUpdates();
+void checkAndUpdateWebapp();
 
 // -------------------- Helpers --------------------
 void displayMessage(const char* message, uint16_t color) {
@@ -162,7 +204,18 @@ void displayDeviceInfo() {
   gfx->printf("Count: %d", productionCounter);
 
   gfx->setCursor(5, 90);  gfx->setTextSize(1); gfx->setTextColor(COLOR_YELLOW);
-  gfx->printf("GPIO1: %s", digitalRead(GPIO_INPUT_PIN) ? "HIGH" : "LOW");
+  gfx->printf("START: %s END: %s", 
+              digitalRead(GPIO_START_BUTTON) ? "HIGH" : "LOW",
+              digitalRead(GPIO_END_BUTTON) ? "HIGH" : "LOW");
+  
+  if (cycleInProgress) {
+    gfx->setCursor(5, 105); gfx->setTextColor(COLOR_CYAN);
+    gfx->printf("Cycle in progress...");
+  } else if (completedCycles > 0) {
+    float avgCycleTime = totalCycleTime / completedCycles;
+    gfx->setCursor(5, 105); gfx->setTextColor(COLOR_GREEN);
+    gfx->printf("Avg: %.2fs (%d cycles)", avgCycleTime, completedCycles);
+  }
 
   gfx->setCursor(5, 105); gfx->setTextColor(wifiConnected ? COLOR_GREEN : COLOR_RED);
   gfx->printf("WiFi: %s", wifiConnected ? "Connected" : "Disconnected");
@@ -343,6 +396,204 @@ void downloadProductData() {
   http.end();
 }
 
+// -------------------- Smart Webapp Update System --------------------
+
+// Store webapp version metadata
+void saveWebappVersion(const String& versionData) {
+  if (!fsAvailable) {
+    Serial.println("[UPDATE] ❌ FFat not available for version storage");
+    return;
+  }
+  
+  File f = FFat.open("/webapp_version.json", "w");
+  if (f) {
+    f.print(versionData);
+    f.close();
+    Serial.println("[UPDATE] 💾 Webapp version metadata saved");
+  } else {
+    Serial.println("[UPDATE] ❌ Failed to save version metadata");
+  }
+}
+
+// Load stored webapp version metadata
+String loadWebappVersion() {
+  if (!fsAvailable || !FFat.exists("/webapp_version.json")) {
+    Serial.println("[UPDATE] 📁 No stored version metadata found");
+    return "";
+  }
+  
+  File f = FFat.open("/webapp_version.json", "r");
+  if (!f) {
+    Serial.println("[UPDATE] ❌ Failed to read version metadata");
+    return "";
+  }
+  
+  String version = f.readString();
+  f.close();
+  Serial.printf("[UPDATE] 📋 Loaded version metadata: %d bytes\n", version.length());
+  Serial.printf("[UPDATE] 🔍 Raw stored data: %s\n", version.c_str());
+  return version;
+}
+
+// Check server for webapp updates
+bool checkForWebappUpdates() {
+  if (!wifiConnected) {
+    Serial.println("[UPDATE] ⚠️  No WiFi - skipping update check");
+    return false;
+  }
+  
+  Serial.println("\n[UPDATE] 🔍 Checking for webapp updates...");
+  
+  HTTPClient http;
+  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/webapp/version";
+  
+  http.begin(url);
+  http.setTimeout(10000); // 10 second timeout
+  
+  int httpCode = http.GET();
+  Serial.printf("[UPDATE] Server version check response: HTTP %d\n", httpCode);
+  
+  if (httpCode != 200) {
+    Serial.printf("[UPDATE] ❌ Server request failed: %d\n", httpCode);
+    http.end();
+    return false;
+  }
+  
+  String serverVersion = http.getString();
+  http.end();
+  
+  Serial.printf("[UPDATE] 🔍 Server response: %s\n", serverVersion.c_str());
+  
+  // Parse server response to extract version hash
+  DynamicJsonDocument serverDoc(2048);
+  deserializeJson(serverDoc, serverVersion);
+  String serverVersionHash = serverDoc["version"] | "";
+  
+  Serial.printf("[UPDATE] 🔍 Extracted server hash: '%s'\n", serverVersionHash.c_str());
+  
+  // Load stored version for comparison
+  String localVersionData = loadWebappVersion();
+  DynamicJsonDocument localDoc(2048);
+  deserializeJson(localDoc, localVersionData);
+  String localVersionHash = localDoc["version"] | "";
+  
+  // Compare version hashes instead of full JSON
+  bool updateNeeded = (serverVersionHash != localVersionHash) || (localVersionHash == "");
+  
+  Serial.printf("[UPDATE] Local version hash:  '%s' (len=%d)\n", 
+                localVersionHash.length() > 0 ? localVersionHash.c_str() : "NONE", localVersionHash.length());
+  Serial.printf("[UPDATE] Server version hash: '%s' (len=%d)\n", 
+                serverVersionHash.c_str(), serverVersionHash.length());
+  Serial.printf("[UPDATE] Hashes equal: %s\n", (serverVersionHash == localVersionHash) ? "YES" : "NO");
+  Serial.printf("[UPDATE] Update needed: %s\n", updateNeeded ? "YES" : "NO");
+  
+  if (updateNeeded) {
+    Serial.println("[UPDATE] 🆕 Updates available!");
+    
+    // Parse server response to see which files changed
+    Serial.println("[UPDATE] 📄 Files to update:");
+    if (serverVersion.indexOf("\"index.html\"") > -1) Serial.println("[UPDATE]   - index.html");
+    if (serverVersion.indexOf("\"script.js\"") > -1) Serial.println("[UPDATE]   - script.js");
+    if (serverVersion.indexOf("\"style.css\"") > -1) Serial.println("[UPDATE]   - style.css");
+    
+    // Store the new version info
+    saveWebappVersion(serverVersion);
+    
+    return true;
+  } else {
+    Serial.println("[UPDATE] ✅ Webapp files are up to date");
+    return false;
+  }
+}
+
+// Download updated webapp files intelligently
+bool downloadWebappUpdates() {
+  Serial.println("\n[UPDATE] ⬇️  Downloading webapp updates...");
+  
+  if (!wifiConnected) {
+    Serial.println("[UPDATE] ❌ No WiFi for updates");
+    return false;
+  }
+  
+  bool success = true;
+  const char* files[] = { "index.html", "script.js", "style.css" };
+  
+  for (int i = 0; i < 3; i++) {
+    Serial.printf("[UPDATE] 📥 Downloading %s...\n", files[i]);
+    
+    String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/webapp/" + files[i];
+    String tempPath = "/temp_" + String(files[i]);
+    String finalPath = "/" + String(files[i]);
+    
+    // Download to temporary file first
+    if (downloadFile(url, tempPath)) {
+      // Verify file exists and has content
+      if (FFat.exists(tempPath.c_str())) {
+        File tempFile = FFat.open(tempPath.c_str(), "r");
+        if (tempFile && tempFile.size() > 0) {
+          tempFile.close();
+          
+          // Remove old file and rename temp file
+          if (FFat.exists(finalPath.c_str())) {
+            FFat.remove(finalPath.c_str());
+          }
+          
+          if (FFat.rename(tempPath.c_str(), finalPath.c_str())) {
+            Serial.printf("[UPDATE] ✅ %s updated successfully\n", files[i]);
+          } else {
+            Serial.printf("[UPDATE] ❌ Failed to replace %s\n", files[i]);
+            success = false;
+          }
+        } else {
+          Serial.printf("[UPDATE] ❌ %s download was empty\n", files[i]);
+          success = false;
+        }
+      } else {
+        Serial.printf("[UPDATE] ❌ %s temp file missing\n", files[i]);
+        success = false;
+      }
+    } else {
+      Serial.printf("[UPDATE] ❌ Failed to download %s\n", files[i]);
+      success = false;
+    }
+    
+    // Clean up temp file
+    if (FFat.exists(tempPath.c_str())) {
+      FFat.remove(tempPath.c_str());
+    }
+  }
+  
+  if (success) {
+    Serial.println("[UPDATE] 🎉 All webapp files updated successfully!");
+  } else {
+    Serial.println("[UPDATE] ⚠️  Some webapp files failed to update");
+  }
+  
+  return success;
+}
+
+// Background update check (non-blocking)
+void checkAndUpdateWebapp() {
+  static unsigned long lastUpdateCheck = 0;
+  const unsigned long updateCheckInterval = 30 * 60 * 1000; // 30 minutes
+  
+  // Only check if enough time has passed
+  if (millis() - lastUpdateCheck < updateCheckInterval) {
+    return;
+  }
+  
+  lastUpdateCheck = millis();
+  
+  Serial.println("\n[UPDATE] ⏰ Periodic webapp update check...");
+  
+  if (checkForWebappUpdates()) {
+    // Updates available - download them
+    if (downloadWebappUpdates()) {
+      Serial.println("[UPDATE] 🔄 Webapp updated - restart browser to see changes");
+    }
+  }
+}
+
 // -------------------- Local Web Server --------------------
 void setupWebServer() {
   Serial.println("\n[HTTP] Configuring web server...");
@@ -375,16 +626,22 @@ void setupWebServer() {
   });
 
   server.on("/api/status", HTTP_GET, []() {
-    DynamicJsonDocument doc(512);
-    doc["device_id"]        = DEVICE_ID;
-    doc["device_name"]      = DEVICE_NAME;
-    doc["ip"]               = localIP;
-    doc["counter"]          = productionCounter;
-    doc["gpio1_state"]      = (int)digitalRead(GPIO_INPUT_PIN);
-    doc["wifi_connected"]   = wifiConnected;
-    doc["server_connected"] = serverConnected;
-    doc["ffat"]             = fsAvailable;
-    doc["uptime_ms"]        = (uint32_t)millis();
+    DynamicJsonDocument doc(1024);
+    doc["device_id"]          = DEVICE_ID;
+    doc["device_name"]        = DEVICE_NAME;
+    doc["ip"]                 = localIP;
+    doc["good_count"]         = productionCounter;
+    doc["completed_cycles"]   = completedCycles;
+    doc["cycle_in_progress"]  = cycleInProgress;
+    doc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+    doc["first_cycle_time"]   = firstCycleTime;
+    doc["last_cycle_time"]    = lastCycleTime;
+    doc["start_button_state"] = (int)digitalRead(GPIO_START_BUTTON);
+    doc["end_button_state"]   = (int)digitalRead(GPIO_END_BUTTON);
+    doc["wifi_connected"]     = wifiConnected;
+    doc["server_connected"]   = serverConnected;
+    doc["ffat"]               = fsAvailable;
+    doc["uptime_ms"]          = (uint32_t)millis();
 
     String out;
     serializeJson(doc, out);
@@ -392,10 +649,73 @@ void setupWebServer() {
   });
 
   server.on("/api/reset", HTTP_POST, []() {
-    productionCounter = 0;
-    Serial.println("[API] Counter reset via HTTP");
-    displayDeviceInfo();
+    resetProductionData();
+    Serial.println("[API] Production data reset via HTTP");
     server.send(200, "application/json", "{\"status\":\"reset\",\"counter\":0}");
+  });
+  
+  // Get production statistics for webapp form submission
+  server.on("/api/production/stats", HTTP_GET, []() {
+    DynamicJsonDocument doc(2048);
+    doc["good_count"]         = productionCounter;
+    doc["completed_cycles"]   = completedCycles;
+    doc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+    doc["first_cycle_time"]   = firstCycleTime;
+    doc["last_cycle_time"]    = lastCycleTime;
+    doc["cycle_in_progress"]  = cycleInProgress;
+    
+    // Parse production log JSON string into JSON array
+    DynamicJsonDocument logDoc(2048);
+    deserializeJson(logDoc, productionLog);
+    doc["production_log"] = logDoc.as<JsonArray>();
+    
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+  });
+
+  // Check for webapp updates endpoint
+  server.on("/api/webapp/check-updates", HTTP_GET, []() {
+    Serial.println("[API] Webapp checking for updates...");
+    
+    DynamicJsonDocument doc(512);
+    doc["checking"] = true;
+    
+    bool updatesAvailable = checkForWebappUpdates();
+    doc["updates_available"] = updatesAvailable;
+    doc["last_check"] = (uint32_t)millis();
+    
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+    
+    if (updatesAvailable) {
+      Serial.println("[API] ✨ Updates available - webapp will be notified");
+    } else {
+      Serial.println("[API] ✅ No updates needed");
+    }
+  });
+
+  // Apply webapp updates endpoint
+  server.on("/api/webapp/update", HTTP_POST, []() {
+    Serial.println("[API] Webapp requesting update application...");
+    
+    DynamicJsonDocument doc(512);
+    bool success = downloadWebappUpdates();
+    
+    doc["success"] = success;
+    doc["message"] = success ? "Updates applied successfully" : "Update failed";
+    doc["timestamp"] = (uint32_t)millis();
+    
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+    
+    if (success) {
+      Serial.println("[API] 🎉 Webapp updates applied - user should refresh browser");
+    } else {
+      Serial.println("[API] ❌ Webapp update failed");
+    }
   });
 
   // Users data endpoint - serves cached user data for offline use
@@ -483,41 +803,226 @@ void setupWebServer() {
   Serial.println("[HTTP] ✅ Web server started on port 8080");
 }
 
-// -------------------- Button / Counter --------------------
-void handleButtonPress() {
-  currentGPIOState = digitalRead(GPIO_INPUT_PIN);
+// -------------------- Production Button Handlers --------------------
 
-  if (lastGPIOState == HIGH && currentGPIOState == LOW) {
+void handleStartButton() {
+  bool currentState = digitalRead(GPIO_START_BUTTON);
+  
+  if (lastStartButtonState == HIGH && currentState == LOW) {
     unsigned long now = millis();
-    if (now - lastButtonPress > DEBOUNCE_DELAY) {
-      productionCounter++;
-      lastButtonPress = now;
-
-      Serial.printf("[BTN] Press detected. Counter = %d\n", productionCounter);
-      digitalWrite(GPIO_LED_PIN, LOW);  // LED ON (active low)
-      displayDeviceInfo();
-
-      if (serverConnected) {
-        DynamicJsonDocument doc(200);
-        doc["type"]      = "production_count";
-        doc["device_id"] = DEVICE_ID;
-        doc["count"]     = productionCounter;
-        doc["timestamp"] = (uint32_t)millis();
-
-        String json;
-        serializeJson(doc, json);
-        String sio = "42[\"message\"," + json + "]";
-        webSocket.sendTXT(sio);
-        Serial.printf("[WS] Sent count update: %s\n", json.c_str());
-      } else {
-        Serial.println("[WS] (not connected) skip send");
+    if (now - lastStartButtonPress > DEBOUNCE_DELAY) {
+      lastStartButtonPress = now;
+      
+      // Check if validation is pending
+      if (pendingValidation) {
+        Serial.println("[START] Validation already in progress, ignoring button press");
+        return;
       }
-
-      delay(180);
-      digitalWrite(GPIO_LED_PIN, HIGH); // LED OFF
+      
+      // Request validation from webapp first
+      if (serverConnected) {
+        Serial.println("[START] Requesting production validation from webapp...");
+        String sio = "42[\"validate_production_start\",{}]";
+        webSocket.sendTXT(sio);
+        
+        pendingValidation = true;
+        validationRequestTime = now;
+        
+        // Blink LED once to show validation request
+        blinkLED(1);
+        
+        // Update display to show validation status
+        gfx->fillScreen(COLOR_BLACK);
+        gfx->setTextColor(COLOR_WHITE);
+        gfx->setTextSize(2);
+        gfx->setCursor(10, 50);
+        gfx->println("Validating...");
+        gfx->setCursor(10, 80);
+        gfx->println("品番 Check");
+      } else {
+        // No server connection - proceed anyway but warn
+        Serial.println("[START] ⚠️ No server connection - starting without validation");
+        startProductionCycle(now);
+      }
     }
   }
-  lastGPIOState = currentGPIOState;
+  
+  lastStartButtonState = currentState;
+}
+
+void handleEndButton() {
+  bool currentState = digitalRead(GPIO_END_BUTTON);
+  
+  if (lastEndButtonState == HIGH && currentState == LOW) {
+    unsigned long now = millis();
+    if (now - lastEndButtonPress > DEBOUNCE_DELAY) {
+      lastEndButtonPress = now;
+      
+      // Complete cycle if one was started
+      if (cycleInProgress) {
+        unsigned long cycleEndTime = now;
+        float cycleTime = (cycleEndTime - cycleStartTime) / 1000.0; // Convert to seconds
+        
+        // Update counters
+        productionCounter++;
+        completedCycles++;
+        totalCycleTime += cycleTime;
+        cycleInProgress = false;
+        
+        // Get cycle times (start time was saved when cycle began)
+        String startTime = currentCycleStartTimeStr;
+        String endTime = getCurrentTimeString();
+        
+        // Update first/last cycle times for DB submission
+        if (firstCycleTime == "") {
+          firstCycleTime = startTime;
+        }
+        lastCycleTime = endTime;
+        
+        // Add to production log
+        addCycleToLog(cycleTime, startTime, endTime);
+        
+        Serial.printf("[END] Cycle completed: %.2f seconds, Count: %d\n", cycleTime, productionCounter);
+        blinkLED(3); // 3 blinks for end
+        displayDeviceInfo();
+        
+        // Send update to webapp via WebSocket
+        sendProductionUpdate();
+      } else {
+        Serial.println("[END] Button pressed but no active cycle");
+        blinkLED(1); // 1 blink for invalid end
+      }
+    }
+  }
+  
+  lastEndButtonState = currentState;
+}
+
+void startProductionCycle(unsigned long timestamp) {
+  // Start new cycle
+  cycleStartTime = timestamp;
+  cycleInProgress = true;
+  currentCycleStartTimeStr = getCurrentTimeString();  // Capture Japan time at start
+  
+  // Reset validation state
+  pendingValidation = false;
+  validationRequestTime = 0;
+  
+  Serial.printf("[START] Cycle started at %lu ms (JST: %s)\n", cycleStartTime, currentCycleStartTimeStr.c_str());
+  blinkLED(2); // 2 blinks for start
+  displayDeviceInfo();
+}
+
+void blinkLED(int times) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(GPIO_LED_PIN, LOW);  // LED ON (active low)
+    delay(100);
+    digitalWrite(GPIO_LED_PIN, HIGH); // LED OFF
+    delay(100);
+  }
+}
+
+void sendProductionUpdate() {
+  if (!serverConnected) {
+    Serial.println("[WS] Not connected - skipping update");
+    return;
+  }
+  
+  float avgCycleTime = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+  
+  DynamicJsonDocument doc(1024);
+  doc["type"]              = "production_update";
+  doc["device_id"]         = DEVICE_ID;
+  doc["good_count"]        = productionCounter;
+  doc["average_cycle_time"] = avgCycleTime;
+  doc["completed_cycles"]  = completedCycles;
+  doc["first_cycle_time"]  = firstCycleTime;
+  doc["last_cycle_time"]   = lastCycleTime;
+  doc["timestamp"]         = (uint32_t)millis();
+  
+  String json;
+  serializeJson(doc, json);
+  String sio = "42[\"message\"," + json + "]";
+  webSocket.sendTXT(sio);
+  Serial.printf("[WS] Sent production update: count=%d, avg=%.2fs\n", productionCounter, avgCycleTime);
+}
+
+void addCycleToLog(float cycleTime, String startTime, String endTime) {
+  // Parse existing log
+  DynamicJsonDocument logDoc(2048);
+  deserializeJson(logDoc, productionLog);
+  
+  // Add new cycle
+  JsonObject cycle = logDoc.createNestedObject();
+  cycle["cycle_time"] = cycleTime;
+  cycle["initial_time"] = startTime;
+  cycle["final_time"] = endTime;
+  
+  // Serialize back to string
+  productionLog = "";
+  serializeJson(logDoc, productionLog);
+}
+
+// Initialize NTP time synchronization
+void initializeNTP() {
+  Serial.println("\n[NTP] Initializing time synchronization...");
+  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER1, NTP_SERVER2, NTP_SERVER3);
+  
+  // Wait for time synchronization
+  struct tm timeinfo;
+  int attempts = 0;
+  while (!getLocalTime(&timeinfo) && attempts < 10) {
+    Serial.print(".");
+    delay(1000);
+    attempts++;
+  }
+  
+  if (getLocalTime(&timeinfo)) {
+    Serial.println("\n[NTP] ✅ Time synchronized successfully");
+    Serial.printf("[NTP] Current Japan time: %02d:%02d:%02d\n", 
+                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  } else {
+    Serial.println("\n[NTP] ❌ Failed to synchronize time");
+  }
+}
+
+String getCurrentTimeString() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    // Fallback to millis-based time if NTP fails
+    unsigned long now = millis();
+    int hours = (now / 3600000) % 24;
+    int minutes = (now / 60000) % 60;
+    int seconds = (now / 1000) % 60;
+    
+    char timeStr[16];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", hours, minutes, seconds);
+    return String(timeStr);
+  }
+  
+  // Return Japan Standard Time in HH:MM:SS format
+  char timeStr[16];
+  snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", 
+           timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  return String(timeStr);
+}
+
+void resetProductionData() {
+  productionCounter = 0;
+  completedCycles = 0;
+  totalCycleTime = 0.0;
+  cycleInProgress = false;
+  cycleStartTime = 0;
+  currentCycleStartTimeStr = "";
+  firstCycleTime = "";
+  lastCycleTime = "";
+  productionLog = "[]";
+  
+  Serial.println("[RESET] Production data cleared");
+  displayDeviceInfo();
+  
+  // Notify webapp of reset
+  sendProductionUpdate();
 }
 
 // -------------------- REST Device Registration --------------------
@@ -617,15 +1122,40 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           DeserializationError err = deserializeJson(jd, jsonData);
           if (!err) {
             String type = jd["type"] | "";
-            if (type == "reset_counter") {
+            String command = jd["command"] | "";
+            
+            if (type == "validation_response") {
+              if (pendingValidation) {
+                bool isValid = jd["valid"] | false;
+                String message = jd["message"] | "";
+                
+                // Webapp now handles all validation - ESP32 always proceeds with production
+                Serial.printf("[VALIDATION] Response: %s (message: %s)\n", 
+                              isValid ? "APPROVED" : "WARNING_SHOWN_IN_WEBAPP", message.c_str());
+                startProductionCycle(millis());
+              }
+            } else if (type == "reset_counter") {
               productionCounter = 0;
               Serial.println("[WS] 🔄 Counter reset by server command");
               displayDeviceInfo();
+            } else if (command == "reset_all") {
+              resetProductionData();
+              Serial.println("[WS] 🔄 Production data reset by server command");
+            } else if (type == "request_status_sync") {
+              Serial.println("[WS] 📊 Status sync request received - sending current production data");
+              sendProductionUpdate();
             }
           } else {
             Serial.printf("[WS] JSON parse error: %s\n", err.c_str());
           }
         }
+      }
+
+      // Handle direct reset_production events
+      if (msg.startsWith("42[\"reset_production\"")) {
+        Serial.println("[WS] 🔄 Direct reset_production event received");
+        resetProductionData();
+        return;
       }
 
       if (msg == "2") {         // ping
@@ -693,21 +1223,41 @@ void setup() {
   // FS
   mountFFat();
 
-  // GPIO
-  pinMode(GPIO_INPUT_PIN, INPUT_PULLUP);
+  // GPIO for production buttons and LED
+  pinMode(GPIO_START_BUTTON, INPUT_PULLUP);
+  pinMode(GPIO_END_BUTTON, INPUT_PULLUP);
   pinMode(GPIO_LED_PIN, OUTPUT);
   digitalWrite(GPIO_LED_PIN, HIGH); // LED off
 
-  Serial.printf("[GPIO] Input GPIO%d (pull-up, active LOW)\n", GPIO_INPUT_PIN);
-  Serial.printf("[GPIO] LED   GPIO%d (active LOW)\n", GPIO_LED_PIN);
+  Serial.printf("[GPIO] Start Button GPIO%d (pull-up, active LOW)\n", GPIO_START_BUTTON);
+  Serial.printf("[GPIO] End Button   GPIO%d (pull-up, active LOW)\n", GPIO_END_BUTTON);
+  Serial.printf("[GPIO] LED          GPIO%d (active LOW)\n", GPIO_LED_PIN);
 
   // WiFi + server
   connectToWiFi();
 
   if (wifiConnected) {
+    // Initialize NTP time synchronization
+    initializeNTP();
+    
     registerDevice();
     setupSocketIO();
-    downloadWebAppFiles();
+    
+    // Smart webapp update system - only download if changed
+    Serial.println("\n[SETUP] 🔄 Initializing smart webapp update system...");
+    if (checkForWebappUpdates()) {
+      downloadWebappUpdates();
+    } else {
+      // If no updates needed, ensure we still have the files
+      bool hasFiles = FFat.exists("/index.html") && FFat.exists("/script.js") && FFat.exists("/style.css");
+      if (!hasFiles) {
+        Serial.println("[SETUP] 📥 Missing webapp files - downloading initial set...");
+        downloadWebAppFiles();
+        // Store version info after initial download
+        checkForWebappUpdates();
+      }
+    }
+    
     downloadUserData();    // Cache users for offline dropdown
     downloadProductData(); // Cache products for offline auto-fill
     setupWebServer();
@@ -721,7 +1271,20 @@ void setup() {
 void loop() {
   webSocket.loop();
   server.handleClient();
-  handleButtonPress();
+  
+  // Handle production buttons
+  handleStartButton();
+  handleEndButton();
+
+  // Check for validation timeout
+  if (pendingValidation && (millis() - validationRequestTime > VALIDATION_TIMEOUT)) {
+    Serial.println("[VALIDATION] Timeout - proceeding without validation");
+    pendingValidation = false;
+    startProductionCycle(millis());
+  }
+
+  // Periodic webapp update check (every 30 minutes)
+  checkAndUpdateWebapp();
 
   // Periodic WiFi check
   static unsigned long lastWiFiCheck = 0;

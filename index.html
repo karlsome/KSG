@@ -3,531 +3,158 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>生産データ入力 - Enhanced with Device Discovery</title>
+    <title>KSG Production System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom scrollbar for better tablet experience */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-        /* Hide number input arrows (optional, depends on preference) */
-        input[type="number"]::-webkit-outer-spin-button,
-        input[type="number"]::-webkit-inner-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
-        input[type="number"] {
-            -moz-appearance: textfield; /* Firefox */
-        }
-        /* Style for time input to indicate clickability */
-        .time-input {
-            cursor: pointer;
-            background-color: white; /* Ensure it looks editable despite click behavior */
-        }
-        /* New styles for flashing effect */
-        .flash-green {
-            background-color: #d1fae5; /* A light green */
-            transition: background-color 0.1s ease-in-out; /* Quicker flash */
+        /* Custom gradient background */
+        .bg-gradient-blue {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%);
         }
         
-        /* Device discovery specific styles */
-        .device-connection-status {
-            border-left: 4px solid #28a745;
-            background: #f8fff9;
+        /* Logo styling */
+        .logo-container {
+            max-width: 400px;
+            width: 100%;
         }
-        .device-connection-status.disconnected {
-            border-left-color: #dc3545;
-            background: #fff8f8;
+        
+        /* Custom input styling */
+        .custom-input {
+            transition: all 0.3s ease;
         }
-        .discovery-toggle {
-            cursor: pointer;
-            user-select: none;
+        
+        .custom-input:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(59, 130, 246, 0.15);
         }
-        .discovery-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease-in-out;
+        
+        /* Button animations */
+        .btn-primary {
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
         }
-        .discovery-content.expanded {
-            max-height: 500px;
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(37, 99, 235, 0.4);
+        }
+        
+        /* Loading animation */
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Device card animations */
+        .device-card {
+            transition: all 0.3s ease;
+        }
+        
+        .device-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Status indicators */
+        .status-online {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        
+        .status-offline {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
         }
     </style>
 </head>
-<body class="bg-gray-100 p-4 min-h-screen flex flex-col items-center">
-    <div class="container mx-auto max-w-screen-xl bg-white shadow-lg rounded-lg p-6 space-y-6">
-        <h1 class="text-3xl font-bold text-center text-blue-800 mb-6">生産データ入力</h1>
-
-        <!-- Device Discovery Section -->
-        <div class="device-connection-status disconnected p-4 rounded-lg border">
-            <div class="discovery-toggle flex items-center justify-between" id="discoveryToggle">
-                <div class="flex items-center space-x-3">
-                    <div id="connectionIndicator" class="w-3 h-3 rounded-full bg-red-500"></div>
+<body class="bg-gradient-blue min-h-screen flex items-center justify-center p-4">
+    <!-- Login Page -->
+    <div id="loginPage" class="w-full max-w-md">
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <!-- Header with Logo -->
+            <div class="bg-gradient-to-r from-blue-600 to-blue-800 p-8 text-center">
+                <div class="logo-container mx-auto mb-4">
+                    <!-- Corporate Logo -->
+                    <div class="bg-white rounded-xl p-6 shadow-lg">
+                        <img src="src/logo.png" alt="有限会社春日加工" class="w-full h-auto max-w-xs mx-auto">
+                    </div>
+                </div>
+                <h1 class="text-white text-xl font-semibold">生産管理システム</h1>
+                <p class="text-blue-100 text-sm mt-2">Production Management System</p>
+            </div>
+            
+            <!-- Login Form -->
+            <div class="p-8">
+                <div id="loginError" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm"></div>
+                
+                <form id="loginForm" class="space-y-6">
                     <div>
-                        <h3 class="font-bold text-lg">🔗 Raspberry Pi Connection</h3>
-                        <p id="connectionStatusText" class="text-sm text-gray-600">Click to discover devices</p>
+                        <label class="block text-gray-700 text-sm font-medium mb-2">ユーザー名</label>
+                        <input type="text" id="username" required
+                               class="custom-input w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                               placeholder="ユーザー名を入力">
                     </div>
-                </div>
-                <div id="discoveryToggleIcon" class="text-xl">▼</div>
-            </div>
-            
-            <div id="discoveryContent" class="discovery-content mt-4">
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                    <h4 class="font-bold text-blue-800 mb-2">📡 Auto Device Discovery</h4>
-                    <p class="text-sm text-blue-700 mb-3">
-                        This system can automatically find Raspberry Pi devices on your local network. 
-                        No need to manually enter IP addresses!
-                    </p>
-                    <button id="autoDiscoverBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md text-sm transition duration-200">
-                        🔍 Auto-Discover Devices
+                    
+                    <div>
+                        <label class="block text-gray-700 text-sm font-medium mb-2">パスワード</label>
+                        <input type="password" id="password" required
+                               class="custom-input w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                               placeholder="パスワードを入力">
+                    </div>
+                    
+                    <button type="submit" id="loginBtn" 
+                            class="btn-primary w-full text-white font-semibold py-3 px-6 rounded-lg text-lg">
+                        <span id="loginBtnText">ログイン</span>
+                        <div id="loginLoading" class="hidden inline-flex items-center">
+                            <div class="loading-spinner w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                            認証中...
+                        </div>
                     </button>
-                </div>
-                
-                <div id="deviceDiscoveryResults" class="space-y-3"></div>
-                
-                <div class="mt-4 p-3 bg-gray-50 rounded-lg">
-                    <h5 class="font-bold text-gray-700 mb-2">Manual Connection</h5>
-                    <div class="flex space-x-2">
-                        <input type="text" id="manualIpInput" placeholder="192.168.1.100" class="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-                        <button id="manualConnectBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md text-sm">
-                            Connect
-                        </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Device Selection Page -->
+    <div id="devicePage" class="hidden w-full max-w-4xl">
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-blue-600 to-blue-800 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-white text-2xl font-semibold">デバイス選択</h1>
+                        <p class="text-blue-100 text-sm mt-1">利用可能なデバイスから選択してください</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-blue-100 text-sm">ログイン中:</p>
+                        <p id="currentUser" class="text-white font-medium"></p>
+                        <button id="logoutBtn" class="text-blue-200 hover:text-white text-sm mt-1 underline">ログアウト</button>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <div id="statusMessage" class="hidden p-3 rounded-md text-center text-sm font-medium"></div>
-        <div id="loadingIndicator" class="hidden text-center text-blue-500 font-semibold">
-            <svg class="animate-spin h-5 w-5 mr-3 inline-block" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>データ処理中...</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="space-y-4">
-                <label class="block text-gray-700 text-sm font-bold mb-1">日付</label>
-                <div class="flex space-x-2">
-                    <input type="text" id="dateYear" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                    <input type="text" id="dateMonth" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                    <input type="text" id="dateDay" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div>
-                    <label for="hinban" class="block text-gray-700 text-sm font-bold mb-1">品番</label>
-                    <input type="text" id="hinban" data-qr-field="hinban" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="品番を入力またはQRをスキャン">
-                </div>
-
-                <div>
-                    <label for="productName" class="block text-gray-700 text-sm font-bold mb-1">製品名</label>
-                    <input type="text" id="productName" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div>
-                    <label for="lhRh" class="block text-gray-700 text-sm font-bold mb-1">LH/RH</label>
-                    <input type="text" id="lhRh" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div class="relative">
-                    <label for="operator1" class="block text-gray-700 text-sm font-bold mb-1">技能員①</label>
-                    <select id="operator1" data-qr-field="name" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <option value="">選択または入力</option>
-                    </select>
-                    <input type="text" id="operator1Custom" placeholder="カスタム入力" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg mt-2 hidden">
-                </div>
-
-                <div class="relative">
-                    <label for="operator2" class="block text-gray-700 text-sm font-bold mb-1">技能員② (任意)</label>
-                    <select id="operator2" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <option value="">選択または入力</option>
-                    </select>
-                    <input type="text" id="operator2Custom" placeholder="カスタム入力" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg mt-2 hidden">
-                </div>
-
-                <div>
-                    <label for="goodCount" class="block text-gray-700 text-sm font-bold mb-1">良品数</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="goodCount" data-action="minus">-</button>
-                        <input type="number" id="goodCount" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg bg-gray-100 cursor-not-allowed" readonly>
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="goodCount" data-action="plus" disabled>+ (自動)</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="initialTimeDisplay" class="block text-gray-700 text-sm font-bold mb-1">開始時間 (自動)</label>
-                    <input type="text" id="initialTimeDisplay" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="finalTimeDisplay" class="block text-gray-700 text-sm font-bold mb-1">終了時間 (自動)</label>
-                    <input type="text" id="finalTimeDisplay" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="averageCycleTime" class="block text-gray-700 text-sm font-bold mb-1">平均サイクル時間 (秒) (自動)</label>
-                    <input type="text" id="averageCycleTime" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="manHours" class="block text-gray-700 text-sm font-bold mb-1">工数</label>
-                    <input type="number" id="manHours" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                </div>
-            </div>
-
-            <div class="space-y-4">
-                <h2 class="text-xl font-bold text-gray-800 border-b pb-2 mb-4">不良項目</h2>
-
-                <div class="defect-item">
-                    <label for="materialDefect" class="block text-gray-700 text-sm font-bold mb-1">素材不良</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="materialDefect" data-action="minus">-</button>
-                        <input type="number" id="materialDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="materialDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="doubleDefect" class="block text-gray-700 text-sm font-bold mb-1">ダブり</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="doubleDefect" data-action="minus">-</button>
-                        <input type="number" id="doubleDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="doubleDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-                
-                <div class="defect-item">
-                    <label for="peelingDefect" class="block text-gray-700 text-sm font-bold mb-1">ハガレ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="peelingDefect" data-action="minus">-</button>
-                        <input type="number" id="peelingDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="peelingDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="foreignMatterDefect" class="block text-gray-700 text-sm font-bold mb-1">イブツ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="foreignMatterDefect" data-action="minus">-</button>
-                        <input type="number" id="foreignMatterDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="foreignMatterDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="wrinkleDefect" class="block text-gray-700 text-sm font-bold mb-1">シワ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="wrinkleDefect" data-action="minus">-</button>
-                        <input type="number" id="wrinkleDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="wrinkleDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="deformationDefect" class="block text-gray-700 text-sm font-bold mb-1">ヘンケイ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="deformationDefect" data-action="minus">-</button>
-                        <input type="number" id="deformationDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="deformationDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="greaseDefect" class="block text-gray-700 text-sm font-bold mb-1">グリス付着</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="greaseDefect" data-action="minus">-</button>
-                        <input type="number" id="greaseDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="greaseDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="screwLooseDefect" class="block text-gray-700 text-sm font-bold mb-1">ビス不締まり</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="screwLooseDefect" data-action="minus">-</button>
-                        <input type="number" id="screwLooseDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="screwLooseDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="otherDefect" class="block text-gray-700 text-sm font-bold mb-1">その他</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="otherDefect" data-action="minus">-</button>
-                        <input type="number" id="otherDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="otherDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="otherDescription" class="block text-gray-700 text-sm font-bold mb-1">その他説明</label>
-                    <textarea id="otherDescription" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="その他不良項目の詳細"></textarea>
-                </div>
-
-                <div class="defect-item">
-                    <label for="shoulderDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="silverDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　シルバー</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="silverDefect" data-action="minus">-</button>
-                        <input type="number" id="silverDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="silverDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="shoulderScratchDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー　キズ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderScratchDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderScratchDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderScratchDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-                
-                <div class="defect-item">
-                    <label for="shoulderOtherDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー　その他</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderOtherDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderOtherDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderOtherDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="breakTime" class="block text-gray-700 text-sm font-bold mb-1">休憩時間 (分)</label>
-                    <input type="number" id="breakTime" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                
-                <div>
-                    <label for="remarks" class="block text-gray-700 text-sm font-bold mb-1">備考</label>
-                    <textarea id="remarks" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="特記事項"></textarea>
-                </div>
-
-                <div>
-                    <label for="excludedManHours" class="block text-gray-700 text-sm font-bold mb-1">工数（除外工数）</label>
-                    <input type="number" id="excludedManHours" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                </div>
-            </div>
-        </div>
-
-        <div class="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-4">
-            <h2 class="text-xl font-bold text-gray-800 border-b pb-2">休憩時間詳細</h2>
             
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩1</label>
-                <input type="text" id="break1From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break1To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break1">リセット</button>
+            <!-- Device List -->
+            <div class="p-6">
+                <div id="deviceLoading" class="text-center py-12">
+                    <div class="loading-spinner w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p class="text-gray-600">デバイスを検索中...</p>
+                </div>
+                
+                <div id="deviceError" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm text-center"></div>
+                
+                <div id="noDevices" class="hidden text-center py-12">
+                    <div class="text-gray-400 text-6xl mb-4">📱</div>
+                    <h3 class="text-gray-600 text-lg font-medium mb-2">利用可能なデバイスがありません</h3>
+                    <p class="text-gray-500 text-sm mb-4">5分以内にオンラインになったデバイスが見つかりませんでした</p>
+                    <button id="refreshDevices" class="text-blue-600 hover:text-blue-800 font-medium">再検索</button>
+                </div>
+                
+                <div id="deviceList" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
             </div>
-
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩2</label>
-                <input type="text" id="break2From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break2To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break2">リセット</button>
-            </div>
-
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩3</label>
-                <input type="text" id="break3From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break3To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break3">リセット</button>
-            </div>
-
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩4</label>
-                <input type="text" id="break4From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break4To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break4">リセット</button>
-            </div>
-        </div>
-
-        <div class="mt-8 text-center space-y-4">
-            <button id="submitDataBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg shadow-md transition duration-200 text-xl w-full md:w-auto">
-                データ送信
-            </button>
-            <button id="resetAllBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-lg shadow-md transition duration-200 text-xl w-full md:w-auto">
-                全てリセット
-            </button>
         </div>
     </div>
 
-    <!-- Include device discovery and enhanced script -->
-    <script src="device-discovery.js"></script>
-    <script src="script.js"></script>
-    
-    <script>
-        // Device discovery UI controls
-        function toggleDiscovery() {
-            const content = document.getElementById('discoveryContent');
-            const icon = document.getElementById('discoveryToggleIcon');
-            
-            if (content.classList.contains('expanded')) {
-                content.classList.remove('expanded');
-                icon.textContent = '▼';
-            } else {
-                content.classList.add('expanded');
-                icon.textContent = '▲';
-            }
-        }
-        
-        function updateConnectionStatus(connected, deviceName = '', ipAddress = '') {
-            const indicator = document.getElementById('connectionIndicator');
-            const statusText = document.getElementById('connectionStatusText');
-            const statusContainer = document.querySelector('.device-connection-status');
-            
-            if (connected) {
-                indicator.className = 'w-3 h-3 rounded-full bg-green-500';
-                statusText.textContent = `Connected to ${deviceName} (${ipAddress})`;
-                statusContainer.className = 'device-connection-status p-4 rounded-lg border';
-            } else {
-                indicator.className = 'w-3 h-3 rounded-full bg-red-500';
-                statusText.textContent = 'Click to discover devices';
-                statusContainer.className = 'device-connection-status disconnected p-4 rounded-lg border';
-            }
-        }
-        
-        function displayDiscoveredDevices(devices) {
-            const resultsContainer = document.getElementById('deviceDiscoveryResults');
-            
-            if (devices.length === 0) {
-                resultsContainer.innerHTML = `
-                    <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p class="text-yellow-800">⚠️ No devices found. Make sure Raspberry Pi devices are running and on the same network.</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            const deviceCards = devices.map(device => `
-                <div class="border border-gray-200 rounded-lg p-3 bg-white hover:bg-gray-50 transition duration-200">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <h4 class="font-bold text-gray-800">${device.device_name}</h4>
-                            <p class="text-sm text-gray-600">IP: ${device.ip_address}:${device.port}</p>
-                            <p class="text-sm text-gray-600">Model: ${device.pi_model || 'Unknown'}</p>
-                        </div>
-                        <button data-device-ip="${device.ip_address}" data-device-name="${device.device_name}"
-                                class="connect-device-btn bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md text-sm transition duration-200">
-                            Connect
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-            
-            resultsContainer.innerHTML = deviceCards;
-            
-            // Add event listeners to connect buttons
-            resultsContainer.querySelectorAll('.connect-device-btn').forEach(button => {
-                button.addEventListener('click', () => {
-                    const ipAddress = button.getAttribute('data-device-ip');
-                    const deviceName = button.getAttribute('data-device-name');
-                    connectToDevice(ipAddress, deviceName);
-                });
-            });
-        }
-        
-        async function connectToDevice(ipAddress, deviceName) {
-            try {
-                // Test connection first
-                const response = await fetch(`http://${ipAddress}:5000/device-info`, {
-                    method: 'GET',
-                    timeout: 5000
-                });
-                
-                if (response.ok) {
-                    // Update global API URL
-                    window.PYTHON_API_BASE_URL = `http://${ipAddress}:5000`;
-                    
-                    // Update UI
-                    updateConnectionStatus(true, deviceName, ipAddress);
-                    
-                    // Trigger custom event
-                    window.dispatchEvent(new CustomEvent('deviceConnected', {
-                        detail: { 
-                            device: { device_name: deviceName, ip_address: ipAddress, port: 5000 },
-                            apiBaseUrl: `http://${ipAddress}:5000`
-                        }
-                    }));
-                    
-                    // Collapse discovery section
-                    document.getElementById('discoveryContent').classList.remove('expanded');
-                    document.getElementById('discoveryToggleIcon').textContent = '▼';
-                    
-                } else {
-                    throw new Error('Device not responding');
-                }
-            } catch (error) {
-                alert(`❌ Failed to connect to ${deviceName}: ${error.message}`);
-            }
-        }
-        
-        // Auto-discovery button handler
-        document.getElementById('autoDiscoverBtn').addEventListener('click', async () => {
-            const btn = document.getElementById('autoDiscoverBtn');
-            const originalText = btn.textContent;
-            
-            btn.textContent = '🔍 Discovering...';
-            btn.disabled = true;
-            
-            try {
-                if (typeof DeviceDiscovery !== 'undefined') {
-                    const discovery = new DeviceDiscovery();
-                    const devices = await discovery.discoverDevices();
-                    displayDiscoveredDevices(devices);
-                } else {
-                    throw new Error('Device discovery module not loaded');
-                }
-            } catch (error) {
-                document.getElementById('deviceDiscoveryResults').innerHTML = `
-                    <div class="p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <p class="text-red-800">❌ Discovery failed: ${error.message}</p>
-                    </div>
-                `;
-            } finally {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
-        });
-        
-        // Manual connection button handler
-        document.getElementById('manualConnectBtn').addEventListener('click', () => {
-            const ipInput = document.getElementById('manualIpInput');
-            const ip = ipInput.value.trim();
-            
-            if (!ip) {
-                alert('Please enter an IP address');
-                return;
-            }
-            
-            connectToDevice(ip, `Manual-${ip}`);
-        });
-        
-        // Auto-discover on page load
-        setTimeout(() => {
-            if (typeof DeviceDiscovery !== 'undefined') {
-                document.getElementById('autoDiscoverBtn').click();
-            }
-        }, 2000);
-        
-        // Add event listener for discovery toggle
-        document.getElementById('discoveryToggle').addEventListener('click', toggleDiscovery);
-    </script>
+    <script src="login.js"></script>
 </body>
 </html>
