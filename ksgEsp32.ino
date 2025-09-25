@@ -21,6 +21,7 @@
 #include <WiFiClientSecure.h>  // For HTTPS/WSS connections
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
+#include <WebSocketsServer.h>  // For incoming WebSocket connections from webapp
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 #include <FFat.h>  // FATFS backend (matches LilyGO partition)
@@ -48,7 +49,8 @@ Arduino_GFX *gfx = new Arduino_ST7789(
 
 // -------------------- Networking / Server --------------------
 WebServer server(8080);
-WebSocketsClient webSocket;
+WebSocketsClient webSocket;     // Client for connecting TO the Node.js server
+WebSocketsServer wsServer(81);  // Server for accepting connections FROM webapp
 
 // -------------------- Device configuration --------------------
 const char* DEVICE_ID   = "6C10F6";
@@ -164,6 +166,8 @@ void initializeNTP();
 void setupWebServer();
 void setupSocketIO();
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
+void webSocketServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
+void setupWebSocketServer();
 void handleStartButton();
 void handleEndButton();
 void startProductionCycle(unsigned long timestamp);
@@ -962,28 +966,43 @@ void blinkLED(int times) {
 }
 
 void sendProductionUpdate() {
-  if (!serverConnected) {
-    Serial.println("[WS] Not connected - skipping update");
-    return;
+  // Send to Node.js server via Socket.IO
+  if (serverConnected) {
+    float avgCycleTime = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+    
+    DynamicJsonDocument doc(1024);
+    doc["type"]              = "production_update";
+    doc["device_id"]         = DEVICE_ID;
+    doc["good_count"]        = productionCounter;
+    doc["average_cycle_time"] = avgCycleTime;
+    doc["completed_cycles"]  = completedCycles;
+    doc["first_cycle_time"]  = firstCycleTime;
+    doc["last_cycle_time"]   = lastCycleTime;
+    doc["timestamp"]         = (uint32_t)millis();
+    
+    String json;
+    serializeJson(doc, json);
+    String sio = "42[\"message\"," + json + "]";
+    webSocket.sendTXT(sio);
+    Serial.printf("[WS] Sent production update to server: count=%d, avg=%.2fs\n", productionCounter, avgCycleTime);
   }
   
-  float avgCycleTime = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+  // Also broadcast to webapp clients via WebSocket server
+  DynamicJsonDocument wsDoc(1024);
+  wsDoc["type"] = "production_update";
+  wsDoc["device_id"] = DEVICE_ID;
+  wsDoc["good_count"] = productionCounter;
+  wsDoc["completed_cycles"] = completedCycles;
+  wsDoc["cycle_in_progress"] = cycleInProgress;
+  wsDoc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+  wsDoc["first_cycle_time"] = firstCycleTime;
+  wsDoc["last_cycle_time"] = lastCycleTime;
+  wsDoc["timestamp"] = (uint32_t)millis();
   
-  DynamicJsonDocument doc(1024);
-  doc["type"]              = "production_update";
-  doc["device_id"]         = DEVICE_ID;
-  doc["good_count"]        = productionCounter;
-  doc["average_cycle_time"] = avgCycleTime;
-  doc["completed_cycles"]  = completedCycles;
-  doc["first_cycle_time"]  = firstCycleTime;
-  doc["last_cycle_time"]   = lastCycleTime;
-  doc["timestamp"]         = (uint32_t)millis();
-  
-  String json;
-  serializeJson(doc, json);
-  String sio = "42[\"message\"," + json + "]";
-  webSocket.sendTXT(sio);
-  Serial.printf("[WS] Sent production update: count=%d, avg=%.2fs\n", productionCounter, avgCycleTime);
+  String wsMessage;
+  serializeJson(wsDoc, wsMessage);
+  wsServer.broadcastTXT(wsMessage);
+  Serial.printf("[WSS] Broadcast production update to webapp clients: count=%d\n", productionCounter);
 }
 
 void addCycleToLog(float cycleTime, String startTime, String endTime) {
@@ -1115,7 +1134,99 @@ void registerDevice() {
   http.end();
 }
 
-// -------------------- WebSocket / Socket.IO --------------------
+// -------------------- WebSocket Server for Webapp --------------------
+void webSocketServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("[WSS] Client #%u disconnected\n", num);
+      break;
+
+    case WStype_CONNECTED: {
+      IPAddress ip = wsServer.remoteIP(num);
+      Serial.printf("[WSS] Client #%u connected from %d.%d.%d.%d\n", num, ip[0], ip[1], ip[2], ip[3]);
+      
+      // Send current status to new client
+      DynamicJsonDocument doc(1024);
+      doc["type"] = "status_update";
+      doc["device_id"] = DEVICE_ID;
+      doc["good_count"] = productionCounter;
+      doc["completed_cycles"] = completedCycles;
+      doc["cycle_in_progress"] = cycleInProgress;
+      doc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+      doc["timestamp"] = (uint32_t)millis();
+      
+      String message;
+      serializeJson(doc, message);
+      wsServer.sendTXT(num, message);
+      Serial.printf("[WSS] Sent status to client #%u: count=%d\n", num, productionCounter);
+      break;
+    }
+
+    case WStype_TEXT: {
+      String msg = String((char*)payload);
+      Serial.printf("[WSS] Client #%u sent: %s\n", num, msg.c_str());
+      
+      // Parse incoming commands from webapp
+      DynamicJsonDocument doc(512);
+      DeserializationError error = deserializeJson(doc, msg);
+      if (!error) {
+        String command = doc["command"] | "";
+        
+        if (command == "reset_production") {
+          resetProductionData();
+          Serial.printf("[WSS] Production reset by webapp client #%u\n", num);
+          
+          // Broadcast reset to all connected clients
+          DynamicJsonDocument response(512);
+          response["type"] = "production_reset";
+          response["device_id"] = DEVICE_ID;
+          response["timestamp"] = (uint32_t)millis();
+          
+          String resetMsg;
+          serializeJson(response, resetMsg);
+          wsServer.broadcastTXT(resetMsg);
+        }
+        else if (command == "get_status") {
+          // Send current status
+          DynamicJsonDocument response(1024);
+          response["type"] = "status_update";
+          response["device_id"] = DEVICE_ID;
+          response["good_count"] = productionCounter;
+          response["completed_cycles"] = completedCycles;
+          response["cycle_in_progress"] = cycleInProgress;
+          response["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+          response["timestamp"] = (uint32_t)millis();
+          
+          String statusMsg;
+          serializeJson(response, statusMsg);
+          wsServer.sendTXT(num, statusMsg);
+        }
+      }
+      break;
+    }
+
+    case WStype_PING:
+      Serial.printf("[WSS] Client #%u ping\n", num);
+      break;
+
+    case WStype_PONG:
+      Serial.printf("[WSS] Client #%u pong\n", num);
+      break;
+
+    default:
+      break;
+  }
+}
+
+void setupWebSocketServer() {
+  Serial.println("\n[WSS] Starting WebSocket server on port 81...");
+  wsServer.begin();
+  wsServer.onEvent(webSocketServerEvent);
+  wsServer.enableHeartbeat(15000, 3000, 2);  // ping every 15s, timeout after 3s, 2 missed pings = disconnect
+  Serial.println("[WSS] ✅ WebSocket server ready for webapp connections");
+}
+
+// -------------------- WebSocket Client / Socket.IO --------------------
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
@@ -1358,6 +1469,7 @@ void setup() {
     
     registerDevice();
     setupSocketIO();
+    setupWebSocketServer();  // Start WebSocket server for webapp connections
     
     // Smart webapp update system - only download if changed
     Serial.println("\n[SETUP] 🔄 Initializing smart webapp update system...");
@@ -1385,7 +1497,8 @@ void setup() {
 }
 
 void loop() {
-  webSocket.loop();
+  webSocket.loop();     // Handle Socket.IO client connection to server
+  wsServer.loop();      // Handle WebSocket server for webapp connections
   server.handleClient();
   
   // Handle production buttons
