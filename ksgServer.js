@@ -50,6 +50,14 @@ let AUTHORIZED_DEVICES = {};
 let lastDeviceFetch = 0;
 const DEVICE_CACHE_DURATION = parseInt(process.env.DEVICE_CACHE_DURATION) || 300000; // 5 minutes
 
+// 🔧 GLOBAL FUNCTIONS STRUCTURE (for compatibility)
+let GLOBAL_FUNCTIONS = {
+    version: '1.0.0',
+    hash: 'ksg-production',
+    updated: new Date().toISOString(),
+    functions: {}
+};
+
 // 🔗 MongoDB Connection
 async function connectToMongoDB() {
     try {
