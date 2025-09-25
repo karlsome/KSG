@@ -13,7 +13,8 @@ const isRunningOnRPi = window.location.hostname !== 'localhost' &&
 // Auto-detect KSG server URL based on environment
 if (isRunningOnRPi) {
     // Running on ESP32/RPi - point to actual ksgServer
-    window.KSG_SERVER_URL = "http://192.168.0.64:3000"; // Update this to your actual ksgServer IP
+    //window.KSG_SERVER_URL = "http://192.168.0.64:3000"; // Update this to your actual ksgServer IP
+    window.KSG_SERVER_URL = "https://ksg-lu47.onrender.com";
 }
 
 let currentUser = null;
@@ -418,8 +419,8 @@ class AuthManager {
         sessionStorage.removeItem('ksg_user');
         
         // Instead of showing login modal, redirect back to tablet login page
-        // You can update this URL to your render.com deployment URL
-        const tabletLoginUrl = 'http://192.168.0.64:5503'; // Update this for production
+        // Updated to use Render.com deployment URL
+        const tabletLoginUrl = 'https://ksg-lu47.onrender.com'; // Production Render.com server
         console.log('🔄 Redirecting to tablet login page...');
         window.location.href = tabletLoginUrl;
     }
