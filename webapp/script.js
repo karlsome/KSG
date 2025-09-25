@@ -103,20 +103,32 @@ class ProductionManager {
         console.log('📊 Received production update:', data);
         
         if (data.type === 'production_update') {
-            // Check if this is initial sync after page refresh
-            const currentValue = document.getElementById('goodCount')?.value || '0';
+            // Check if this is initial sync after page refresh - handle both input and div elements
+            const goodCountField = document.getElementById('goodCount');
+            const currentValue = goodCountField?.value || goodCountField?.textContent || '0';
             const isSync = currentValue === '0' && data.good_count > 0;
             if (isSync) {
                 console.log('🔄 Initial sync - updating from ESP32 current state');
             }
             // Update good count field in real-time
-            const goodCountField = document.getElementById('goodCount');
             const avgCycleTimeField = document.getElementById('averageCycleTime');
             const initialTimeField = document.getElementById('initialTimeDisplay');
             const finalTimeField = document.getElementById('finalTimeDisplay');
             
             if (goodCountField && data.good_count !== undefined) {
-                goodCountField.value = data.good_count;
+                // Handle both input field and display element
+                if (goodCountField.tagName === 'INPUT') {
+                    goodCountField.value = data.good_count;
+                } else {
+                    goodCountField.textContent = data.good_count;
+                }
+                
+                // Also update hidden input for form submission
+                const hiddenInput = document.getElementById('goodCountHidden');
+                if (hiddenInput) {
+                    hiddenInput.value = data.good_count;
+                }
+                
                 console.log('🔄 Updated good count to:', data.good_count);
                 
                 // Flash the field to indicate update
@@ -239,24 +251,38 @@ class ProductionManager {
         const modal = document.getElementById('validationModal');
         const titleElement = document.getElementById('validationModalTitle');
         const messageElement = document.getElementById('validationModalMessage');
-        const button = document.getElementById('validationModalBtn');
+        const confirmButton = document.getElementById('validationModalBtn');
+        const cancelButton = document.getElementById('validationModalCancel');
         
-        if (modal && titleElement && messageElement && button) {
+        if (modal && titleElement && messageElement && confirmButton) {
             titleElement.textContent = title;
             messageElement.innerHTML = message;
-            modal.classList.add('show');
+            modal.style.display = 'flex';
             
-            // Auto-close after 3 seconds, or manual close
+            // Close modal function
             const closeModal = () => {
-                modal.classList.remove('show');
+                modal.style.display = 'none';
             };
             
-            button.onclick = closeModal;
+            // Event handlers
+            confirmButton.onclick = closeModal;
+            if (cancelButton) {
+                cancelButton.onclick = closeModal;
+            }
             
-            // Auto-close timer
-            setTimeout(closeModal, 3000);
+            // Close on background click
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            };
+            
+            // Auto-close after 5 seconds
+            setTimeout(closeModal, 5000);
             
             console.log('🚨 Showed validation modal:', title, message);
+        } else {
+            console.error('❌ Validation modal elements not found');
         }
     }
 }
@@ -1642,6 +1668,24 @@ class AuthManager {
         return null;
     }
     
+    getGoodCountValue() {
+        // Try multiple ways to get the good count value safely
+        const goodCountElement = document.getElementById('goodCount');
+        const hiddenGoodCountElement = document.getElementById('goodCountHidden');
+        
+        if (goodCountElement) {
+            if (goodCountElement.tagName === 'INPUT') {
+                return goodCountElement.value || '0';
+            } else {
+                return goodCountElement.textContent || '0';
+            }
+        } else if (hiddenGoodCountElement) {
+            return hiddenGoodCountElement.value || '0';
+        }
+        
+        return '0';
+    }
+    
     async submitData() {
         try {
             // Collect all form data
@@ -1876,8 +1920,10 @@ class AuthManager {
                 defectCount4: document.getElementById('defectCount4')?.value || '0',
                 defectCount5: document.getElementById('defectCount5')?.value || '0',
                 
-                // Comments
+                // Comments and text fields
                 comments: document.getElementById('comments')?.value || '',
+                otherDescription: document.getElementById('otherDescription')?.value || '',
+                remarks: document.getElementById('remarks')?.value || '',
                 
                 // Break times
                 break1From: document.getElementById('break1From')?.value || '',
@@ -1940,10 +1986,18 @@ class AuthManager {
                 }
             });
             
-            // Comments
+            // Comments and text fields
             if (formData.comments) {
                 const comments = document.getElementById('comments');
                 if (comments) comments.value = formData.comments;
+            }
+            if (formData.otherDescription) {
+                const otherDescription = document.getElementById('otherDescription');
+                if (otherDescription) otherDescription.value = formData.otherDescription;
+            }
+            if (formData.remarks) {
+                const remarks = document.getElementById('remarks');
+                if (remarks) remarks.value = formData.remarks;
             }
             
             // Break times
@@ -1963,6 +2017,11 @@ class AuthManager {
             
             // Recalculate break time after loading
             this.calculateBreakTime();
+            
+            // Update text indicators if function is available
+            if (typeof window.initializeTextIndicators === 'function') {
+                window.initializeTextIndicators();
+            }
             
             console.log('✅ Form data loaded from localStorage');
         } catch (error) {
@@ -1984,45 +2043,45 @@ class AuthManager {
         
         return {
             タイムスタンプ: now.toISOString(),
-            "日付（年）": parseInt(document.getElementById('dateYear').value),
-            "日付（月）": parseInt(document.getElementById('dateMonth').value),
-            "日付（日）": parseInt(document.getElementById('dateDay').value),
-            製品名: document.getElementById('productName').value,
-            品番: document.getElementById('hinban').value,
-            "LH/RH": document.getElementById('lhRh').value,
-            "技能員①": document.getElementById('operator1').value,
-            "技能員②": document.getElementById('operator2').value || "",
-            良品数: parseInt(document.getElementById('goodCount').value) || 0,
-            工数: parseInt(document.getElementById('manHours').value) || 0,
-            "不良項目　素材不良": parseInt(document.getElementById('materialDefect').value) || 0,
-            "不良項目　ダブり": parseInt(document.getElementById('doubleDefect').value) || 0,
-            "不良項目　ハガレ": parseInt(document.getElementById('peelingDefect').value) || 0,
-            "不良項目　イブツ": parseInt(document.getElementById('foreignMatterDefect').value) || 0,
-            "不良項目　シワ": parseInt(document.getElementById('wrinkleDefect').value) || 0,
-            "不良項目　ヘンケイ": parseInt(document.getElementById('deformationDefect').value) || 0,
-            "不良項目　グリス付着": parseInt(document.getElementById('greaseDefect').value) || 0,
-            "不良項目　ビス不締まり": parseInt(document.getElementById('screwLooseDefect').value) || 0,
-            "不良項目　その他": parseInt(document.getElementById('otherDefect').value) || 0,
-            その他説明: document.getElementById('otherDescription').value,
-            "不良項目　ショルダー": parseInt(document.getElementById('shoulderDefect').value) || 0,
-            "不良項目　シルバー": parseInt(document.getElementById('silverDefect').value) || 0,
-            "不良項目　ショルダー　キズ": parseInt(document.getElementById('shoulderScratchDefect').value) || 0,
-            "不良項目　ショルダー　その他": parseInt(document.getElementById('shoulderOtherDefect').value) || 0,
-            開始時間: document.getElementById('initialTimeDisplay').value || "",
-            終了時間: document.getElementById('finalTimeDisplay').value || "",
-            休憩時間: parseInt(document.getElementById('breakTime').value) || 0,
-            休憩1開始: document.getElementById('break1From').value,
-            休憩1終了: document.getElementById('break1To').value,
-            休憩2開始: document.getElementById('break2From').value,
-            休憩2終了: document.getElementById('break2To').value,
-            休憩3開始: document.getElementById('break3From').value,
-            休憩3終了: document.getElementById('break3To').value,
-            休憩4開始: document.getElementById('break4From').value,
-            休憩4終了: document.getElementById('break4To').value,
-            備考: document.getElementById('remarks').value,
-            "工数（除外工数）": parseInt(document.getElementById('excludedManHours').value) || 0,
+            "日付（年）": parseInt(document.getElementById('dateYear')?.value) || new Date().getFullYear(),
+            "日付（月）": parseInt(document.getElementById('dateMonth')?.value) || new Date().getMonth() + 1,
+            "日付（日）": parseInt(document.getElementById('dateDay')?.value) || new Date().getDate(),
+            製品名: document.getElementById('productName')?.value || '',
+            品番: document.getElementById('hinban')?.value || '',
+            "LH/RH": document.getElementById('lhRh')?.value || '',
+            "技能員①": document.getElementById('operator1')?.value || '',
+            "技能員②": document.getElementById('operator2')?.value || "",
+            良品数: parseInt(this.getGoodCountValue()) || 0,
+            工数: parseInt(document.getElementById('manHours')?.value) || 0,
+            "不良項目　素材不良": parseInt(document.getElementById('materialDefect')?.value) || 0,
+            "不良項目　ダブり": parseInt(document.getElementById('doubleDefect')?.value) || 0,
+            "不良項目　ハガレ": parseInt(document.getElementById('peelingDefect')?.value) || 0,
+            "不良項目　イブツ": parseInt(document.getElementById('foreignMatterDefect')?.value) || 0,
+            "不良項目　シワ": parseInt(document.getElementById('wrinkleDefect')?.value) || 0,
+            "不良項目　ヘンケイ": parseInt(document.getElementById('deformationDefect')?.value) || 0,
+            "不良項目　グリス付着": parseInt(document.getElementById('greaseDefect')?.value) || 0,
+            "不良項目　ビス不締まり": parseInt(document.getElementById('screwDefect')?.value) || 0,
+            "不良項目　その他": parseInt(document.getElementById('otherDefect')?.value) || 0,
+            その他説明: document.getElementById('otherDescription')?.value || '',
+            "不良項目　ショルダー": parseInt(document.getElementById('shoulderDefect')?.value) || 0,
+            "不良項目　シルバー": parseInt(document.getElementById('silverDefect')?.value) || 0,
+            "不良項目　ショルダー　キズ": parseInt(document.getElementById('shoulderScratchDefect')?.value) || 0,
+            "不良項目　ショルダー　その他": parseInt(document.getElementById('shoulderOtherDefect')?.value) || 0,
+            開始時間: document.getElementById('initialTimeDisplay')?.value || "",
+            終了時間: document.getElementById('finalTimeDisplay')?.value || "",
+            休憩時間: parseInt(document.getElementById('breakTime')?.value) || 0,
+            休憩1開始: document.getElementById('break1From')?.value || '',
+            休憩1終了: document.getElementById('break1To')?.value || '',
+            休憩2開始: document.getElementById('break2From')?.value || '',
+            休憩2終了: document.getElementById('break2To')?.value || '',
+            休憩3開始: document.getElementById('break3From')?.value || '',
+            休憩3終了: document.getElementById('break3To')?.value || '',
+            休憩4開始: document.getElementById('break4From')?.value || '',
+            休憩4終了: document.getElementById('break4To')?.value || '',
+            備考: document.getElementById('remarks')?.value || '',
+            "工数（除外工数）": parseInt(document.getElementById('excludedManHours')?.value) || 0,
             アイドル時間: null,
-            平均サイクル時間: parseFloat(document.getElementById('averageCycleTime').value) || 0,
+            平均サイクル時間: parseFloat(document.getElementById('averageCycleTime')?.value) || 0,
             最速サイクルタイム: null,
             最も遅いサイクルタイム: null,
             生産ログ: []
@@ -2062,24 +2121,50 @@ class AuthManager {
     }
     
     resetForm() {
-        // Reset all input fields
-        document.getElementById('hinban').value = '';
-        document.getElementById('productName').value = '';
-        document.getElementById('lhRh').value = '';
-        document.getElementById('operator1').value = '';
-        document.getElementById('operator2').value = '';
-        document.getElementById('goodCount').value = '0';
-        document.getElementById('initialTimeDisplay').value = '';
-        document.getElementById('finalTimeDisplay').value = '';
-        document.getElementById('averageCycleTime').value = '';
-        document.getElementById('manHours').value = '0';
+        // Reset all input fields safely
+        const hinban = document.getElementById('hinban');
+        if (hinban) hinban.value = '';
         
-        // Reset all defect counts using correct IDs
+        const productName = document.getElementById('productName');
+        if (productName) productName.value = '';
+        
+        const lhRh = document.getElementById('lhRh');
+        if (lhRh) lhRh.value = '';
+        
+        const operator1 = document.getElementById('operator1');
+        if (operator1) operator1.value = '';
+        
+        const operator2 = document.getElementById('operator2');
+        if (operator2) operator2.value = '';
+        
+        // Reset good count (handle both input and display)
+        const goodCountElement = document.getElementById('goodCount');
+        if (goodCountElement) {
+            if (goodCountElement.tagName === 'INPUT') {
+                goodCountElement.value = '0';
+            } else {
+                goodCountElement.textContent = '0';
+            }
+        }
+        const hiddenGoodCount = document.getElementById('goodCountHidden');
+        if (hiddenGoodCount) hiddenGoodCount.value = '0';
+        
+        const initialTimeDisplay = document.getElementById('initialTimeDisplay');
+        if (initialTimeDisplay) initialTimeDisplay.value = '';
+        
+        const finalTimeDisplay = document.getElementById('finalTimeDisplay');
+        if (finalTimeDisplay) finalTimeDisplay.value = '';
+        
+        const averageCycleTime = document.getElementById('averageCycleTime');
+        if (averageCycleTime) averageCycleTime.value = '';
+        
+        const manHoursElement = document.getElementById('manHours');
+        if (manHoursElement) manHoursElement.value = '0';
+        
+        // Reset all defect counts using current HTML IDs
         const defectFields = [
             'materialDefect', 'doubleDefect', 'peelingDefect', 'foreignMatterDefect',
-            'wrinkleDefect', 'deformationDefect', 'greaseDefect', 'screwLooseDefect',
-            'otherDefect', 'shoulderDefect', 'silverDefect', 'shoulderScratchDefect',
-            'shoulderOtherDefect'
+            'wrinkleDefect', 'deformationDefect', 'greaseDefect', 'screwDefect'
         ];
         
         defectFields.forEach(id => {
@@ -2087,23 +2172,48 @@ class AuthManager {
             if (element) element.value = '0';
         });
         
-        // Reset text areas
+        // Reset text areas and update indicators
         const remarksField = document.getElementById('remarks');
-        if (remarksField) remarksField.value = '';
+        if (remarksField) {
+            remarksField.value = '';
+            // Update indicator if function is available
+            if (typeof window.updateTextIndicator === 'function') {
+                window.updateTextIndicator('remarks', '');
+            }
+        }
         
         const otherDescField = document.getElementById('otherDescription');
-        if (otherDescField) otherDescField.value = '';
+        if (otherDescField) {
+            otherDescField.value = '';
+            // Update indicator if function is available
+            if (typeof window.updateTextIndicator === 'function') {
+                window.updateTextIndicator('otherDescription', '');
+            }
+        }
         
-        // Reset break times
+        // Reset break times safely
         ['break1', 'break2', 'break3', 'break4'].forEach(breakId => {
             const fromElement = document.getElementById(`${breakId}From`);
             const toElement = document.getElementById(`${breakId}To`);
-            if (fromElement) fromElement.value = '';
-            if (toElement) toElement.value = '';
+            if (fromElement) {
+                fromElement.value = '';
+                // Also unlock break inputs when resetting
+                fromElement.classList.remove('locked');
+                fromElement.readOnly = false;
+            }
+            if (toElement) {
+                toElement.value = '';
+                // Also unlock break inputs when resetting
+                toElement.classList.remove('locked');
+                toElement.readOnly = false;
+            }
         });
         
-        document.getElementById('breakTime').value = '0';
-        document.getElementById('excludedManHours').value = '0';
+        const breakTime = document.getElementById('breakTime');
+        if (breakTime) breakTime.value = '0';
+        
+        const excludedManHours = document.getElementById('excludedManHours');
+        if (excludedManHours) excludedManHours.value = '0';
         
         // Reinitialize date
         this.initializeDate();

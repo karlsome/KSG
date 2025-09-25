@@ -6,40 +6,493 @@
     <title>生産データ入力 - KSG Production System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom scrollbar for better tablet experience */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        /* Optimized for 10.1" tablet landscape - Perfect screen utilization */
+        * {
+            box-sizing: border-box;
         }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-        /* Hide number input arrows (optional, depends on preference) */
-        input[type="number"]::-webkit-outer-spin-button,
-        input[type="number"]::-webkit-inner-spin-button {
-            -webkit-appearance: none;
+        
+        body {
+            height: 100vh;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans JP', sans-serif;
             margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
         }
-        input[type="number"] {
-            -moz-appearance: textfield; /* Firefox */
+        
+        .main-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 6px;
+            gap: 6px;
         }
-        /* Style for time input to indicate clickability */
-        .time-input {
+        
+        /* Compact header */
+        .header {
+            height: 50px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            flex-shrink: 0;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logo {
+            height: 32px;
+            width: auto;
+        }
+        
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0284c7;
+        }
+        
+        .status-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-online {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .status-offline {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        
+        /* Main content grid - 3 columns with better proportions */
+        .content-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 280px 1fr 280px;
+            gap: 8px;
+            min-height: 0;
+            overflow: hidden;
+        }
+        
+        /* Left panel - Worker info */
+        .left-panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Center panel - Production info */
+        .center-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        /* Smaller counter section */
+        .counter-section {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+            padding: 6px 12px;
+            text-align: center;
+            height: 110px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .counter-title {
+            font-size: 13px;
+            font-weight: bold;
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        .counter-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 0;
+            line-height: 1;
+        }
+        
+        .counter-controls {
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+        }
+        
+        .counter-btn {
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
             cursor: pointer;
-            background-color: white; /* Ensure it looks editable despite click behavior */
+            transition: all 0.2s;
+            color: white;
         }
-        /* New styles for flashing effect */
-        .flash-green {
-            background-color: #d1fae5; /* A light green */
-            transition: background-color 0.1s ease-in-out; /* Quicker flash */
+        
+        .btn-minus {
+            background: #dc2626;
+        }
+        
+        .btn-plus {
+            background: #059669;
+        }
+        
+        .btn-auto {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            font-size: 11px;
+            width: 50px;
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+        
+        .counter-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        /* Dynamic defects section - takes remaining height */
+        .defects-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 10px;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .defects-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 5px;
+            flex: 1;
+            min-height: 0;
+            max-height: 180px;
+        }
+        
+        /* Clickable defect blocks */
+        .defect-item {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 4px 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            min-height: 60px;
+            max-height: 85px;
+        }
+        
+        .defect-item:hover {
+            background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+            border-color: #0284c7;
+            transform: scale(1.02);
+        }
+        
+        .defect-item:active {
+            transform: scale(0.98);
+            background: linear-gradient(135deg, #bae6fd 0%, #7dd3fc 100%);
+        }
+        
+        .defect-label {
+            font-size: 10px;
+            font-weight: bold;
+            color: #374151;
+            margin-bottom: 6px;
+            text-align: center;
+            line-height: 1.2;
+        }
+        
+        .defect-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .defect-minus-btn {
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            background: #ef4444;
+            transition: all 0.2s;
+        }
+        
+        .defect-minus-btn:hover {
+            background: #dc2626;
+            transform: scale(1.1);
+        }
+        
+        .defect-count {
+            width: 50px;
+            text-align: center;
+            font-weight: bold;
+            background: #f9fafb;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 2px;
+        }
+        
+        .text-input-indicator {
+            font-size: 16px;
+            opacity: 0.6;
+            transition: all 0.3s ease;
+        }
+        
+        .text-input-indicator.has-text {
+            opacity: 1;
+            color: #0ea5e9;
+            font-weight: bold;
+        }        /* Right panel - Time info with scrolling */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            height: 100%;
+            padding-right: 4px;
+            padding-bottom: 60px;
+        }
+        
+        .right-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .right-panel::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 3px;
+        }
+        
+        .right-panel::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        
+        .right-panel::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        .time-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 12px;
+            flex-shrink: 0;
+        }
+        
+        .controls-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex-shrink: 0;
+            margin-bottom: 80px;
+        }
+        
+        /* Break time section */
+        .break-section {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 6px;
+            margin-top: 6px;
+        }
+        
+        .break-header {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        
+        .break-title {
+            font-size: 12px;
+            font-weight: bold;
+            color: #374151;
+        }
+        
+        .break-input {
+            padding: 4px 6px;
+            border: 1px solid #d1d5db;
+            border-radius: 3px;
+            font-size: 11px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .break-input:focus {
+            outline: none;
+            border-color: #0284c7;
+            box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.1);
+        }
+        
+        .break-input.locked {
+            background-color: #f3f4f6;
+            border-color: #9ca3af;
+            cursor: default;
+            color: #6b7280;
+        }
+        
+        .break-input.locked:focus {
+            outline: none;
+            border-color: #9ca3af;
+            box-shadow: none;
+        }
+        
+        .break-input.locked::after {
+            content: "🔒";
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            opacity: 0.6;
+        }
+        
+        .break-reset-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .break-reset-btn:hover {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        }
+        
+        /* Form elements */
+        .section-title {
+            font-size: 12px;
+            font-weight: bold;
+            color: #0284c7;
+            margin-bottom: 8px;
+            text-align: center;
+            padding: 5px;
+            background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+            border-radius: 6px;
+            border: 1px solid #7dd3fc;
+            flex-shrink: 0;
+        }
+        
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 6px;
+        }
+        
+        .form-label {
+            font-size: 11px;
+            font-weight: bold;
+            color: #6b7280;
+            margin-bottom: 3px;
+        }
+        
+        .form-input {
+            padding: 6px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 12px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #0284c7;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.1);
+        }
+        
+        .form-input-readonly {
+            background: #f9fafb;
+        }
+        
+        .time-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3px;
+        }
+        
+        .date-grid {
+            display: grid;
+            grid-template-columns: 60px 30px 30px;
+            gap: 3px;
+        }
+        
+        .main-btn {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+        }
+        
+        .main-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         
         /* Login modal styles */
@@ -52,330 +505,787 @@
             width: 100%;
             height: 100%;
             background-color: rgba(0,0,0,0.5);
-        }
-        .modal.show {
-            display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            color: #374151;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        .form-actions {
+            text-align: center;
+        }
+
+        .form-actions button {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            color: white;
+            padding: 0.75rem 2rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+        }
+
+        .error-message {
+            color: #dc2626;
+            background-color: #fee2e2;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            text-align: center;
         }
         
-        /* System status styles */
-        .status-online {
-            border-left: 4px solid #10b981;
-            background: #f0fdf4;
-        }
-        .status-offline {
-            border-left: 4px solid #ef4444;
-            background: #fef2f2;
+        .flash-green {
+            background-color: #d1fae5 !important;
+            transition: background-color 0.1s ease-in-out;
         }
     </style>
 </head>
-<body class="bg-gray-100 p-4 min-h-screen flex flex-col items-center">
-    <!-- Access Message Modal (shown only when accessed directly without tablet login) -->
+<body>
+    <!-- Login Modal -->
     <div id="loginModal" class="modal">
-        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full mx-4">
-            <!-- Content will be dynamically populated by script.js -->
+        <div class="modal-content">
+            <h2 class="text-2xl font-bold mb-4 text-center" style="color: #0284c7;">KSG Production System Login</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Login</button>
+                </div>
+            </form>
+            <div id="loginError" class="error-message" style="display: none;"></div>
         </div>
     </div>
 
     <!-- Validation Warning Modal -->
+        <!-- Validation Warning Modal -->
     <div id="validationModal" class="modal">
-        <div class="bg-white rounded-lg shadow-lg p-8 max-w-md w-full mx-4 text-center">
-            <div class="mb-6">
-                <div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
-                    <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 19c-.77.833.192 2.5 1.732 2.5z"></path>
-                    </svg>
-                </div>
-                <h3 id="validationModalTitle" class="text-lg font-bold text-red-600 mb-2">入力エラー</h3>
-                <p id="validationModalMessage" class="text-gray-700 text-base">品番を入力してください。</p>
+        <div class="modal-content text-center">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 48px; margin-bottom: 10px;">⚠️</div>
             </div>
-            <button id="validationModalBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-md">
-                閉じる
-            </button>
+            
+            <div>
+                <h3 id="validationModalTitle" class="text-lg font-bold text-red-600 mb-2">入力エラー</h3>
+                <p id="validationModalMessage" class="text-gray-600 mb-6">エラーメッセージがここに表示されます。</p>
+                
+                <div class="flex space-x-3">
+                <button id="validationModalCancel" class="flex-1 px-4 py-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors">
+                    キャンセル
+                </button>
+                <button id="validationModalBtn" class="flex-1 px-4 py-2 text-white rounded-md transition-colors" style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);">
+                    OK
+                </button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="container mx-auto max-w-screen-xl bg-white shadow-lg rounded-lg p-6 space-y-6">
-        <div class="flex justify-between items-center">
-            <h1 class="text-3xl font-bold text-blue-800">生産データ入力 1</h1>
-            <div class="flex items-center space-x-4">
-                <div id="systemStatus" class="status-offline p-3 rounded-lg border flex items-center space-x-2">
-                    <div id="statusIndicator" class="w-3 h-3 rounded-full bg-red-500"></div>
-                    <span id="statusText" class="text-sm font-medium">オフライン</span>
+    <!-- Text Input Modal -->
+    <div id="textInputModal" class="modal">
+        <div class="modal-content">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 48px; margin-bottom: 10px;">📝</div>
+            </div>
+            
+            <div>
+                <h3 id="textModalTitle" class="text-lg font-bold text-blue-600 mb-2">テキスト入力</h3>
+                <p id="textModalDescription" class="text-gray-600 mb-4">内容を入力してください。</p>
+                
+                <textarea 
+                    id="textModalInput" 
+                    class="w-full p-3 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                    rows="4" 
+                    placeholder="こちらに入力してください..."
+                    style="font-family: inherit; font-size: 14px;"
+                ></textarea>
+                
+                <div class="flex space-x-3 mt-6">
+                    <button id="textModalCancel" class="flex-1 px-4 py-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors">
+                        キャンセル
+                    </button>
+                    <button id="textModalSave" class="flex-1 px-4 py-2 text-white rounded-md transition-colors" style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);">
+                        保存
+                    </button>
                 </div>
-                <div id="userInfo" class="text-sm text-gray-600">
-                    <span id="currentUserDisplay"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Compact Header -->
+        <div class="header">
+            <div class="logo-section">
+                <img src="https://www.ksgi.co.jp/wp/wp-content/themes/ksgi/assets/images/common/logo.png" alt="KSG Logo" class="logo">
+                <div class="title">生産データ入力システム</div>
+            </div>
+            <div class="status-section">
+                <div id="systemStatus" class="status-indicator status-offline">
+                    <div id="statusIndicator" class="w-2 h-2 rounded-full bg-red-500"></div>
+                    <span id="statusText">オフライン</span>
                 </div>
-                <button id="logoutBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md text-sm">
+                <div class="text-sm text-gray-600">
+                    <span>ユーザー: </span><span id="currentUserDisplay" class="font-semibold"></span>
+                </div>
+                <button id="logoutBtn" class="main-btn btn-danger text-xs px-3 py-1">
                     ログアウト
                 </button>
             </div>
         </div>
 
-        <div id="statusMessage" class="hidden p-3 rounded-md text-center text-sm font-medium"></div>
-        <div id="loadingIndicator" class="hidden text-center text-blue-500 font-semibold">
-            <svg class="animate-spin h-5 w-5 mr-3 inline-block" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>データ処理中...</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="space-y-4">
-                <label class="block text-gray-700 text-sm font-bold mb-1">日付</label>
-                <div class="flex space-x-2">
-                    <input type="text" id="dateYear" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                    <input type="text" id="dateMonth" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                    <input type="text" id="dateDay" class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div>
-                    <label for="hinban" class="block text-gray-700 text-sm font-bold mb-1">品番</label>
-                    <input type="text" id="hinban" data-qr-field="hinban" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="品番を入力またはQRをスキャン">
-                </div>
-
-                <div>
-                    <label for="productName" class="block text-gray-700 text-sm font-bold mb-1">製品名</label>
-                    <input type="text" id="productName" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div>
-                    <label for="lhRh" class="block text-gray-700 text-sm font-bold mb-1">LH/RH</label>
-                    <input type="text" id="lhRh" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-
-                <div class="relative">
-                    <label for="operator1" class="block text-gray-700 text-sm font-bold mb-1">技能員①</label>
-                    <select id="operator1" data-qr-field="name" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <option value="">選択または入力</option>
-                    </select>
-                    <input type="text" id="operator1Custom" placeholder="カスタム入力" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg mt-2 hidden">
-                </div>
-
-                <div class="relative">
-                    <label for="operator2" class="block text-gray-700 text-sm font-bold mb-1">技能員② (任意)</label>
-                    <select id="operator2" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <option value="">選択または入力</option>
-                    </select>
-                    <input type="text" id="operator2Custom" placeholder="カスタム入力" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg mt-2 hidden">
-                </div>
-
-                <div>
-                    <label for="goodCount" class="block text-gray-700 text-sm font-bold mb-1">良品数</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="goodCount" data-action="minus">-</button>
-                        <input type="number" id="goodCount" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg bg-gray-100 cursor-not-allowed" readonly>
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="goodCount" data-action="plus" disabled>+ (自動)</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="initialTimeDisplay" class="block text-gray-700 text-sm font-bold mb-1">開始時間 (自動)</label>
-                    <input type="text" id="initialTimeDisplay" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="finalTimeDisplay" class="block text-gray-700 text-sm font-bold mb-1">終了時間 (自動)</label>
-                    <input type="text" id="finalTimeDisplay" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="averageCycleTime" class="block text-gray-700 text-sm font-bold mb-1">平均サイクル時間 (秒) (自動)</label>
-                    <input type="text" id="averageCycleTime" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                <div>
-                    <label for="manHours" class="block text-gray-700 text-sm font-bold mb-1">工数</label>
-                    <input type="number" id="manHours" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                </div>
-            </div>
-
-            <div class="space-y-4">
-                <h2 class="text-xl font-bold text-gray-800 border-b pb-2 mb-4">不良項目</h2>
-
-                <div class="defect-item">
-                    <label for="materialDefect" class="block text-gray-700 text-sm font-bold mb-1">素材不良</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="materialDefect" data-action="minus">-</button>
-                        <input type="number" id="materialDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="materialDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="doubleDefect" class="block text-gray-700 text-sm font-bold mb-1">ダブり</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="doubleDefect" data-action="minus">-</button>
-                        <input type="number" id="doubleDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="doubleDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-                
-                <div class="defect-item">
-                    <label for="peelingDefect" class="block text-gray-700 text-sm font-bold mb-1">ハガレ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="peelingDefect" data-action="minus">-</button>
-                        <input type="number" id="peelingDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="peelingDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="foreignMatterDefect" class="block text-gray-700 text-sm font-bold mb-1">イブツ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="foreignMatterDefect" data-action="minus">-</button>
-                        <input type="number" id="foreignMatterDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="foreignMatterDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="wrinkleDefect" class="block text-gray-700 text-sm font-bold mb-1">シワ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="wrinkleDefect" data-action="minus">-</button>
-                        <input type="number" id="wrinkleDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="wrinkleDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="deformationDefect" class="block text-gray-700 text-sm font-bold mb-1">ヘンケイ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="deformationDefect" data-action="minus">-</button>
-                        <input type="number" id="deformationDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="deformationDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="greaseDefect" class="block text-gray-700 text-sm font-bold mb-1">グリス付着</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="greaseDefect" data-action="minus">-</button>
-                        <input type="number" id="greaseDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="greaseDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="screwLooseDefect" class="block text-gray-700 text-sm font-bold mb-1">ビス不締まり</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="screwLooseDefect" data-action="minus">-</button>
-                        <input type="number" id="screwLooseDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="screwLooseDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="otherDefect" class="block text-gray-700 text-sm font-bold mb-1">その他</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="otherDefect" data-action="minus">-</button>
-                        <input type="number" id="otherDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="otherDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="otherDescription" class="block text-gray-700 text-sm font-bold mb-1">その他説明</label>
-                    <textarea id="otherDescription" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="その他不良項目の詳細"></textarea>
-                </div>
-
-                <div class="defect-item">
-                    <label for="shoulderDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="silverDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　シルバー</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="silverDefect" data-action="minus">-</button>
-                        <input type="number" id="silverDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="silverDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div class="defect-item">
-                    <label for="shoulderScratchDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー　キズ</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderScratchDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderScratchDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderScratchDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-                
-                <div class="defect-item">
-                    <label for="shoulderOtherDefect" class="block text-gray-700 text-sm font-bold mb-1">不良項目　ショルダー　その他</label>
-                    <div class="flex items-center space-x-2">
-                        <button type="button" class="qty-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderOtherDefect" data-action="minus">-</button>
-                        <input type="number" id="shoulderOtherDefect" value="0" min="0" class="flex-1 p-3 border border-gray-300 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                        <button type="button" class="qty-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md text-xl" data-target="shoulderOtherDefect" data-action="plus">+</button>
-                    </div>
-                </div>
-
-                <div>
-                    <label for="breakTime" class="block text-gray-700 text-sm font-bold mb-1">休憩時間 (分)</label>
-                    <input type="number" id="breakTime" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed" readonly>
-                </div>
-                
-                <div>
-                    <label for="remarks" class="block text-gray-700 text-sm font-bold mb-1">備考</label>
-                    <textarea id="remarks" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="特記事項"></textarea>
-                </div>
-
-                <div>
-                    <label for="excludedManHours" class="block text-gray-700 text-sm font-bold mb-1">工数（除外工数）</label>
-                    <input type="number" id="excludedManHours" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                </div>
+        <!-- Status Messages -->
+        <div id="statusMessage" class="hidden p-4 mx-4 mt-2 rounded-lg text-center font-semibold"></div>
+        <div id="loadingIndicator" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg flex items-center gap-3">
+                <svg class="animate-spin h-6 w-6 text-blue-500" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-lg font-semibold">データ処理中...</span>
             </div>
         </div>
 
-        <div class="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-4">
-            <h2 class="text-xl font-bold text-gray-800 border-b pb-2">休憩時間詳細</h2>
+        <!-- Main Content Grid -->
+        <div class="content-grid">
             
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩1</label>
-                <input type="text" id="break1From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break1To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break1">リセット</button>
+            <!-- Left Panel: Product Info -->
+            <div class="left-panel">
+                <div class="section-title">製品・作業者情報</div>
+                
+                    <div class="form-row">
+                        <label class="form-label">日付</label>
+                        <div class="date-grid">
+                            <input type="text" id="dateYear" class="form-input form-input-readonly" readonly>
+                            <input type="text" id="dateMonth" class="form-input form-input-readonly" readonly>
+                            <input type="text" id="dateDay" class="form-input form-input-readonly" readonly>
+                        </div>
+                    </div>                <div class="form-row">
+                    <label for="hinban" class="form-label">品番</label>
+                    <input type="text" id="hinban" data-qr-field="hinban" class="form-input" placeholder="品番を入力またはQRスキャン">
+                </div>
+                
+                <div class="form-row">
+                    <label for="productName" class="form-label">製品名</label>
+                    <input type="text" id="productName" class="form-input form-input-readonly" readonly>
+                </div>
+                
+                <div class="form-row">
+                    <label for="lhRh" class="form-label">LH/RH</label>
+                    <input type="text" id="lhRh" class="form-input form-input-readonly" readonly>
+                </div>
+                
+                <div class="form-row">
+                    <label for="operator1" class="form-label">技能員①</label>
+                    <select id="operator1" data-qr-field="operator1" class="form-input">
+                        <option value="">選択または入力</option>
+                    </select>
+                </div>
+                
+                <div class="form-row">
+                    <label for="operator2" class="form-label">技能員② (任意)</label>
+                    <select id="operator2" data-qr-field="operator2" class="form-input">
+                        <option value="">選択または入力</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩2</label>
-                <input type="text" id="break2From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break2To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break2">リセット</button>
+            <!-- Center Panel: Counter and Defects -->
+            <div class="center-panel">
+                
+                <!-- Production Counter -->
+                <div class="counter-section">
+                    <div class="counter-title">良品数</div>
+                    <div class="counter-display" id="goodCount">0</div>
+                    <div class="counter-controls">
+                        <button class="counter-btn btn-minus" onclick="adjustGoodCount(-1)">-</button>
+                        <button class="counter-btn btn-auto" onclick="toggleAutoMode()" id="autoBtn">自動</button>
+                        <button class="counter-btn btn-plus" onclick="adjustGoodCount(1)">+</button>
+                    </div>
+                </div>
+
+                <!-- Defects Section -->
+                <div class="defects-section">
+                    <div class="section-title">不良項目</div>
+                    <div class="defects-grid">
+                        
+                        <div class="defect-item" onclick="adjustDefect('materialDefect', 1)">
+                            <div class="defect-label">素材不良</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('materialDefect', -1)">-</button>
+                                <input type="number" id="materialDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('doubleDefect', 1)">
+                            <div class="defect-label">ダブり</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('doubleDefect', -1)">-</button>
+                                <input type="number" id="doubleDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('peelingDefect', 1)">
+                            <div class="defect-label">ハガレ</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('peelingDefect', -1)">-</button>
+                                <input type="number" id="peelingDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('foreignMatterDefect', 1)">
+                            <div class="defect-label">イブツ</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('foreignMatterDefect', -1)">-</button>
+                                <input type="number" id="foreignMatterDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('wrinkleDefect', 1)">
+                            <div class="defect-label">シワ</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('wrinkleDefect', -1)">-</button>
+                                <input type="number" id="wrinkleDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('deformationDefect', 1)">
+                            <div class="defect-label">ヘンケイ</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('deformationDefect', -1)">-</button>
+                                <input type="number" id="deformationDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('greaseDefect', 1)">
+                            <div class="defect-label">グリス付着</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('greaseDefect', -1)">-</button>
+                                <input type="number" id="greaseDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="adjustDefect('screwDefect', 1)">
+                            <div class="defect-label">ビス不締まり</div>
+                            <div class="defect-controls">
+                                <button class="defect-minus-btn" onclick="event.stopPropagation(); adjustDefect('screwDefect', -1)">-</button>
+                                <input type="number" id="screwDefect" value="0" min="0" class="defect-count" readonly>
+                            </div>
+                        </div>
+                        
+                        <!-- Text Input Modal Buttons -->
+                        <div class="defect-item" onclick="openTextModal('otherDescription', 'その他説明', 'その他の不良について詳しく説明してください')">
+                            <div class="defect-label">その他説明</div>
+                            <div class="defect-controls">
+                                <div class="text-input-indicator" id="otherDescriptionIndicator">📝</div>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item" onclick="openTextModal('remarks', '備考', '備考があれば入力してください')">
+                            <div class="defect-label">備考</div>
+                            <div class="defect-controls">
+                                <div class="text-input-indicator" id="remarksIndicator">📝</div>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+                
             </div>
 
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩3</label>
-                <input type="text" id="break3From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break3To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break3">リセット</button>
-            </div>
+            <!-- Right Panel: Time Info & Controls -->
+            <div class="right-panel">
+                
+                <!-- Time Information -->
+                <div class="time-section">
+                    <div class="section-title">時刻情報</div>
+                    
+                    <div class="form-row">
+                        <label class="form-label">開始時間</label>
+                        <input type="text" id="initialTimeDisplay" class="form-input form-input-readonly" readonly>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label class="form-label">終了時間</label>
+                        <input type="text" id="finalTimeDisplay" class="form-input form-input-readonly" readonly>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label class="form-label">平均サイクル時間</label>
+                        <input type="text" id="averageCycleTime" class="form-input form-input-readonly" readonly>
+                    </div>
+                    
+                    <!-- Break Times Section -->
+                    <div class="break-section">
+                        <div class="break-header">
+                            <div class="break-title">休憩時間</div>
+                        </div>
+                        
+                        <div class="form-row" style="margin-bottom: 3px;">
+                            <label class="form-label">休憩1</label>
+                            <div class="time-grid">
+                                <input type="text" id="break1From" placeholder="開始" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                                <input type="text" id="break1To" placeholder="終了" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row" style="margin-bottom: 3px;">
+                            <label class="form-label">休憩2</label>
+                            <div class="time-grid">
+                                <input type="text" id="break2From" placeholder="開始" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                                <input type="text" id="break2To" placeholder="終了" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row" style="margin-bottom: 0;">
+                            <label class="form-label">休憩3</label>
+                            <div class="time-grid">
+                                <input type="text" id="break3From" placeholder="開始" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                                <input type="text" id="break3To" placeholder="終了" class="time-input break-input" oncontextmenu="return false;" title="タップで現在時刻入力、長押しでリセット">
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
-                <label class="font-bold w-full sm:w-20 flex-shrink-0 text-gray-700 text-base">休憩4</label>
-                <input type="text" id="break4From" placeholder="開始" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <input type="text" id="break4To" placeholder="終了" class="time-input flex-1 min-w-0 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg">
-                <button type="button" class="reset-break-btn bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md text-sm sm:w-24 flex-shrink-0" data-break-id="break4">リセット</button>
+                <!-- Main Controls -->
+                <div class="controls-section">
+                    <div class="section-title">操作</div>
+                    <button id="submitDataBtn" class="main-btn btn-primary w-full mb-2">
+                        データ送信
+                    </button>
+                    <button id="resetAllBtn" class="main-btn btn-danger w-full">
+                        全てリセット
+                    </button>
+                </div>
+                
             </div>
-        </div>
-
-        <div class="mt-8 text-center space-y-4">
-            <button id="submitDataBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg shadow-md transition duration-200 text-xl w-full md:w-auto">
-                データ送信
-            </button>
-            <button id="resetAllBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-8 rounded-lg shadow-md transition duration-200 text-xl w-full md:w-auto">
-                全てリセット
-            </button>
         </div>
     </div>
 
-    <!-- Socket.IO client for real-time production updates -->
+    <!-- Hidden elements for backward compatibility -->
+    <input type="hidden" id="break4From">
+    <input type="hidden" id="break4To">
+    <input type="hidden" id="breakTime" value="0">
+    <input type="hidden" id="goodCountHidden" value="0">
+    <input type="hidden" id="manHours" value="0">
+    <input type="hidden" id="excludedManHours" value="0">
+    <textarea id="remarks" style="display: none;"></textarea>
+    <textarea id="otherDescription" style="display: none;"></textarea>
+
+    <!-- Socket.IO client -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <!-- Enhanced script for step7.py integration -->
+    <!-- Main script -->
     <script src="script.js"></script>
+    
+    <script>
+    // UI Helper functions
+    function adjustGoodCount(delta) {
+        const goodCountElement = document.getElementById('goodCount');
+        const currentCount = parseInt(goodCountElement.textContent) || 0;
+        const newCount = Math.max(0, currentCount + delta);
+        goodCountElement.textContent = newCount;
+        
+        // Also update hidden input for form submission compatibility
+        const hiddenInput = document.getElementById('goodCountHidden');
+        if (hiddenInput) {
+            hiddenInput.value = newCount;
+        }
+        
+        // Flash effect
+        goodCountElement.classList.add('flash-green');
+        setTimeout(() => {
+            goodCountElement.classList.remove('flash-green');
+        }, 200);
+        
+        // Save form data after adjustment
+        if (window.authManager) {
+            window.authManager.saveFormData();
+        }
+    }
+
+    function adjustDefect(defectId, delta) {
+        const defectInput = document.getElementById(defectId);
+        if (defectInput) {
+            const currentValue = parseInt(defectInput.value) || 0;
+            const newValue = Math.max(0, currentValue + delta);
+            defectInput.value = newValue;
+            
+            // Flash effect
+            defectInput.classList.add('flash-green');
+            setTimeout(() => {
+                defectInput.classList.remove('flash-green');
+            }, 200);
+            
+            // Save form data after adjustment
+            if (window.authManager) {
+                window.authManager.saveFormData();
+            }
+        }
+    }
+
+    function toggleAutoMode() {
+        const autoBtn = document.getElementById('autoBtn');
+        if (autoBtn.textContent === '自動') {
+            autoBtn.textContent = '手動';
+            autoBtn.className = autoBtn.className.replace('btn-auto', 'btn-manual');
+        } else {
+            autoBtn.textContent = '自動';
+            autoBtn.className = autoBtn.className.replace('btn-manual', 'btn-auto');
+        }
+    }
+
+    // Long press functionality for break time inputs with locking
+    let longPressTimer = null;
+    let isLongPress = false;
+
+    function setupLongPressForBreakInputs() {
+        const breakInputs = document.querySelectorAll('.break-input');
+        
+        breakInputs.forEach(input => {
+            // Lock input if it has a value
+            lockInputIfHasValue(input);
+            
+            // Mouse events
+            input.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // Prevent default to avoid accidental focus
+                isLongPress = false;
+                
+                if (input.classList.contains('locked')) {
+                    // For locked inputs, require long press to unlock/reset
+                    longPressTimer = setTimeout(() => {
+                        isLongPress = true;
+                        unlockAndResetInput(input);
+                    }, 1000); // 1 second for locked inputs
+                } else {
+                    // For unlocked inputs, short click sets time, long press resets
+                    longPressTimer = setTimeout(() => {
+                        isLongPress = true;
+                        resetBreakInput(input);
+                    }, 800); // 800ms for normal reset
+                }
+            });
+            
+            input.addEventListener('mouseup', (e) => {
+                clearTimeout(longPressTimer);
+                if (!isLongPress && !input.classList.contains('locked')) {
+                    // Only allow normal click if not locked
+                    setCurrentTime(input);
+                }
+            });
+            
+            input.addEventListener('mouseleave', () => {
+                clearTimeout(longPressTimer);
+            });
+            
+            // Touch events for mobile/tablet
+            input.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent default touch behavior
+                isLongPress = false;
+                
+                if (input.classList.contains('locked')) {
+                    longPressTimer = setTimeout(() => {
+                        isLongPress = true;
+                        unlockAndResetInput(input);
+                    }, 1000);
+                } else {
+                    longPressTimer = setTimeout(() => {
+                        isLongPress = true;
+                        resetBreakInput(input);
+                    }, 800);
+                }
+            });
+            
+            input.addEventListener('touchend', (e) => {
+                clearTimeout(longPressTimer);
+                if (!isLongPress && !input.classList.contains('locked')) {
+                    setCurrentTime(input);
+                }
+            });
+            
+            input.addEventListener('touchcancel', () => {
+                clearTimeout(longPressTimer);
+            });
+            
+            // Prevent typing when locked
+            input.addEventListener('keydown', (e) => {
+                if (input.classList.contains('locked')) {
+                    e.preventDefault();
+                }
+            });
+            
+            // Monitor value changes to apply locking
+            input.addEventListener('input', () => {
+                lockInputIfHasValue(input);
+            });
+        });
+    }
+    
+    function lockInputIfHasValue(input) {
+        if (input.value && input.value.trim() !== '') {
+            input.classList.add('locked');
+            input.readOnly = true;
+            input.title = '長押しでリセット・編集';
+        } else {
+            input.classList.remove('locked');
+            input.readOnly = false;
+            input.title = 'タップで現在時刻入力、長押しでリセット';
+        }
+    }
+    
+    function setCurrentTime(input) {
+        if (!input.classList.contains('locked')) {
+            const currentTime = new Date();
+            const timeString = currentTime.toLocaleTimeString('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            input.value = timeString;
+            
+            // Lock the input after setting time
+            lockInputIfHasValue(input);
+            
+            // Visual feedback
+            input.style.background = '#dcfce7';
+            input.style.borderColor = '#16a34a';
+            
+            setTimeout(() => {
+                input.style.background = '#f3f4f6';
+                input.style.borderColor = '#9ca3af';
+            }, 300);
+            
+            // Save form data
+            if (window.authManager) {
+                window.authManager.saveFormData();
+            }
+        }
+    }
+    
+    function unlockAndResetInput(input) {
+        input.value = '';
+        input.classList.remove('locked');
+        input.readOnly = false;
+        input.title = 'タップで現在時刻入力、長押しでリセット';
+        
+        // Visual feedback for unlock/reset
+        input.style.background = '#fef3c7';
+        input.style.borderColor = '#f59e0b';
+        
+        setTimeout(() => {
+            input.style.background = 'white';
+            input.style.borderColor = '#d1d5db';
+        }, 500);
+        
+        // Haptic feedback if available
+        if (navigator.vibrate) {
+            navigator.vibrate([50, 100, 50]); // Double buzz for unlock
+        }
+        
+        // Save form data
+        if (window.authManager) {
+            window.authManager.saveFormData();
+        }
+    }
+
+    function resetBreakInput(input) {
+        input.value = '';
+        input.classList.remove('locked');
+        input.readOnly = false;
+        input.title = 'タップで現在時刻入力、長押しでリセット';
+        
+        // Visual feedback
+        input.style.background = '#fef3c7';
+        input.style.borderColor = '#f59e0b';
+        
+        setTimeout(() => {
+            input.style.background = 'white';
+            input.style.borderColor = '#d1d5db';
+        }, 300);
+        
+        // Haptic feedback if available
+        if (navigator.vibrate) {
+            navigator.vibrate(50);
+        }
+        
+        // Save form data
+        if (window.authManager) {
+            window.authManager.saveFormData();
+        }
+    }
+
+    // Text input modal functionality
+    let currentTextInputField = null;
+
+    function openTextModal(fieldId, title, description) {
+        currentTextInputField = fieldId;
+        
+        // Set modal content
+        document.getElementById('textModalTitle').textContent = title;
+        document.getElementById('textModalDescription').textContent = description;
+        
+        // Load existing text value
+        const hiddenField = document.getElementById(fieldId);
+        const currentValue = hiddenField ? hiddenField.value : '';
+        document.getElementById('textModalInput').value = currentValue;
+        
+        // Show modal
+        document.getElementById('textInputModal').style.display = 'block';
+        
+        // Focus on textarea
+        setTimeout(() => {
+            document.getElementById('textModalInput').focus();
+        }, 100);
+    }
+
+    function closeTextModal() {
+        document.getElementById('textInputModal').style.display = 'none';
+        currentTextInputField = null;
+    }
+
+    function saveTextInput() {
+        const inputValue = document.getElementById('textModalInput').value.trim();
+        
+        if (currentTextInputField) {
+            // Save to hidden field
+            const hiddenField = document.getElementById(currentTextInputField);
+            if (hiddenField) {
+                hiddenField.value = inputValue;
+            }
+            
+            // Update indicator
+            updateTextIndicator(currentTextInputField, inputValue);
+            
+            // Save form data if auth manager is available
+            if (window.authManager) {
+                window.authManager.saveFormData();
+            }
+        }
+        
+        closeTextModal();
+    }
+
+    function updateTextIndicator(fieldId, value) {
+        let indicatorId = fieldId + 'Indicator';
+        const indicator = document.getElementById(indicatorId);
+        
+        if (indicator) {
+            if (value && value.length > 0) {
+                indicator.classList.add('has-text');
+                indicator.textContent = '✅';
+            } else {
+                indicator.classList.remove('has-text');
+                indicator.textContent = '📝';
+            }
+        }
+    }
+
+    // Initialize text indicators on page load
+    function initializeTextIndicators() {
+        ['otherDescription', 'remarks'].forEach(fieldId => {
+            const hiddenField = document.getElementById(fieldId);
+            if (hiddenField) {
+                updateTextIndicator(fieldId, hiddenField.value);
+            }
+        });
+    }
+    
+    // Initialize functionality when DOM is loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Setup good count observer to sync display with hidden input
+        const goodCountDisplay = document.getElementById('goodCount');
+        if (goodCountDisplay) {
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                        const hiddenInput = document.getElementById('goodCountHidden');
+                        if (hiddenInput) {
+                            hiddenInput.value = goodCountDisplay.textContent;
+                        }
+                    }
+                });
+            });
+            
+            observer.observe(goodCountDisplay, {
+                childList: true,
+                characterData: true,
+                subtree: true
+            });
+        }
+        
+        // Initialize long press functionality for break inputs with locking
+        setupLongPressForBreakInputs();
+        
+        // Check for any existing values and lock them on page load
+        document.querySelectorAll('.break-input').forEach(input => {
+            lockInputIfHasValue(input);
+        });
+        
+        // Initialize text input modals
+        initializeTextIndicators();
+        
+        // Text modal event listeners
+        document.getElementById('textModalCancel').addEventListener('click', closeTextModal);
+        document.getElementById('textModalSave').addEventListener('click', saveTextInput);
+        
+        // Close modal when clicking outside
+        document.getElementById('textInputModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeTextModal();
+            }
+        });
+        
+        // Handle Enter key in text modal
+        document.getElementById('textModalInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                saveTextInput();
+            } else if (e.key === 'Escape') {
+                closeTextModal();
+            }
+        });
+        
+        // Ensure script.js integration works
+        console.log('🎯 UI initialized - connecting to script.js functionality');
+    });
+
+    // Expose functions to global scope for onclick handlers
+    window.openTextModal = openTextModal;
+    window.closeTextModal = closeTextModal;
+    window.saveTextInput = saveTextInput;
+    window.updateTextIndicator = updateTextIndicator;
+    window.initializeTextIndicators = initializeTextIndicators;
+    </script>
 </body>
 </html>

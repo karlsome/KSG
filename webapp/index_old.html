@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生産データ入力 - KSG Production System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Optimized for 10.1" tablet landscape (1280x800 / 1920x1200) */
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            height: 100vh;
+            overflow: hidden; /* Prevent scrolling */
+            font-family: 'Noto Sans JP', sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .container-main {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header-section {
+            flex: 0 0 auto;
+            height: 80px;
+        }
+        
+        .content-section {
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .grid-main {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            height: 100%;
+            gap: 12px;
+        }
+        
+        .panel {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            font-size: 16px;
+            font-weight: bold;
+            color: #374151;
+            margin-bottom: 12px;
+            text-align: center;
+            padding: 8px;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            border-radius: 8px;
+        }
+        
+        .production-counter {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            text-align: center;
+            position: relative;
+        }
+        
+        .counter-display {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        
+        .defect-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            height: calc(100% - 50px);
+        }
+        
+        .defect-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 4px;
+        }
+        
+        .defect-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        
+        .defect-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .defect-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: none;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .defect-count {
+            width: 40px;
+            height: 28px;
+            text-align: center;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .info-grid {
+            display: grid;
+            gap: 8px;
+            height: calc(100% - 50px);
+        }
+        
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+        
+        .info-input {
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .info-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 1px #3b82f6;
+        }
+        
+        .company-logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .status-online {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        
+        .status-offline {
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        
+        .main-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+            height: calc(100% - 50px);
+        }
+        
+        .control-btn {
+            padding: 16px 24px;
+            border-radius: 12px;
+            border: none;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 140px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b7280 0%, #374151 100%);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        /* Hide number input arrows */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+        
+        .flash-green {
+            background-color: #d1fae5 !important;
+            transition: background-color 0.1s ease-in-out;
+        }
+        
+        /* Style for time input to indicate clickability */
+        .time-input {
+            cursor: pointer;
+            background-color: white;
+        }
+        
+        /* Login modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            color: #374151;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 1px #3b82f6;
+        }
+
+        .form-actions {
+            text-align: center;
+        }
+
+        .form-actions button {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: white;
+            padding: 0.75rem 2rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .form-actions button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .error-message {
+            color: #dc2626;
+            background-color: #fee2e2;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h2 class="text-2xl font-bold mb-4 text-center text-blue-800">KSG Production System Login</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Login</button>
+                </div>
+            </form>
+            <div id="loginError" class="error-message" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Validation Warning Modal -->
+    <div id="validationModal" class="modal">
+        <div class="modal-content text-center">
+            <div class="mb-6">
+                <div class="w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 19c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                </div>
+                <h3 id="validationModalTitle" class="text-lg font-bold text-red-600 mb-2">入力エラー</h3>
+                <p id="validationModalMessage" class="text-gray-600 mb-6">エラーメッセージがここに表示されます。</p>
+            </div>
+            <div class="flex space-x-4">
+                <button id="validationModalCancel" class="flex-1 px-4 py-2 text-gray-600 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors">
+                    キャンセル
+                </button>
+                <button id="validationModalConfirm" class="flex-1 px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container - Optimized for 10.1" Tablet Landscape -->
+    <div class="container-main bg-gray-50">
+        <!-- Header Section -->
+        <div class="header-section bg-white border-b-2 border-blue-200 px-6 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="company-logo">🏭 KSG</div>
+                <h1 class="text-2xl font-bold text-blue-800">生産データ入力システム</h1>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <div id="systemStatus" class="status-indicator status-offline">
+                    <div id="statusIndicator" class="w-3 h-3 rounded-full bg-red-500"></div>
+                    <span id="statusText">オフライン</span>
+                </div>
+                <div class="text-sm text-gray-600">
+                    <span>ユーザー: </span><span id="currentUserDisplay" class="font-semibold"></span>
+                </div>
+                <button id="logoutBtn" class="control-btn btn-secondary text-sm px-3 py-1">
+                    ログアウト
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="statusMessage" class="hidden p-4 mx-4 mt-2 rounded-lg text-center font-semibold"></div>
+        <div id="loadingIndicator" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg flex items-center gap-3">
+                <svg class="animate-spin h-6 w-6 text-blue-500" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-lg font-semibold">データ処理中...</span>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-section p-4">
+            <div class="grid-main">
+                
+                <!-- Left Panel: Product & Worker Info -->
+                <div class="panel">
+                    <div class="panel-header">製品・作業者情報</div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label class="info-label">日付</label>
+                            <div class="flex gap-1">
+                                <input type="text" id="dateYear" class="info-input bg-gray-100" readonly>
+                                <input type="text" id="dateMonth" class="info-input bg-gray-100" readonly>
+                                <input type="text" id="dateDay" class="info-input bg-gray-100" readonly>
+                            </div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label for="hinban" class="info-label">品番</label>
+                            <input type="text" id="hinban" data-qr-field="hinban" class="info-input" placeholder="品番を入力またはQRスキャン">
+                        </div>
+                        
+                        <div class="info-item">
+                            <label for="productName" class="info-label">製品名</label>
+                            <input type="text" id="productName" class="info-input bg-gray-100" readonly>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label for="lhRh" class="info-label">LH/RH</label>
+                            <input type="text" id="lhRh" class="info-input bg-gray-100" readonly>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label for="operator1" class="info-label">技能員①</label>
+                            <select id="operator1" data-qr-field="operator1" class="info-input">
+                                <option value="">選択または入力</option>
+                            </select>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label for="operator2" class="info-label">技能員② (任意)</label>
+                            <select id="operator2" data-qr-field="operator2" class="info-input">
+                                <option value="">選択または入力</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Top: Production Counter -->
+                <div class="panel production-counter">
+                    <div class="panel-header text-white bg-blue-600 bg-opacity-20">良品数</div>
+                    <div class="flex flex-col items-center justify-center h-full">
+                        <div class="counter-display" id="goodCount">0</div>
+                        <div class="flex gap-4">
+                            <button class="defect-btn bg-red-500 hover:bg-red-600 w-12 h-12 text-2xl" onclick="adjustGoodCount(-1)">-</button>
+                            <button class="defect-btn bg-blue-500 hover:bg-blue-600 w-16 h-12" onclick="toggleAutoMode()" id="autoBtn">自動</button>
+                            <button class="defect-btn bg-green-500 hover:bg-green-600 w-12 h-12 text-2xl" onclick="adjustGoodCount(1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: Time Info -->
+                <div class="panel">
+                    <div class="panel-header">時刻情報</div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label class="info-label">開始時間</label>
+                            <input type="text" id="initialTimeDisplay" class="info-input bg-gray-100" readonly>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label class="info-label">終了時間</label>
+                            <input type="text" id="finalTimeDisplay" class="info-input bg-gray-100" readonly>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label class="info-label">平均サイクル時間</label>
+                            <input type="text" id="averageCycleTime" class="info-input bg-gray-100" readonly>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label class="info-label">休憩1</label>
+                            <div class="flex gap-1">
+                                <input type="text" id="break1From" placeholder="開始" class="info-input time-input">
+                                <input type="text" id="break1To" placeholder="終了" class="info-input time-input">
+                            </div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label class="info-label">休憩2</label>
+                            <div class="flex gap-1">
+                                <input type="text" id="break2From" placeholder="開始" class="info-input time-input">
+                                <input type="text" id="break2To" placeholder="終了" class="info-input time-input">
+                            </div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <label class="info-label">休憩3</label>
+                            <div class="flex gap-1">
+                                <input type="text" id="break3From" placeholder="開始" class="info-input time-input">
+                                <input type="text" id="break3To" placeholder="終了" class="info-input time-input">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Bottom: Defect Types -->
+                <div class="panel">
+                    <div class="panel-header">不良項目</div>
+                    <div class="defect-grid">
+                        <div class="defect-item">
+                            <div class="defect-label">素材不良</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('materialDefect', -1)">-</button>
+                                <input type="number" id="materialDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('materialDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">ダブり</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('doubleDefect', -1)">-</button>
+                                <input type="number" id="doubleDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('doubleDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">ハガレ</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('peelingDefect', -1)">-</button>
+                                <input type="number" id="peelingDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('peelingDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">イブツ</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('foreignMatterDefect', -1)">-</button>
+                                <input type="number" id="foreignMatterDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('foreignMatterDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">シワ</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('wrinkleDefect', -1)">-</button>
+                                <input type="number" id="wrinkleDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('wrinkleDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">ヘンケイ</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('deformationDefect', -1)">-</button>
+                                <input type="number" id="deformationDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('deformationDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">グリス付着</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('greaseDefect', -1)">-</button>
+                                <input type="number" id="greaseDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('greaseDefect', 1)">+</button>
+                            </div>
+                        </div>
+                        
+                        <div class="defect-item">
+                            <div class="defect-label">ビス不締まり</div>
+                            <div class="defect-controls">
+                                <button class="defect-btn bg-red-500 hover:bg-red-600" onclick="adjustDefect('screwDefect', -1)">-</button>
+                                <input type="number" id="screwDefect" value="0" min="0" class="defect-count">
+                                <button class="defect-btn bg-green-500 hover:bg-green-600" onclick="adjustDefect('screwDefect', 1)">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Right: Main Controls -->
+                <div class="panel">
+                    <div class="panel-header">操作</div>
+                    <div class="main-controls">
+                        <button id="submitDataBtn" class="control-btn btn-primary">
+                            データ送信
+                        </button>
+                        <button id="resetAllBtn" class="control-btn btn-danger">
+                            全てリセット
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden elements for backward compatibility -->
+    <input type="hidden" id="break4From">
+    <input type="hidden" id="break4To">
+
+    <!-- Socket.IO client for real-time production updates -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <!-- Enhanced script for step7.py integration -->
+    <script src="script.js"></script>
+    
+    <script>
+    // Helper functions for the new UI layout
+    function adjustGoodCount(delta) {
+        const goodCountElement = document.getElementById('goodCount');
+        const currentCount = parseInt(goodCountElement.textContent) || 0;
+        const newCount = Math.max(0, currentCount + delta);
+        goodCountElement.textContent = newCount;
+        
+        // Also update the hidden input if it exists
+        const goodCountInput = document.getElementById('goodCountHidden');
+        if (goodCountInput) {
+            goodCountInput.value = newCount;
+        }
+        
+        // Flash effect
+        goodCountElement.classList.add('flash-green');
+        setTimeout(() => {
+            goodCountElement.classList.remove('flash-green');
+        }, 200);
+    }
+
+    function adjustDefect(defectId, delta) {
+        const defectInput = document.getElementById(defectId);
+        if (defectInput) {
+            const currentValue = parseInt(defectInput.value) || 0;
+            const newValue = Math.max(0, currentValue + delta);
+            defectInput.value = newValue;
+            
+            // Flash effect
+            defectInput.classList.add('flash-green');
+            setTimeout(() => {
+                defectInput.classList.remove('flash-green');
+            }, 200);
+        }
+    }
+
+    function toggleAutoMode() {
+        const autoBtn = document.getElementById('autoBtn');
+        if (autoBtn.textContent === '自動') {
+            autoBtn.textContent = '手動';
+            autoBtn.className = autoBtn.className.replace('bg-blue-500', 'bg-orange-500').replace('hover:bg-blue-600', 'hover:bg-orange-600');
+        } else {
+            autoBtn.textContent = '自動';
+            autoBtn.className = autoBtn.className.replace('bg-orange-500', 'bg-blue-500').replace('hover:bg-orange-600', 'hover:bg-blue-600');
+        }
+    }
+    
+    // Ensure backward compatibility with existing script.js
+    document.addEventListener('DOMContentLoaded', function() {
+        // Sync the visible counter with hidden input
+        const goodCountDisplay = document.getElementById('goodCount');
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    // Update hidden input for form submission if it exists
+                    const hiddenInput = document.getElementById('goodCountHidden');
+                    if (hiddenInput) {
+                        hiddenInput.value = goodCountDisplay.textContent;
+                    }
+                }
+            });
+        });
+        
+        observer.observe(goodCountDisplay, {
+            childList: true,
+            characterData: true,
+            subtree: true
+        });
+    });
+    </script>
+</body>
+</html>
