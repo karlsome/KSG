@@ -56,10 +56,10 @@ const char* DEVICE_NAME = "6C10F6";
 
 // Server URL configuration - easily switch between environments
 // Just uncomment the one you want to use!
-const char* SERVER_URL = "https://ksg-lu47.onrender.com";  // Production (Render.com)
+//const char* SERVER_URL = "https://ksg-lu47.onrender.com";  // Production (Render.com)
 //const char* SERVER_URL = "http://localhost:3000";        // Local development
-//const char* SERVER_URL = "http://192.168.0.64:3000";     // Local network server
-//const char* SERVER_URL = "https://your-new-domain.com";  // Future production server
+const char* SERVER_URL = "http://192.168.0.64:3000";     // Local network server
+
 
 // -------------------- GPIO --------------------
 const int GPIO_START_BUTTON = 1;   // Start button (active LOW, pull-up)
@@ -303,9 +303,16 @@ bool downloadFile(const String& url, const String& path) {
   }
 
   HTTPClient http;
-  WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure();  // Skip certificate verification for simplicity
-  http.begin(*client, url);
+  
+  // Use appropriate client based on URL protocol
+  if (isHTTPS(url)) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure();  // Skip certificate verification for simplicity
+    http.begin(*client, url);
+  } else {
+    WiFiClient *client = new WiFiClient;
+    http.begin(*client, url);
+  }
   int code = http.GET();
   Serial.printf("[DL] GET %s --> %d\n", url.c_str(), code);
 
@@ -349,9 +356,15 @@ void downloadUserData() {
   String url = String(SERVER_URL) + "/api/users/KSG";
   Serial.printf("[DL] GET %s\n", url.c_str());
   
-  WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure();  // Skip certificate verification for simplicity
-  http.begin(*client, url);
+  // Use appropriate client based on URL protocol
+  if (isHTTPS(url)) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure();  // Skip certificate verification for simplicity
+    http.begin(*client, url);
+  } else {
+    WiFiClient *client = new WiFiClient;
+    http.begin(*client, url);
+  }
   http.addHeader("X-Device-ID", DEVICE_ID);
   
   int httpCode = http.GET();
@@ -383,9 +396,15 @@ void downloadProductData() {
   String url = String(SERVER_URL) + "/api/products/KSG";
   Serial.printf("[DL] GET %s\n", url.c_str());
   
-  WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure();  // Skip certificate verification for simplicity
-  http.begin(*client, url);
+  // Use appropriate client based on URL protocol
+  if (isHTTPS(url)) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure();  // Skip certificate verification for simplicity
+    http.begin(*client, url);
+  } else {
+    WiFiClient *client = new WiFiClient;
+    http.begin(*client, url);
+  }
   http.addHeader("X-Device-ID", DEVICE_ID);
   
   int httpCode = http.GET();
@@ -459,9 +478,15 @@ bool checkForWebappUpdates() {
   HTTPClient http;
   String url = String(SERVER_URL) + "/api/webapp/version";
   
-  WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure();  // Skip certificate verification for simplicity
-  http.begin(*client, url);
+  // Use appropriate client based on URL protocol
+  if (isHTTPS(url)) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure();  // Skip certificate verification for simplicity
+    http.begin(*client, url);
+  } else {
+    WiFiClient *client = new WiFiClient;
+    http.begin(*client, url);
+  }
   http.setTimeout(10000); // 10 second timeout
   
   int httpCode = http.GET();
@@ -1048,9 +1073,16 @@ void registerDevice() {
 
   HTTPClient http;
   String url = String(SERVER_URL) + "/api/device/register-rpi";
-  WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure();  // Skip certificate verification for simplicity
-  http.begin(*client, url);
+  
+  // Use appropriate client based on URL protocol
+  if (isHTTPS(url)) {
+    WiFiClientSecure *client = new WiFiClientSecure;
+    client->setInsecure();  // Skip certificate verification for simplicity
+    http.begin(*client, url);
+  } else {
+    WiFiClient *client = new WiFiClient;
+    http.begin(*client, url);
+  }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-ID", DEVICE_ID);
 

@@ -1,20 +1,14 @@
-// Enhanced KSG Production System JavaScript for step7.py integration
-// This script handles authentication, data sync, and RPi communication
+// Enhanced KSG Production System JavaScript
+// This script handles authentication, data sync, and server communication
 
 // Global variables
-window.PYTHON_API_BASE_URL = window.location.origin; // Use current host (RPi)
 window.KSG_SERVER_URL = "http://localhost:3000"; // Default for development
 
-// Auto-detect environment
-const isRunningOnRPi = window.location.hostname !== 'localhost' && 
-                      window.location.hostname !== '127.0.0.1' &&
-                      !window.location.hostname.includes('render.com');
-
 // Auto-detect KSG server URL based on environment
-if (isRunningOnRPi) {
-    // Running on ESP32/RPi - point to actual ksgServer
-    //window.KSG_SERVER_URL = "http://192.168.0.64:3000"; // Update this to your actual ksgServer IP
-    window.KSG_SERVER_URL = "https://ksg-lu47.onrender.com";
+if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // Running on production/ESP32 - point to actual ksgServer
+    //window.KSG_SERVER_URL = "https://ksg-lu47.onrender.com";
+    window.KSG_SERVER_URL = "http://192.168.0.64:3000";
 }
 
 let currentUser = null;
@@ -174,7 +168,7 @@ class ProductionManager {
     async resetDirectESP32() {
         try {
             // Direct HTTP call to ESP32 reset endpoint
-            const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/reset`, {
+            const response = await fetch(`${window.location.origin}/api/reset`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -282,52 +276,28 @@ class AuthManager {
     async loadAuthorizedUsers() {
         try {
             console.log('🔄 Loading authorized users...');
-            console.log('Trying RPi endpoint:', `${window.PYTHON_API_BASE_URL}/api/auth/users`);
+            console.log('Trying KSG server endpoint:', `${window.KSG_SERVER_URL}/api/users/KSG`);
             
-            // Always try local RPi endpoint first when running on RPi
-            try {
-                const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/auth/users`);
-                console.log('RPi endpoint response status:', response.status);
-                const data = await response.json();
-                console.log('RPi endpoint response data:', data);
-                
-                if (data.success && data.users.length > 0) {
-                    this.users = data.users;
-                    this.populateUserDropdown();
-                    console.log(`✅ Loaded ${this.users.length} authorized users from RPi`);
-                    return true;
+            const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
+                headers: {
+                    'X-Device-ID': systemStatus.device_id || '6C10F6'
                 }
-            } catch (localError) {
-                console.log('⚠️  Local RPi endpoint error:', localError.message);
-                console.log('⚠️  Trying main server instead...');
+            });
+            console.log('KSG server response status:', response.status);
+            const data = await response.json();
+            console.log('KSG server response data:', data);
+            
+            if (data.success) {
+                // Filter users to only include admin/masterUser roles
+                this.users = data.users.filter(user => 
+                    user.role === 'admin' || user.role === 'masterUser'
+                );
+                this.populateUserDropdown();
+                console.log(`✅ Loaded ${this.users.length} authorized users from KSG server`);
+                return true;
             }
             
-            // Fallback to main server if RPi endpoint fails
-            console.log('Trying main server endpoint:', `${window.KSG_SERVER_URL}/api/users/KSG`);
-            try {
-                const response = await fetch(`${window.KSG_SERVER_URL}/api/users/KSG`, {
-                    headers: {
-                        'X-Device-ID': systemStatus.device_id || '6C10F6'
-                    }
-                });
-                console.log('Main server response status:', response.status);
-                const data = await response.json();
-                console.log('Main server response data:', data);
-                
-                if (data.success) {
-                    // Filter users to only include admin/masterUser roles
-                    this.users = data.users.filter(user => 
-                        user.role === 'admin' || user.role === 'masterUser'
-                    );
-                    this.populateUserDropdown();
-                    console.log(`✅ Loaded ${this.users.length} authorized users from main server`);
-                    return true;
-                }
-            } catch (serverError) {
-                console.log('⚠️  Main server error:', serverError.message);
-            }
-            
-            throw new Error('No user data source available');
+            throw new Error('Failed to load users from KSG server');
             
         } catch (error) {
             console.error('❌ Error loading users:', error);
@@ -867,46 +837,9 @@ class AuthManager {
                 }
                 
                 return;
-            } else if (deviceResult.type === 'rpi') {
-                // We're running directly on RPi - get actual status from RPi
-                const rpiStatus = deviceResult.deviceInfo;
-                
-                // Use the RPi's actual online status (it tests ksgServer connectivity)
-                const isRPiOnline = rpiStatus.online || false;
-                
-                systemStatus = {
-                    online: isRPiOnline,
-                    device_id: rpiStatus.device_id,
-                    current_hinban: rpiStatus.current_hinban,
-                    local_ip: rpiStatus.local_ip,
-                    device_name: rpiStatus.device_name,
-                    device_type: 'rpi',
-                    rpi_direct: true
-                };
-                
-                if (isRPiOnline) {
-                    this.updateStatusUI(true, `オンライン (RPi: ${rpiStatus.device_id})`);
-                    console.log(`✅ RPi status: ONLINE, device_id=${rpiStatus.device_id}`);
-                    
-                    // Process any offline submissions when back online
-                    this.processOfflineSubmissions();
-                } else {
-                    this.updateStatusUI(false, `オフライン (RPi: ${rpiStatus.device_id})`);
-                    console.log(`❌ RPi status: OFFLINE, device_id=${rpiStatus.device_id}`);
-                }
-                
-                // Update current hinban if exists
-                if (rpiStatus.current_hinban) {
-                    document.getElementById('hinban').value = rpiStatus.current_hinban;
-                    await this.processHinban(rpiStatus.current_hinban);
-                }
-                
-                // Update cycle statistics from RPi
-                await this.updateCycleStatsFromRPi();
-                return;
             }
             
-            // Not on RPi - check online connectivity to ksgServer (tablet mode)
+            // Not on ESP32 - check online connectivity to ksgServer (tablet mode)
             let ksgServerUrl = window.KSG_SERVER_URL;
             
             // Auto-detect environment: if we're running on tablet, use the configured KSG server
@@ -998,22 +931,9 @@ class AuthManager {
         }
     }
     
-    // RPi Environment Detection (Simple synchronous check)
-    detectRPiEnvironment() {
-        // Quick check based on hostname patterns
-        const hostname = window.location.hostname;
-        const rpiPatterns = [
-            /^192\.168\.\d+\.\d+$/, 
-            /^10\.\d+\.\d+\.\d+$/,  
-            /raspberrypi/i,         
-            /rpi/i,                 
-            /ksg\d*/i              
-        ];
-        
-        return rpiPatterns.some(pattern => pattern.test(hostname));
-    }
+
     
-    // Device Environment Detection (Async with endpoint testing) - ESP32 or RPi
+    // Device Environment Detection (Async with endpoint testing) - ESP32 or Tablet
     async detectDeviceEnvironmentAsync() {
         // First do quick hostname check
         const hostname = window.location.hostname;
@@ -1045,51 +965,26 @@ class AuthManager {
             console.log('ESP32 endpoint test failed:', esp32Error.message);
         }
         
-        // Test for RPi Python endpoints (port 5000 or current port)
-        try {
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Request timeout')), 3000)
-            );
-            
-            const fetchPromise = fetch(`${window.PYTHON_API_BASE_URL}/api/system/status`);
-            const response = await Promise.race([fetchPromise, timeoutPromise]);
-            
-            if (response.ok) {
-                const data = await response.json();
-                // Check if response looks like RPi data (Python-based structure)
-                if (data.device_id && data.device_name && data.local_ip && !('ffat' in data)) {
-                    console.log(`✅ RPi detection: hostname=${hostname}, device_id=${data.device_id}, device_name=${data.device_name}`);
-                    return { type: 'rpi', deviceInfo: data };
-                }
-            }
-        } catch (rpiError) {
-            console.log('RPi endpoint test failed:', rpiError.message);
-        }
-        
         // No device endpoints worked - assume tablet mode
         console.log(`❌ No device endpoints detected, hostname=${hostname} -> tablet mode`);
         return { type: 'tablet', deviceInfo: null };
     }
 
-    // Backward compatibility function
-    async detectRPiEnvironmentAsync() {
-        const result = await this.detectDeviceEnvironmentAsync();
-        return result.type === 'rpi';
-    }
 
-    // Device management methods (simplified for ESP32/RPi direct connection)
+
+    // Device management methods (simplified for ESP32 direct connection)
     getSelectedDevice() {
-        // Not needed for ESP32/RPi direct connection, but keeping for compatibility
+        // Not needed for ESP32 direct connection, but keeping for compatibility
         return null;
     }
     
     setSelectedDevice(deviceInfo) {
-        // Not needed for ESP32/RPi direct connection
+        // Not needed for ESP32 direct connection
         console.log('Device selection not needed - running directly on device');
     }
     
     clearSelectedDevice() {
-        // Not needed for ESP32/RPi direct connection
+        // Not needed for ESP32 direct connection
         console.log('Device clearing not needed - running directly on device');
     }
     
@@ -1109,9 +1004,6 @@ class AuthManager {
                 if (systemStatus.esp32_direct) {
                     statusText.textContent = `オンライン (ESP32: ${systemStatus.device_id})`;
                     statusText.title = `ESP32 Device: ${systemStatus.device_id}\nIP: ${systemStatus.local_ip}`;
-                } else if (systemStatus.rpi_direct) {
-                    statusText.textContent = `オンライン (RPi: ${systemStatus.device_id})`;
-                    statusText.title = `RPi Device: ${systemStatus.device_id}\nIP: ${systemStatus.local_ip}`;
                 } else {
                     statusText.textContent = 'オンライン';
                     statusText.title = 'サーバーに接続済み';
@@ -1128,9 +1020,6 @@ class AuthManager {
                 if (systemStatus.esp32_direct) {
                     statusText.textContent = `オフライン (ESP32: ${systemStatus.device_id})`;
                     statusText.title = 'ESP32デバイスはksgServerに接続できません';
-                } else if (systemStatus.rpi_direct) {
-                    statusText.textContent = `オフライン (RPi: ${systemStatus.device_id})`;
-                    statusText.title = 'RPiデバイスはksgServerに接続できません';
                 } else {
                     statusText.textContent = 'オフライン';
                     statusText.title = 'ksgServerに接続できません';
@@ -1146,13 +1035,6 @@ class AuthManager {
         setInterval(async () => {
             await this.checkSystemStatus();
         }, 30000);
-        
-        // Update cycle stats more frequently (every 5 seconds) when running on RPi
-        if (this.detectRPiEnvironment()) {
-            setInterval(async () => {
-                await this.updateCycleStatsFromRPi();
-            }, 5000);
-        }
     }
     
     startUpdateMonitoring() {
@@ -1300,47 +1182,6 @@ class AuthManager {
         const notification = document.getElementById('updateNotification');
         if (notification) {
             notification.remove();
-        }
-    }
-    
-    async updateCycleStatsFromRPi() {
-        try {
-            const response = await fetch(`${window.PYTHON_API_BASE_URL}/get-current-cycle-stats`);
-            if (response.ok) {
-                const stats = await response.json();
-                if (stats.status === 'success') {
-                    // Update the good count display
-                    const goodCountInput = document.getElementById('goodCount');
-                    if (goodCountInput && stats.quantity !== undefined) {
-                        goodCountInput.value = stats.quantity;
-                        console.log(`🔄 Updated good count to: ${stats.quantity}`);
-                    }
-                    
-                    // Update other fields if they exist
-                    if (stats.initial_time && stats.initial_time !== "N/A") {
-                        const initialTimeInput = document.getElementById('initialTimeDisplay');
-                        if (initialTimeInput) {
-                            initialTimeInput.value = stats.initial_time;
-                        }
-                    }
-                    
-                    if (stats.final_time && stats.final_time !== "N/A") {
-                        const finalTimeInput = document.getElementById('finalTimeDisplay');
-                        if (finalTimeInput) {
-                            finalTimeInput.value = stats.final_time;
-                        }
-                    }
-                    
-                    if (stats.average_cycle_time !== undefined) {
-                        const avgTimeInput = document.getElementById('averageCycleTime');
-                        if (avgTimeInput) {
-                            avgTimeInput.value = stats.average_cycle_time.toFixed(2);
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            console.log('⚠️ Could not fetch cycle stats from RPi:', error.message);
         }
     }
     
@@ -1686,60 +1527,6 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // Check what type of device we're running on
-            const deviceResult = await this.detectDeviceEnvironmentAsync();
-            
-            if (deviceResult.type === 'rpi') {
-                console.log(`🔧 RPi mode: Getting product info for hinban ${hinban} from local database`);
-                
-                try {
-                    // Try local RPi product endpoint first
-                    const localResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/product/${hinban}`);
-                    console.log('Local RPi product endpoint response status:', localResponse.status);
-                    
-                    if (localResponse.ok) {
-                        const localData = await localResponse.json();
-                        console.log('Local RPi product response data:', localData);
-                        
-                        if (localData.success && localData.product) {
-                            const product = localData.product;
-                            // Auto-fill product information
-                            document.getElementById('productName').value = product.製品名 || '';
-                            document.getElementById('lhRh').value = product['LH/RH'] || '';
-                            
-                            this.showStatusMessage(`製品情報を取得しました: ${product.製品名} (ローカル)`, 'success');
-                            
-                            // Also set hinban on RPi for production tracking
-                            try {
-                                await fetch(`${window.PYTHON_API_BASE_URL}/set-current-hinban`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ hinban: hinban })
-                                });
-                                console.log(`✅ Set current hinban on RPi: ${hinban}`);
-                            } catch (hinbanError) {
-                                console.log('⚠️  Could not set hinban on RPi:', hinbanError.message);
-                            }
-                            
-                            return; // Success - exit early
-                        } else {
-                            console.log(`❌ Product ${hinban} not found in local database`);
-                        }
-                    } else {
-                        console.log(`❌ Local RPi product endpoint returned ${localResponse.status}`);
-                    }
-                } catch (localError) {
-                    console.log('⚠️  Local RPi product endpoint error:', localError.message);
-                }
-                
-                // If we get here, local RPi failed, but we're still on RPi
-                // Don't fallback to main server if we're offline
-                if (!systemStatus.online) {
-                    this.showStatusMessage(`品番 "${hinban}" がローカルデータベースに見つかりません (オフライン)`, 'warning');
-                    return;
-                }
-            }
-            
             // Try cached product data from ESP32 local storage
             if (this.cachedProducts && this.cachedProducts.length > 0) {
                 console.log(`📦 Checking cached product data for hinban ${hinban}`);
@@ -1866,8 +1653,8 @@ class AuthManager {
                 return;
             }
             
-            // Allow submission without operator if this is offline test data
-            if (!formData["技能員①"] && !systemStatus.rpi_direct) {
+            // Operator is required for all submissions
+            if (!formData["技能員①"]) {
                 productionManager.showValidationModal('技能員エラー', '技能員①は必須です。<br>データを送信する前に技能員を選択してください。');
                 return;
             }
@@ -1876,125 +1663,8 @@ class AuthManager {
             this.showSubmissionStatus('データを送信中...', 'loading');
             this.showLoadingIndicator(true);
             
-            // Detect environment and handle submission accordingly
-            const deviceResult = await this.detectDeviceEnvironmentAsync();
-            
-            if (deviceResult.type === 'rpi') {
-                // Running on RPi - try RPi submission endpoint first
-                console.log('🔧 RPi mode: Submitting data through RPi endpoint');
-                this.showSubmissionStatus('RPi経由で送信中...', 'loading');
-                
-                try {
-                    // Get current production stats from ESP32 if available
-                    try {
-                        const productionResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/production/stats`);
-                        if (productionResponse.ok) {
-                            const productionData = await productionResponse.json();
-                            console.log('📊 ESP32 production stats:', productionData);
-                            
-                            // Use real production data from ESP32 button presses
-                            formData.生産ログ = productionData.production_log || [];
-                            formData.良品数 = productionData.good_count || 0;
-                            formData.平均サイクル時間 = productionData.average_cycle_time || 0;
-                            
-                            if (productionData.first_cycle_time) {
-                                formData.開始時間 = productionData.first_cycle_time;
-                            }
-                            if (productionData.last_cycle_time) {
-                                formData.終了時間 = productionData.last_cycle_time;
-                            }
-                            
-                            console.log('✅ Using ESP32 production data for submission');
-                        }
-                    } catch (productionError) {
-                        console.log('⚠️ Could not get ESP32 production stats, using form data');
-                        // Use form data as fallback
-                        formData.良品数 = parseInt(document.getElementById('goodCount').value) || 0;
-                        formData.開始時間 = document.getElementById('initialTimeDisplay').value || new Date().toISOString();
-                        formData.終了時間 = document.getElementById('finalTimeDisplay').value || new Date().toISOString();
-                        formData.平均サイクル時間 = parseFloat(document.getElementById('averageCycleTime').value) || 0;
-                        formData.生産ログ = [];
-                    }
-                    
-                    // Submit through RPi endpoint (handles offline queuing automatically)
-                    const rpiSubmitResponse = await fetch(`${window.PYTHON_API_BASE_URL}/api/submit-production-data`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(formData)
-                    });
-                    
-                    if (rpiSubmitResponse.ok) {
-                        const rpiSubmitData = await rpiSubmitResponse.json();
-                        
-                        if (rpiSubmitData.success) {
-                            if (rpiSubmitData.queued) {
-                                this.showSubmissionStatus('オフラインモード - RPiに保存しました', 'warning');
-                                this.showStatusMessage('データを一時保存しました（オフライン）- RPiで管理中', 'warning');
-                            } else {
-                                this.showSubmissionStatus('送信完了！', 'success');
-                                
-                                // Show detailed submission status
-                                let statusMessage = 'データを正常に送信しました（RPi経由）';
-                                if (rpiSubmitData.mongodb && rpiSubmitData.googleSheets) {
-                                    statusMessage += ` - MongoDB: ${rpiSubmitData.mongodb.success ? '✅' : '❌'}, Google Sheets: ${rpiSubmitData.googleSheets.success ? '✅' : '❌'}`;
-                                }
-                                this.showStatusMessage(statusMessage, 'success');
-                            }
-                            
-                            // Reset RPi state after successful submission
-                            try {
-                                await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
-                                    method: 'POST'
-                                });
-                                console.log('✅ RPi state reset after submission');
-                            } catch (resetError) {
-                                console.log('⚠️ Failed to reset RPi state:', resetError.message);
-                            }
-                            
-                            // Reset ESP32 production data after successful submission
-                            await this.resetESP32ProductionData();
-                            
-                            // Clear form after successful submission
-                            setTimeout(() => {
-                                this.resetForm();
-                            }, 2000);
-                            return;
-                        } else {
-                            throw new Error(rpiSubmitData.error || 'RPi submission failed');
-                        }
-                    } else {
-                        throw new Error(`RPi endpoint returned ${rpiSubmitResponse.status}`);
-                    }
-                    
-                } catch (rpiError) {
-                    console.error('❌ RPi submission failed:', rpiError);
-                    // If RPi submission fails, fall back to direct server submission if online
-                    if (systemStatus.online) {
-                        console.log('⚠️ Falling back to direct server submission...');
-                        this.showSubmissionStatus('RPi接続失敗 - サーバー直接送信中...', 'loading');
-                    } else {
-                        // Completely offline - save to browser local storage as last resort
-                        this.showSubmissionStatus('オフライン - ブラウザに保存中...', 'offline');
-                        this.saveToLocalStorage(formData);
-                        this.showSubmissionStatus('オフライン保存完了', 'warning');
-                        this.showStatusMessage('RPi接続不可 - ブラウザに一時保存しました', 'warning');
-                        
-                        // Reset ESP32 production data after offline submission
-                        await this.resetESP32ProductionData();
-                        
-                        // Reset form after offline submission
-                        setTimeout(() => {
-                            this.resetForm();
-                        }, 2000);
-                        return;
-                    }
-                }
-            }
-            
-            // Not on RPi or RPi submission failed - try direct server submission
-            if (systemStatus.online || !isRunningOnRPi) {
+            // Direct server submission
+            if (systemStatus.online) {
                 console.log('🌐 Direct server submission mode');
                 this.showSubmissionStatus('サーバーに直接送信中...', 'loading');
                 
@@ -2031,18 +1701,7 @@ class AuthManager {
                             }
                             this.showStatusMessage(statusMessage, 'success');
                             
-                            // Reset device state if we're connected to one
-                            const deviceResult = await this.detectDeviceEnvironmentAsync();
-                            if (deviceResult.type === 'rpi') {
-                                try {
-                                    await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
-                                        method: 'POST'
-                                    });
-                                    console.log('✅ RPi state reset after direct submission');
-                                } catch (resetError) {
-                                    console.log('⚠️ Failed to reset RPi state:', resetError.message);
-                                }
-                            }
+
                             
                             // Reset ESP32 production data after successful submission
                             await this.resetESP32ProductionData();
@@ -2146,37 +1805,21 @@ class AuthManager {
             
             for (const submission of offlineData) {
                 try {
-                    // Try to submit through appropriate endpoint
-                    const deviceResult = await this.detectDeviceEnvironmentAsync();
+                    // Try to submit to KSG server
                     let success = false;
                     
-                    if (deviceResult.type === 'rpi') {
-                        // Try RPi endpoint
-                        const response = await fetch(`${window.PYTHON_API_BASE_URL}/api/submit-production-data`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(submission.data)
-                        });
-                        
-                        if (response.ok) {
-                            const result = await response.json();
-                            success = result.success;
-                        }
-                    } else {
-                        // Try direct server
-                        const response = await fetch(`${window.KSG_SERVER_URL}/api/submit-production-data`, {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'X-Device-ID': systemStatus.device_id || '6C10F6'
-                            },
-                            body: JSON.stringify(submission.data)
-                        });
-                        
-                        if (response.ok) {
-                            const result = await response.json();
-                            success = result.success;
-                        }
+                    const response = await fetch(`${window.KSG_SERVER_URL}/api/submit-production-data`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-Device-ID': systemStatus.device_id || '6C10F6'
+                        },
+                        body: JSON.stringify(submission.data)
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        success = result.success;
                     }
                     
                     if (success) {
@@ -2404,32 +2047,7 @@ class AuthManager {
                 }
             }
             
-            // Check if we're running on a device and reset device state  
-            const deviceResult = await this.detectDeviceEnvironmentAsync();
-            
-            if (deviceResult.type === 'rpi') {
-                try {
-                    // Reset RPi production state
-                    const resetResponse = await fetch(`${window.PYTHON_API_BASE_URL}/reset-all-data`, {
-                        method: 'POST'
-                    });
-                    
-                    if (resetResponse.ok) {
-                        const resetData = await resetResponse.json();
-                        if (resetData.status === 'success') {
-                            console.log('✅ RPi state reset successfully');
-                            this.showStatusMessage('RPi状態をリセットしました', 'success');
-                        } else {
-                            console.log('⚠️ RPi reset response:', resetData.message);
-                        }
-                    } else {
-                        console.log('⚠️ RPi reset endpoint returned:', resetResponse.status);
-                    }
-                } catch (rpiError) {
-                    console.log('⚠️ Failed to reset RPi state:', rpiError.message);
-                    // Continue with form reset even if RPi reset fails
-                }
-            }
+
             
             // Reset the form
             this.resetForm();
@@ -2728,7 +2346,6 @@ function getUserFromURL() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 KSG Production System - Enhanced Version');
     console.log('Environment:', window.location.href);
-    console.log('PYTHON_API_BASE_URL:', window.PYTHON_API_BASE_URL);
     console.log('KSG_SERVER_URL:', window.KSG_SERVER_URL);
     
     // Initialize production manager for real-time updates
