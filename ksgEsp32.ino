@@ -18,6 +18,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>  // For HTTPS/WSS connections
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 #include <Arduino_GFX_Library.h>
@@ -52,8 +53,13 @@ WebSocketsClient webSocket;
 // -------------------- Device configuration --------------------
 const char* DEVICE_ID   = "6C10F6";
 const char* DEVICE_NAME = "6C10F6";
-const char* SERVER_HOST = "192.168.0.64";   // <-- your server IP/host
-const int   SERVER_PORT = 3000;
+
+// Server URL configuration - easily switch between environments
+// Just uncomment the one you want to use!
+const char* SERVER_URL = "https://ksg-lu47.onrender.com";  // Production (Render.com)
+//const char* SERVER_URL = "http://localhost:3000";        // Local development
+//const char* SERVER_URL = "http://192.168.0.64:3000";     // Local network server
+//const char* SERVER_URL = "https://your-new-domain.com";  // Future production server
 
 // -------------------- GPIO --------------------
 const int GPIO_START_BUTTON = 1;   // Start button (active LOW, pull-up)
@@ -297,7 +303,9 @@ bool downloadFile(const String& url, const String& path) {
   }
 
   HTTPClient http;
-  http.begin(url);
+  WiFiClientSecure *client = new WiFiClientSecure;
+  client->setInsecure();  // Skip certificate verification for simplicity
+  http.begin(*client, url);
   int code = http.GET();
   Serial.printf("[DL] GET %s --> %d\n", url.c_str(), code);
 
@@ -326,7 +334,7 @@ void downloadWebAppFiles() {
 
   const char* files[] = { "index.html", "script.js", "style.css" };
   for (int i = 0; i < 3; i++) {
-    String url  = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/webapp/" + files[i];
+    String url  = String(SERVER_URL) + "/webapp/" + files[i];
     String path = "/" + String(files[i]);
     downloadFile(url, path);
   }
@@ -338,10 +346,12 @@ void downloadUserData() {
   if (!wifiConnected) { Serial.println("[DL] ❌ No WiFi for users data."); return; }
   
   HTTPClient http;
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/users/KSG";
+  String url = String(SERVER_URL) + "/api/users/KSG";
   Serial.printf("[DL] GET %s\n", url.c_str());
   
-  http.begin(url);
+  WiFiClientSecure *client = new WiFiClientSecure;
+  client->setInsecure();  // Skip certificate verification for simplicity
+  http.begin(*client, url);
   http.addHeader("X-Device-ID", DEVICE_ID);
   
   int httpCode = http.GET();
@@ -370,10 +380,12 @@ void downloadProductData() {
   if (!wifiConnected) { Serial.println("[DL] ❌ No WiFi for products data."); return; }
   
   HTTPClient http;
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/products/KSG";
+  String url = String(SERVER_URL) + "/api/products/KSG";
   Serial.printf("[DL] GET %s\n", url.c_str());
   
-  http.begin(url);
+  WiFiClientSecure *client = new WiFiClientSecure;
+  client->setInsecure();  // Skip certificate verification for simplicity
+  http.begin(*client, url);
   http.addHeader("X-Device-ID", DEVICE_ID);
   
   int httpCode = http.GET();
@@ -445,9 +457,11 @@ bool checkForWebappUpdates() {
   Serial.println("\n[UPDATE] 🔍 Checking for webapp updates...");
   
   HTTPClient http;
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/webapp/version";
+  String url = String(SERVER_URL) + "/api/webapp/version";
   
-  http.begin(url);
+  WiFiClientSecure *client = new WiFiClientSecure;
+  client->setInsecure();  // Skip certificate verification for simplicity
+  http.begin(*client, url);
   http.setTimeout(10000); // 10 second timeout
   
   int httpCode = http.GET();
@@ -521,7 +535,7 @@ bool downloadWebappUpdates() {
   for (int i = 0; i < 3; i++) {
     Serial.printf("[UPDATE] 📥 Downloading %s...\n", files[i]);
     
-    String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/webapp/" + files[i];
+    String url = String(SERVER_URL) + "/webapp/" + files[i];
     String tempPath = "/temp_" + String(files[i]);
     String finalPath = "/" + String(files[i]);
     
@@ -1033,8 +1047,10 @@ void registerDevice() {
   displayMessage("Registering...", COLOR_YELLOW);
 
   HTTPClient http;
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/device/register-rpi";
-  http.begin(url);
+  String url = String(SERVER_URL) + "/api/device/register-rpi";
+  WiFiClientSecure *client = new WiFiClientSecure;
+  client->setInsecure();  // Skip certificate verification for simplicity
+  http.begin(*client, url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-ID", DEVICE_ID);
 
@@ -1183,13 +1199,81 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
+// -------------------- URL Helper Functions --------------------
+String extractHostFromURL(const String& url) {
+  String host = url;
+  
+  // Remove protocol
+  if (host.startsWith("https://")) {
+    host = host.substring(8);
+  } else if (host.startsWith("http://")) {
+    host = host.substring(7);
+  }
+  
+  // Remove path if any
+  int pathIndex = host.indexOf('/');
+  if (pathIndex > 0) {
+    host = host.substring(0, pathIndex);
+  }
+  
+  // Remove port if specified in host part
+  int portIndex = host.indexOf(':');
+  if (portIndex > 0) {
+    host = host.substring(0, portIndex);
+  }
+  
+  return host;
+}
+
+int extractPortFromURL(const String& url) {
+  // Check if port is explicitly specified
+  String temp = url;
+  
+  // Remove protocol
+  if (temp.startsWith("https://")) {
+    temp = temp.substring(8);
+    // Default HTTPS port if no port specified
+    int portIndex = temp.indexOf(':');
+    if (portIndex > 0) {
+      int pathIndex = temp.indexOf('/', portIndex);
+      String portStr = (pathIndex > 0) ? temp.substring(portIndex + 1, pathIndex) : temp.substring(portIndex + 1);
+      return portStr.toInt();
+    }
+    return 443; // Default HTTPS port
+  } else if (temp.startsWith("http://")) {
+    temp = temp.substring(7);
+    // Default HTTP port if no port specified
+    int portIndex = temp.indexOf(':');
+    if (portIndex > 0) {
+      int pathIndex = temp.indexOf('/', portIndex);
+      String portStr = (pathIndex > 0) ? temp.substring(portIndex + 1, pathIndex) : temp.substring(portIndex + 1);
+      return portStr.toInt();
+    }
+    return 80; // Default HTTP port
+  }
+  
+  return 80; // Default fallback
+}
+
+bool isHTTPS(const String& url) {
+  return url.startsWith("https://");
+}
+
 void setupSocketIO() {
   if (!wifiConnected) { Serial.println("[WS] Skipped (no WiFi)"); return; }
 
-  Serial.printf("\n[WS] Connecting to ws://%s:%d/socket.io/?EIO=4&transport=websocket\n",
-                SERVER_HOST, SERVER_PORT);
+  String host = extractHostFromURL(SERVER_URL);
+  int port = extractPortFromURL(SERVER_URL);
+  bool useSSL = isHTTPS(SERVER_URL);
+  
+  Serial.printf("\n[WS] Connecting to %s://%s:%d/socket.io/?EIO=4&transport=websocket\n",
+                useSSL ? "wss" : "ws", host.c_str(), port);
 
-  webSocket.begin(SERVER_HOST, SERVER_PORT, "/socket.io/?EIO=4&transport=websocket");
+  if (useSSL) {
+    webSocket.beginSSL(host, port, "/socket.io/?EIO=4&transport=websocket");
+  } else {
+    webSocket.begin(host, port, "/socket.io/?EIO=4&transport=websocket");
+  }
   webSocket.onEvent(webSocketEvent);
 
   webSocket.setReconnectInterval(5000);        // retry every 5s on drop
