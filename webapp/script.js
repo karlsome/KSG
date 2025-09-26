@@ -990,6 +990,9 @@ class AuthManager {
             console.log('📋 Loading saved form data...');
             this.loadFormData();
             
+            // Ensure break field lock state is updated on initial load
+            this.updateBreakFieldLockState();
+            
             // Check if there are still offline submissions to show notification
             const offlineData = JSON.parse(localStorage.getItem('ksg_offline_submissions') || '[]');
             if (offlineData.length > 0) {
@@ -1834,13 +1837,14 @@ class AuthManager {
             });
         }
         
-        // Break time fields
+        // Break time fields with auto-locking
         ['break1From', 'break1To', 'break2From', 'break2To', 
          'break3From', 'break3To', 'break4From', 'break4To'].forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.addEventListener('change', () => {
                     this.saveFormData();
+                    this.updateBreakFieldLockState();
                 });
             }
         });
@@ -2125,6 +2129,28 @@ class AuthManager {
             }
         }
         return null;
+    }
+
+    updateBreakFieldLockState() {
+        // Lock break time fields that have values to prevent accidental changes
+        ['break1From', 'break1To', 'break2From', 'break2To', 
+         'break3From', 'break3To', 'break4From', 'break4To'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                if (element.value && element.value.trim() !== '') {
+                    // Has value - lock it
+                    element.classList.add('locked');
+                    element.readOnly = true;
+                    console.log(`🔒 Locked ${id} field (has value: ${element.value})`);
+                } else {
+                    // No value - unlock it
+                    element.classList.remove('locked');
+                    element.readOnly = false;
+                }
+            }
+        });
+        
+        console.log('🔄 Break field lock state updated');
     }
     
     getGoodCountValue() {
@@ -2464,6 +2490,9 @@ class AuthManager {
             
             // Recalculate break time after loading
             this.calculateBreakTime();
+            
+            // Restore locked state for break time fields
+            this.updateBreakFieldLockState();
             
             // Update text indicators if function is available
             if (typeof window.initializeTextIndicators === 'function') {
