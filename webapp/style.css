@@ -41,6 +41,13 @@
     transition: background-color 0.3s ease;
 }
 
+.flash-green {
+    background-color: #dcfce7 !important;
+    border-color: #22c55e !important;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
 /* Modal improvements */
 .modal {
     backdrop-filter: blur(2px);

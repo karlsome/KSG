@@ -21,82 +21,19 @@ let systemStatus = {
     current_hinban: null
 };
 
-// Production Manager for real-time Socket.IO communication
+// Simplified Production Manager - No Socket.IO to server
+// Real-time production data comes only from ESP32 WebSocket
 class ProductionManager {
     constructor() {
-        this.socket = null;
         this.isConnected = false;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
     }
     
     async initialize() {
-        if (!window.io) {
-            console.log('⚠️  Socket.IO not available - skipping real-time updates');
-            return;
-        }
-        
-        try {
-            // Connect to ksgServer for real-time production updates
-            const serverUrl = window.KSG_SERVER_URL.replace(/\/$/, ''); // Remove trailing slash
-            console.log('🔌 Connecting to production server:', serverUrl);
-            
-            this.socket = window.io(serverUrl, {
-                transports: ['websocket', 'polling'],
-                timeout: 5000,
-                forceNew: true
-            });
-            
-            this.setupEventHandlers();
-            
-        } catch (error) {
-            console.error('❌ Failed to initialize production manager:', error);
-        }
-    }
-    
-    setupEventHandlers() {
-        this.socket.on('connect', () => {
-            console.log('✅ Connected to production server');
-            this.isConnected = true;
-            this.reconnectAttempts = 0;
-            
-            // Register this webapp as a client interested in production updates
-            this.socket.emit('webapp_register', {
-                type: 'webapp_client',
-                device_id: systemStatus.device_id || 'webapp',
-                timestamp: Date.now()
-            });
-            
-            // Request current production status from ESP32 for sync after a short delay
-            setTimeout(() => {
-                console.log('🔄 Requesting current production status from ESP32...');
-                this.socket.emit('esp32_command', {
-                    type: 'request_production_status',
-                    device_id: systemStatus.device_id || 'webapp',
-                    timestamp: Date.now()
-                });
-            }, 500); // 500ms delay to ensure registration is processed
-        });
-        
-        this.socket.on('disconnect', () => {
-            console.log('🔌 Disconnected from production server');
-            this.isConnected = false;
-        });
-        
-        this.socket.on('connect_error', (error) => {
-            console.log('❌ Production server connection error:', error.message);
-            this.isConnected = false;
-        });
-        
-        // Handle production updates from ESP32 devices
-        this.socket.on('message', (data) => {
-            this.handleProductionMessage(data);
-        });
-        
-        // Handle production validation requests from ESP32
-        this.socket.on('validate_production_start', (data) => {
-            this.handleValidationRequest(data);
-        });
+        console.log('� Production Manager: ESP32-only mode (no server WebSocket)');
+        // No server Socket.IO connection needed
+        // All real-time data comes from ESP32WebSocketManager
+        this.isConnected = true;
+        return true;
     }
     
     handleProductionMessage(data) {
@@ -153,61 +90,7 @@ class ProductionManager {
         }
     }
     
-    // Send reset command to ESP32 via server
-    async resetProduction() {
-        if (!this.isConnected) {
-            console.log('⚠️  Not connected to production server - trying direct ESP32 reset');
-            return this.resetDirectESP32();
-        }
-        
-        try {
-            // Send reset command via Socket.IO
-            this.socket.emit('esp32_command', {
-                type: 'reset_production',
-                device_id: systemStatus.device_id,
-                timestamp: Date.now()
-            });
-            
-            console.log('📤 Sent production reset command via server');
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Failed to send reset via server:', error);
-            return this.resetDirectESP32();
-        }
-    }
-    
-    async resetDirectESP32() {
-        try {
-            // Direct HTTP call to ESP32 reset endpoint
-            const response = await fetch(`${window.location.origin}/api/reset`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (response.ok) {
-                console.log('✅ ESP32 production data reset successfully');
-                
-                // Reset local UI
-                document.getElementById('goodCount').value = '0';
-                document.getElementById('averageCycleTime').value = '';
-                document.getElementById('initialTimeDisplay').value = '';
-                document.getElementById('finalTimeDisplay').value = '';
-                
-                return true;
-            } else {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-        } catch (error) {
-            console.error('❌ Failed to reset ESP32 directly:', error);
-            return false;
-        }
-    }
-    
-    // Handle production validation request from ESP32
+    // Validation handling for ESP32 (no server Socket.IO needed)
     handleValidationRequest(data) {
         console.log('🔍 Received production validation request:', data);
         
@@ -217,33 +100,16 @@ class ProductionManager {
         
         const isValid = hinbanValue.length > 0;
         
-        if (isValid) {
-            console.log('✅ Validation passed - 品番 is filled:', hinbanValue);
-        } else {
+        if (!isValid) {
             console.log('❌ Validation failed - 品番 field is empty');
-            // Show warning modal in webapp instead of ESP32 error
+            // Show warning modal in webapp
             this.showValidationModal('品番警告', '品番を入力してください。<br>生産カウントは継続しますが、品番を設定することをお勧めします。');
+        } else {
+            console.log('✅ Validation passed - 品番 is filled:', hinbanValue);
         }
         
-        // ALWAYS allow production to proceed - just show warning in webapp
-        // Send validation response back to ESP32 (always valid to allow count increment)
-        if (this.isConnected && this.socket) {
-            this.socket.emit('esp32_command', {
-                type: 'validation_response',
-                valid: true, // Always allow production to proceed
-                message: isValid ? '品番が設定されています' : '品番未設定ですが生産を続行します',
-                hinban: hinbanValue,
-                device_id: systemStatus.device_id || 'webapp',
-                timestamp: Date.now()
-            });
-            
-            console.log('📤 Sent validation response (always allowing production):', { 
-                valid: true, 
-                message: isValid ? '品番が設定されています' : '品番未設定ですが生産を続行します'
-            });
-        } else {
-            console.error('❌ Cannot send validation response - not connected to server');
-        }
+        // Note: ESP32 validation is now handled differently 
+        // ESP32 will proceed with production regardless of webapp response
     }
     
     // Show validation warning modal
@@ -287,8 +153,639 @@ class ProductionManager {
     }
 }
 
-// Global production manager instance
+// WebSocket Manager for ESP32 Direct Communication
+class ESP32WebSocketManager {
+    constructor() {
+        this.websocket = null;
+        this.isConnected = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 2000; // Start with 2 seconds
+        this.maxReconnectDelay = 30000; // Max 30 seconds
+        this.pingInterval = null;
+        this.pongTimeout = null;
+        this.esp32Url = this.buildWebSocketUrl();
+        this.isReconnecting = false;
+        this.hasShownValidationWarning = false; // Track validation warning
+    }
+    
+    buildWebSocketUrl() {
+        const hostname = window.location.hostname;
+        
+        // If we're running from localhost, skip WebSocket
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return null;
+        }
+        
+        // If we're loaded directly from ESP32, use the same IP
+        if (hostname.match(/^192\.168\.\d+\.\d+$/)) {
+            return `ws://${hostname}:81`;
+        }
+        
+        // Default fallback (for development with known ESP32 IP)
+        return 'ws://192.168.0.88:81';
+    }
+    
+    async initialize() {
+        console.log('🔌 Initializing ESP32 WebSocket connection...');
+        console.log('🏠 Current page hostname:', window.location.hostname);
+        console.log('🔗 Built ESP32 WebSocket URL:', this.esp32Url);
+        
+        // Skip WebSocket connection if URL couldn't be determined
+        if (!this.esp32Url) {
+            console.log('⏭️ Skipping ESP32 WebSocket - running on localhost development environment');
+            this.updateConnectionStatus(false);
+            return false;
+        }
+        
+        // Only connect if we detect we're on ESP32 or production environment
+        const deviceResult = await this.detectEnvironment();
+        console.log('🔍 Environment detection result:', deviceResult);
+        
+        if (deviceResult.type === 'tablet') {
+            console.log('⏭️ Skipping ESP32 WebSocket - no ESP32 detected in environment');
+            this.updateConnectionStatus(false);
+            return false;
+        }
+        
+        console.log('🎯 ESP32 environment detected - attempting WebSocket connection to:', this.esp32Url);
+        return this.connect();
+    }
+    
+    async detectEnvironment() {
+        // Use the existing device detection from AuthManager
+        const hostname = window.location.hostname;
+        
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return { type: 'tablet', deviceInfo: null };
+        }
+        
+        // Test if we can reach ESP32 endpoint (use current hostname if available)
+        const esp32Host = hostname.match(/^192\.168\.\d+\.\d+$/) ? hostname : '192.168.0.88';
+        try {
+            const response = await fetch(`http://${esp32Host}:8080/api/status`, { 
+                method: 'GET',
+                timeout: 3000 
+            });
+            
+            if (response.ok) {
+                const statusData = await response.json();
+                console.log('✅ ESP32 detected - WebSocket will connect to:', esp32Host);
+                console.log('📊 ESP32 Status:', statusData);
+                return { type: 'esp32', deviceInfo: { ip: esp32Host, device_id: statusData.device_id || '6C10F6' } };
+            }
+        } catch (error) {
+            console.log(`❌ ESP32 not reachable at ${esp32Host}:8080:`, error.message);
+        }
+        
+        return { type: 'tablet', deviceInfo: null };
+    }
+    
+    connect() {
+        if (this.isConnected || this.isReconnecting) {
+            console.log('⚠️ WebSocket already connected or reconnecting');
+            return false;
+        }
+        
+        try {
+            console.log(`🔗 Connecting to ESP32 WebSocket: ${this.esp32Url}`);
+            this.websocket = new WebSocket(this.esp32Url);
+            this.isReconnecting = true;
+            
+            this.websocket.onopen = (event) => {
+                console.log('✅ ESP32 WebSocket connected successfully');
+                this.isConnected = true;
+                this.isReconnecting = false;
+                this.reconnectAttempts = 0;
+                this.reconnectDelay = 2000; // Reset delay
+                
+                // Update connection status
+                this.updateConnectionStatus(true);
+                
+                // Start heartbeat
+                this.startHeartbeat();
+                
+                // Request initial count data
+                this.requestCountData();
+            };
+            
+            this.websocket.onmessage = (event) => {
+                this.handleMessage(event.data);
+            };
+            
+            this.websocket.onclose = (event) => {
+                console.log('🔌 ESP32 WebSocket disconnected:', event.code, event.reason);
+                this.isConnected = false;
+                this.isReconnecting = false;
+                
+                // Update connection status
+                this.updateConnectionStatus(false);
+                
+                // Stop heartbeat
+                this.stopHeartbeat();
+                
+                // Only attempt reconnection for certain error codes and if not too many failures
+                const shouldReconnect = event.code !== 1000 && // Not intentional close
+                                      event.code !== 1002 && // Not protocol error
+                                      event.code !== 1003 && // Not unsupported data
+                                      this.reconnectAttempts < this.maxReconnectAttempts;
+                
+                if (shouldReconnect) {
+                    console.log(`🔄 Will attempt reconnection (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+                    this.scheduleReconnect();
+                } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                    console.log('❌ Max reconnection attempts reached - giving up on ESP32 WebSocket');
+                } else {
+                    console.log('❌ WebSocket closed permanently - no reconnection needed');
+                }
+            };
+            
+            this.websocket.onerror = (error) => {
+                console.log('⚠️ ESP32 WebSocket connection failed - server may not be available');
+                this.isConnected = false;
+                this.isReconnecting = false;
+                
+                // Update connection status
+                this.updateConnectionStatus(false);
+                
+                // Increment reconnect attempts for error tracking
+                this.reconnectAttempts++;
+            };
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Failed to create WebSocket connection:', error);
+            this.isReconnecting = false;
+            return false;
+        }
+    }
+    
+    handleMessage(data) {
+        try {
+            const message = JSON.parse(data);
+            console.log('📨 Received ESP32 WebSocket message:', message);
+            
+            switch (message.type) {
+                case 'production_update':
+                    this.handleProductionUpdate(message);
+                    break;
+                    
+                case 'status_update':
+                    this.handleStatusUpdate(message);
+                    break;
+                    
+                case 'production_reset':
+                    this.handleProductionReset(message);
+                    break;
+                    
+                case 'count_update':
+                    this.handleCountUpdate(message.data);
+                    break;
+                    
+                case 'production_data':
+                    this.handleProductionData(message.data);
+                    break;
+                    
+                case 'pong':
+                    this.handlePong();
+                    break;
+                    
+                default:
+                    console.log('📝 Unknown message type:', message.type);
+            }
+        } catch (error) {
+            console.error('❌ Error parsing WebSocket message:', error, 'Raw data:', data);
+        }
+    }
+    
+    handleProductionUpdate(message) {
+        console.log('🏭 ESP32 Production Update:', message);
+        
+        // Update good count with flash effect
+        if (message.good_count !== undefined) {
+            this.updateGoodCount(message.good_count);
+            
+            // Check for 品番 validation when production starts (count goes from 0 to 1)
+            if (message.good_count === 1 && !this.hasShownValidationWarning) {
+                this.checkHinbanValidation();
+                this.hasShownValidationWarning = true;
+            }
+        }
+        
+        // Update cycle information
+        if (message.completed_cycles !== undefined) {
+            const cycleInfo = document.getElementById('cycle-info');
+            if (cycleInfo) {
+                const avgTime = message.average_cycle_time || 0;
+                cycleInfo.textContent = `Cycles: ${message.completed_cycles}, Avg: ${avgTime.toFixed(2)}`;
+            }
+        }
+        
+        // Update average cycle time field
+        if (message.average_cycle_time !== undefined && message.average_cycle_time !== null) {
+            const avgCycleField = document.getElementById('averageCycleTime');
+            if (avgCycleField) {
+                const avgTimeFormatted = message.average_cycle_time.toFixed(2);
+                console.log('🔄 Attempting to update average cycle time field:', avgTimeFormatted, 'current:', avgCycleField.value);
+                if (avgCycleField.value !== avgTimeFormatted) {
+                    avgCycleField.value = avgTimeFormatted;
+                    console.log('✅ Updated average cycle time field:', avgTimeFormatted);
+                } else {
+                    console.log('⏭️  Average cycle time field already has correct value:', avgTimeFormatted);
+                }
+            } else {
+                console.log('❌ averageCycleTime field not found in DOM');
+            }
+        } else {
+            console.log('⚠️  average_cycle_time is undefined or null:', message.average_cycle_time);
+        }
+        
+        // Update cycle status indicator
+        if (message.cycle_in_progress !== undefined) {
+            const statusIndicator = document.querySelector('.production-status');
+            if (statusIndicator) {
+                if (message.cycle_in_progress) {
+                    statusIndicator.textContent = 'Cycle In Progress';
+                    statusIndicator.className = 'production-status active';
+                } else {
+                    statusIndicator.textContent = 'Ready';
+                    statusIndicator.className = 'production-status ready';
+                }
+            }
+        }
+        
+        // Update production start time (開始時間)
+        if (message.production_start_time) {
+            const initialField = document.getElementById('initialTimeDisplay');
+            if (initialField && initialField.value !== message.production_start_time) {
+                initialField.value = message.production_start_time;
+                console.log('🔄 Updated production start time:', message.production_start_time);
+            }
+        }
+        
+        // Update production end time (終了時間)
+        if (message.production_end_time) {
+            const finalField = document.getElementById('finalTimeDisplay');
+            if (finalField && finalField.value !== message.production_end_time) {
+                finalField.value = message.production_end_time;
+                console.log('🔄 Updated production end time:', message.production_end_time);
+            }
+        }
+        
+        // Save form data after update
+        if (typeof authManager !== 'undefined' && authManager.saveFormData) {
+            authManager.saveFormData();
+        }
+    }
+    
+    handleProductionReset(message) {
+        console.log('🔄 ESP32 Production Reset:', message);
+        
+        // Reset good count display
+        this.updateGoodCount(0);
+        
+        // Clear cycle information
+        const cycleInfo = document.getElementById('cycle-info');
+        if (cycleInfo) {
+            cycleInfo.textContent = 'Cycles: 0, Avg: 0.0s';
+        }
+        
+        // Reset status indicator
+        const statusIndicator = document.querySelector('.production-status');
+        if (statusIndicator) {
+            statusIndicator.textContent = 'Ready';
+            statusIndicator.className = 'production-status ready';
+        }
+        
+        // Show reset notification
+        console.log('✅ Production data reset by ESP32');
+    }
+
+    handleCountUpdate(data) {
+        if (data && typeof data.count !== 'undefined') {
+            console.log('📊 Updating good count from ESP32:', data.count);
+            this.updateGoodCount(data.count);
+            
+            // Save form data after count update
+            if (typeof authManager !== 'undefined' && authManager.saveFormData) {
+                authManager.saveFormData();
+            }
+        }
+    }
+    
+    handleProductionData(data) {
+        console.log('🏭 Received production data from ESP32:', data);
+        
+        // Update multiple fields if provided
+        if (data.good_count !== undefined) {
+            this.updateGoodCount(data.good_count);
+        }
+        
+        if (data.average_cycle_time !== undefined) {
+            const avgField = document.getElementById('averageCycleTime');
+            if (avgField) {
+                avgField.value = data.average_cycle_time.toFixed(2);
+                console.log('🔄 Updated average cycle time:', data.average_cycle_time);
+            }
+        }
+        
+        // Update production start time (開始時間)
+        if (data.production_start_time) {
+            const initialField = document.getElementById('initialTimeDisplay');
+            if (initialField) {
+                initialField.value = data.production_start_time;
+                console.log('🔄 Updated production start time:', data.production_start_time);
+            }
+        }
+        
+        // Update production end time (終了時間)
+        if (data.production_end_time) {
+            const finalField = document.getElementById('finalTimeDisplay');
+            if (finalField) {
+                finalField.value = data.production_end_time;
+                console.log('🔄 Updated production end time:', data.production_end_time);
+            }
+        }
+        
+        // Save form data after updates
+        if (typeof authManager !== 'undefined' && authManager.saveFormData) {
+            authManager.saveFormData();
+        }
+    }
+    
+    handleStatusUpdate(data) {
+        console.log('ℹ️ ESP32 status update:', data);
+        
+        // Status update should sync all production data (same as production update)
+        // Update good count with flash effect
+        if (data.good_count !== undefined) {
+            this.updateGoodCount(data.good_count);
+        }
+        
+        // Update cycle information
+        if (data.completed_cycles !== undefined) {
+            const avgCycleTimeField = document.getElementById('averageCycleTime');
+            if (avgCycleTimeField && data.average_cycle_time !== undefined) {
+                avgCycleTimeField.value = data.average_cycle_time.toFixed(2);
+                console.log('🔄 Updated average cycle time to:', data.average_cycle_time.toFixed(2));
+            }
+        }
+        
+        // Update time fields from ESP32 data
+        if (data.first_cycle_time) {
+            const initialTimeField = document.getElementById('initialTimeDisplay');
+            if (initialTimeField) {
+                initialTimeField.value = data.first_cycle_time;
+                console.log('🔄 Updated initial time to:', data.first_cycle_time);
+            }
+        }
+        
+        if (data.last_cycle_time) {
+            const finalTimeField = document.getElementById('finalTimeDisplay');
+            if (finalTimeField) {
+                finalTimeField.value = data.last_cycle_time;
+                console.log('🔄 Updated final time to:', data.last_cycle_time);
+            }
+        }
+        
+        // Update cycle status indicator
+        if (data.cycle_in_progress !== undefined) {
+            const statusIndicator = document.querySelector('.production-status');
+            if (statusIndicator) {
+                if (data.cycle_in_progress) {
+                    statusIndicator.textContent = 'Cycle In Progress';
+                    statusIndicator.className = 'production-status active';
+                } else {
+                    statusIndicator.textContent = 'Ready';
+                    statusIndicator.className = 'production-status ready';
+                }
+            }
+        }
+        
+        console.log('✅ ESP32 status synced on page load');
+    }
+    
+    updateGoodCount(count) {
+        const goodCountElement = document.getElementById('goodCount');
+        const hiddenGoodCountElement = document.getElementById('goodCountHidden');
+        
+        if (goodCountElement) {
+            // Handle both input and display elements
+            if (goodCountElement.tagName === 'INPUT') {
+                goodCountElement.value = count;
+            } else {
+                goodCountElement.textContent = count;
+            }
+            
+            // Add visual feedback for real-time update
+            goodCountElement.classList.add('flash-green');
+            setTimeout(() => {
+                goodCountElement.classList.remove('flash-green');
+            }, 300);
+            
+            console.log('✅ Good count updated to:', count);
+        }
+        
+        // Update hidden field for form submission
+        if (hiddenGoodCountElement) {
+            hiddenGoodCountElement.value = count;
+        }
+    }
+    
+    checkHinbanValidation() {
+        // Check if 品番 (part number) field is filled when production starts
+        const hinbanField = document.getElementById('hinban');
+        const hinbanValue = hinbanField ? hinbanField.value.trim() : '';
+        
+        if (!hinbanValue) {
+            console.log('⚠️ Production started without 品番 - showing warning');
+            
+            // Use ProductionManager's validation modal
+            if (typeof productionManager !== 'undefined' && productionManager.showValidationModal) {
+                productionManager.showValidationModal('品番警告', '品番が設定されていません。<br>生産カウントは継続しますが、品番を設定することをお勧めします。');
+            } else {
+                // Fallback alert if modal not available
+                alert('品番警告: 品番が設定されていません。生産カウントは継続しますが、品番を設定することをお勧めします。');
+            }
+        } else {
+            console.log('✅ Production started with 品番:', hinbanValue);
+        }
+    }
+    
+    updateConnectionStatus(connected) {
+        // Skip status indicator in development mode (localhost)
+        const hostname = window.location.hostname;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            console.log('⏭️ Skipping WebSocket status indicator - development mode');
+            return;
+        }
+        
+        // Update WebSocket connection indicator
+        let wsIndicator = document.getElementById('wsConnectionIndicator');
+        
+        if (!wsIndicator) {
+            // Create WebSocket status indicator if it doesn't exist
+            wsIndicator = document.createElement('div');
+            wsIndicator.id = 'wsConnectionIndicator';
+            wsIndicator.className = 'fixed top-20 right-4 z-40 p-2 rounded-lg shadow-md text-xs';
+            document.body.appendChild(wsIndicator);
+        }
+        
+        if (connected) {
+            wsIndicator.className = 'fixed top-20 right-4 z-40 p-2 rounded-lg shadow-md text-xs bg-green-100 text-green-800 border border-green-300';
+            wsIndicator.innerHTML = `
+                <div class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>ESP32接続中</span>
+                </div>
+            `;
+        } else {
+            wsIndicator.className = 'fixed top-20 right-4 z-40 p-2 rounded-lg shadow-md text-xs bg-red-100 text-red-800 border border-red-300';
+            wsIndicator.innerHTML = `
+                <div class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                    <span>ESP32切断</span>
+                </div>
+            `;
+        }
+    }
+    
+    startHeartbeat() {
+        // Send ping every 10 seconds (faster than ESP32's 15s heartbeat)
+        this.pingInterval = setInterval(() => {
+            if (this.isConnected && this.websocket.readyState === WebSocket.OPEN) {
+                console.log('🏓 Sending ping to ESP32');
+                this.send({ type: 'ping' });
+                
+                // Set pong timeout (5 seconds)
+                this.pongTimeout = setTimeout(() => {
+                    console.log('⚠️ Pong timeout - ESP32 may be unresponsive');
+                    this.disconnect();
+                }, 5000);
+            }
+        }, 10000);
+    }
+    
+    stopHeartbeat() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+    
+    handlePong() {
+        console.log('🏓 Received pong from ESP32');
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+    
+    scheduleReconnect() {
+        if (this.isReconnecting) return;
+        
+        this.reconnectAttempts++;
+        console.log(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay}ms`);
+        
+        setTimeout(() => {
+            if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+                console.log(`🔄 Reconnection attempt ${this.reconnectAttempts}`);
+                this.connect();
+                
+                // Exponential backoff with jitter
+                this.reconnectDelay = Math.min(
+                    this.reconnectDelay * 1.5 + Math.random() * 1000,
+                    this.maxReconnectDelay
+                );
+            } else {
+                console.log('❌ Max reconnection attempts reached');
+                this.updateConnectionStatus(false);
+            }
+        }, this.reconnectDelay);
+    }
+    
+    requestCountData() {
+        if (this.isConnected) {
+            console.log('📊 Requesting current count data from ESP32');
+            this.send({ type: 'get_count' });
+        }
+    }
+    
+    send(message) {
+        if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+            try {
+                this.websocket.send(JSON.stringify(message));
+                console.log('📤 Sent to ESP32:', message);
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to send message to ESP32:', error);
+                return false;
+            }
+        } else {
+            console.log('⚠️ WebSocket not connected - cannot send message');
+            return false;
+        }
+    }
+    
+    disconnect() {
+        console.log('🔌 Disconnecting ESP32 WebSocket...');
+        
+        this.stopHeartbeat();
+        
+        if (this.websocket) {
+            this.websocket.close(1000, 'Intentional disconnect');
+            this.websocket = null;
+        }
+        
+        this.isConnected = false;
+        this.isReconnecting = false;
+        this.updateConnectionStatus(false);
+    }
+    
+    // Method to send commands to ESP32
+    sendCommand(command, data = {}) {
+        const message = {
+            command: command,
+            ...data,
+            timestamp: Date.now()
+        };
+        return this.send(message);
+    }
+    
+    // Request current status from ESP32
+    requestStatus() {
+        return this.sendCommand('get_status');
+    }
+    
+    // Method to reset ESP32 production data
+    async resetProductionData() {
+        console.log('🔄 ESP32 WebSocket resetProductionData called');
+        console.log(`🔍 WebSocket connection status: isConnected=${this.isConnected}, readyState=${this.websocket?.readyState}`);
+        
+        if (this.isConnected && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+            console.log('✅ Sending reset command to ESP32 via WebSocket');
+            const success = this.sendCommand('reset_production');
+            console.log(`📤 Reset command sent: ${success}`);
+            return success;
+        } else {
+            console.log('⚠️ Cannot reset - ESP32 WebSocket not properly connected');
+            console.log(`   isConnected: ${this.isConnected}`);
+            console.log(`   websocket exists: ${!!this.websocket}`);
+            console.log(`   readyState: ${this.websocket?.readyState} (OPEN=${WebSocket.OPEN})`);
+            return false;
+        }
+    }
+}
+
+// Global production manager instance  
 let productionManager = null;
+let esp32WebSocket = null;
 
 // Authentication Management
 class AuthManager {
@@ -805,42 +1302,12 @@ class AuthManager {
             const deviceResult = await this.detectDeviceEnvironmentAsync();
             
             if (deviceResult.type === 'esp32') {
-                // We're running directly on ESP32 - get actual status from ESP32
+                // We're running directly on ESP32 - ESP32-only mode, skip all server connectivity checks
                 const esp32Status = deviceResult.deviceInfo;
+                console.log('✅ ESP32-only mode: Skipping server connectivity checks');
                 
-                // Check if ESP32 has server connectivity (via Socket.IO heartbeat or recent activity)
-                let isESP32Online = false;
-                try {
-                    // First check if ksgServer is reachable
-                    const serverTestResponse = await fetch(`${window.KSG_SERVER_URL}/ping`);
-                    if (serverTestResponse.ok) {
-                        // Server is reachable, now check ESP32's last_seen in database
-                        try {
-                            const deviceStatusResponse = await fetch(`${window.KSG_SERVER_URL}/api/device/check/${esp32Status.device_id}`);
-                            if (deviceStatusResponse.ok) {
-                                const deviceStatusData = await deviceStatusResponse.json();
-                                if (deviceStatusData.success && deviceStatusData.registered && deviceStatusData.device) {
-                                    const lastSeen = new Date(deviceStatusData.device.last_seen);
-                                    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-                                    isESP32Online = lastSeen > fiveMinutesAgo;
-                                    console.log(`ESP32 last seen: ${lastSeen.toISOString()}, 5min ago: ${fiveMinutesAgo.toISOString()}, online: ${isESP32Online}`);
-                                } else {
-                                    // Fallback to basic server connectivity if device status unknown
-                                    isESP32Online = true;
-                                }
-                            } else {
-                                // Fallback to basic server connectivity if API fails
-                                isESP32Online = true;
-                            }
-                        } catch (deviceStatusError) {
-                            console.log('Could not check ESP32 device status, using basic connectivity:', deviceStatusError.message);
-                            isESP32Online = true;
-                        }
-                    }
-                } catch (serverError) {
-                    console.log('ESP32 cannot reach ksgServer:', serverError.message);
-                    isESP32Online = false;
-                }
+                // ESP32 is always "online" when we can detect it (no server dependency)
+                const isESP32Online = true;
                 
                 systemStatus = {
                     online: isESP32Online,
@@ -851,16 +1318,8 @@ class AuthManager {
                     esp32_direct: true
                 };
                 
-                if (isESP32Online) {
-                    this.updateStatusUI(true, `オンライン (ESP32: ${esp32Status.device_id})`);
-                    console.log(`✅ ESP32 status: ONLINE, device_id=${esp32Status.device_id}`);
-                    
-                    // Process any offline submissions when back online
-                    this.processOfflineSubmissions();
-                } else {
-                    this.updateStatusUI(false, `オフライン (ESP32: ${esp32Status.device_id})`);
-                    console.log(`❌ ESP32 status: OFFLINE, device_id=${esp32Status.device_id}`);
-                }
+                this.updateStatusUI(true, `オンライン (ESP32: ${esp32Status.device_id})`);
+                console.log(`✅ ESP32 status: ONLINE, device_id=${esp32Status.device_id}`);
                 
                 return;
             }
@@ -1707,10 +2166,9 @@ class AuthManager {
             this.showSubmissionStatus('データを送信中...', 'loading');
             this.showLoadingIndicator(true);
             
-            // Direct server submission
-            if (systemStatus.online) {
-                console.log('🌐 Direct server submission mode');
-                this.showSubmissionStatus('サーバーに直接送信中...', 'loading');
+            // Always try server submission first (independent of ESP32 status)
+            console.log('🌐 Attempting server submission (independent mode)');
+            this.showSubmissionStatus('サーバーに送信中...', 'loading');
                 
                 // Prepare form data for direct submission
                 if (!formData.生産ログ) {
@@ -1763,14 +2221,15 @@ class AuthManager {
                     }
                     
                 } catch (directError) {
-                    console.error('❌ Direct server submission failed:', directError);
-                    // Save to local storage as last resort
+                    console.error('❌ Server submission failed:', directError);
+                    // Save to local storage when server is unreachable (tablet independent mode)
                     this.showSubmissionStatus('サーバー接続失敗 - ローカル保存中...', 'offline');
                     this.saveToLocalStorage(formData);
                     this.showSubmissionStatus('オフライン保存完了', 'warning');
                     this.showStatusMessage('サーバー接続不可 - ブラウザに一時保存しました', 'warning');
                     
                     // Reset ESP32 production data after offline submission
+                    console.log(' Attempting ESP32 reset after offline form submission...');
                     await this.resetESP32ProductionData();
                     
                     // Reset form after offline submission
@@ -1779,18 +2238,6 @@ class AuthManager {
                     }, 2000);
                     return;
                 }
-            } else {
-                // Completely offline
-                this.showSubmissionStatus('オフライン - ローカル保存中...', 'offline');
-                this.saveToLocalStorage(formData);
-                this.showSubmissionStatus('オフライン保存完了', 'warning');
-                this.showStatusMessage('オフライン - ブラウザに一時保存しました', 'warning');
-                
-                // Reset form after offline submission
-                setTimeout(() => {
-                    this.resetForm();
-                }, 2000);
-            }
             
         } catch (error) {
             console.error('Error submitting data:', error);
@@ -2092,18 +2539,24 @@ class AuthManager {
         try {
             this.showLoadingIndicator(true);
             
-            // Reset ESP32 production data first
-            if (productionManager) {
-                console.log('🔄 Resetting ESP32 production data...');
-                const espResetSuccess = await productionManager.resetProduction();
+            // Reset ESP32 production data using hybrid connection manager
+            let resetSuccess = false;
+            
+            // Reset ESP32 production data via WebSocket (simplified)
+            if (esp32WebSocket && esp32WebSocket.isConnected) {
+                console.log('🔄 Resetting ESP32 production data via WebSocket...');
+                resetSuccess = await esp32WebSocket.resetProductionData();
                 
-                if (espResetSuccess) {
-                    console.log('✅ ESP32 production data reset successfully');
+                if (resetSuccess) {
+                    console.log('✅ ESP32 production data reset via WebSocket');
                     this.showStatusMessage('ESP32生産データをリセットしました', 'success');
                 } else {
-                    console.log('⚠️ Failed to reset ESP32 production data');
+                    console.log('❌ ESP32 WebSocket reset failed');
                     this.showStatusMessage('ESP32リセットに失敗しました', 'warning');
                 }
+            } else {
+                console.log('⚠️ ESP32 WebSocket not available for reset');
+                this.showStatusMessage('ESP32接続なし - リセットできませんでした', 'warning');
             }
             
 
@@ -2224,19 +2677,27 @@ class AuthManager {
     }
     
     async resetESP32ProductionData() {
-        if (productionManager) {
-            try {
-                console.log('🔄 Resetting ESP32 production data after successful submission...');
-                const resetSuccess = await productionManager.resetProduction();
+        try {
+            console.log('🔄 Resetting ESP32 production data after successful submission...');
+            let resetSuccess = false;
+            
+            // Try WebSocket reset first (direct ESP32 communication)
+            if (esp32WebSocket && esp32WebSocket.isConnected) {
+                console.log('� Using WebSocket to reset ESP32 production data...');
+                resetSuccess = await esp32WebSocket.resetProductionData();
                 
                 if (resetSuccess) {
-                    console.log('✅ ESP32 production data reset successfully after submission');
-                } else {
-                    console.log('⚠️ Failed to reset ESP32 production data after submission');
+                    console.log('✅ ESP32 production data reset via WebSocket after submission');
+                    return;
                 }
-            } catch (error) {
-                console.error('❌ Error resetting ESP32 production data:', error);
             }
+            
+            // No fallback needed - ESP32 WebSocket only
+            if (!resetSuccess) {
+                console.log('⚠️ ESP32 WebSocket reset failed - no fallback available');
+            }
+        } catch (error) {
+            console.error('❌ Error resetting ESP32 production data:', error);
         }
     }
     
@@ -2462,6 +2923,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('📊 Initializing production manager...');
     productionManager = new ProductionManager();
     await productionManager.initialize();
+    
+    // Initialize ESP32 WebSocket manager for direct communication
+    console.log('🔌 Initializing ESP32 WebSocket manager...');
+    esp32WebSocket = new ESP32WebSocketManager();
+    await esp32WebSocket.initialize();
+    
+    // Simplified connection - ESP32 WebSocket only for real-time data
+    console.log('🔗 Simplified connection manager: ESP32 WebSocket only');
     
     // First, check if user info is passed via URL parameters (from tablet redirect)
     const urlUser = getUserFromURL();

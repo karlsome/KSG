@@ -144,6 +144,16 @@ int completedCycles = 0;
 String firstCycleTime = "";
 String lastCycleTime = "";
 
+// Production session timing
+String productionStartTime = "";  // When production session started
+String productionEndTime = "";    // When production session ended
+
+// Periodic data download scheduling (daily at 4pm JST)
+const int DOWNLOAD_HOUR = 16;     // 4pm in 24-hour format
+const int DOWNLOAD_MINUTE = 0;    // At the start of the hour
+unsigned long lastDownloadDay = 0; // Track which day we last downloaded (0 = never)
+bool downloadCompletedToday = false;
+
 // Production log array (JSON string to save memory)
 String productionLog = "[]";
 
@@ -182,6 +192,7 @@ bool downloadFile(const String& url, const String& path);
 void downloadWebAppFiles();
 void downloadUserData();
 void downloadProductData();
+void checkAndPerformDailyDownload();
 void saveWebappVersion(const String& versionData);
 String loadWebappVersion();
 bool checkForWebappUpdates();
@@ -429,6 +440,49 @@ void downloadProductData() {
     Serial.printf("[DL] ❌ Products download failed: HTTP %d\n", httpCode);
   }
   http.end();
+}
+
+// Check if it's time for daily data download (4pm JST) and execute if needed
+void checkAndPerformDailyDownload() {
+  if (!wifiConnected) {
+    return; // Skip if no WiFi connection
+  }
+  
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return; // Skip if time not available
+  }
+  
+  // Calculate current day of year for tracking
+  int currentDay = timeinfo.tm_yday; // Day of year (0-365)
+  int currentHour = timeinfo.tm_hour;
+  int currentMinute = timeinfo.tm_min;
+  
+  // Check if it's a new day (reset download flag)
+  if (currentDay != lastDownloadDay) {
+    downloadCompletedToday = false;
+    lastDownloadDay = currentDay;
+    Serial.printf("[DAILY] 📅 New day detected: %02d/%02d, resetting download flag\n", 
+                  timeinfo.tm_mon + 1, timeinfo.tm_mday);
+  }
+  
+  // Check if it's 4pm and we haven't downloaded today
+  if (currentHour == DOWNLOAD_HOUR && currentMinute == DOWNLOAD_MINUTE && !downloadCompletedToday) {
+    Serial.println("\n[DAILY] 🕐 Daily download time reached (4:00 PM JST)");
+    Serial.printf("[DAILY] Current time: %02d:%02d:%02d on %02d/%02d/%04d\n",
+                  currentHour, currentMinute, timeinfo.tm_sec,
+                  timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_year + 1900);
+    
+    // Perform the downloads
+    Serial.println("[DAILY] 📥 Starting daily data refresh...");
+    downloadUserData();
+    delay(1000); // Small delay between downloads
+    downloadProductData();
+    
+    // Mark as completed for today
+    downloadCompletedToday = true;
+    Serial.println("[DAILY] ✅ Daily data refresh completed");
+  }
 }
 
 // -------------------- Smart Webapp Update System --------------------
@@ -919,8 +973,12 @@ void handleEndButton() {
         // Update first/last cycle times for DB submission
         if (firstCycleTime == "") {
           firstCycleTime = startTime;
+          // Set production start time when first cycle completes
+          productionStartTime = startTime;
         }
         lastCycleTime = endTime;
+        // Update production end time with each completed cycle
+        productionEndTime = endTime;
         
         // Add to production log
         addCycleToLog(cycleTime, startTime, endTime);
@@ -978,6 +1036,8 @@ void sendProductionUpdate() {
     doc["completed_cycles"]  = completedCycles;
     doc["first_cycle_time"]  = firstCycleTime;
     doc["last_cycle_time"]   = lastCycleTime;
+    doc["production_start_time"] = productionStartTime;
+    doc["production_end_time"] = productionEndTime;
     doc["timestamp"]         = (uint32_t)millis();
     
     String json;
@@ -997,6 +1057,8 @@ void sendProductionUpdate() {
   wsDoc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
   wsDoc["first_cycle_time"] = firstCycleTime;
   wsDoc["last_cycle_time"] = lastCycleTime;
+  wsDoc["production_start_time"] = productionStartTime;
+  wsDoc["production_end_time"] = productionEndTime;
   wsDoc["timestamp"] = (uint32_t)millis();
   
   String wsMessage;
@@ -1074,6 +1136,8 @@ void resetProductionData() {
   currentCycleStartTimeStr = "";
   firstCycleTime = "";
   lastCycleTime = "";
+  productionStartTime = "";
+  productionEndTime = "";
   productionLog = "[]";
   
   Serial.println("[RESET] Production data cleared");
@@ -1153,12 +1217,16 @@ void webSocketServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t 
       doc["completed_cycles"] = completedCycles;
       doc["cycle_in_progress"] = cycleInProgress;
       doc["average_cycle_time"] = completedCycles > 0 ? totalCycleTime / completedCycles : 0.0;
+      doc["first_cycle_time"] = firstCycleTime;
+      doc["last_cycle_time"] = lastCycleTime;
+      doc["production_start_time"] = productionStartTime;
+      doc["production_end_time"] = productionEndTime;
       doc["timestamp"] = (uint32_t)millis();
       
       String message;
       serializeJson(doc, message);
       wsServer.sendTXT(num, message);
-      Serial.printf("[WSS] Sent status to client #%u: count=%d\n", num, productionCounter);
+      Serial.printf("[WSS] Sent status to client #%u: count=%d, cycles=%d\n", num, productionCounter, completedCycles);
       break;
     }
 
@@ -1171,8 +1239,21 @@ void webSocketServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t 
       DeserializationError error = deserializeJson(doc, msg);
       if (!error) {
         String command = doc["command"] | "";
+        String type = doc["type"] | "";
         
-        if (command == "reset_production") {
+        if (type == "ping") {
+          // Respond to webapp ping with pong
+          DynamicJsonDocument response(256);
+          response["type"] = "pong";
+          response["device_id"] = DEVICE_ID;
+          response["timestamp"] = (uint32_t)millis();
+          
+          String pongMsg;
+          serializeJson(response, pongMsg);
+          wsServer.sendTXT(num, pongMsg);
+          Serial.printf("[WSS] Responded to ping from client #%u with pong\n", num);
+        }
+        else if (command == "reset_production") {
           resetProductionData();
           Serial.printf("[WSS] Production reset by webapp client #%u\n", num);
           
@@ -1467,6 +1548,10 @@ void setup() {
     // Initialize NTP time synchronization
     initializeNTP();
     
+    // Initialize daily download scheduler
+    Serial.printf("\n[DAILY] 📅 Daily data download scheduler active (4:00 PM JST)\n");
+    Serial.printf("[DAILY] Users and products data will refresh automatically every day at 16:00 JST\n");
+    
     registerDevice();
     setupSocketIO();
     setupWebSocketServer();  // Start WebSocket server for webapp connections
@@ -1514,6 +1599,13 @@ void loop() {
 
   // Periodic webapp update check (every 30 minutes)
   checkAndUpdateWebapp();
+  
+  // Periodic daily data download check (4pm JST)
+  static unsigned long lastDailyCheck = 0;
+  if (millis() - lastDailyCheck > 60000) {  // Check every minute
+    checkAndPerformDailyDownload();
+    lastDailyCheck = millis();
+  }
 
   // Periodic WiFi check
   static unsigned long lastWiFiCheck = 0;
