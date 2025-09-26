@@ -206,17 +206,23 @@ async function fetchAvailableDevices() {
 
 function filterOnlineDevices(devices) {
     const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - (5 * 60 * 1000));
+    const twoMinutesAgo = new Date(now.getTime() - (2 * 60 * 1000));
     
-    return devices.filter(device => {
-        if (!device.last_seen) return false;
+    // Return all devices but mark their online status
+    return devices.map(device => {
+        if (!device.last_seen) {
+            device.isOnline = false;
+            console.log(`Device ${device.device_id}: No last_seen, Status: OFFLINE`);
+            return device;
+        }
         
         const lastSeen = new Date(device.last_seen);
-        const isOnline = lastSeen > fiveMinutesAgo;
+        const isOnline = lastSeen > twoMinutesAgo;
+        device.isOnline = isOnline;
         
-        console.log(`Device ${device.device_id}: Last seen ${lastSeen.toISOString()}, Online: ${isOnline}`);
+        console.log(`Device ${device.device_id}: Last seen ${lastSeen.toISOString()}, Status: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         
-        return isOnline;
+        return device;
     });
 }
 
@@ -245,23 +251,32 @@ function renderDeviceList() {
 }
 
 function createDeviceCard(device) {
-    const lastSeen = new Date(device.last_seen);
-    const timeAgo = getTimeAgo(lastSeen);
+    const lastSeen = device.last_seen ? new Date(device.last_seen) : null;
+    const timeAgo = lastSeen ? getTimeAgo(lastSeen) : 'Never';
+    const statusClass = device.isOnline ? 'status-online' : 'status-offline';
+    const statusText = device.isOnline ? 'オンライン' : 'オフライン';
+    const statusColor = device.isOnline ? 'text-green-600' : 'text-red-600';
     
     return `
-        <div class="device-card bg-white border border-gray-200 rounded-xl p-6 cursor-pointer hover:shadow-lg" data-device-id="${device.device_id}">
-            <div class="flex items-start justify-between mb-4">
-                <div class="flex items-center space-x-3">
-                    <div class="status-online w-4 h-4 rounded-full"></div>
-                    <div>
-                        <h3 class="font-semibold text-lg text-gray-900">${device.device_name}</h3>
-                        <p class="text-sm text-gray-500">${device.device_type || 'Unknown Type'}</p>
+        <div class="device-card bg-white border border-gray-200 rounded-xl p-4 cursor-pointer hover:shadow-lg transition-shadow ${!device.isOnline ? 'opacity-75' : ''}" data-device-id="${device.device_id}">
+            <!-- Header with device name and status -->
+            <div class="flex items-start justify-between mb-3">
+                <div class="flex items-center space-x-2 flex-1 min-w-0">
+                    <div class="${statusClass} w-3 h-3 rounded-full flex-shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="font-semibold text-base text-gray-900 truncate">${device.device_name}</h3>
+                        <p class="text-xs text-gray-500 truncate">${device.device_type || 'Unknown Type'}</p>
                     </div>
                 </div>
-                <div class="text-right">
-                    <p class="text-sm font-medium text-gray-900">${device.local_ip}:${device.local_port}</p>
-                    <p class="text-xs text-gray-500">${timeAgo}</p>
+                <div class="flex flex-col items-end space-y-1 flex-shrink-0 ml-2">
+                    <span class="text-xs ${statusColor} font-medium whitespace-nowrap">${statusText}</span>
+                    <span class="text-xs text-gray-400 whitespace-nowrap">${timeAgo}</span>
                 </div>
+            </div>
+            
+            <!-- Connection info -->
+            <div class="mb-3">
+                <p class="text-sm font-mono text-gray-700 truncate">${device.local_ip}:${device.local_port}</p>
             </div>
             
             <div class="space-y-2">
@@ -299,6 +314,20 @@ function createDeviceCard(device) {
 
 function connectToDevice(device) {
     console.log('Connecting to device:', device);
+    
+    // Check if device is offline and warn user
+    if (!device.isOnline) {
+        const confirmConnect = confirm(
+            `デバイス "${device.device_name}" はオフラインです。\n` +
+            `最後に確認されたのは2分以上前です。\n\n` +
+            `接続を続行しますか？デバイスが応答しない可能性があります。`
+        );
+        
+        if (!confirmConnect) {
+            console.log('User cancelled connection to offline device');
+            return;
+        }
+    }
     
     // Store selected device info
     const deviceInfo = {
