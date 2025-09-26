@@ -3,8 +3,8 @@
 // NOTE: Change this to your render.com server URL when deploying
 // For local testing: http://192.168.0.64:3000/
 // For production: https://your-app.render.com/
-const BASE_URL = 'http://192.168.0.64:3000/';
-//const BASE_URL = 'https://ksg-lu47.onrender.com/';
+//const BASE_URL = 'http://192.168.0.64:3000/';
+const BASE_URL = 'https://ksg-lu47.onrender.com/';
 
 // DOM elements
 let loginPage, devicePage, loginForm, loginError, deviceList, deviceLoading, deviceError, noDevices;

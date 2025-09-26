@@ -7,8 +7,8 @@ window.KSG_SERVER_URL = "http://localhost:3000"; // Default for development
 // Auto-detect KSG server URL based on environment
 if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     // Running on production/ESP32 - point to actual ksgServer
-    //window.KSG_SERVER_URL = "https://ksg-lu47.onrender.com";
-    window.KSG_SERVER_URL = "http://192.168.0.64:3000";
+    window.KSG_SERVER_URL = "https://ksg-lu47.onrender.com";
+    //window.KSG_SERVER_URL = "http://192.168.0.64:3000";
 }
 
 let currentUser = null;
