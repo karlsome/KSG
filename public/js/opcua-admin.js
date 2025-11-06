@@ -625,6 +625,21 @@ function openDatapointModal(datapointId = null) {
         // Find and populate existing datapoint data
         const datapoint = datapointsData.find(dp => dp._id === datapointId);
         if (datapoint) {
+            // Parse opcNodeId to extract namespace and variable name
+            // Format: ns=4;s=W312_2_Kadou1 or ns=4;i=1234
+            let namespace = 4;
+            let variableName = '';
+            
+            if (datapoint.opcNodeId) {
+                const nodeIdMatch = datapoint.opcNodeId.match(/ns=(\d+);s=(.+)/);
+                if (nodeIdMatch) {
+                    namespace = parseInt(nodeIdMatch[1]);
+                    variableName = nodeIdMatch[2];
+                }
+            }
+            
+            document.getElementById('datapoint-namespace').value = namespace;
+            document.getElementById('datapoint-variable-name').value = variableName;
             document.getElementById('datapoint-node-id').value = datapoint.opcNodeId || '';
             document.getElementById('datapoint-label').value = datapoint.label || '';
             document.getElementById('datapoint-description').value = datapoint.description || '';
