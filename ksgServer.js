@@ -2585,22 +2585,43 @@ app.get('/monitor/layout/:layoutId', (req, res) => {
 // GET /api/layout/:layoutId - Get layout data (no auth required for monitor view)
 app.get('/api/layout/:layoutId', async (req, res) => {
     try {
+        if (!mongoClient) {
+            return res.status(503).json({ success: false, error: 'Database not connected' });
+        }
+        
         const { layoutId } = req.params;
+        
+        console.log(`🔍 Looking for layout: ${layoutId}`);
         
         // Try to find layout in any company database
         // First, get all company databases
         const masterDB = mongoClient.db(DB_NAME);
-        const companies = await masterDB.collection(COLLECTION_NAME).distinct('dbName');
+        const companies = await masterDB.collection(COLLECTION_NAME)
+            .find({ dbName: { $exists: true, $ne: null } })
+            .project({ dbName: 1 })
+            .toArray();
+        
+        console.log(`📚 Searching in ${companies.length} company databases`);
         
         let layout = null;
         
-        for (const dbName of companies) {
-            const db = mongoClient.db(dbName);
-            layout = await db.collection('opcua_layouts').findOne({ layoutId });
-            if (layout) break;
+        for (const company of companies) {
+            if (!company.dbName) continue;
+            
+            try {
+                const db = mongoClient.db(company.dbName);
+                layout = await db.collection('opcua_layouts').findOne({ layoutId });
+                if (layout) {
+                    console.log(`✅ Found layout in database: ${company.dbName}`);
+                    break;
+                }
+            } catch (dbError) {
+                console.error(`Error searching in ${company.dbName}:`, dbError.message);
+            }
         }
         
         if (!layout) {
+            console.log(`❌ Layout not found: ${layoutId}`);
             return res.status(404).json({ success: false, error: 'Layout not found' });
         }
         
@@ -2608,7 +2629,7 @@ app.get('/api/layout/:layoutId', async (req, res) => {
         
     } catch (error) {
         console.error('❌ Error loading layout:', error);
-        res.status(500).json({ success: false, error: 'Failed to load layout' });
+        res.status(500).json({ success: false, error: 'Failed to load layout', details: error.message });
     }
 });
 
