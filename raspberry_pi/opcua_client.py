@@ -85,6 +85,7 @@ websocket_connected = False
 # Pending operations for retry
 pending_discovered_nodes = None
 pending_data_queue = []
+device_info_uploaded = False  # Track if device info has been uploaded
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -146,10 +147,18 @@ def get_device_info():
 
 def upload_device_info():
     """Upload device information to cloud"""
+    global device_info_uploaded
+    
     try:
+        logger.info("📤 Collecting device information...")
         device_info = get_device_info()
         if not device_info:
+            logger.error("❌ Failed to collect device info")
             return False
+        
+        logger.info(f"📤 Uploading device info to {DEVICE_INFO_ENDPOINT}")
+        logger.info(f"   Device: {device_info['device_name']}")
+        logger.info(f"   IP: {device_info['local_ip']}")
         
         headers = {
             'X-Raspberry-ID': RASPBERRY_ID,
@@ -157,18 +166,32 @@ def upload_device_info():
         }
         
         response = requests.post(DEVICE_INFO_ENDPOINT, json=device_info, headers=headers, timeout=10)
+        logger.info(f"   Response status: {response.status_code}")
+        
+        if response.status_code == 503:
+            logger.warning(f"⚠️  Server database not ready yet. Will retry later.")
+            return False
+        
         response.raise_for_status()
         
         result = response.json()
+        logger.info(f"   Response: {result}")
+        
         if result.get('success'):
-            logger.info(f"✅ Device info uploaded: {device_info['device_name']} ({device_info['local_ip']})")
+            logger.info(f"✅ Device info uploaded successfully!")
+            device_info_uploaded = True
             return True
         else:
             logger.warning(f"⚠️  Device info upload failed: {result.get('error')}")
             return False
             
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Network error uploading device info: {e}")
+        return False
     except Exception as e:
-        logger.error(f"❌ Failed to upload device info: {e}")
+        logger.error(f"❌ Unexpected error uploading device info: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 # ==========================================
@@ -799,6 +822,11 @@ def main_loop():
                 if send_heartbeat('online'):
                     logger.debug("💓 Heartbeat sent")
                 last_heartbeat = current_time
+            
+            # Retry device info upload if not yet uploaded
+            if not device_info_uploaded and (current_time - last_config_fetch) > 60:
+                logger.info("🔄 Retrying device info upload...")
+                upload_device_info()
             
             # Retry pending discovered nodes periodically
             if pending_discovered_nodes and (current_time - last_config_fetch) > 60:

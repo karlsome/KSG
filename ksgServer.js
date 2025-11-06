@@ -1992,6 +1992,11 @@ app.get('/api/opcua/config/:raspberryId', validateRaspberryPi, async (req, res) 
 // POST /api/opcua/device-info - Upload device information
 app.post('/api/opcua/device-info', async (req, res) => {
     try {
+        // Check if MongoDB is connected
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
         const deviceInfo = req.body;
         
         if (!deviceInfo.device_id) {
