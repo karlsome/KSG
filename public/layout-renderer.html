@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Layout View</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans CJK JP', sans-serif;
+            background: #f5f5f5;
+            overflow: hidden;
+        }
+        
+        #layout-container {
+            position: relative;
+            margin: 0 auto;
+            background: white;
+        }
+        
+        .layout-component {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+        
+        .component-text {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .component-datapoint {
+            padding: 10px;
+        }
+        
+        .datapoint-label {
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+        
+        .datapoint-value {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        
+        .datapoint-unit {
+            opacity: 0.5;
+            font-size: 0.8em;
+            margin-top: 4px;
+        }
+        
+        .datapoint-value.updating {
+            animation: pulse 0.3s ease;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #666;
+        }
+        
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #fee;
+            color: #c00;
+            padding: 20px 40px;
+            border-radius: 8px;
+            border: 2px solid #c00;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            z-index: 1000;
+        }
+        
+        .connection-status.disconnected {
+            background: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loading">Loading layout...</div>
+    <div class="connection-status" id="connection-status">● Connected</div>
+    <div id="layout-container"></div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let socket = null;
+        let layout = null;
+        let datapointMap = {}; // Map datapoint IDs to component elements
+        
+        // Get layout ID from URL
+        const pathParts = window.location.pathname.split('/');
+        const layoutId = pathParts[pathParts.length - 1];
+        
+        async function loadLayout() {
+            try {
+                const response = await fetch(`${API_BASE}/api/layout/${layoutId}`);
+                const data = await response.json();
+                
+                if (!data.success) {
+                    showError(data.error || 'Layout not found');
+                    return;
+                }
+                
+                layout = data.layout;
+                document.title = layout.layoutName;
+                renderLayout();
+                connectWebSocket();
+                
+            } catch (error) {
+                console.error('Error loading layout:', error);
+                showError('Failed to load layout');
+            }
+        }
+        
+        function renderLayout() {
+            const container = document.getElementById('layout-container');
+            container.style.width = layout.canvasWidth + 'px';
+            container.style.height = layout.canvasHeight + 'px';
+            
+            // Center container on screen
+            container.style.position = 'absolute';
+            container.style.top = '50%';
+            container.style.left = '50%';
+            container.style.transform = 'translate(-50%, -50%)';
+            
+            // Render components
+            layout.components.forEach(comp => {
+                const el = createComponentElement(comp);
+                container.appendChild(el);
+                
+                // Track datapoint components
+                if (comp.type === 'datapoint' && comp.datapointId) {
+                    datapointMap[comp.datapointId] = el;
+                }
+            });
+            
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function createComponentElement(comp) {
+            const el = document.createElement('div');
+            el.className = 'layout-component component-' + comp.type;
+            el.style.left = comp.x + 'px';
+            el.style.top = comp.y + 'px';
+            el.style.width = comp.width + 'px';
+            el.style.height = comp.height + 'px';
+            
+            if (comp.styles) {
+                if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';
+                if (comp.styles.color) el.style.color = comp.styles.color;
+                if (comp.styles.backgroundColor) el.style.backgroundColor = comp.styles.backgroundColor;
+                if (comp.styles.fontWeight) el.style.fontWeight = comp.styles.fontWeight;
+            }
+            
+            if (comp.type === 'text') {
+                el.classList.add('component-text');
+                el.textContent = comp.content || '';
+            } else if (comp.type === 'datapoint') {
+                el.classList.add('component-datapoint');
+                el.innerHTML = `
+                    <div class="datapoint-label">${comp.label || 'Label'}</div>
+                    <div class="datapoint-value" data-datapoint-id="${comp.datapointId}">---</div>
+                    ${comp.unit ? `<div class="datapoint-unit">${comp.unit}</div>` : ''}
+                `;
+            }
+            
+            return el;
+        }
+        
+        function connectWebSocket() {
+            socket = io(API_BASE, {
+                transports: ['websocket', 'polling']
+            });
+            
+            socket.on('connect', () => {
+                console.log('✅ WebSocket connected');
+                updateConnectionStatus(true);
+                
+                // Register as monitor
+                socket.emit('monitor_register', {
+                    raspberryId: layout.raspberryId,
+                    layoutId: layout.layoutId
+                });
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('❌ WebSocket disconnected');
+                updateConnectionStatus(false);
+            });
+            
+            socket.on('opcua_realtime_update', (data) => {
+                updateDatapoints(data);
+            });
+            
+            socket.on('raspberry_status_update', (data) => {
+                console.log('Raspberry status:', data);
+                // Could show indicator if Raspberry Pi is offline
+            });
+        }
+        
+        function updateDatapoints(data) {
+            if (!data || !data.data || !Array.isArray(data.data)) return;
+            
+            data.data.forEach(dp => {
+                const el = datapointMap[dp.datapointId];
+                if (el) {
+                    const valueEl = el.querySelector('.datapoint-value');
+                    if (valueEl) {
+                        valueEl.textContent = dp.value !== null && dp.value !== undefined ? dp.value : '---';
+                        valueEl.classList.add('updating');
+                        setTimeout(() => valueEl.classList.remove('updating'), 300);
+                    }
+                }
+            });
+        }
+        
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connection-status');
+            if (connected) {
+                status.textContent = '● Connected';
+                status.classList.remove('disconnected');
+            } else {
+                status.textContent = '● Disconnected';
+                status.classList.add('disconnected');
+            }
+        }
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            document.body.appendChild(errorDiv);
+        }
+        
+        // Load layout on page load
+        loadLayout();
+    </script>
+</body>
+</html>

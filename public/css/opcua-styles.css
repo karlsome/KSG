@@ -721,3 +721,290 @@ tr:last-child td {
     color: #666;
     padding: 40px 20px;
 }
+
+/* ==========================================
+   Layout Editor Styles
+   ========================================== */
+
+.modal-fullscreen {
+    padding: 0;
+}
+
+.modal-fullscreen .modal-content {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+}
+
+.canvas-editor-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #f5f5f5;
+}
+
+.canvas-editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: white;
+    border-bottom: 1px solid #ddd;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.canvas-editor-header h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.canvas-editor-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.canvas-sidebar {
+    width: 250px;
+    background: white;
+    border-right: 1px solid #ddd;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.canvas-sidebar h4 {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.component-library {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.component-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    cursor: grab;
+    transition: all 0.2s;
+}
+
+.component-item:hover {
+    background: #e9ecef;
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+.component-item:active {
+    cursor: grabbing;
+}
+
+.component-item span:first-child {
+    font-size: 20px;
+}
+
+.datapoints-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.datapoint-item {
+    padding: 10px;
+    background: #f0f4ff;
+    border: 1px solid #c7d7fe;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.datapoint-item:hover {
+    background: #dbeafe;
+    border-color: var(--primary-color);
+}
+
+.datapoint-item strong {
+    display: block;
+    color: #1e40af;
+    margin-bottom: 3px;
+}
+
+.datapoint-item small {
+    color: #64748b;
+    font-size: 11px;
+}
+
+.canvas-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    overflow: auto;
+    background: #e5e7eb;
+}
+
+.canvas-wrapper {
+    background: white;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.layout-canvas {
+    position: relative;
+    background: white;
+    border: 2px solid #cbd5e1;
+    min-height: 400px;
+}
+
+.canvas-component {
+    position: absolute;
+    border: 2px solid transparent;
+    cursor: move;
+    transition: border-color 0.2s;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.canvas-component:hover {
+    border-color: #93c5fd;
+}
+
+.canvas-component.selected {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.canvas-component.dragging {
+    opacity: 0.7;
+}
+
+.component-text {
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+}
+
+.component-datapoint {
+    background: rgba(240, 244, 255, 0.9);
+    border: 1px solid #c7d7fe;
+}
+
+.component-resize-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--primary-color);
+    border: 1px solid white;
+    border-radius: 2px;
+}
+
+.component-resize-handle.se {
+    bottom: -5px;
+    right: -5px;
+    cursor: nwse-resize;
+}
+
+.component-resize-handle.ne {
+    top: -5px;
+    right: -5px;
+    cursor: nesw-resize;
+}
+
+.component-resize-handle.sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: nesw-resize;
+}
+
+.component-resize-handle.nw {
+    top: -5px;
+    left: -5px;
+    cursor: nwse-resize;
+}
+
+.canvas-properties {
+    width: 300px;
+    background: white;
+    border-left: 1px solid #ddd;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.canvas-properties h4 {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.property-group {
+    margin-bottom: 20px;
+}
+
+.property-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+}
+
+.property-group input,
+.property-group select,
+.property-group textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.property-group textarea {
+    min-height: 80px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.color-picker-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.color-picker-group input[type="color"] {
+    width: 50px;
+    height: 36px;
+    border: none;
+    cursor: pointer;
+}
+
+.color-picker-group input[type="text"] {
+    flex: 1;
+}
+
+.property-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.property-actions button {
+    flex: 1;
+}

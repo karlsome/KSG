@@ -2461,9 +2461,156 @@ app.put('/api/opcua/admin/datapoints/:id/toggle', validateAdminUser, async (req,
     }
 });
 
+// GET /api/opcua/admin/datapoints-by-raspberry/:raspberryId - Get all datapoints for a raspberry
+app.get('/api/opcua/admin/datapoints-by-raspberry/:raspberryId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { raspberryId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ raspberryId })
+            .sort({ sortOrder: 1, label: 1 })
+            .toArray();
+        
+        res.json({ success: true, datapoints });
+        
+    } catch (error) {
+        console.error('❌ Error loading datapoints:', error);
+        res.status(500).json({ error: 'Failed to load datapoints' });
+    }
+});
+
+// ==========================================
+// LAYOUT EDITOR ENDPOINTS
+// ==========================================
+
+// GET /api/opcua/admin/layouts - Get all layouts
+app.get('/api/opcua/admin/layouts', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const db = mongoClient.db(dbName);
+        
+        const layouts = await db.collection('opcua_layouts')
+            .find({})
+            .sort({ createdAt: -1 })
+            .toArray();
+        
+        res.json({ success: true, layouts });
+        
+    } catch (error) {
+        console.error('❌ Error loading layouts:', error);
+        res.status(500).json({ error: 'Failed to load layouts' });
+    }
+});
+
+// POST /api/opcua/admin/layouts - Create or update layout
+app.post('/api/opcua/admin/layouts', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const db = mongoClient.db(dbName);
+        const layout = req.body;
+        
+        // Add timestamps
+        const now = new Date().toISOString();
+        const layoutData = {
+            ...layout,
+            updatedAt: now
+        };
+        
+        const result = await db.collection('opcua_layouts').updateOne(
+            { layoutId: layout.layoutId },
+            {
+                $set: layoutData,
+                $setOnInsert: { createdAt: now }
+            },
+            { upsert: true }
+        );
+        
+        res.json({ success: true, layoutId: layout.layoutId, isNew: result.upsertedCount > 0 });
+        
+    } catch (error) {
+        console.error('❌ Error saving layout:', error);
+        res.status(500).json({ error: 'Failed to save layout' });
+    }
+});
+
+// GET /api/opcua/admin/layouts/:layoutId - Get specific layout
+app.get('/api/opcua/admin/layouts/:layoutId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { layoutId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        const layout = await db.collection('opcua_layouts').findOne({ layoutId });
+        
+        if (!layout) {
+            return res.status(404).json({ error: 'Layout not found' });
+        }
+        
+        res.json({ success: true, layout });
+        
+    } catch (error) {
+        console.error('❌ Error loading layout:', error);
+        res.status(500).json({ error: 'Failed to load layout' });
+    }
+});
+
+// DELETE /api/opcua/admin/layouts/:layoutId - Delete layout
+app.delete('/api/opcua/admin/layouts/:layoutId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { layoutId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        await db.collection('opcua_layouts').deleteOne({ layoutId });
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Error deleting layout:', error);
+        res.status(500).json({ error: 'Failed to delete layout' });
+    }
+});
+
 // ==========================================
 // MONITOR ENDPOINTS
 // ==========================================
+
+// GET /monitor/layout/:layoutId - Serve layout renderer HTML
+app.get('/monitor/layout/:layoutId', (req, res) => {
+    res.sendFile(__dirname + '/public/layout-renderer.html');
+});
+
+// GET /api/layout/:layoutId - Get layout data (no auth required for monitor view)
+app.get('/api/layout/:layoutId', async (req, res) => {
+    try {
+        const { layoutId } = req.params;
+        
+        // Try to find layout in any company database
+        // First, get all company databases
+        const masterDB = mongoClient.db(DB_NAME);
+        const companies = await masterDB.collection(COLLECTION_NAME).distinct('dbName');
+        
+        let layout = null;
+        
+        for (const dbName of companies) {
+            const db = mongoClient.db(dbName);
+            layout = await db.collection('opcua_layouts').findOne({ layoutId });
+            if (layout) break;
+        }
+        
+        if (!layout) {
+            return res.status(404).json({ success: false, error: 'Layout not found' });
+        }
+        
+        res.json({ success: true, layout });
+        
+    } catch (error) {
+        console.error('❌ Error loading layout:', error);
+        res.status(500).json({ success: false, error: 'Failed to load layout' });
+    }
+});
 
 // GET /api/opcua/monitor/dashboard - Get all equipment + current values
 app.get('/api/opcua/monitor/dashboard', async (req, res) => {

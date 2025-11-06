@@ -20,6 +20,7 @@
             <button class="nav-btn active" data-tab="raspberries">Raspberry Pis</button>
             <button class="nav-btn" data-tab="equipment">Equipment</button>
             <button class="nav-btn" data-tab="datapoints">Data Points</button>
+            <button class="nav-btn" data-tab="layouts">Layout Editor</button>
         </nav>
 
         <main class="admin-content">
@@ -392,6 +393,134 @@
                                     <button type="submit" class="btn btn-primary">Add to List</button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 4: Layout Editor -->
+            <section id="tab-layouts" class="tab-content">
+                <div class="section-header">
+                    <h2>📐 Layout Editor</h2>
+                    <button id="add-layout-btn" class="btn btn-primary">+ Create New Layout</button>
+                </div>
+
+                <div id="layouts-list" class="card-grid">
+                    <!-- Layout cards will be inserted here -->
+                </div>
+
+                <!-- Create/Edit Layout Modal -->
+                <div id="layout-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="layout-modal-title">Create New Layout</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="layout-form">
+                                <input type="hidden" id="layout-id">
+
+                                <div class="form-group">
+                                    <label>Layout Name *</label>
+                                    <input type="text" id="layout-name" required 
+                                           placeholder="e.g., Tablet Landscape - Equipment A">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Select Raspberry Pi *</label>
+                                    <select id="layout-raspberry-id" required>
+                                        <option value="">Select Raspberry Pi...</option>
+                                    </select>
+                                    <small>Datapoints from this Raspberry Pi will be available</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Canvas Size</label>
+                                    <select id="layout-size-preset" style="margin-bottom: 10px;">
+                                        <option value="1280x800">Tablet Landscape (1280 x 800)</option>
+                                        <option value="800x1280">Tablet Portrait (800 x 1280)</option>
+                                        <option value="1920x1080">HD Monitor (1920 x 1080)</option>
+                                        <option value="3840x2160">4K TV (3840 x 2160)</option>
+                                        <option value="custom">Custom Size</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-row" id="custom-size-inputs" style="display: none;">
+                                    <div class="form-group">
+                                        <label>Width (px)</label>
+                                        <input type="number" id="layout-width" min="320" value="1280">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Height (px)</label>
+                                        <input type="number" id="layout-height" min="240" value="800">
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+                                    <button type="submit" class="btn btn-primary">Continue to Editor</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Layout Canvas Editor Modal -->
+                <div id="canvas-editor-modal" class="modal modal-fullscreen" style="display: none;">
+                    <div class="canvas-editor-container">
+                        <!-- Header -->
+                        <div class="canvas-editor-header">
+                            <div>
+                                <h3 id="canvas-editor-title">Layout Editor</h3>
+                                <span id="canvas-editor-dimensions" style="color: #888; font-size: 14px;"></span>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="canvas-preview-btn" class="btn btn-secondary">👁️ Preview</button>
+                                <button id="canvas-save-btn" class="btn btn-primary">💾 Save Layout</button>
+                                <button id="canvas-close-btn" class="btn btn-secondary">✕ Close</button>
+                            </div>
+                        </div>
+
+                        <!-- Main Editor Area -->
+                        <div class="canvas-editor-body">
+                            <!-- Left Sidebar - Components -->
+                            <div class="canvas-sidebar">
+                                <h4>Components</h4>
+                                <div class="component-library">
+                                    <div class="component-item" draggable="true" data-type="text">
+                                        <span>📝</span>
+                                        <span>Text Label</span>
+                                    </div>
+                                    <div class="component-item" draggable="true" data-type="datapoint">
+                                        <span>📊</span>
+                                        <span>Data Point</span>
+                                    </div>
+                                </div>
+
+                                <h4 style="margin-top: 30px;">Datapoints</h4>
+                                <div id="available-datapoints" class="datapoints-list">
+                                    <!-- Datapoints will be loaded here -->
+                                </div>
+                            </div>
+
+                            <!-- Center - Canvas -->
+                            <div class="canvas-area">
+                                <div class="canvas-wrapper">
+                                    <div id="layout-canvas" class="layout-canvas">
+                                        <!-- Components will be placed here -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right Sidebar - Properties -->
+                            <div class="canvas-properties">
+                                <h4>Properties</h4>
+                                <div id="properties-panel">
+                                    <div class="empty-state" style="padding: 20px; text-align: center; color: #999;">
+                                        Select a component to edit properties
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
