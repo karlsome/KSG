@@ -40,6 +40,10 @@ HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
 RETRY_INTERVAL = 60      # Retry connection every 60 seconds on failure
 NODE_DISCOVERY_TIME = "07:00"  # Daily discovery at 7am
 
+# Retry Configuration
+MAX_RETRY_ATTEMPTS = 3
+RETRY_DELAYS = [30, 60, 120]  # Exponential backoff: 30s, 1min, 2min
+
 # Logging Configuration
 logging.basicConfig(
     level=logging.INFO,
@@ -58,36 +62,66 @@ last_heartbeat = 0
 last_config_fetch = 0
 CONFIG_REFRESH_INTERVAL = 300  # Refresh config every 5 minutes
 
+# Pending operations for retry
+pending_discovered_nodes = None
+pending_data_queue = []
+
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+def retry_with_backoff(func, *args, **kwargs):
+    """
+    Retry a function with exponential backoff
+    Returns (success: bool, result: any)
+    """
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        try:
+            result = func(*args, **kwargs)
+            return True, result
+        except Exception as e:
+            if attempt < MAX_RETRY_ATTEMPTS - 1:
+                delay = RETRY_DELAYS[attempt]
+                logger.warning(f"⚠️  Attempt {attempt + 1} failed: {e}")
+                logger.info(f"🔄 Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                logger.error(f"❌ All {MAX_RETRY_ATTEMPTS} attempts failed: {e}")
+                return False, None
+    return False, None
+
 # ==========================================
 # FUNCTIONS
 # ==========================================
 
+def _fetch_config_request():
+    """Internal function to fetch config (used by retry mechanism)"""
+    headers = {'X-Raspberry-ID': RASPBERRY_ID}
+    response = requests.get(CONFIG_ENDPOINT, headers=headers, timeout=10)
+    
+    if response.status_code == 403:
+        raise Exception("Unauthorized: Raspberry Pi not registered in system")
+    
+    if response.status_code == 404:
+        raise Exception("Configuration not found. Please configure device in admin panel")
+    
+    response.raise_for_status()
+    data = response.json()
+    
+    if not data.get('success'):
+        raise Exception(data.get('error', 'Unknown error'))
+    
+    return data
+
 def fetch_config():
-    """Fetch configuration from API"""
+    """Fetch configuration from API with retry"""
     global config, datapoints
     
-    try:
-        logger.info(f"📡 Fetching configuration for Raspberry Pi: {RASPBERRY_ID}")
-        
-        headers = {'X-Raspberry-ID': RASPBERRY_ID}
-        response = requests.get(CONFIG_ENDPOINT, headers=headers, timeout=10)
-        
-        if response.status_code == 403:
-            logger.error("❌ Unauthorized: This Raspberry Pi is not registered in the system")
-            logger.error(f"   Check that uniqueId '{RASPBERRY_ID}' exists in masterUsers.devices")
-            return False
-        
-        if response.status_code == 404:
-            logger.error("❌ Configuration not found. Please configure this device in admin panel.")
-            return False
-        
-        response.raise_for_status()
-        data = response.json()
-        
-        if not data.get('success'):
-            logger.error(f"❌ API returned error: {data.get('error')}")
-            return False
-        
+    logger.info(f"📡 Fetching configuration for Raspberry Pi: {RASPBERRY_ID}")
+    
+    success, data = retry_with_backoff(_fetch_config_request)
+    
+    if success:
         config = data['config']
         datapoints = data['datapoints']
         
@@ -98,9 +132,8 @@ def fetch_config():
         logger.info(f"   Datapoints to monitor: {len(datapoints)}")
         
         return True
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Failed to fetch config: {e}")
+    else:
+        logger.error("❌ Failed to fetch config after all retries")
         return False
 
 def connect_opcua():
@@ -177,55 +210,100 @@ def read_datapoints():
     
     return data
 
+def _upload_data(data):
+    """Internal function to upload data (used by retry mechanism)"""
+    headers = {
+        'X-Raspberry-ID': RASPBERRY_ID,
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'raspberryId': RASPBERRY_ID,
+        'data': data
+    }
+    
+    response = requests.post(DATA_ENDPOINT, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    
+    result = response.json()
+    if not result.get('success'):
+        raise Exception(result.get('error', 'Unknown error'))
+    
+    return result
+
 def push_data(data):
-    """Push data to cloud API"""
-    try:
-        headers = {
-            'X-Raspberry-ID': RASPBERRY_ID,
-            'Content-Type': 'application/json'
-        }
+    """Push data to cloud API with retry and queuing"""
+    global pending_data_queue
+    
+    # Try to upload pending data first
+    if pending_data_queue:
+        logger.info(f"🔄 Attempting to upload {len(pending_data_queue)} pending data batches...")
+        uploaded_count = 0
+        failed_batches = []
         
-        payload = {
-            'raspberryId': RASPBERRY_ID,
-            'data': data
-        }
+        for batch in pending_data_queue:
+            success, _ = retry_with_backoff(_upload_data, batch)
+            if success:
+                uploaded_count += 1
+            else:
+                failed_batches.append(batch)
         
-        response = requests.post(DATA_ENDPOINT, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
+        if uploaded_count > 0:
+            logger.info(f"✅ Successfully uploaded {uploaded_count} pending batches")
         
-        result = response.json()
-        if result.get('success'):
+        pending_data_queue = failed_batches
+    
+    # Try to upload current data with retry
+    if data:
+        success, result = retry_with_backoff(_upload_data, data)
+        
+        if success:
             logger.info(f"📤 Pushed {result.get('received', 0)} datapoints to cloud")
             return True
         else:
-            logger.error(f"❌ Failed to push data: {result.get('error')}")
+            # Add to pending queue (limit queue size to prevent memory issues)
+            if len(pending_data_queue) < 100:  # Max 100 pending batches
+                pending_data_queue.append(data)
+                logger.warning(f"⚠️  Added data to pending queue ({len(pending_data_queue)} batches pending)")
+            else:
+                logger.error("❌ Pending queue full, dropping oldest data")
+                pending_data_queue.pop(0)
+                pending_data_queue.append(data)
             return False
-            
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Failed to push data: {e}")
-        return False
+    
+    return True
+
+def _send_heartbeat_request(status):
+    """Internal function to send heartbeat (used by retry mechanism)"""
+    headers = {
+        'X-Raspberry-ID': RASPBERRY_ID,
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'raspberryId': RASPBERRY_ID,
+        'status': status,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    response = requests.post(HEARTBEAT_ENDPOINT, json=payload, headers=headers, timeout=5)
+    response.raise_for_status()
+    return True
 
 def send_heartbeat(status='online'):
-    """Send heartbeat to cloud API"""
-    try:
-        headers = {
-            'X-Raspberry-ID': RASPBERRY_ID,
-            'Content-Type': 'application/json'
-        }
-        
-        payload = {
-            'raspberryId': RASPBERRY_ID,
-            'status': status,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        response = requests.post(HEARTBEAT_ENDPOINT, json=payload, headers=headers, timeout=5)
-        response.raise_for_status()
-        
-        return True
-        
-    except:
-        return False
+    """Send heartbeat to cloud API with retry"""
+    # Heartbeat is less critical, only 1 retry with shorter delay
+    for attempt in range(2):  # Try twice
+        try:
+            return _send_heartbeat_request(status)
+        except Exception as e:
+            if attempt == 0:
+                logger.debug(f"Heartbeat attempt {attempt + 1} failed: {e}")
+                time.sleep(5)  # Short 5s retry
+            else:
+                logger.debug(f"Heartbeat failed after 2 attempts")
+                return False
+    return False
 
 def discover_nodes():
     """Discover all available OPC UA nodes"""
@@ -304,39 +382,64 @@ def discover_nodes():
         logger.error(f"❌ Node discovery failed: {e}")
         return []
 
+def _upload_discovered_nodes(nodes):
+    """Internal function to upload nodes (used by retry mechanism)"""
+    headers = {
+        'X-Raspberry-ID': RASPBERRY_ID,
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'raspberryId': RASPBERRY_ID,
+        'nodes': nodes,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    response = requests.post(DISCOVERED_NODES_ENDPOINT, json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    
+    result = response.json()
+    if not result.get('success'):
+        raise Exception(result.get('error', 'Unknown error'))
+    
+    return result
+
 def save_discovered_nodes():
-    """Discover nodes and save to cloud"""
+    """Discover nodes and save to cloud with retry"""
+    global pending_discovered_nodes
+    
     try:
+        # Try to upload pending nodes first if any
+        if pending_discovered_nodes:
+            logger.info("� Attempting to upload pending discovered nodes...")
+            success, _ = retry_with_backoff(_upload_discovered_nodes, pending_discovered_nodes)
+            if success:
+                logger.info(f"✅ Successfully uploaded {len(pending_discovered_nodes)} pending nodes")
+                pending_discovered_nodes = None
+            else:
+                logger.warning("⚠️  Still unable to upload pending nodes, will retry later")
+        
+        # Discover new nodes
         nodes = discover_nodes()
         
         if not nodes:
             logger.warning("⚠️  No nodes discovered")
             return False
         
-        headers = {
-            'X-Raspberry-ID': RASPBERRY_ID,
-            'Content-Type': 'application/json'
-        }
+        # Try to upload with retry
+        success, result = retry_with_backoff(_upload_discovered_nodes, nodes)
         
-        payload = {
-            'raspberryId': RASPBERRY_ID,
-            'nodes': nodes,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        response = requests.post(DISCOVERED_NODES_ENDPOINT, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        
-        result = response.json()
-        if result.get('success'):
+        if success:
             logger.info(f"📤 Saved {len(nodes)} discovered nodes to cloud")
             return True
         else:
-            logger.error(f"❌ Failed to save discovered nodes: {result.get('error')}")
+            # Save to pending for later retry
+            pending_discovered_nodes = nodes
+            logger.warning(f"⚠️  Saved {len(nodes)} nodes to pending queue for later upload")
             return False
             
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Failed to save discovered nodes: {e}")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in save_discovered_nodes: {e}")
         return False
 
 def main_loop():
@@ -395,14 +498,23 @@ def main_loop():
             data = read_datapoints()
             
             if data:
-                # Push data to cloud
+                # Push data to cloud (handles retry and queuing internally)
                 push_data(data)
+            
+            # Try to upload pending data even if no new data
+            if pending_data_queue and not data:
+                push_data([])  # Empty data triggers pending queue retry
             
             # Send heartbeat
             if (current_time - last_heartbeat) > HEARTBEAT_INTERVAL:
                 if send_heartbeat('online'):
                     logger.debug("💓 Heartbeat sent")
                 last_heartbeat = current_time
+            
+            # Retry pending discovered nodes periodically
+            if pending_discovered_nodes and (current_time - last_config_fetch) > 60:
+                logger.info("🔄 Retrying pending discovered nodes upload...")
+                save_discovered_nodes()
             
             # Wait for next poll
             poll_interval_sec = config.get('poll_interval', 5000) / 1000.0
@@ -418,8 +530,16 @@ def main_loop():
             time.sleep(RETRY_INTERVAL)
     
     # Cleanup
+    scheduler.shutdown()
     disconnect_opcua()
     send_heartbeat('offline')
+    
+    # Log pending operations
+    if pending_discovered_nodes:
+        logger.warning(f"⚠️  {len(pending_discovered_nodes)} discovered nodes not uploaded")
+    if pending_data_queue:
+        logger.warning(f"⚠️  {len(pending_data_queue)} data batches not uploaded")
+    
     logger.info("👋 OPC UA Monitoring Client stopped")
 
 # ==========================================
