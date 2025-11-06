@@ -314,6 +314,7 @@ def discover_nodes():
         
         logger.info("🔍 Starting node discovery...")
         discovered = []
+        seen_node_ids = set()  # Track discovered nodes to prevent duplicates
         
         # Get the Objects node (standard OPC UA starting point)
         objects_node = opcua_client.get_objects_node()
@@ -350,14 +351,17 @@ def discover_nodes():
                                 # Extract namespace
                                 namespace = node_id.split(';')[0].replace('ns=', '')
                                 
-                                discovered.append({
-                                    'namespace': int(namespace),
-                                    'variableName': variable_name,
-                                    'browseName': browse_name,
-                                    'opcNodeId': node_id,
-                                    'dataType': data_type,
-                                    'currentValue': str(value)[:100]  # Limit length
-                                })
+                                # Check for duplicates using node_id
+                                if node_id not in seen_node_ids:
+                                    seen_node_ids.add(node_id)
+                                    discovered.append({
+                                        'namespace': int(namespace),
+                                        'variableName': variable_name,
+                                        'browseName': browse_name,
+                                        'opcNodeId': node_id,
+                                        'dataType': data_type,
+                                        'currentValue': str(value)[:100]  # Limit length
+                                    })
                                 
                             except Exception as e:
                                 logger.debug(f"Could not read value for {browse_name}: {e}")
