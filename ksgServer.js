@@ -2006,11 +2006,14 @@ app.post('/api/opcua/device-info', async (req, res) => {
         // Store in deviceInfo collection under company's database
         const db = mongoClient.db(deviceInfo.company || 'KSG');
         
+        // Remove registered_at from deviceInfo if it exists to avoid conflict with $setOnInsert
+        const { registered_at, ...deviceInfoWithoutRegistered } = deviceInfo;
+        
         await db.collection('deviceInfo').updateOne(
             { device_id: deviceInfo.device_id },
             {
                 $set: {
-                    ...deviceInfo,
+                    ...deviceInfoWithoutRegistered,
                     updated_at: new Date()
                 },
                 $setOnInsert: {
