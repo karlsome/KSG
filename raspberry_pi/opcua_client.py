@@ -137,9 +137,8 @@ def get_device_info():
             "owner": DEVICE_OWNER,
             "local_ip": local_ip,
             "local_port": 0,  # Not applicable for OPC UA client
-            "device_type": DEVICE_TYPE,
-            "registered_at": datetime.utcnow().isoformat(),
-            "authorized_until": None  # Will be set by server
+            "device_type": DEVICE_TYPE
+            # Note: registered_at and authorized_until are set by server
         }
     except Exception as e:
         logger.error(f"❌ Failed to collect device info: {e}")
