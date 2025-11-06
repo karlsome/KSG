@@ -19,6 +19,9 @@ from opcua import Client
 import sys
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
+import socket
+import socketio
+import threading
 
 # ==========================================
 # CONFIGURATION - EDIT THIS
@@ -34,11 +37,19 @@ CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
 DISCOVERED_NODES_ENDPOINT = f"{API_BASE_URL}/api/opcua/discovered-nodes"
+DEVICE_INFO_ENDPOINT = f"{API_BASE_URL}/api/opcua/device-info"
+
+# Device Configuration
+COMPANY_NAME = "KSG"
+DEVICE_OWNER = "kasugai"
+DEVICE_TYPE = "Raspberry Pi"
+DEVICE_BRAND = "Raspberry Pi"
 
 # Timing Configuration
 HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
 RETRY_INTERVAL = 60      # Retry connection every 60 seconds on failure
 NODE_DISCOVERY_TIME = "07:00"  # Daily discovery at 7am
+SUBSCRIPTION_INTERVAL = 100  # Check for data changes every 100ms
 
 # Retry Configuration
 MAX_RETRY_ATTEMPTS = 3
@@ -61,6 +72,15 @@ datapoints = []
 last_heartbeat = 0
 last_config_fetch = 0
 CONFIG_REFRESH_INTERVAL = 300  # Refresh config every 5 minutes
+
+# Subscription management
+subscription = None
+subscription_handles = []
+changed_data_buffer = []  # Buffer for changed values
+
+# WebSocket connection
+sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=5)
+websocket_connected = False
 
 # Pending operations for retry
 pending_discovered_nodes = None
@@ -89,6 +109,169 @@ def retry_with_backoff(func, *args, **kwargs):
                 logger.error(f"❌ All {MAX_RETRY_ATTEMPTS} attempts failed: {e}")
                 return False, None
     return False, None
+
+def get_local_ip():
+    """Get local IP address"""
+    try:
+        # Create a socket to find local IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
+
+def get_device_info():
+    """Collect device information"""
+    try:
+        hostname = socket.gethostname()
+        local_ip = get_local_ip()
+        
+        return {
+            "device_id": RASPBERRY_ID,
+            "company": COMPANY_NAME,
+            "device_name": hostname,
+            "device_brand": DEVICE_BRAND,
+            "owner": DEVICE_OWNER,
+            "local_ip": local_ip,
+            "local_port": 0,  # Not applicable for OPC UA client
+            "device_type": DEVICE_TYPE,
+            "registered_at": datetime.utcnow().isoformat(),
+            "authorized_until": None  # Will be set by server
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to collect device info: {e}")
+        return None
+
+def upload_device_info():
+    """Upload device information to cloud"""
+    try:
+        device_info = get_device_info()
+        if not device_info:
+            return False
+        
+        headers = {
+            'X-Raspberry-ID': RASPBERRY_ID,
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.post(DEVICE_INFO_ENDPOINT, json=device_info, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('success'):
+            logger.info(f"✅ Device info uploaded: {device_info['device_name']} ({device_info['local_ip']})")
+            return True
+        else:
+            logger.warning(f"⚠️  Device info upload failed: {result.get('error')}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to upload device info: {e}")
+        return False
+
+# ==========================================
+# WEBSOCKET HANDLERS
+# ==========================================
+
+@sio.event
+def connect():
+    """WebSocket connected"""
+    global websocket_connected
+    websocket_connected = True
+    logger.info(f"🔌 WebSocket connected to {API_BASE_URL}")
+    
+    # Send initial device info
+    sio.emit('raspberry_register', {
+        'raspberryId': RASPBERRY_ID,
+        'status': 'online',
+        'timestamp': datetime.utcnow().isoformat()
+    })
+
+@sio.event
+def disconnect():
+    """WebSocket disconnected"""
+    global websocket_connected
+    websocket_connected = False
+    logger.warning("⚠️  WebSocket disconnected")
+
+@sio.event
+def connect_error(data):
+    """WebSocket connection error"""
+    logger.error(f"❌ WebSocket connection error: {data}")
+
+@sio.event
+def raspberry_status_update(data):
+    """Receive status update from server"""
+    logger.debug(f"📡 Status update from server: {data}")
+
+def start_websocket():
+    """Start WebSocket connection in background thread"""
+    def connect_websocket():
+        try:
+            logger.info(f"🔄 Connecting WebSocket to {API_BASE_URL}...")
+            sio.connect(API_BASE_URL, 
+                       auth={'raspberryId': RASPBERRY_ID},
+                       transports=['websocket', 'polling'])
+        except Exception as e:
+            logger.error(f"❌ WebSocket connection failed: {e}")
+    
+    ws_thread = threading.Thread(target=connect_websocket, daemon=True)
+    ws_thread.start()
+
+def stop_websocket():
+    """Stop WebSocket connection"""
+    try:
+        if sio.connected:
+            sio.emit('raspberry_register', {
+                'raspberryId': RASPBERRY_ID,
+                'status': 'offline',
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            sio.disconnect()
+            logger.info("🔌 WebSocket disconnected gracefully")
+    except Exception as e:
+        logger.debug(f"Error disconnecting WebSocket: {e}")
+
+# ==========================================
+# SUBSCRIPTION HANDLER
+# ==========================================
+
+class DataChangeHandler:
+    """
+    Handler for OPC UA subscription data changes.
+    Only triggers when values actually change.
+    """
+    def __init__(self):
+        self.datapoint_map = {}  # Maps monitored item handle to datapoint info
+    
+    def datachange_notification(self, node, val, data):
+        """Called when subscribed node value changes"""
+        try:
+            # Find which datapoint this belongs to
+            node_id = node.nodeid.to_string()
+            
+            # Find the matching datapoint
+            for dp in datapoints:
+                if dp['opcNodeId'] == node_id:
+                    changed_data = {
+                        'datapointId': str(dp['id']),
+                        'equipmentId': dp['equipmentId'],
+                        'opcNodeId': dp['opcNodeId'],
+                        'value': val,
+                        'quality': 'Good' if data.monitored_item.Value.StatusCode.is_good() else 'Bad',
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                    
+                    # Add to buffer for batch upload
+                    changed_data_buffer.append(changed_data)
+                    
+                    logger.info(f"📊 Value changed: {dp.get('label', node_id)} = {val}")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"❌ Error in datachange_notification: {e}")
 
 # ==========================================
 # FUNCTIONS
@@ -165,16 +348,64 @@ def connect_opcua():
         return False
 
 def disconnect_opcua():
-    """Disconnect from OPC UA server"""
-    global opcua_client
+    """Disconnect from OPC UA server and clean up subscriptions"""
+    global opcua_client, subscription, subscription_handles
     
+    # Clean up subscriptions first
+    if subscription:
+        try:
+            subscription.delete()
+            logger.info("🗑️  Deleted OPC UA subscription")
+        except Exception as e:
+            logger.debug(f"Error deleting subscription: {e}")
+        finally:
+            subscription = None
+            subscription_handles = []
+    
+    # Disconnect client
     if opcua_client:
         try:
             opcua_client.disconnect()
             logger.info("🔌 Disconnected from OPC UA server")
-        except:
-            pass
-        opcua_client = None
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
+        finally:
+            opcua_client = None
+
+def setup_subscriptions():
+    """Setup OPC UA subscriptions for all configured datapoints"""
+    global subscription, subscription_handles
+    
+    try:
+        if not opcua_client or not datapoints:
+            logger.warning("⚠️  Cannot setup subscriptions: No client or datapoints")
+            return False
+        
+        # Create subscription with handler
+        handler = DataChangeHandler()
+        subscription = opcua_client.create_subscription(SUBSCRIPTION_INTERVAL, handler)
+        
+        logger.info(f"📡 Creating subscription (interval: {SUBSCRIPTION_INTERVAL}ms)")
+        
+        # Subscribe to each datapoint
+        subscription_handles = []
+        for dp in datapoints:
+            try:
+                node = opcua_client.get_node(dp['opcNodeId'])
+                handle = subscription.subscribe_data_change(node)
+                subscription_handles.append(handle)
+                
+                logger.info(f"   ✓ Subscribed: {dp.get('label', dp['opcNodeId'])}")
+                
+            except Exception as e:
+                logger.error(f"   ✗ Failed to subscribe to {dp['opcNodeId']}: {e}")
+        
+        logger.info(f"✅ Subscribed to {len(subscription_handles)}/{len(datapoints)} datapoints")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to setup subscriptions: {e}")
+        return False
 
 def read_datapoints():
     """Read all configured datapoints from OPC UA server"""
@@ -231,11 +462,40 @@ def _upload_data(data):
     
     return result
 
+def push_data_websocket(data):
+    """Push data via WebSocket (primary method)"""
+    try:
+        if not websocket_connected or not sio.connected:
+            return False
+        
+        # Group data by equipmentId for efficient broadcasting
+        equipment_data = {}
+        for item in data:
+            eq_id = item['equipmentId']
+            if eq_id not in equipment_data:
+                equipment_data[eq_id] = []
+            equipment_data[eq_id].append(item)
+        
+        # Emit for each equipment group
+        for equipment_id, items in equipment_data.items():
+            sio.emit('opcua_data_change', {
+                'raspberryId': RASPBERRY_ID,
+                'equipmentId': equipment_id,
+                'data': items
+            })
+        
+        logger.info(f"📤 Pushed {len(data)} datapoints via WebSocket")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ WebSocket push failed: {e}")
+        return False
+
 def push_data(data):
-    """Push data to cloud API with retry and queuing"""
+    """Push data to cloud (WebSocket first, HTTP fallback)"""
     global pending_data_queue
     
-    # Try to upload pending data first
+    # Try to upload pending data first via HTTP
     if pending_data_queue:
         logger.info(f"🔄 Attempting to upload {len(pending_data_queue)} pending data batches...")
         uploaded_count = 0
@@ -253,23 +513,31 @@ def push_data(data):
         
         pending_data_queue = failed_batches
     
-    # Try to upload current data with retry
+    # Try to push current data
     if data:
-        success, result = retry_with_backoff(_upload_data, data)
+        # Try WebSocket first
+        ws_success = push_data_websocket(data)
         
-        if success:
-            logger.info(f"📤 Pushed {result.get('received', 0)} datapoints to cloud")
+        if ws_success:
             return True
         else:
-            # Add to pending queue (limit queue size to prevent memory issues)
-            if len(pending_data_queue) < 100:  # Max 100 pending batches
-                pending_data_queue.append(data)
-                logger.warning(f"⚠️  Added data to pending queue ({len(pending_data_queue)} batches pending)")
+            # Fallback to HTTP POST
+            logger.info("⚠️  WebSocket unavailable, falling back to HTTP POST")
+            success, result = retry_with_backoff(_upload_data, data)
+            
+            if success:
+                logger.info(f"📤 Pushed {result.get('received', 0)} datapoints via HTTP")
+                return True
             else:
-                logger.error("❌ Pending queue full, dropping oldest data")
-                pending_data_queue.pop(0)
-                pending_data_queue.append(data)
-            return False
+                # Add to pending queue (limit queue size to prevent memory issues)
+                if len(pending_data_queue) < 100:  # Max 100 pending batches
+                    pending_data_queue.append(data)
+                    logger.warning(f"⚠️  Added data to pending queue ({len(pending_data_queue)} batches pending)")
+                else:
+                    logger.error("❌ Pending queue full, dropping oldest data")
+                    pending_data_queue.pop(0)
+                    pending_data_queue.append(data)
+                return False
     
     return True
 
@@ -456,6 +724,14 @@ def main_loop():
     logger.info(f"🌐 API Server: {API_BASE_URL}")
     logger.info("=" * 60)
     
+    # Upload device info on startup
+    logger.info("📤 Uploading device information...")
+    upload_device_info()
+    
+    # Start WebSocket connection for real-time status
+    logger.info("🔌 Starting WebSocket connection...")
+    start_websocket()
+    
     # Setup daily node discovery scheduler
     scheduler = BackgroundScheduler()
     scheduler.add_job(save_discovered_nodes, 'cron', hour=7, minute=0)  # Daily at 7am
@@ -491,22 +767,31 @@ def main_loop():
                     time.sleep(RETRY_INTERVAL)
                     continue
             
-            # Ensure OPC UA connection
+            # Ensure OPC UA connection and subscriptions
             if not opcua_client:
                 if not connect_opcua():
                     logger.error(f"❌ OPC UA connection failed. Retrying in {RETRY_INTERVAL} seconds...")
                     time.sleep(RETRY_INTERVAL)
                     continue
             
-            # Read datapoints
-            data = read_datapoints()
+            # Setup subscriptions if not already done
+            if not subscription and datapoints:
+                if not setup_subscriptions():
+                    logger.error(f"❌ Failed to setup subscriptions. Retrying in {RETRY_INTERVAL} seconds...")
+                    time.sleep(RETRY_INTERVAL)
+                    continue
             
-            if data:
-                # Push data to cloud (handles retry and queuing internally)
-                push_data(data)
+            # Check if any data has changed (buffered by subscription handler)
+            if changed_data_buffer:
+                # Get all changed data and clear buffer
+                data_to_upload = changed_data_buffer.copy()
+                changed_data_buffer.clear()
+                
+                logger.info(f"📦 Uploading {len(data_to_upload)} changed datapoint(s)")
+                push_data(data_to_upload)
             
             # Try to upload pending data even if no new data
-            if pending_data_queue and not data:
+            if pending_data_queue:
                 push_data([])  # Empty data triggers pending queue retry
             
             # Send heartbeat
@@ -520,9 +805,8 @@ def main_loop():
                 logger.info("🔄 Retrying pending discovered nodes upload...")
                 save_discovered_nodes()
             
-            # Wait for next poll
-            poll_interval_sec = config.get('poll_interval', 5000) / 1000.0
-            time.sleep(poll_interval_sec)
+            # Short sleep to prevent tight loop (subscriptions handle timing)
+            time.sleep(1)
             
         except KeyboardInterrupt:
             logger.info("\n⚠️  Shutdown signal received...")
@@ -534,9 +818,11 @@ def main_loop():
             time.sleep(RETRY_INTERVAL)
     
     # Cleanup
+    logger.info("🛑 Shutting down...")
     scheduler.shutdown()
     disconnect_opcua()
     send_heartbeat('offline')
+    stop_websocket()
     
     # Log pending operations
     if pending_discovered_nodes:

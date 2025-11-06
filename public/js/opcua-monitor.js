@@ -83,7 +83,9 @@ function renderDashboard(equipment) {
         const isRunning = equip.status === 'online';
         
         return `
-            <div class="equipment-card ${isRunning ? 'running' : 'stopped'}" data-equipment="${equip.equipmentId}">
+            <div class="equipment-card ${isRunning ? 'running' : 'stopped'}" 
+                 data-equipment="${equip.equipmentId}"
+                 data-raspberry="${equip.raspberryId}">
                 <div class="equipment-header">
                     <div class="equipment-name">${equip.displayName}</div>
                     <div class="equipment-location">${equip.location || equip.raspberryName}</div>
@@ -94,7 +96,9 @@ function renderDashboard(equipment) {
                         const value = dp.value !== null ? dp.value : '--';
                         
                         return `
-                            <div class="data-item" data-datapoint="${dp.label}">
+                            <div class="data-item" 
+                                 data-datapoint="${dp.label}"
+                                 data-datapoint-id="${dp.datapointId}">
                                 <div class="data-label">${dp.label}</div>
                                 <div class="data-value ${quality}">
                                     ${value}
@@ -116,12 +120,19 @@ function renderDashboard(equipment) {
 // ==========================================
 
 function initializeWebSocket() {
-    socket = io(`${API_BASE}/opcua`);
+    socket = io(API_BASE);
     
     socket.on('connect', () => {
         console.log('✅ WebSocket connected');
         updateStatus(true);
-        subscribeToUpdates();
+        
+        // Register as monitor tablet
+        socket.emit('monitor_register', {
+            clientType: 'monitor',
+            company: currentCompany
+        });
+        
+        console.log('📱 Registered as monitor tablet');
     });
     
     socket.on('disconnect', () => {
@@ -129,52 +140,91 @@ function initializeWebSocket() {
         updateStatus(false);
     });
     
-    socket.on('opcua_data_update', (data) => {
-        console.log('📡 Data update received:', data);
+    // Listen for real-time OPC UA data updates
+    socket.on('opcua_realtime_update', (data) => {
+        console.log('📡 Real-time data update received:', data);
         updateDatapoints(data);
+    });
+    
+    // Listen for Raspberry Pi status updates
+    socket.on('raspberry_status_update', (data) => {
+        console.log('🥧 Raspberry Pi status update:', data);
+        updateRaspberryStatus(data);
     });
 }
 
 function subscribeToUpdates() {
-    if (socket && currentCompany) {
-        socket.emit('subscribe', { company: currentCompany });
-        console.log(`📡 Subscribed to updates for: ${currentCompany}`);
+    if (socket && socket.connected && currentCompany) {
+        socket.emit('monitor_register', {
+            clientType: 'monitor',
+            company: currentCompany
+        });
+        console.log(`📡 Registered for updates: ${currentCompany}`);
     }
 }
 
 function updateDatapoints(update) {
-    const { raspberryId, data } = update;
+    const { raspberryId, equipmentId, data } = update;
+    
+    if (!data || data.length === 0) return;
     
     data.forEach(item => {
-        // Find the equipment card
-        const card = document.querySelector(`[data-equipment="${item.equipmentId}"]`);
-        if (!card) return;
+        // Find the equipment card by equipmentId
+        const card = document.querySelector(`[data-equipment="${equipmentId || item.equipmentId}"]`);
+        if (!card) {
+            console.debug(`Equipment card not found for: ${equipmentId || item.equipmentId}`);
+            return;
+        }
         
-        // Find the data item by datapoint ID or label
+        // Find all data items in this equipment card
         const dataItems = card.querySelectorAll('.data-item');
         dataItems.forEach(dataItem => {
-            // Update if this is the matching datapoint
-            const valueEl = dataItem.querySelector('.data-value');
-            if (valueEl) {
-                const quality = item.quality === 'Good' ? 'good' : 'bad';
-                const currentClass = valueEl.className;
-                valueEl.className = `data-value ${quality}`;
-                
-                // Update value
-                const unit = valueEl.querySelector('.data-unit');
-                const unitHtml = unit ? unit.outerHTML : '';
-                valueEl.innerHTML = `${item.value}${unitHtml}`;
-                
-                // Add pulse animation
-                valueEl.style.animation = 'none';
-                setTimeout(() => {
-                    valueEl.style.animation = 'pulse 0.3s';
-                }, 10);
+            // Match by datapointId stored in data attribute
+            const datapointId = dataItem.getAttribute('data-datapoint-id');
+            
+            if (datapointId === item.datapointId) {
+                const valueEl = dataItem.querySelector('.data-value');
+                if (valueEl) {
+                    const quality = item.quality === 'Good' ? 'good' : 'bad';
+                    valueEl.className = `data-value ${quality}`;
+                    
+                    // Preserve unit if exists
+                    const unit = valueEl.querySelector('.data-unit');
+                    const unitHtml = unit ? unit.outerHTML : '';
+                    valueEl.innerHTML = `${item.value}${unitHtml}`;
+                    
+                    // Add pulse animation for visual feedback
+                    valueEl.style.animation = 'none';
+                    setTimeout(() => {
+                        valueEl.style.animation = 'pulse 0.3s';
+                    }, 10);
+                    
+                    console.log(`✅ Updated datapoint ${item.datapointId}: ${item.value}`);
+                }
             }
         });
     });
     
     updateLastUpdate();
+}
+
+function updateRaspberryStatus(data) {
+    const { raspberryId, status } = data;
+    
+    // Find all equipment cards for this Raspberry Pi
+    const allCards = document.querySelectorAll('.equipment-card');
+    allCards.forEach(card => {
+        const raspId = card.getAttribute('data-raspberry');
+        if (raspId === raspberryId) {
+            if (status === 'online') {
+                card.classList.remove('stopped');
+                card.classList.add('running');
+            } else {
+                card.classList.remove('running');
+                card.classList.add('stopped');
+            }
+        }
+    });
 }
 
 // ==========================================

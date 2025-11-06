@@ -1590,6 +1590,126 @@ io.on('connection', (socket) => {
         socket.clientType = 'webapp';
     });
     
+    // Handle Raspberry Pi registration
+    socket.on('raspberry_register', async (data) => {
+        console.log('🥧 Raspberry Pi registered:', data);
+        socket.raspberryId = data.raspberryId;
+        socket.clientType = 'raspberry';
+        
+        // Update status in MongoDB
+        try {
+            const db = mongoClient.db(DB_NAME);
+            const collection = db.collection('opcua_config');
+            
+            await collection.updateOne(
+                { raspberryId: data.raspberryId },
+                { 
+                    $set: { 
+                        status: data.status || 'online',
+                        lastSeen: new Date(),
+                        socketId: socket.id
+                    } 
+                },
+                { upsert: false }
+            );
+            
+            // Broadcast status update to admin UIs
+            io.emit('raspberry_status_update', {
+                raspberryId: data.raspberryId,
+                status: data.status || 'online',
+                timestamp: new Date().toISOString()
+            });
+            
+            console.log(`✅ Raspberry Pi ${data.raspberryId} status updated: ${data.status || 'online'}`);
+        } catch (error) {
+            console.error(`❌ Failed to update Raspberry Pi status:`, error.message);
+        }
+    });
+    
+    // Handle OPC UA data changes from Raspberry Pi (real-time via WebSocket)
+    socket.on('opcua_data_change', async (data) => {
+        console.log('📊 OPC UA data change from Raspberry Pi:', socket.raspberryId || socket.id);
+        
+        try {
+            const { raspberryId, equipmentId, data: datapoints } = data;
+            
+            // Find which company/database this Raspberry Pi belongs to
+            const masterDB = mongoClient.db(DB_NAME);
+            const masterUsers = masterDB.collection(COLLECTION_NAME);
+            
+            const user = await masterUsers.findOne({
+                'devices': {
+                    $elemMatch: { uniqueId: raspberryId }
+                }
+            });
+            
+            if (!user) {
+                console.error(`❌ Raspberry Pi ${raspberryId} not found in any user's devices`);
+                return;
+            }
+            
+            const dbName = user.dbName;
+            const db = mongoClient.db(dbName);
+            
+            // Save to MongoDB (async, non-blocking)
+            const bulkOps = datapoints.map(item => ({
+                updateOne: {
+                    filter: { datapointId: item.datapointId },
+                    update: {
+                        $set: {
+                            raspberryId,
+                            equipmentId: item.equipmentId || equipmentId,
+                            opcNodeId: item.opcNodeId,
+                            value: item.value,
+                            valueString: String(item.value),
+                            quality: item.quality || 'Good',
+                            sourceTimestamp: item.timestamp,
+                            receivedAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
+                        }
+                    },
+                    upsert: true
+                }
+            }));
+            
+            // Save to MongoDB in background (don't await - non-blocking)
+            db.collection('opcua_realtime').bulkWrite(bulkOps).catch(err => {
+                console.error('❌ Error saving OPC UA data to MongoDB:', err.message);
+            });
+            
+            // Broadcast to all tablets immediately (don't wait for MongoDB)
+            io.emit('opcua_realtime_update', {
+                raspberryId,
+                equipmentId,
+                data: datapoints.map(item => ({
+                    datapointId: item.datapointId,
+                    opcNodeId: item.opcNodeId,
+                    value: item.value,
+                    quality: item.quality,
+                    timestamp: item.timestamp
+                }))
+            });
+            
+            console.log(`📤 Broadcasted ${datapoints.length} datapoint(s) to tablets`);
+            
+        } catch (error) {
+            console.error('❌ Error handling OPC UA data change:', error.message);
+        }
+    });
+    
+    // Handle tablet monitor registration
+    socket.on('monitor_register', (data) => {
+        console.log('📱 Monitor tablet registered:', data);
+        socket.isMonitor = true;
+        socket.clientType = 'monitor';
+        
+        // Optionally join specific equipment rooms for targeted updates
+        if (data.equipmentId) {
+            socket.join(`equipment_${data.equipmentId}`);
+            console.log(`📱 Tablet joined room: equipment_${data.equipmentId}`);
+        }
+    });
+    
     // Handle validation requests from ESP32 devices
     socket.on('validate_production_start', (data) => {
         console.log('🔍 Validation request from ESP32:', socket.deviceId || socket.id, data);
@@ -1708,7 +1828,7 @@ io.on('connection', (socket) => {
     
     // Handle disconnection
     socket.on('disconnect', async () => {
-        console.log('📱 ESP32 device disconnected:', socket.deviceId || socket.id);
+        console.log('📱 Device disconnected:', socket.deviceId || socket.raspberryId || socket.id);
         
         // Clear the heartbeat interval
         if (socket.heartbeatInterval) {
@@ -1718,6 +1838,35 @@ io.on('connection', (socket) => {
         // Mark device as offline in MongoDB when it disconnects
         if (socket.deviceId) {
             await updateDeviceStatus(socket.deviceId, 'offline');
+        }
+        
+        // Mark Raspberry Pi as offline
+        if (socket.raspberryId) {
+            try {
+                const db = mongoClient.db(DB_NAME);
+                const collection = db.collection('opcua_config');
+                
+                await collection.updateOne(
+                    { raspberryId: socket.raspberryId },
+                    { 
+                        $set: { 
+                            status: 'offline',
+                            lastSeen: new Date()
+                        } 
+                    }
+                );
+                
+                // Broadcast status update to admin UIs
+                io.emit('raspberry_status_update', {
+                    raspberryId: socket.raspberryId,
+                    status: 'offline',
+                    timestamp: new Date().toISOString()
+                });
+                
+                console.log(`✅ Raspberry Pi ${socket.raspberryId} marked as offline`);
+            } catch (error) {
+                console.error(`❌ Failed to mark Raspberry Pi as offline:`, error.message);
+            }
         }
     });
     
@@ -1837,6 +1986,42 @@ app.get('/api/opcua/config/:raspberryId', validateRaspberryPi, async (req, res) 
     } catch (error) {
         console.error('❌ Error fetching config:', error);
         res.status(500).json({ error: 'Failed to fetch configuration' });
+    }
+});
+
+// POST /api/opcua/device-info - Upload device information
+app.post('/api/opcua/device-info', async (req, res) => {
+    try {
+        const deviceInfo = req.body;
+        
+        if (!deviceInfo.device_id) {
+            return res.status(400).json({ error: 'device_id is required' });
+        }
+        
+        // Store in deviceInfo collection under company's database
+        const db = mongoClient.db(deviceInfo.company || 'KSG');
+        
+        await db.collection('deviceInfo').updateOne(
+            { device_id: deviceInfo.device_id },
+            {
+                $set: {
+                    ...deviceInfo,
+                    updated_at: new Date()
+                },
+                $setOnInsert: {
+                    registered_at: new Date(),
+                    authorized_until: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year from now
+                }
+            },
+            { upsert: true }
+        );
+        
+        console.log(`✅ Device info uploaded: ${deviceInfo.device_name} (${deviceInfo.device_id})`);
+        res.json({ success: true, message: 'Device info uploaded successfully' });
+        
+    } catch (error) {
+        console.error('❌ Error uploading device info:', error);
+        res.status(500).json({ error: 'Failed to upload device info' });
     }
 });
 
