@@ -333,7 +333,8 @@ tr:last-child td {
 }
 
 .modal-large .modal-content {
-    max-width: 800px;
+    max-width: 1200px;
+    width: 90%;
 }
 
 .modal-header {
@@ -667,4 +668,56 @@ tr:last-child td {
         align-items: flex-start;
         gap: 15px;
     }
+}
+
+/* ==========================================
+   Node Discovery Styles
+   ========================================== */
+
+.node-item {
+    padding: 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    background: white;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.node-item:hover {
+    border-color: #1976d2;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.staging-item {
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 13px;
+}
+
+.empty-state {
+    text-align: center;
+    color: #999;
+    padding: 40px 20px;
+    font-style: italic;
+}
+
+.loading {
+    text-align: center;
+    color: #666;
+    padding: 40px 20px;
 }

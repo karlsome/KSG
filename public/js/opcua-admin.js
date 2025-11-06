@@ -446,13 +446,45 @@ function initializeDatapointsTab() {
     });
     
     document.getElementById('discover-nodes-btn').addEventListener('click', () => {
-        document.getElementById('discovery-modal').classList.add('show');
+        openDiscoveryModal();
+    });
+    
+    document.getElementById('node-config-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        addNodeToStaging();
+    });
+    
+    document.getElementById('save-all-datapoints-btn').addEventListener('click', () => {
+        saveAllDatapoints();
+    });
+    
+    document.getElementById('node-search').addEventListener('input', (e) => {
+        filterAvailableNodes(e.target.value);
     });
     
     document.getElementById('datapoint-form').addEventListener('submit', (e) => {
         e.preventDefault();
         saveDatapoint();
     });
+    
+    // Auto-construct node ID when namespace or variable name changes
+    const namespaceInput = document.getElementById('datapoint-namespace');
+    const variableNameInput = document.getElementById('datapoint-variable-name');
+    const nodeIdInput = document.getElementById('datapoint-node-id');
+    
+    function updateNodeId() {
+        const namespace = namespaceInput.value || '4';
+        const variableName = variableNameInput.value.trim();
+        
+        if (variableName) {
+            nodeIdInput.value = `ns=${namespace};s=${variableName}`;
+        } else {
+            nodeIdInput.value = '';
+        }
+    }
+    
+    namespaceInput.addEventListener('input', updateNodeId);
+    variableNameInput.addEventListener('input', updateNodeId);
 }
 
 async function loadEquipmentFilters() {
@@ -660,6 +692,229 @@ function initializeModals() {
 
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('show');
+}
+
+// ==========================================
+// Node Discovery Functions
+// ==========================================
+
+let discoveredNodes = [];
+let stagingList = [];
+
+async function openDiscoveryModal() {
+    if (!currentEquipmentFilter) {
+        showToast('Please select an equipment first', 'error');
+        return;
+    }
+    
+    // Get equipment info to find raspberry ID
+    const equipmentOption = document.querySelector(`#datapoints-equipment-filter option[value="${currentEquipmentFilter}"]`);
+    const raspberryId = equipmentOption?.dataset.raspberry;
+    
+    if (!raspberryId) {
+        showToast('Could not determine Raspberry Pi', 'error');
+        return;
+    }
+    
+    document.getElementById('discovery-modal').classList.add('show');
+    stagingList = [];
+    await loadDiscoveredNodes(raspberryId);
+}
+
+async function loadDiscoveredNodes(raspberryId) {
+    try {
+        document.getElementById('available-nodes-list').innerHTML = '<div class="loading">Loading nodes...</div>';
+        
+        const response = await fetch(`${API_BASE}/api/opcua/discovered-nodes/${raspberryId}`, {
+            headers: { 'X-Session-User': currentUser }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            discoveredNodes = data.nodes;
+            renderAvailableNodes();
+        } else {
+            document.getElementById('available-nodes-list').innerHTML = 
+                '<div class="empty-state">Failed to load nodes</div>';
+        }
+    } catch (error) {
+        console.error('Error loading discovered nodes:', error);
+        document.getElementById('available-nodes-list').innerHTML = 
+            '<div class="empty-state">Error loading nodes</div>';
+    }
+}
+
+function renderAvailableNodes(filter = '') {
+    const container = document.getElementById('available-nodes-list');
+    
+    const filtered = discoveredNodes.filter(node => 
+        filter === '' || 
+        node.variableName.toLowerCase().includes(filter.toLowerCase()) ||
+        node.browseName.toLowerCase().includes(filter.toLowerCase())
+    );
+    
+    document.getElementById('available-count').textContent = filtered.length;
+    
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-state">No nodes found</div>';
+        return;
+    }
+    
+    container.innerHTML = filtered.map(node => `
+        <div class="node-item" data-variable="${node.variableName}" data-namespace="${node.namespace}">
+            <div style="font-weight: 500; color: #333;">${node.variableName}</div>
+            <div style="font-size: 12px; color: #666; margin-top: 2px;">
+                Type: ${node.dataType} | Value: ${node.currentValue || 'N/A'}
+            </div>
+            <div style="margin-top: 5px;">
+                <button class="btn btn-sm btn-primary" onclick="openNodeConfig('${node.variableName}', ${node.namespace}, '${node.opcNodeId}', '${node.dataType}')">
+                    Configure
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterAvailableNodes(search) {
+    renderAvailableNodes(search);
+}
+
+function openNodeConfig(variableName, namespace, nodeId, dataType) {
+    document.getElementById('config-variable-name').value = variableName;
+    document.getElementById('config-namespace').value = namespace;
+    document.getElementById('config-node-id').value = nodeId;
+    document.getElementById('config-display-variable').value = variableName;
+    document.getElementById('config-data-type').value = dataType;
+    document.getElementById('config-label').value = '';
+    document.getElementById('config-description').value = '';
+    document.getElementById('config-unit').value = '';
+    
+    document.getElementById('node-config-modal').classList.add('show');
+}
+
+function addNodeToStaging() {
+    const variableName = document.getElementById('config-variable-name').value;
+    const namespace = document.getElementById('config-namespace').value;
+    const nodeId = document.getElementById('config-node-id').value;
+    const label = document.getElementById('config-label').value;
+    const description = document.getElementById('config-description').value;
+    const dataType = document.getElementById('config-data-type').value;
+    const unit = document.getElementById('config-unit').value;
+    
+    // Check if already in staging
+    if (stagingList.find(item => item.nodeId === nodeId)) {
+        showToast('This node is already in the list', 'warning');
+        return;
+    }
+    
+    stagingList.push({
+        variableName,
+        namespace,
+        nodeId,
+        label,
+        description,
+        dataType,
+        unit
+    });
+    
+    renderStagingArea();
+    closeModal('node-config-modal');
+    showToast(`Added ${variableName} to list`, 'success');
+}
+
+function renderStagingArea() {
+    const container = document.getElementById('staging-area');
+    document.getElementById('staging-count').textContent = stagingList.length;
+    document.getElementById('save-all-datapoints-btn').disabled = stagingList.length === 0;
+    
+    if (stagingList.length === 0) {
+        container.innerHTML = '<div class="empty-state">No nodes selected yet</div>';
+        return;
+    }
+    
+    container.innerHTML = stagingList.map((item, index) => `
+        <div class="staging-item" style="border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: white;">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 500; color: #1976d2;">${item.label}</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 2px;">
+                        ${item.variableName} | ${item.dataType}${item.unit ? ' | ' + item.unit : ''}
+                    </div>
+                    ${item.description ? `<div style="font-size: 12px; color: #999; margin-top: 2px;">${item.description}</div>` : ''}
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="removeFromStaging(${index})" style="margin-left: 10px;">
+                    Remove
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function removeFromStaging(index) {
+    stagingList.splice(index, 1);
+    renderStagingArea();
+}
+
+async function saveAllDatapoints() {
+    if (stagingList.length === 0) return;
+    
+    const equipmentOption = document.querySelector(`#datapoints-equipment-filter option[value="${currentEquipmentFilter}"]`);
+    const raspberryId = equipmentOption?.dataset.raspberry;
+    
+    if (!raspberryId) {
+        showToast('Could not determine Raspberry Pi', 'error');
+        return;
+    }
+    
+    try {
+        document.getElementById('save-all-datapoints-btn').disabled = true;
+        document.getElementById('save-all-datapoints-btn').textContent = 'Saving...';
+        
+        let successCount = 0;
+        
+        for (const item of stagingList) {
+            const formData = {
+                raspberryId,
+                equipmentId: currentEquipmentFilter,
+                opcNodeId: item.nodeId,
+                label: item.label,
+                description: item.description,
+                dataType: item.dataType,
+                unit: item.unit,
+                displayFormat: 'number',
+                sortOrder: 0,
+                enabled: true
+            };
+            
+            const response = await fetch(`${API_BASE}/api/opcua/admin/datapoints`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-User': currentUser
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                successCount++;
+            }
+        }
+        
+        showToast(`Successfully saved ${successCount} datapoints`, 'success');
+        stagingList = [];
+        renderStagingArea();
+        closeModal('discovery-modal');
+        loadDatapoints(currentEquipmentFilter);
+        
+    } catch (error) {
+        console.error('Error saving datapoints:', error);
+        showToast('Error saving datapoints', 'error');
+    } finally {
+        document.getElementById('save-all-datapoints-btn').disabled = false;
+        document.getElementById('save-all-datapoints-btn').textContent = 'Save All Datapoints';
+    }
 }
 
 // ==========================================

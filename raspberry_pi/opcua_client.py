@@ -18,6 +18,7 @@ from datetime import datetime
 from opcua import Client
 import sys
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # ==========================================
 # CONFIGURATION - EDIT THIS
@@ -32,10 +33,12 @@ API_BASE_URL = "https://ksg-lu47.onrender.com"  # Change if using different serv
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
+DISCOVERED_NODES_ENDPOINT = f"{API_BASE_URL}/api/opcua/discovered-nodes"
 
 # Timing Configuration
 HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
 RETRY_INTERVAL = 60      # Retry connection every 60 seconds on failure
+NODE_DISCOVERY_TIME = "07:00"  # Daily discovery at 7am
 
 # Logging Configuration
 logging.basicConfig(
@@ -113,7 +116,11 @@ def connect_opcua():
         logger.info(f"🔗 Connecting to OPC UA server: {opcua_url}")
         
         opcua_client = Client(opcua_url)
-        opcua_client.set_session_timeout(config.get('connection_timeout', 60000))
+        
+        # Set timeout if the method exists (newer versions)
+        if hasattr(opcua_client, 'set_session_timeout'):
+            opcua_client.set_session_timeout(config.get('connection_timeout', 60000))
+        
         opcua_client.connect()
         
         logger.info(f"✅ Connected to OPC UA server: {config['opcua_server_ip']}")
@@ -220,6 +227,118 @@ def send_heartbeat(status='online'):
     except:
         return False
 
+def discover_nodes():
+    """Discover all available OPC UA nodes"""
+    try:
+        if not opcua_client or not config:
+            logger.warning("⚠️  Cannot discover nodes: Not connected to OPC UA server")
+            return []
+        
+        logger.info("🔍 Starting node discovery...")
+        discovered = []
+        
+        # Get the Objects node (standard OPC UA starting point)
+        objects_node = opcua_client.get_objects_node()
+        
+        # Browse recursively to find all variables
+        def browse_node(node, depth=0, max_depth=10):
+            if depth > max_depth:
+                return
+            
+            try:
+                for child in node.get_children():
+                    try:
+                        # Get node info
+                        node_id = child.nodeid.to_string()
+                        browse_name = child.get_browse_name().Name
+                        
+                        # Check if it's a variable
+                        node_class = child.get_node_class()
+                        if node_class.name == 'Variable':
+                            try:
+                                # Try to read the value
+                                data_value = child.get_data_value()
+                                value = data_value.Value.Value
+                                data_type = type(value).__name__
+                                
+                                # Extract variable name (remove namespace prefix)
+                                if ';s=' in node_id:
+                                    variable_name = node_id.split(';s=')[1]
+                                elif ';i=' in node_id:
+                                    variable_name = f"Identifier_{node_id.split(';i=')[1]}"
+                                else:
+                                    variable_name = browse_name
+                                
+                                # Extract namespace
+                                namespace = node_id.split(';')[0].replace('ns=', '')
+                                
+                                discovered.append({
+                                    'namespace': int(namespace),
+                                    'variableName': variable_name,
+                                    'browseName': browse_name,
+                                    'opcNodeId': node_id,
+                                    'dataType': data_type,
+                                    'currentValue': str(value)[:100]  # Limit length
+                                })
+                                
+                            except Exception as e:
+                                logger.debug(f"Could not read value for {browse_name}: {e}")
+                        
+                        # Recursively browse child nodes
+                        if node_class.name in ['Object', 'Folder']:
+                            browse_node(child, depth + 1, max_depth)
+                            
+                    except Exception as e:
+                        logger.debug(f"Error browsing node: {e}")
+                        
+            except Exception as e:
+                logger.debug(f"Error getting children: {e}")
+        
+        # Start browsing from Objects node
+        browse_node(objects_node)
+        
+        logger.info(f"✅ Discovered {len(discovered)} nodes")
+        return discovered
+        
+    except Exception as e:
+        logger.error(f"❌ Node discovery failed: {e}")
+        return []
+
+def save_discovered_nodes():
+    """Discover nodes and save to cloud"""
+    try:
+        nodes = discover_nodes()
+        
+        if not nodes:
+            logger.warning("⚠️  No nodes discovered")
+            return False
+        
+        headers = {
+            'X-Raspberry-ID': RASPBERRY_ID,
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'raspberryId': RASPBERRY_ID,
+            'nodes': nodes,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        response = requests.post(DISCOVERED_NODES_ENDPOINT, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('success'):
+            logger.info(f"📤 Saved {len(nodes)} discovered nodes to cloud")
+            return True
+        else:
+            logger.error(f"❌ Failed to save discovered nodes: {result.get('error')}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Failed to save discovered nodes: {e}")
+        return False
+
 def main_loop():
     """Main monitoring loop"""
     global last_heartbeat, last_config_fetch
@@ -229,6 +348,15 @@ def main_loop():
     logger.info(f"📱 Raspberry Pi ID: {RASPBERRY_ID}")
     logger.info(f"🌐 API Server: {API_BASE_URL}")
     logger.info("=" * 60)
+    
+    # Setup daily node discovery scheduler
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(save_discovered_nodes, 'cron', hour=7, minute=0)  # Daily at 7am
+    scheduler.start()
+    logger.info(f"⏰ Scheduled daily node discovery at {NODE_DISCOVERY_TIME}")
+    
+    # Track if initial discovery has been done
+    initial_discovery_done = False
     
     while True:
         try:
@@ -244,6 +372,13 @@ def main_loop():
                         logger.error(f"❌ Retrying in {RETRY_INTERVAL} seconds...")
                         time.sleep(RETRY_INTERVAL)
                         continue
+                    
+                    # Run initial node discovery after first successful connection
+                    if not initial_discovery_done:
+                        logger.info("🔍 Running initial node discovery...")
+                        save_discovered_nodes()
+                        initial_discovery_done = True
+                        
                 else:
                     logger.error(f"❌ Config fetch failed. Retrying in {RETRY_INTERVAL} seconds...")
                     time.sleep(RETRY_INTERVAL)

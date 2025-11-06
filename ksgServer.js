@@ -1918,6 +1918,67 @@ app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
     }
 });
 
+// POST /api/opcua/discovered-nodes - Save discovered nodes from Raspberry Pi
+app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const { nodes, timestamp } = req.body;
+        
+        if (!nodes || !Array.isArray(nodes)) {
+            return res.status(400).json({ error: 'Invalid nodes data' });
+        }
+        
+        const db = mongoClient.db(dbName);
+        
+        // Delete old discovered nodes for this Raspberry Pi
+        await db.collection('opcua_discovered_nodes').deleteMany({ raspberryId });
+        
+        // Insert new discovered nodes
+        const nodesToInsert = nodes.map(node => ({
+            raspberryId,
+            namespace: node.namespace,
+            variableName: node.variableName,
+            browseName: node.browseName,
+            opcNodeId: node.opcNodeId,
+            dataType: node.dataType,
+            currentValue: node.currentValue,
+            discoveredAt: timestamp,
+            createdAt: new Date().toISOString()
+        }));
+        
+        if (nodesToInsert.length > 0) {
+            await db.collection('opcua_discovered_nodes').insertMany(nodesToInsert);
+        }
+        
+        console.log(`✅ Saved ${nodes.length} discovered nodes for ${raspberryId}`);
+        res.json({ success: true, count: nodes.length });
+        
+    } catch (error) {
+        console.error('❌ Error saving discovered nodes:', error);
+        res.status(500).json({ error: 'Failed to save discovered nodes' });
+    }
+});
+
+// GET /api/opcua/discovered-nodes/:raspberryId - Get discovered nodes for admin UI
+app.get('/api/opcua/discovered-nodes/:raspberryId', validateAdminUser, async (req, res) => {
+    try {
+        const { raspberryId } = req.params;
+        const { dbName } = req;
+        const db = mongoClient.db(dbName);
+        
+        const nodes = await db.collection('opcua_discovered_nodes')
+            .find({ raspberryId })
+            .sort({ variableName: 1 })
+            .toArray();
+        
+        res.json({ success: true, nodes });
+        
+    } catch (error) {
+        console.error('❌ Error fetching discovered nodes:', error);
+        res.status(500).json({ error: 'Failed to fetch discovered nodes' });
+    }
+});
+
 // GET /api/opcua/datapoints/:raspberryId - Get list of datapoints to monitor
 app.get('/api/opcua/datapoints/:raspberryId', validateRaspberryPi, async (req, res) => {
     try {
