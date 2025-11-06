@@ -7,6 +7,10 @@ let currentUser = null;
 let currentRaspberryFilter = null;
 let currentEquipmentFilter = null;
 
+// Store loaded data for editing
+let equipmentData = [];
+let datapointsData = [];
+
 // ==========================================
 // Initialization
 // ==========================================
@@ -303,6 +307,9 @@ async function loadEquipment(raspberryId) {
 }
 
 function renderEquipment(equipment) {
+    // Store equipment data for editing
+    equipmentData = equipment;
+    
     const container = document.getElementById('equipment-list');
     
     if (equipment.length === 0) {
@@ -356,6 +363,18 @@ function openEquipmentModal(equipmentId = null) {
     
     if (equipmentId) {
         document.getElementById('equipment-modal-title').textContent = 'Edit Equipment';
+        
+        // Find and populate existing equipment data
+        const equipment = equipmentData.find(eq => eq.equipmentId === equipmentId);
+        if (equipment) {
+            document.getElementById('equipment-id').value = equipment.equipmentId || '';
+            document.getElementById('equipment-name').value = equipment.displayName || '';
+            document.getElementById('equipment-description').value = equipment.description || '';
+            document.getElementById('equipment-category').value = equipment.category || '';
+            document.getElementById('equipment-location').value = equipment.location || '';
+            document.getElementById('equipment-sort-order').value = equipment.sortOrder || 0;
+            document.getElementById('equipment-enabled').checked = equipment.enabled !== false;
+        }
     } else {
         document.getElementById('equipment-modal-title').textContent = 'Add Equipment';
     }
@@ -539,6 +558,9 @@ async function loadDatapoints(equipmentId) {
 }
 
 function renderDatapoints(datapoints) {
+    // Store datapoints data for editing
+    datapointsData = datapoints;
+    
     const container = document.getElementById('datapoints-list');
     
     if (datapoints.length === 0) {
@@ -596,6 +618,29 @@ function openDatapointModal(datapointId = null) {
     
     document.getElementById('datapoint-equipment-id').value = currentEquipmentFilter;
     document.getElementById('datapoint-raspberry-id').value = selectedOption.dataset.raspberry;
+    
+    if (datapointId) {
+        document.getElementById('datapoint-modal-title').textContent = 'Edit Data Point';
+        
+        // Find and populate existing datapoint data
+        const datapoint = datapointsData.find(dp => dp._id === datapointId);
+        if (datapoint) {
+            document.getElementById('datapoint-node-id').value = datapoint.opcNodeId || '';
+            document.getElementById('datapoint-label').value = datapoint.label || '';
+            document.getElementById('datapoint-description').value = datapoint.description || '';
+            document.getElementById('datapoint-data-type').value = datapoint.dataType || 'String';
+            document.getElementById('datapoint-unit').value = datapoint.unit || '';
+            document.getElementById('datapoint-display-format').value = datapoint.displayFormat || 'Number';
+            document.getElementById('datapoint-sort-order').value = datapoint.sortOrder || 0;
+            document.getElementById('datapoint-enabled').checked = datapoint.enabled !== false;
+            
+            // Store the datapoint ID for updating
+            document.getElementById('datapoint-form').dataset.editingId = datapointId;
+        }
+    } else {
+        document.getElementById('datapoint-modal-title').textContent = 'Add Data Point';
+        delete document.getElementById('datapoint-form').dataset.editingId;
+    }
     
     modal.classList.add('show');
 }
