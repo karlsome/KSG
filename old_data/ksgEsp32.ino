@@ -67,6 +67,7 @@ const char* SERVER_URL = "http://192.168.0.64:3000";     // Local network server
 const int GPIO_START_BUTTON = 1;   // Start button (active LOW, pull-up)
 const int GPIO_LED_PIN      = 2;   // LED output (active LOW)
 const int GPIO_END_BUTTON   = 3;   // End button (active LOW, pull-up)
+const int GPIO_BOOT_BUTTON  = 0;   // BOOT button for LCD wake-up (active LOW, pull-up)
 
 // -------------------- NTP Time Configuration --------------------
 const char* NTP_SERVER1 = "pool.ntp.org";
@@ -154,6 +155,12 @@ const int DOWNLOAD_MINUTE = 0;    // At the start of the hour
 unsigned long lastDownloadDay = 0; // Track which day we last downloaded (0 = never)
 bool downloadCompletedToday = false;
 
+// LCD Power Management (prevent burn-in)
+const unsigned long LCD_TIMEOUT = 15 * 60 * 1000;  // 15 minutes in milliseconds
+unsigned long lastLcdActivity = 0;
+bool lcdIsOn = true;
+bool lastBootButtonState = HIGH;
+
 // Production log array (JSON string to save memory)
 String productionLog = "[]";
 
@@ -201,6 +208,9 @@ void checkAndUpdateWebapp();
 
 // -------------------- Helpers --------------------
 void displayMessage(const char* message, uint16_t color) {
+  // Reset LCD activity timer when display is updated
+  lastLcdActivity = millis();
+  
   gfx->fillScreen(COLOR_BLACK);
   gfx->setTextColor(color);
   gfx->setTextSize(2);
@@ -209,6 +219,9 @@ void displayMessage(const char* message, uint16_t color) {
 }
 
 void displayDeviceInfo() {
+  // Reset LCD activity timer when display is updated
+  lastLcdActivity = millis();
+  
   gfx->fillScreen(COLOR_BLACK);
   gfx->setTextSize(1);
 
@@ -910,6 +923,13 @@ void handleStartButton() {
     if (now - lastStartButtonPress > DEBOUNCE_DELAY) {
       lastStartButtonPress = now;
       
+      // Reset LCD activity timer on button press
+      lastLcdActivity = now;
+      if (!lcdIsOn) {
+        turnOnLCD();
+        return; // Don't process button action on wake-up
+      }
+      
       // Check if validation is pending
       if (pendingValidation) {
         Serial.println("[START] Validation already in progress, ignoring button press");
@@ -954,6 +974,13 @@ void handleEndButton() {
     unsigned long now = millis();
     if (now - lastEndButtonPress > DEBOUNCE_DELAY) {
       lastEndButtonPress = now;
+      
+      // Reset LCD activity timer on button press
+      lastLcdActivity = now;
+      if (!lcdIsOn) {
+        turnOnLCD();
+        return; // Don't process button action on wake-up
+      }
       
       // Complete cycle if one was started
       if (cycleInProgress) {
@@ -1534,11 +1561,13 @@ void setup() {
   // GPIO for production buttons and LED
   pinMode(GPIO_START_BUTTON, INPUT_PULLUP);
   pinMode(GPIO_END_BUTTON, INPUT_PULLUP);
+  pinMode(GPIO_BOOT_BUTTON, INPUT_PULLUP);  // BOOT button for LCD wake-up
   pinMode(GPIO_LED_PIN, OUTPUT);
   digitalWrite(GPIO_LED_PIN, HIGH); // LED off
 
   Serial.printf("[GPIO] Start Button GPIO%d (pull-up, active LOW)\n", GPIO_START_BUTTON);
   Serial.printf("[GPIO] End Button   GPIO%d (pull-up, active LOW)\n", GPIO_END_BUTTON);
+  Serial.printf("[GPIO] Boot Button  GPIO%d (pull-up, active LOW)\n", GPIO_BOOT_BUTTON);
   Serial.printf("[GPIO] LED          GPIO%d (active LOW)\n", GPIO_LED_PIN);
 
   // WiFi + server
@@ -1579,6 +1608,54 @@ void setup() {
   displayDeviceInfo();
   logHeap("Setup done");
   Serial.println("[SYS] 🎯 Loop starting...");
+  
+  // Initialize LCD activity timer
+  lastLcdActivity = millis();
+}
+
+// -------------------- LCD Power Management --------------------
+void turnOffLCD() {
+  if (lcdIsOn) {
+    digitalWrite(PIN_LCD_BL, LOW);    // Turn off backlight
+    digitalWrite(PIN_POWER_ON, LOW);  // Turn off display power
+    lcdIsOn = false;
+    Serial.println("[LCD] Turned off to prevent burn-in");
+  }
+}
+
+void turnOnLCD() {
+  if (!lcdIsOn) {
+    digitalWrite(PIN_POWER_ON, HIGH); // Turn on display power first
+    delay(10);                        // Small delay for power stabilization
+    digitalWrite(PIN_LCD_BL, HIGH);   // Turn on backlight
+    lcdIsOn = true;
+    Serial.println("[LCD] Turned on");
+    displayDeviceInfo();              // Refresh display content
+  }
+  lastLcdActivity = millis();         // Reset timeout timer
+}
+
+void checkLCDTimeout() {
+  // Check for LCD timeout (15 minutes of inactivity)
+  if (lcdIsOn && (millis() - lastLcdActivity > LCD_TIMEOUT)) {
+    turnOffLCD();
+  }
+  
+  // Check BOOT button press for wake-up
+  bool currentBootButtonState = digitalRead(GPIO_BOOT_BUTTON);
+  if (lastBootButtonState == HIGH && currentBootButtonState == LOW) {
+    // Button pressed (falling edge with debouncing)
+    delay(50); // Simple debounce
+    if (digitalRead(GPIO_BOOT_BUTTON) == LOW) {
+      if (!lcdIsOn) {
+        turnOnLCD();
+      } else {
+        // If LCD is already on, reset the timeout
+        lastLcdActivity = millis();
+      }
+    }
+  }
+  lastBootButtonState = currentBootButtonState;
 }
 
 void loop() {
@@ -1606,6 +1683,9 @@ void loop() {
     checkAndPerformDailyDownload();
     lastDailyCheck = millis();
   }
+
+  // LCD power management (timeout and wake-up button)
+  checkLCDTimeout();
 
   // Periodic WiFi check
   static unsigned long lastWiFiCheck = 0;

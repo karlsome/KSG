@@ -16,11 +16,11 @@ from typing import Dict, Any
 
 class SmartPiClient:
     def __init__(self):
-        self.server_url = "http://192.168.0.38:3000"  # UPDATE THIS
+        self.server_url = "http://192.168.3.209:3000"  # UPDATE THIS
         self.device_id = "4Y02SX"
         
         # ⏰ CONFIGURABLE UPDATE INTERVALS
-        self.UPDATE_CHECK_INTERVAL = 10  # � CHECK FOR UPDATES EVERY 60 SECONDS (1 minute)
+        self.UPDATE_CHECK_INTERVAL = 60  # � CHECK FOR UPDATES EVERY 60 SECONDS (1 minute)
         self.OFFLINE_CACHE_FILE = "offline_functions.json"  # Local backup file
         
         # �📌 FIXED PIN CONFIGURATION - No more dynamic complexity!
@@ -30,16 +30,17 @@ class SmartPiClient:
             22: 'gpio22',   # GPIO22 - Pin 15
             23: 'gpio23',   # GPIO23 - Pin 16
             24: 'gpio24',   # GPIO24 - Pin 18
-            25: 'gpio25'    # GPIO25 - Pin 22
+            25: 'gpio25',   # GPIO25 - Pin 22
+            19: 'gpio19',   # GPIO19 - Pin 35
+            16: 'gpio16',   # GPIO16 - Pin 36
+            20: 'gpio20',   # GPIO20 - Pin 38
+            21: 'gpio21'    # GPIO21 - Pin 40
         }
         
         self.OUTPUT_PINS = {
             18: 'gpio18',   # GPIO18 - Pin 12 (PWM capable)
-            19: 'gpio19',   # GPIO19 - Pin 35
             26: 'gpio26',   # GPIO26 - Pin 37
-            16: 'gpio16',   # GPIO16 - Pin 36
-            20: 'gpio20',   # GPIO20 - Pin 38
-            21: 'gpio21'    # GPIO21 - Pin 40
+            
         }
         
         # State tracking
@@ -198,8 +199,9 @@ class SmartPiClient:
         try:
             url = f"{self.server_url}/api/functions/check/{self.function_hash}"
             params = {'device_id': self.device_id}
+            headers = {'X-Device-ID': self.device_id}  # Required for authentication
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, headers=headers, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
@@ -257,8 +259,9 @@ class SmartPiClient:
         try:
             url = f"{self.server_url}/api/functions/latest"
             params = {'device_id': self.device_id}
+            headers = {'X-Device-ID': self.device_id}  # Required for authentication
             
-            response = requests.get(url, params=params, timeout=15)
+            response = requests.get(url, params=params, headers=headers, timeout=15)
             
             if response.status_code == 200:
                 data = response.json()

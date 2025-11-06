@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPC UA Monitor - Equipment Dashboard</title>
+    <link rel="stylesheet" href="/css/opcua-styles.css">
+</head>
+<body class="monitor-body">
+    <div class="monitor-container">
+        <header class="monitor-header">
+            <h1>🏭 設備監視モニター</h1>
+            <div class="monitor-status">
+                <span id="connection-status" class="status-indicator offline">●</span>
+                <span id="last-update">更新待ち...</span>
+            </div>
+        </header>
+
+        <div class="company-selector">
+            <label>会社:</label>
+            <select id="company-select">
+                <option value="">選択してください...</option>
+                <option value="KSG">KSG</option>
+            </select>
+        </div>
+
+        <main id="equipment-grid" class="equipment-grid">
+            <div class="loading-state">
+                <div class="spinner"></div>
+                <p>データ読み込み中...</p>
+            </div>
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/opcua-monitor.js"></script>
+</body>
+</html>

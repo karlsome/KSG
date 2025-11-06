@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPC UA Admin - Equipment Configuration</title>
+    <link rel="stylesheet" href="css/opcua-styles.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>🏭 OPC UA Monitoring System - Admin</h1>
+            <div class="user-info">
+                <span id="username-display">Not logged in</span>
+                <button id="logout-btn" class="btn btn-secondary">Logout</button>
+            </div>
+        </header>
+
+        <nav class="admin-nav">
+            <button class="nav-btn active" data-tab="raspberries">Raspberry Pis</button>
+            <button class="nav-btn" data-tab="equipment">Equipment</button>
+            <button class="nav-btn" data-tab="datapoints">Data Points</button>
+        </nav>
+
+        <main class="admin-content">
+            <!-- Tab 1: Raspberry Pi Management -->
+            <section id="tab-raspberries" class="tab-content active">
+                <div class="section-header">
+                    <h2>Raspberry Pi Devices</h2>
+                    <button id="add-raspberry-btn" class="btn btn-primary">+ Add Raspberry Pi</button>
+                </div>
+
+                <div id="raspberry-list" class="card-grid">
+                    <!-- Raspberry Pi cards will be inserted here -->
+                </div>
+
+                <!-- Add/Edit Raspberry Pi Modal -->
+                <div id="raspberry-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="raspberry-modal-title">Add Raspberry Pi</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="raspberry-form">
+                                <div class="form-group">
+                                    <label>Raspberry Pi Unique ID *</label>
+                                    <input type="text" id="raspberry-id" required 
+                                           placeholder="e.g., 6C10F6">
+                                    <small>Must match uniqueId in masterUsers.devices</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Display Name *</label>
+                                    <input type="text" id="raspberry-name" required 
+                                           placeholder="e.g., KSG2">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>OPC UA Server IP *</label>
+                                    <input type="text" id="opcua-ip" required 
+                                           placeholder="e.g., 192.168.1.50">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>OPC UA Server Port</label>
+                                    <input type="number" id="opcua-port" value="4840">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Poll Interval (ms)</label>
+                                    <input type="number" id="poll-interval" value="5000" min="1000">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="raspberry-enabled" checked>
+                                        Enable Monitoring
+                                    </label>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+                                    <button type="submit" class="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 2: Equipment Management -->
+            <section id="tab-equipment" class="tab-content">
+                <div class="section-header">
+                    <div>
+                        <h2>Equipment</h2>
+                        <select id="equipment-raspberry-filter" class="filter-select">
+                            <option value="">Select Raspberry Pi...</option>
+                        </select>
+                    </div>
+                    <button id="add-equipment-btn" class="btn btn-primary" disabled>+ Add Equipment</button>
+                </div>
+
+                <div id="equipment-list" class="card-grid">
+                    <div class="empty-state">
+                        <p>👆 Select a Raspberry Pi to manage equipment</p>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Equipment Modal -->
+                <div id="equipment-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="equipment-modal-title">Add Equipment</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="equipment-form">
+                                <input type="hidden" id="equipment-raspberry-id">
+
+                                <div class="form-group">
+                                    <label>Equipment ID *</label>
+                                    <input type="text" id="equipment-id" required 
+                                           placeholder="e.g., W312_2">
+                                    <small>Internal identifier (no spaces)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Display Name *</label>
+                                    <input type="text" id="equipment-name" required 
+                                           placeholder="e.g., W312-#2">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Description</label>
+                                    <input type="text" id="equipment-description" 
+                                           placeholder="e.g., Wire processing machine #2">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Category</label>
+                                    <input type="text" id="equipment-category" 
+                                           placeholder="e.g., wire_machine">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Location</label>
+                                    <input type="text" id="equipment-location" 
+                                           placeholder="e.g., Building A, Line 2">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Display Order</label>
+                                    <input type="number" id="equipment-sort-order" value="0" min="0">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="equipment-enabled" checked>
+                                        Enable Equipment
+                                    </label>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+                                    <button type="submit" class="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 3: Data Points Management -->
+            <section id="tab-datapoints" class="tab-content">
+                <div class="section-header">
+                    <div>
+                        <h2>Data Points</h2>
+                        <select id="datapoints-equipment-filter" class="filter-select">
+                            <option value="">Select Equipment...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button id="discover-nodes-btn" class="btn btn-secondary" disabled>🔍 Discover Nodes</button>
+                        <button id="add-datapoint-btn" class="btn btn-primary" disabled>+ Add Data Point</button>
+                    </div>
+                </div>
+
+                <div id="datapoints-list" class="table-container">
+                    <div class="empty-state">
+                        <p>👆 Select equipment to manage data points</p>
+                    </div>
+                </div>
+
+                <!-- Add/Edit Data Point Modal -->
+                <div id="datapoint-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="datapoint-modal-title">Add Data Point</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="datapoint-form">
+                                <input type="hidden" id="datapoint-raspberry-id">
+                                <input type="hidden" id="datapoint-equipment-id">
+
+                                <div class="form-group">
+                                    <label>OPC UA Node ID *</label>
+                                    <input type="text" id="datapoint-node-id" required 
+                                           placeholder="e.g., ns=4;s=W312_2_Kadou1">
+                                    <small>Full OPC UA node identifier</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Label *</label>
+                                    <input type="text" id="datapoint-label" required 
+                                           placeholder="e.g., 稼働時間(時)">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Description</label>
+                                    <input type="text" id="datapoint-description" 
+                                           placeholder="e.g., Operating hours">
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Data Type</label>
+                                        <select id="datapoint-data-type">
+                                            <option value="String">String</option>
+                                            <option value="UINT">UINT</option>
+                                            <option value="INT">INT</option>
+                                            <option value="Float">Float</option>
+                                            <option value="Boolean">Boolean</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Unit</label>
+                                        <input type="text" id="datapoint-unit" 
+                                               placeholder="e.g., 時, 分, 個">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Display Format</label>
+                                        <select id="datapoint-display-format">
+                                            <option value="number">Number</option>
+                                            <option value="time">Time</option>
+                                            <option value="boolean">Boolean</option>
+                                            <option value="string">String</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Display Order</label>
+                                        <input type="number" id="datapoint-sort-order" value="0" min="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="datapoint-enabled" checked>
+                                        Enable Monitoring
+                                    </label>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+                                    <button type="submit" class="btn btn-primary">Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Node Discovery Modal -->
+                <div id="discovery-modal" class="modal modal-large">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>🔍 OPC UA Node Discovery</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="discovery-status" class="alert alert-info">
+                                <p>⚠️ Node discovery requires the Raspberry Pi to be online and connected to the OPC UA server.</p>
+                                <p>Coming soon: Auto-discovery will scan and show all available nodes.</p>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-secondary modal-close">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="js/opcua-admin.js"></script>
+</body>
+</html>

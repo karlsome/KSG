@@ -2,9 +2,17 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 const bcrypt = require('bcrypt');
-require('dotenv').config();
+
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+  // Disable SSL certificate validation for development (fixes MongoDB Atlas SSL errors)
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.log('⚠️  Development mode: SSL certificate validation disabled');
+} else {
+  require('dotenv').config();
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +32,9 @@ const io = new Server(server, {
 });
 
 app.use(express.json());
+
+// Serve static files
+app.use(express.static('public'));
 
 // Enable CORS for all origins (development mode)
 app.use((req, res, next) => {
@@ -66,7 +77,16 @@ async function connectToMongoDB() {
         }
         
         console.log('🔗 Connecting to MongoDB Atlas...');
-        mongoClient = new MongoClient(MONGODB_URI);
+        mongoClient = new MongoClient(MONGODB_URI, {
+            serverApi: {
+                version: ServerApiVersion.v1,
+                strict: true,
+                deprecationErrors: true,
+            },
+            readPreference: 'nearest', // Use 'nearest' read preference for better performance
+            tlsAllowInvalidCertificates: true, // Fix for local development SSL certificate issues
+            tlsAllowInvalidHostnames: true, // Fix for local development SSL certificate issues
+        });
         await mongoClient.connect();
         
         // Test the connection
@@ -999,7 +1019,16 @@ app.get('/ping', (req, res) => {
     });
 });
 
-// 🌐 WEBAPP FILE SERVING ENDPOINTS - For ESP32 file downloads
+// � OPC UA MONITORING SYSTEM - Web UI Routes
+app.get('/opcua-admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'opcua-admin.html'));
+});
+
+app.get('/opcua-monitor', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'opcua-monitor.html'));
+});
+
+// �🌐 WEBAPP FILE SERVING ENDPOINTS - For ESP32 file downloads
 const path = require('path');
 const fs = require('fs');
 
@@ -1698,6 +1727,589 @@ io.on('connection', (socket) => {
     });
 });
 
+// ==========================================
+// 🏭 OPC UA MONITORING SYSTEM API ENDPOINTS
+// ==========================================
+
+// Middleware: Validate Raspberry Pi by uniqueId
+async function validateRaspberryPi(req, res, next) {
+    try {
+        const raspberryId = req.params.raspberryId || req.body.raspberryId || req.headers['x-raspberry-id'];
+        
+        if (!raspberryId) {
+            return res.status(400).json({ error: 'raspberryId is required' });
+        }
+        
+        // Check if raspberryId exists in any masterUser's devices
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({
+            'devices.uniqueId': raspberryId
+        });
+        
+        if (!masterUser) {
+            return res.status(403).json({ error: 'Unauthorized Raspberry Pi device' });
+        }
+        
+        req.raspberryId = raspberryId;
+        req.company = masterUser.company;
+        req.dbName = masterUser.dbName;
+        next();
+    } catch (error) {
+        console.error('❌ Raspberry Pi validation error:', error);
+        res.status(500).json({ error: 'Validation failed' });
+    }
+}
+
+// Middleware: Validate Admin User
+async function validateAdminUser(req, res, next) {
+    try {
+        const username = req.headers['x-session-user'];
+        
+        if (!username) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({ username });
+        
+        if (!masterUser || masterUser.role !== 'masterUser') {
+            return res.status(403).json({ error: 'Unauthorized: Admin access required' });
+        }
+        
+        req.username = username;
+        req.company = masterUser.company;
+        req.dbName = masterUser.dbName;
+        next();
+    } catch (error) {
+        console.error('❌ Admin validation error:', error);
+        res.status(500).json({ error: 'Validation failed' });
+    }
+}
+
+// ==========================================
+// RASPBERRY PI ENDPOINTS
+// ==========================================
+
+// GET /api/opcua/config/:raspberryId - Get configuration for Raspberry Pi
+app.get('/api/opcua/config/:raspberryId', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const db = mongoClient.db(dbName);
+        
+        // Get Raspberry Pi configuration
+        const config = await db.collection('opcua_config').findOne({ raspberryId });
+        
+        if (!config) {
+            return res.status(404).json({ error: 'Configuration not found' });
+        }
+        
+        if (!config.enabled) {
+            return res.status(403).json({ error: 'Raspberry Pi is disabled' });
+        }
+        
+        // Get enabled datapoints to monitor
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ raspberryId, enabled: true })
+            .sort({ equipmentId: 1, sortOrder: 1 })
+            .toArray();
+        
+        res.json({
+            success: true,
+            config: {
+                raspberryId: config.raspberryId,
+                raspberryName: config.raspberryName,
+                opcua_server_ip: config.opcua_server_ip,
+                opcua_server_port: config.opcua_server_port,
+                poll_interval: config.poll_interval,
+                connection_timeout: config.connection_timeout
+            },
+            datapoints: datapoints.map(dp => ({
+                id: dp._id,
+                equipmentId: dp.equipmentId,
+                opcNodeId: dp.opcNodeId,
+                label: dp.label,
+                dataType: dp.dataType
+            }))
+        });
+        
+        console.log(`📡 Config fetched for Raspberry Pi: ${raspberryId}`);
+        
+    } catch (error) {
+        console.error('❌ Error fetching config:', error);
+        res.status(500).json({ error: 'Failed to fetch configuration' });
+    }
+});
+
+// POST /api/opcua/heartbeat - Update Raspberry Pi heartbeat
+app.post('/api/opcua/heartbeat', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const { status } = req.body;
+        const db = mongoClient.db(dbName);
+        
+        await db.collection('opcua_config').updateOne(
+            { raspberryId },
+            {
+                $set: {
+                    status: status || 'online',
+                    lastHeartbeat: new Date().toISOString()
+                }
+            }
+        );
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Error updating heartbeat:', error);
+        res.status(500).json({ error: 'Failed to update heartbeat' });
+    }
+});
+
+// POST /api/opcua/data - Push real-time data from Raspberry Pi
+app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const { data } = req.body; // Array of { datapointId, opcNodeId, value, quality, timestamp }
+        const db = mongoClient.db(dbName);
+        
+        if (!Array.isArray(data) || data.length === 0) {
+            return res.status(400).json({ error: 'Invalid data format' });
+        }
+        
+        const bulkOps = data.map(item => ({
+            updateOne: {
+                filter: { datapointId: item.datapointId },
+                update: {
+                    $set: {
+                        raspberryId,
+                        equipmentId: item.equipmentId,
+                        opcNodeId: item.opcNodeId,
+                        value: item.value,
+                        valueString: String(item.value),
+                        quality: item.quality || 'Good',
+                        sourceTimestamp: item.timestamp,
+                        receivedAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    }
+                },
+                upsert: true
+            }
+        }));
+        
+        await db.collection('opcua_realtime').bulkWrite(bulkOps);
+        
+        // Emit to WebSocket clients
+        io.to(`opcua_${dbName}`).emit('opcua_data_update', {
+            raspberryId,
+            data: data.map(item => ({
+                equipmentId: item.equipmentId,
+                datapointId: item.datapointId,
+                value: item.value,
+                quality: item.quality,
+                timestamp: item.timestamp
+            }))
+        });
+        
+        res.json({ success: true, received: data.length });
+        
+    } catch (error) {
+        console.error('❌ Error saving OPC UA data:', error);
+        res.status(500).json({ error: 'Failed to save data' });
+    }
+});
+
+// GET /api/opcua/datapoints/:raspberryId - Get list of datapoints to monitor
+app.get('/api/opcua/datapoints/:raspberryId', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const db = mongoClient.db(dbName);
+        
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ raspberryId, enabled: true })
+            .sort({ equipmentId: 1, sortOrder: 1 })
+            .toArray();
+        
+        res.json({ success: true, datapoints });
+        
+    } catch (error) {
+        console.error('❌ Error fetching datapoints:', error);
+        res.status(500).json({ error: 'Failed to fetch datapoints' });
+    }
+});
+
+// ==========================================
+// ADMIN ENDPOINTS
+// ==========================================
+
+// GET /api/opcua/admin/raspberries - List all Raspberry Pis for logged-in user
+app.get('/api/opcua/admin/raspberries', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const db = mongoClient.db(dbName);
+        
+        const raspberries = await db.collection('opcua_config')
+            .find({})
+            .sort({ raspberryName: 1 })
+            .toArray();
+        
+        res.json({ success: true, raspberries });
+        
+    } catch (error) {
+        console.error('❌ Error fetching raspberries:', error);
+        res.status(500).json({ error: 'Failed to fetch Raspberry Pis' });
+    }
+});
+
+// POST /api/opcua/admin/raspberry - Add/update Raspberry Pi configuration
+app.post('/api/opcua/admin/raspberry', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName, company } = req;
+        const { raspberryId, raspberryName, opcua_server_ip, opcua_server_port, poll_interval, enabled } = req.body;
+        const db = mongoClient.db(dbName);
+        
+        // Validate raspberryId exists in masterUsers.devices
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({
+            company,
+            'devices.uniqueId': raspberryId
+        });
+        
+        if (!masterUser) {
+            return res.status(400).json({ error: 'Raspberry Pi device not found in masterUsers' });
+        }
+        
+        const configData = {
+            raspberryId,
+            raspberryName: raspberryName || raspberryId,
+            company,
+            opcua_server_ip: opcua_server_ip || '',
+            opcua_server_port: opcua_server_port || 4840,
+            connection_timeout: 60000,
+            poll_interval: poll_interval || 5000,
+            enabled: enabled !== false,
+            status: 'offline',
+            lastSync: null,
+            lastHeartbeat: null,
+            updatedAt: new Date().toISOString()
+        };
+        
+        const result = await db.collection('opcua_config').updateOne(
+            { raspberryId },
+            {
+                $set: configData,
+                $setOnInsert: { createdAt: new Date().toISOString() }
+            },
+            { upsert: true }
+        );
+        
+        res.json({ success: true, raspberryId, isNew: result.upsertedCount > 0 });
+        console.log(`✅ Raspberry Pi config saved: ${raspberryId}`);
+        
+    } catch (error) {
+        console.error('❌ Error saving raspberry config:', error);
+        res.status(500).json({ error: 'Failed to save configuration' });
+    }
+});
+
+// DELETE /api/opcua/admin/raspberry/:raspberryId - Remove Raspberry Pi
+app.delete('/api/opcua/admin/raspberry/:raspberryId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { raspberryId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        // Delete config, equipment, datapoints, and realtime data
+        await Promise.all([
+            db.collection('opcua_config').deleteOne({ raspberryId }),
+            db.collection('opcua_equipment').deleteMany({ raspberryId }),
+            db.collection('opcua_datapoints').deleteMany({ raspberryId }),
+            db.collection('opcua_realtime').deleteMany({ raspberryId })
+        ]);
+        
+        res.json({ success: true });
+        console.log(`🗑️  Raspberry Pi deleted: ${raspberryId}`);
+        
+    } catch (error) {
+        console.error('❌ Error deleting raspberry:', error);
+        res.status(500).json({ error: 'Failed to delete Raspberry Pi' });
+    }
+});
+
+// GET /api/opcua/admin/equipment/:raspberryId - Get equipment list
+app.get('/api/opcua/admin/equipment/:raspberryId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { raspberryId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        const equipment = await db.collection('opcua_equipment')
+            .find({ raspberryId })
+            .sort({ sortOrder: 1 })
+            .toArray();
+        
+        res.json({ success: true, equipment });
+        
+    } catch (error) {
+        console.error('❌ Error fetching equipment:', error);
+        res.status(500).json({ error: 'Failed to fetch equipment' });
+    }
+});
+
+// POST /api/opcua/admin/equipment - Add/update equipment
+app.post('/api/opcua/admin/equipment', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { raspberryId, equipmentId, displayName, description, category, location, sortOrder, enabled } = req.body;
+        const db = mongoClient.db(dbName);
+        
+        const equipmentData = {
+            raspberryId,
+            equipmentId,
+            displayName,
+            description: description || '',
+            category: category || '',
+            location: location || '',
+            sortOrder: sortOrder || 0,
+            enabled: enabled !== false,
+            updatedAt: new Date().toISOString()
+        };
+        
+        const result = await db.collection('opcua_equipment').updateOne(
+            { raspberryId, equipmentId },
+            {
+                $set: equipmentData,
+                $setOnInsert: { createdAt: new Date().toISOString() }
+            },
+            { upsert: true }
+        );
+        
+        res.json({ success: true, equipmentId, isNew: result.upsertedCount > 0 });
+        
+    } catch (error) {
+        console.error('❌ Error saving equipment:', error);
+        res.status(500).json({ error: 'Failed to save equipment' });
+    }
+});
+
+// DELETE /api/opcua/admin/equipment/:equipmentId - Remove equipment
+app.delete('/api/opcua/admin/equipment/:equipmentId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { equipmentId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        // Delete equipment and its datapoints
+        await Promise.all([
+            db.collection('opcua_equipment').deleteOne({ equipmentId }),
+            db.collection('opcua_datapoints').deleteMany({ equipmentId }),
+            db.collection('opcua_realtime').deleteMany({ equipmentId })
+        ]);
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Error deleting equipment:', error);
+        res.status(500).json({ error: 'Failed to delete equipment' });
+    }
+});
+
+// GET /api/opcua/admin/datapoints/:equipmentId - Get datapoints for equipment
+app.get('/api/opcua/admin/datapoints/:equipmentId', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { equipmentId } = req.params;
+        const db = mongoClient.db(dbName);
+        
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ equipmentId })
+            .sort({ sortOrder: 1 })
+            .toArray();
+        
+        res.json({ success: true, datapoints });
+        
+    } catch (error) {
+        console.error('❌ Error fetching datapoints:', error);
+        res.status(500).json({ error: 'Failed to fetch datapoints' });
+    }
+});
+
+// POST /api/opcua/admin/datapoints - Add/update datapoint
+app.post('/api/opcua/admin/datapoints', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { 
+            raspberryId, equipmentId, opcNodeId, label, description, 
+            dataType, unit, displayFormat, sortOrder, enabled 
+        } = req.body;
+        const db = mongoClient.db(dbName);
+        
+        const datapointData = {
+            raspberryId,
+            equipmentId,
+            opcNodeId,
+            label,
+            description: description || '',
+            dataType: dataType || 'String',
+            unit: unit || '',
+            displayFormat: displayFormat || 'number',
+            sortOrder: sortOrder || 0,
+            enabled: enabled !== false,
+            alertEnabled: false,
+            alertCondition: null,
+            updatedAt: new Date().toISOString()
+        };
+        
+        const result = await db.collection('opcua_datapoints').updateOne(
+            { raspberryId, equipmentId, opcNodeId },
+            {
+                $set: datapointData,
+                $setOnInsert: { createdAt: new Date().toISOString() }
+            },
+            { upsert: true }
+        );
+        
+        res.json({ 
+            success: true, 
+            datapointId: result.upsertedId || opcNodeId, 
+            isNew: result.upsertedCount > 0 
+        });
+        
+    } catch (error) {
+        console.error('❌ Error saving datapoint:', error);
+        res.status(500).json({ error: 'Failed to save datapoint' });
+    }
+});
+
+// PUT /api/opcua/admin/datapoints/:id/toggle - Enable/disable datapoint
+app.put('/api/opcua/admin/datapoints/:id/toggle', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { id } = req.params;
+        const { enabled } = req.body;
+        const db = mongoClient.db(dbName);
+        const { ObjectId } = require('mongodb');
+        
+        await db.collection('opcua_datapoints').updateOne(
+            { _id: new ObjectId(id) },
+            {
+                $set: {
+                    enabled: enabled !== false,
+                    updatedAt: new Date().toISOString()
+                }
+            }
+        );
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Error toggling datapoint:', error);
+        res.status(500).json({ error: 'Failed to toggle datapoint' });
+    }
+});
+
+// ==========================================
+// MONITOR ENDPOINTS
+// ==========================================
+
+// GET /api/opcua/monitor/dashboard - Get all equipment + current values
+app.get('/api/opcua/monitor/dashboard', async (req, res) => {
+    try {
+        const company = req.headers['x-company'] || req.query.company;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        // Get dbName for company
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({ company });
+        
+        if (!masterUser) {
+            return res.status(404).json({ error: 'Company not found' });
+        }
+        
+        const db = mongoClient.db(masterUser.dbName);
+        
+        // Get all raspberries
+        const raspberries = await db.collection('opcua_config')
+            .find({ enabled: true })
+            .toArray();
+        
+        const dashboard = [];
+        
+        for (const raspberry of raspberries) {
+            // Get equipment for this raspberry
+            const equipment = await db.collection('opcua_equipment')
+                .find({ raspberryId: raspberry.raspberryId, enabled: true })
+                .sort({ sortOrder: 1 })
+                .toArray();
+            
+            for (const equip of equipment) {
+                // Get datapoints
+                const datapoints = await db.collection('opcua_datapoints')
+                    .find({ equipmentId: equip.equipmentId, enabled: true })
+                    .sort({ sortOrder: 1 })
+                    .toArray();
+                
+                // Get current values
+                const values = await db.collection('opcua_realtime')
+                    .find({ equipmentId: equip.equipmentId })
+                    .toArray();
+                
+                // Map values to datapoints
+                const datapointsWithValues = datapoints.map(dp => {
+                    const value = values.find(v => v.opcNodeId === dp.opcNodeId);
+                    return {
+                        label: dp.label,
+                        value: value ? value.value : null,
+                        quality: value ? value.quality : 'Unknown',
+                        unit: dp.unit,
+                        timestamp: value ? value.sourceTimestamp : null
+                    };
+                });
+                
+                dashboard.push({
+                    raspberryId: raspberry.raspberryId,
+                    raspberryName: raspberry.raspberryName,
+                    equipmentId: equip.equipmentId,
+                    displayName: equip.displayName,
+                    category: equip.category,
+                    location: equip.location,
+                    status: raspberry.status,
+                    datapoints: datapointsWithValues
+                });
+            }
+        }
+        
+        res.json({ success: true, dashboard });
+        
+    } catch (error) {
+        console.error('❌ Error fetching dashboard:', error);
+        res.status(500).json({ error: 'Failed to fetch dashboard' });
+    }
+});
+
+// WebSocket namespace for OPC UA real-time updates
+io.of('/opcua').on('connection', (socket) => {
+    console.log('🔌 OPC UA monitor connected:', socket.id);
+    
+    socket.on('subscribe', (data) => {
+        const { company } = data;
+        if (company) {
+            socket.join(`opcua_${company}`);
+            console.log(`📡 Client subscribed to OPC UA updates for: ${company}`);
+        }
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('🔌 OPC UA monitor disconnected:', socket.id);
+    });
+});
+
+// ==========================================
+// END OPC UA MONITORING SYSTEM
+// ==========================================
+
 // �🚀 Start server with MongoDB connection
 async function startServer() {
     console.log('🚀 Starting KSG IoT Function Server...');
@@ -1723,6 +2335,8 @@ async function startServer() {
         console.log(`🔧 GPIO configuration: Hardcoded on each Pi device`);
         console.log(`🌐 Admin interface: http://localhost:${PORT}`);
         console.log(`📊 Status API: http://localhost:${PORT}/api/status`);
+        console.log(`🏭 OPC UA Monitor: http://localhost:${PORT}/opcua-monitor`);
+        console.log(`⚙️  OPC UA Admin: http://localhost:${PORT}/opcua-admin`);
     });
 }
 
