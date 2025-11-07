@@ -179,21 +179,8 @@
             el.className = 'layout-component component-' + comp.type;
             el.style.left = comp.x + 'px';
             el.style.top = comp.y + 'px';
-            
-            // Apply width/height with auto-adjust support
-            if (comp.styles?.autoWidth) {
-                el.style.width = 'auto';
-                el.style.minWidth = '50px';
-            } else {
-                el.style.width = comp.width + 'px';
-            }
-            
-            if (comp.styles?.autoHeight) {
-                el.style.height = 'auto';
-                el.style.minHeight = '30px';
-            } else {
-                el.style.height = comp.height + 'px';
-            }
+            el.style.width = comp.width + 'px';
+            el.style.height = comp.height + 'px';
             
             if (comp.styles) {
                 if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';

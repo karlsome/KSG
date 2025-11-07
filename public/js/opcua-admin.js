@@ -1252,20 +1252,8 @@ function createComponentElement(comp) {
     el.dataset.id = comp.id;
     el.style.left = comp.x + 'px';
     el.style.top = comp.y + 'px';
-    // Apply width/height with auto-adjust support
-    if (comp.styles?.autoWidth) {
-        el.style.width = 'auto';
-        el.style.minWidth = '50px';
-    } else {
-        el.style.width = comp.width + 'px';
-    }
-    
-    if (comp.styles?.autoHeight) {
-        el.style.height = 'auto';
-        el.style.minHeight = '30px';
-    } else {
-        el.style.height = comp.height + 'px';
-    }
+    el.style.width = comp.width + 'px';
+    el.style.height = comp.height + 'px';
     
     if (comp.styles) {
         if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';
@@ -1567,16 +1555,13 @@ function showComponentProperties(comp) {
         </div>
         
         <div class="property-group">
-            <label>Auto Adjust</label>
+            <label>Auto Scale Text</label>
             <div style="display: flex; flex-direction: column; gap: 8px;">
                 <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
-                    <input type="checkbox" id="prop-autowidth" ${comp.styles?.autoWidth ? 'checked' : ''} style="margin-right: 8px;">
-                    Auto adjust width
+                    <input type="checkbox" id="prop-autoscale" ${comp.styles?.autoScale ? 'checked' : ''} style="margin-right: 8px;">
+                    Auto scale text to fit
                 </label>
-                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
-                    <input type="checkbox" id="prop-autoheight" ${comp.styles?.autoHeight ? 'checked' : ''} style="margin-right: 8px;">
-                    Auto adjust height
-                </label>
+                <small style="color: #666; font-size: 11px; margin-top: -4px;">Text size adjusts when box is resized</small>
             </div>
         </div>
         
@@ -1648,12 +1633,9 @@ function attachPropertyListeners() {
     const lineheightEl = document.getElementById('prop-lineheight');
     if (lineheightEl) lineheightEl.addEventListener('input', applyComponentProperties);
     
-    // Auto adjust checkboxes
-    const autowidthEl = document.getElementById('prop-autowidth');
-    if (autowidthEl) autowidthEl.addEventListener('change', applyComponentProperties);
-    
-    const autoheightEl = document.getElementById('prop-autoheight');
-    if (autoheightEl) autoheightEl.addEventListener('change', applyComponentProperties);
+    // Auto scale checkbox
+    const autoscaleEl = document.getElementById('prop-autoscale');
+    if (autoscaleEl) autoscaleEl.addEventListener('change', applyComponentProperties);
 }
 
 function hideComponentProperties() {
@@ -1679,8 +1661,12 @@ function applyComponentProperties() {
         selectedComponent.unit = document.getElementById('prop-unit').value;
     }
     
+    const baseFontSize = parseInt(document.getElementById('prop-fontsize').value);
+    const autoScale = document.getElementById('prop-autoscale')?.checked || false;
+    
     selectedComponent.styles = {
-        fontSize: parseInt(document.getElementById('prop-fontsize').value),
+        fontSize: baseFontSize,
+        baseFontSize: baseFontSize, // Store original font size
         color: document.getElementById('prop-color').value,
         backgroundColor: document.getElementById('prop-bgcolor').value,
         fontWeight: document.getElementById('prop-fontweight').value,
@@ -1688,8 +1674,7 @@ function applyComponentProperties() {
         whiteSpace: document.getElementById('prop-wordwrap').value,
         overflow: document.getElementById('prop-overflow').value,
         lineHeight: parseFloat(document.getElementById('prop-lineheight').value),
-        autoWidth: document.getElementById('prop-autowidth')?.checked || false,
-        autoHeight: document.getElementById('prop-autoheight')?.checked || false
+        autoScale: autoScale
     };
     
     // Re-render component
@@ -1700,27 +1685,55 @@ function applyComponentProperties() {
         parent.replaceChild(newEl, el);
         newEl.classList.add('selected');
         
-        // If auto-adjust is enabled, update dimensions after rendering
-        if (selectedComponent.styles.autoWidth || selectedComponent.styles.autoHeight) {
-            setTimeout(() => {
-                if (selectedComponent.styles.autoWidth) {
-                    selectedComponent.width = newEl.scrollWidth + 20; // Add padding
-                    document.getElementById('prop-width').value = selectedComponent.width;
-                }
-                if (selectedComponent.styles.autoHeight) {
-                    selectedComponent.height = newEl.scrollHeight + 20; // Add padding
-                    document.getElementById('prop-height').value = selectedComponent.height;
-                }
-                
-                // Re-render with updated dimensions
-                if (selectedComponent.styles.autoWidth || selectedComponent.styles.autoHeight) {
-                    const finalEl = createComponentElement(selectedComponent);
-                    parent.replaceChild(finalEl, newEl);
-                    finalEl.classList.add('selected');
-                }
-            }, 10);
+        // If auto-scale is enabled, calculate and apply scaled font size
+        if (autoScale) {
+            applyAutoScale(selectedComponent, newEl);
         }
     }
+}
+
+function applyAutoScale(comp, element) {
+    if (!comp.styles?.autoScale) return;
+    
+    const baseFontSize = comp.styles.baseFontSize || comp.styles.fontSize;
+    const containerWidth = comp.width;
+    const containerHeight = comp.height;
+    
+    // Create temporary element to measure text
+    const tempEl = element.cloneNode(true);
+    tempEl.style.position = 'absolute';
+    tempEl.style.visibility = 'hidden';
+    tempEl.style.width = 'auto';
+    tempEl.style.height = 'auto';
+    tempEl.style.whiteSpace = 'nowrap';
+    document.body.appendChild(tempEl);
+    
+    // Binary search for optimal font size
+    let minSize = 8;
+    let maxSize = baseFontSize * 2;
+    let optimalSize = baseFontSize;
+    
+    while (maxSize - minSize > 1) {
+        const testSize = Math.floor((minSize + maxSize) / 2);
+        tempEl.style.fontSize = testSize + 'px';
+        
+        const textWidth = tempEl.scrollWidth;
+        const textHeight = tempEl.scrollHeight;
+        
+        // Check if text fits within container (with padding)
+        if (textWidth <= containerWidth - 20 && textHeight <= containerHeight - 20) {
+            optimalSize = testSize;
+            minSize = testSize;
+        } else {
+            maxSize = testSize;
+        }
+    }
+    
+    document.body.removeChild(tempEl);
+    
+    // Apply the optimal font size
+    comp.styles.fontSize = optimalSize;
+    element.style.fontSize = optimalSize + 'px';
 }
 
 function deleteComponent() {
@@ -1867,6 +1880,11 @@ function handleComponentMouseUp(e) {
                 document.getElementById('prop-y').value = comp.y;
                 document.getElementById('prop-width').value = comp.width;
                 document.getElementById('prop-height').value = comp.height;
+            }
+            
+            // If auto-scale is enabled, recalculate font size
+            if (comp.styles?.autoScale) {
+                applyAutoScale(comp, resizingComponent);
             }
         }
         
