@@ -1127,7 +1127,7 @@ tr:last-child td {
     border: 2px solid #e5e7eb;
     border-radius: 8px;
     overflow: hidden;
-    cursor: grab;
+    cursor: pointer;
     transition: all 0.2s;
 }
 
@@ -1137,9 +1137,9 @@ tr:last-child td {
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
-.gallery-item.dragging {
-    opacity: 0.5;
-    cursor: grabbing;
+.gallery-item:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 .gallery-item img {

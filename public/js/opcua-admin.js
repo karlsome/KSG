@@ -21,6 +21,7 @@ let dragStartX = 0;
 let uploadedImages = []; // Store uploaded images for current layout
 let selectedFiles = []; // Temporary storage for files to upload
 let contextMenuTarget = null; // Component that was right-clicked
+let imageModalMode = 'component'; // 'component' or 'background'
 let dragStartY = 0;
 let componentIdCounter = 0;
 
@@ -1376,7 +1377,7 @@ function initializeCanvasDragDrop() {
         
         const componentType = e.dataTransfer.getData('componentType');
         const datapointData = e.dataTransfer.getData('datapoint');
-        const imageData = e.dataTransfer.getData('image');
+        const imageData = e.dataTransfer.getData('text/plain');
         
         if (componentType) {
             addComponent(componentType, x, y);
@@ -1384,8 +1385,13 @@ function initializeCanvasDragDrop() {
             const dp = JSON.parse(datapointData);
             addDatapointComponent(dp, x, y);
         } else if (imageData) {
-            const img = JSON.parse(imageData);
-            addImageComponent(img, x, y);
+            try {
+                const img = JSON.parse(imageData);
+                addImageComponent(img, x, y);
+                closeImageUploadModal();
+            } catch (err) {
+                console.error('Error parsing image data:', err);
+            }
         }
     });
     
@@ -1713,7 +1719,7 @@ function showCanvasProperties() {
                     <button class="btn btn-danger" onclick="removeCanvasBackground()" style="width: 100%;">Remove Background</button>
                 </div>
             ` : `
-                <button class="btn btn-secondary" onclick="openImageUploadModal()" style="width: 100%;">Set Background Image</button>
+                <button class="btn btn-secondary" onclick="openImageUploadModal('background')" style="width: 100%;">Set Background Image</button>
             `}
         </div>
     `;
@@ -1742,6 +1748,19 @@ function applyCanvasBackground() {
         const canvas = document.getElementById('layout-canvas');
         canvas.style.backgroundColor = bgcolor;
     }
+}
+
+function setCanvasBackgroundImage(imageUrl) {
+    currentLayout.backgroundImage = imageUrl;
+    const canvas = document.getElementById('layout-canvas');
+    canvas.style.backgroundImage = `url('${imageUrl}')`;
+    canvas.style.backgroundSize = 'cover';
+    canvas.style.backgroundPosition = 'center';
+    canvas.style.backgroundRepeat = 'no-repeat';
+    
+    closeImageUploadModal();
+    showCanvasProperties();
+    showToast('Background image set', 'success');
 }
 
 function removeCanvasBackground() {
@@ -2194,13 +2213,20 @@ function copyLayoutURL(layoutId) {
 // Image Upload Functions
 // ==========================================
 
-async function openImageUploadModal() {
+async function openImageUploadModal(mode = 'component') {
     if (!currentLayout) {
         showToast('Please create or open a layout first', 'error');
         return;
     }
     
+    imageModalMode = mode;
     document.getElementById('image-upload-modal').style.display = 'flex';
+    
+    // Update modal title based on mode
+    const modalTitle = document.querySelector('#image-upload-modal .modal-header h3');
+    if (modalTitle) {
+        modalTitle.textContent = mode === 'background' ? 'Set Canvas Background' : 'Manage Images';
+    }
     
     // Load existing images for this layout
     await loadLayoutImages();
@@ -2212,8 +2238,15 @@ async function openImageUploadModal() {
 function closeImageUploadModal() {
     document.getElementById('image-upload-modal').style.display = 'none';
     selectedFiles = [];
+    imageModalMode = 'component';
     document.getElementById('image-preview-area').style.display = 'none';
     document.getElementById('upload-images-btn').style.display = 'none';
+    
+    // Reset modal title
+    const modalTitle = document.querySelector('#image-upload-modal .modal-header h3');
+    if (modalTitle) {
+        modalTitle.textContent = 'Manage Images';
+    }
 }
 
 function switchImageTab(tabName) {
@@ -2382,31 +2415,54 @@ function renderImageGallery() {
         return;
     }
     
-    gallery.innerHTML = uploadedImages.map(img => `
-        <div class="gallery-item" draggable="true" data-image='${JSON.stringify(img)}'>
+    // Add help text based on mode
+    const helpText = imageModalMode === 'background' 
+        ? '<div style="padding: 10px; background: #e3f2fd; border-radius: 4px; margin-bottom: 10px; text-align: center; color: #1976d2;">Click an image to set it as canvas background</div>'
+        : '<div style="padding: 10px; background: #e8f5e9; border-radius: 4px; margin-bottom: 10px; text-align: center; color: #388e3c;">Click an image to add it to the canvas</div>';
+    
+    gallery.innerHTML = helpText + uploadedImages.map(img => `
+        <div class="gallery-item" data-image='${JSON.stringify(img)}'>
             <img src="${img.url}" alt="${img.name}">
             <div class="image-name">${img.name}</div>
             <button class="delete-image" onclick="deleteImage('${img.path}')">&times;</button>
         </div>
     `).join('');
     
-    // Add drag listeners to gallery items
+    // Add click handlers to gallery items
     document.querySelectorAll('.gallery-item').forEach(item => {
-        item.addEventListener('dragstart', handleGalleryDragStart);
-        item.addEventListener('dragend', handleGalleryDragEnd);
+        item.addEventListener('click', (e) => {
+            // Don't trigger if clicking delete button
+            if (e.target.classList.contains('delete-image')) return;
+            
+            const imgData = JSON.parse(item.dataset.image);
+            
+            if (imageModalMode === 'background') {
+                // Set as canvas background
+                setCanvasBackgroundImage(imgData.url);
+            } else {
+                // Add as image component to center of canvas
+                const canvas = document.getElementById('layout-canvas');
+                const rect = canvas.getBoundingClientRect();
+                const centerX = rect.width / 2 - 100; // Center with 200px default width
+                const centerY = rect.height / 2 - 100; // Center with 200px default height
+                addImageComponent(imgData, centerX, centerY);
+                closeImageUploadModal();
+                showToast('Image added to canvas', 'success');
+            }
+        });
+        item.style.cursor = 'pointer';
     });
 }
 
 function handleGalleryDragStart(e) {
     e.target.classList.add('dragging');
     const imageData = e.target.dataset.image;
-    e.dataTransfer.setData('image', imageData);
+    e.dataTransfer.setData('text/plain', imageData);
+    e.dataTransfer.effectAllowed = 'copy';
 }
 
 function handleGalleryDragEnd(e) {
     e.target.classList.remove('dragging');
-    // Close modal when dragging to canvas
-    closeImageUploadModal();
 }
 
 async function deleteImage(imagePath) {
