@@ -4,6 +4,8 @@ const { Server } = require('socket.io');
 const crypto = require('crypto');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const bcrypt = require('bcrypt');
+const admin = require('firebase-admin');
+const multer = require('multer');
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -61,7 +63,36 @@ let AUTHORIZED_DEVICES = {};
 let lastDeviceFetch = 0;
 const DEVICE_CACHE_DURATION = parseInt(process.env.DEVICE_CACHE_DURATION) || 300000; // 5 minutes
 
-// 🔧 GLOBAL FUNCTIONS STRUCTURE (for compatibility)
+// � FIREBASE CONFIGURATION
+const serviceAccount = {
+  type: 'service_account',
+  project_id: process.env.FIREBASE_PROJECT_ID,
+  private_key: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+  client_email: process.env.FIREBASE_CLIENT_EMAIL,
+  client_id: process.env.FIREBASE_CLIENT_ID || '',
+  auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+  token_uri: 'https://oauth2.googleapis.com/token',
+  auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+  client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
+};
+
+if (serviceAccount.private_key && serviceAccount.client_email) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  });
+  console.log('🔥 Firebase Admin SDK initialized successfully!');
+} else {
+  console.error('❌ Firebase Admin SDK initialization failed. Ensure FIREBASE_PRIVATE_KEY and FIREBASE_CLIENT_EMAIL are set in .env file.');
+}
+
+// Multer configuration for file uploads (memory storage)
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
+// �🔧 GLOBAL FUNCTIONS STRUCTURE (for compatibility)
 let GLOBAL_FUNCTIONS = {
     version: '1.0.0',
     hash: 'ksg-production',
@@ -2574,6 +2605,124 @@ app.delete('/api/opcua/admin/layouts/:layoutId', validateAdminUser, async (req, 
     } catch (error) {
         console.error('❌ Error deleting layout:', error);
         res.status(500).json({ error: 'Failed to delete layout' });
+    }
+});
+
+// POST /api/opcua/admin/layouts/:layoutId/images - Upload images for layout
+app.post('/api/opcua/admin/layouts/:layoutId/images', validateAdminUser, upload.array('images', 10), async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { layoutId } = req.params;
+        const files = req.files;
+        
+        if (!files || files.length === 0) {
+            return res.status(400).json({ error: 'No files provided' });
+        }
+        
+        const companyName = dbName;
+        const downloadToken = crypto.randomBytes(16).toString('hex');
+        const uploadedImages = [];
+        
+        for (const file of files) {
+            const timestamp = Date.now();
+            const fileName = `${timestamp}_${file.originalname}`;
+            const filePath = `layouts/${companyName}/${layoutId}/${fileName}`;
+            
+            const bucket = admin.storage().bucket();
+            const firebaseFile = bucket.file(filePath);
+            
+            await firebaseFile.save(file.buffer, {
+                metadata: {
+                    contentType: file.mimetype,
+                    metadata: {
+                        firebaseStorageDownloadTokens: downloadToken
+                    }
+                }
+            });
+            
+            const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+            
+            uploadedImages.push({
+                id: `img-${timestamp}`,
+                name: file.originalname,
+                url: publicUrl,
+                path: filePath,
+                uploadedAt: new Date().toISOString()
+            });
+        }
+        
+        console.log(`✅ Uploaded ${uploadedImages.length} images for layout ${layoutId}`);
+        res.json({ success: true, images: uploadedImages });
+        
+    } catch (error) {
+        console.error('❌ Error uploading images:', error);
+        res.status(500).json({ error: 'Failed to upload images', details: error.message });
+    }
+});
+
+// GET /api/opcua/admin/layouts/:layoutId/images - Get all images for layout
+app.get('/api/opcua/admin/layouts/:layoutId/images', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { layoutId } = req.params;
+        const companyName = dbName;
+        
+        const bucket = admin.storage().bucket();
+        const prefix = `layouts/${companyName}/${layoutId}/`;
+        
+        const [files] = await bucket.getFiles({ prefix });
+        
+        const images = files.map(file => {
+            const metadata = file.metadata;
+            const token = metadata.metadata?.firebaseStorageDownloadTokens || '';
+            const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media&token=${token}`;
+            
+            return {
+                id: `img-${file.metadata.timeCreated}`,
+                name: file.name.split('/').pop(),
+                url: publicUrl,
+                path: file.name,
+                uploadedAt: file.metadata.timeCreated
+            };
+        });
+        
+        res.json({ success: true, images });
+        
+    } catch (error) {
+        console.error('❌ Error loading images:', error);
+        res.status(500).json({ error: 'Failed to load images', details: error.message });
+    }
+});
+
+// DELETE /api/opcua/admin/layouts/:layoutId/images/:imagePath - Delete specific image
+app.delete('/api/opcua/admin/layouts/:layoutId/images/*', validateAdminUser, async (req, res) => {
+    try {
+        const { dbName } = req;
+        const { layoutId } = req.params;
+        const imagePath = req.params[0]; // Get the wildcard path
+        const companyName = dbName;
+        
+        // Reconstruct full path
+        const fullPath = `layouts/${companyName}/${layoutId}/${imagePath}`;
+        
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(fullPath);
+        
+        // Verify file exists and belongs to the correct layout
+        const [exists] = await file.exists();
+        if (!exists) {
+            return res.status(404).json({ error: 'Image not found' });
+        }
+        
+        // Delete the file
+        await file.delete();
+        
+        console.log(`🗑️ Deleted image: ${fullPath}`);
+        res.json({ success: true, message: 'Image deleted successfully' });
+        
+    } catch (error) {
+        console.error('❌ Error deleting image:', error);
+        res.status(500).json({ error: 'Failed to delete image', details: error.message });
     }
 });
 

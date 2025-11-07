@@ -18,6 +18,9 @@ let selectedComponent = null;
 let isDragging = false;
 let isResizing = false;
 let dragStartX = 0;
+let uploadedImages = []; // Store uploaded images for current layout
+let selectedFiles = []; // Temporary storage for files to upload
+let contextMenuTarget = null; // Component that was right-clicked
 let dragStartY = 0;
 let componentIdCounter = 0;
 
@@ -1020,6 +1023,12 @@ function initializeLayoutsTab() {
     document.getElementById('canvas-close-btn').addEventListener('click', closeCanvasEditor);
     document.getElementById('canvas-save-btn').addEventListener('click', saveLayout);
     document.getElementById('canvas-preview-btn').addEventListener('click', previewLayout);
+    
+    // Initialize image modal
+    initializeImageModal();
+    
+    // Initialize context menu
+    initializeContextMenu();
 }
 
 async function loadLayouts() {
@@ -1182,17 +1191,33 @@ async function openCanvasEditor() {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     
+    // Apply canvas background
+    if (currentLayout.backgroundColor) {
+        canvas.style.backgroundColor = currentLayout.backgroundColor;
+    }
+    if (currentLayout.backgroundImage) {
+        canvas.style.backgroundImage = `url('${currentLayout.backgroundImage}')`;
+        canvas.style.backgroundSize = 'cover';
+        canvas.style.backgroundPosition = 'center';
+    }
+    
     document.getElementById('canvas-editor-title').textContent = `Editing: ${layoutName}`;
     document.getElementById('canvas-editor-dimensions').textContent = `${width} × ${height}px`;
     
     // Load datapoints for the selected raspberry
     await loadCanvasDatapoints(raspberryId);
     
+    // Load images for this layout
+    await loadLayoutImages();
+    
     // Render existing components
     renderCanvasComponents();
     
     // Initialize drag and drop
     initializeCanvasDragDrop();
+    
+    // Show canvas properties initially
+    showCanvasProperties();
 }
 
 function closeCanvasEditor() {
@@ -1266,6 +1291,13 @@ function createComponentElement(comp) {
         if (comp.styles.lineHeight) el.style.lineHeight = comp.styles.lineHeight;
     }
     
+    // Apply z-index and locked state
+    el.style.zIndex = comp.zIndex || 0;
+    if (comp.locked) {
+        el.classList.add('locked');
+        el.style.cursor = 'default';
+    }
+    
     if (comp.type === 'text') {
         el.textContent = comp.content || 'Text Label';
     } else if (comp.type === 'datapoint') {
@@ -1274,6 +1306,17 @@ function createComponentElement(comp) {
             <div style="font-size: 1.2em; font-weight: bold;">${comp.datapointId ? '[Live Value]' : '---'}</div>
             <div style="font-size: 0.7em; opacity: 0.5;">${comp.unit || ''}</div>
         `;
+    } else if (comp.type === 'image') {
+        el.classList.add('component-image');
+        el.style.backgroundImage = `url('${comp.imageUrl}')`;
+        el.style.backgroundSize = comp.styles?.objectFit || 'contain';
+        el.style.backgroundPosition = 'center';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.opacity = (comp.styles?.opacity || 100) / 100;
+        
+        if (comp.locked) {
+            el.innerHTML = '<div style="position: absolute; top: 5px; left: 5px; font-size: 16px; opacity: 0.7;">🔒</div>';
+        }
     }
     
     // Add resize handles
@@ -1288,6 +1331,13 @@ function createComponentElement(comp) {
     el.addEventListener('click', (e) => {
         e.stopPropagation();
         selectComponent(comp.id);
+    });
+    
+    // Right-click for context menu
+    el.addEventListener('contextmenu', (e) => {
+        e.stopPropagation();
+        selectComponent(comp.id);
+        showContextMenu(e, comp);
     });
     
     return el;
@@ -1326,18 +1376,23 @@ function initializeCanvasDragDrop() {
         
         const componentType = e.dataTransfer.getData('componentType');
         const datapointData = e.dataTransfer.getData('datapoint');
+        const imageData = e.dataTransfer.getData('image');
         
         if (componentType) {
             addComponent(componentType, x, y);
         } else if (datapointData) {
             const dp = JSON.parse(datapointData);
             addDatapointComponent(dp, x, y);
+        } else if (imageData) {
+            const img = JSON.parse(imageData);
+            addImageComponent(img, x, y);
         }
     });
     
-    // Canvas click to deselect
+    // Canvas click to show canvas properties
     canvas.addEventListener('click', () => {
         selectComponent(null);
+        showCanvasProperties();
     });
     
     // Component dragging
@@ -1376,6 +1431,8 @@ function addComponent(type, x, y) {
         y: Math.round(y),
         width: 200,
         height: 60,
+        zIndex: currentLayout.components.length,
+        locked: false,
         styles: {
             fontSize: 16,
             color: '#333333',
@@ -1404,6 +1461,8 @@ function addDatapointComponent(datapoint, x, y) {
         y: Math.round(y),
         width: 200,
         height: 80,
+        zIndex: currentLayout.components.length,
+        locked: false,
         datapointId: datapoint._id,
         opcNodeId: datapoint.opcNodeId,
         label: datapoint.label,
@@ -1413,6 +1472,33 @@ function addDatapointComponent(datapoint, x, y) {
             color: '#1e40af',
             backgroundColor: '#f0f4ff',
             fontWeight: 'normal'
+        }
+    };
+    
+    currentLayout.components.push(comp);
+    
+    const el = createComponentElement(comp);
+    document.getElementById('layout-canvas').appendChild(el);
+    
+    selectComponent(comp.id);
+}
+
+function addImageComponent(image, x, y) {
+    const comp = {
+        id: 'comp-' + (++componentIdCounter),
+        type: 'image',
+        x: Math.round(x),
+        y: Math.round(y),
+        width: 200,
+        height: 200,
+        zIndex: currentLayout.components.length,
+        locked: false,
+        imageUrl: image.url,
+        imageName: image.name,
+        imagePath: image.path,
+        styles: {
+            opacity: 100,
+            objectFit: 'contain'
         }
     };
     
@@ -1447,6 +1533,12 @@ function selectComponent(componentId) {
 function showComponentProperties(comp) {
     const panel = document.getElementById('properties-panel');
     
+    // Special case: if comp is null, show canvas properties
+    if (!comp || comp === 'canvas') {
+        showCanvasProperties();
+        return;
+    }
+    
     panel.innerHTML = `
         <div class="property-group">
             <label>Position & Size</label>
@@ -1480,7 +1572,7 @@ function showComponentProperties(comp) {
         ${comp.type === 'datapoint' ? `
             <div class="property-group">
                 <label>Label</label>
-                <input type="text" id="prop-label" value="${comp.label || ''}">
+                <input type="number" id="prop-label" value="${comp.label || ''}">
             </div>
             <div class="property-group">
                 <label>Unit</label>
@@ -1492,78 +1584,103 @@ function showComponentProperties(comp) {
             </div>
         ` : ''}
         
-        <div class="property-group">
-            <label>Font Size</label>
-            <input type="number" id="prop-fontsize" value="${comp.styles?.fontSize || 16}" min="8" max="100">
-        </div>
-        
-        <div class="property-group">
-            <label>Text Color</label>
-            <div class="color-picker-group">
-                <input type="color" id="prop-color" value="${comp.styles?.color || '#333333'}">
-                <input type="text" id="prop-color-text" value="${comp.styles?.color || '#333333'}">
+        ${comp.type === 'image' ? `
+            <div class="property-group">
+                <label>Image</label>
+                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${comp.imageName}</div>
+                <button class="btn btn-secondary" onclick="openImageUploadModal()" style="width: 100%;">Change Image</button>
             </div>
-        </div>
-        
-        <div class="property-group">
-            <label>Background Color</label>
-            <div class="color-picker-group">
-                <input type="color" id="prop-bgcolor" value="${comp.styles?.backgroundColor || '#ffffff'}">
-                <input type="text" id="prop-bgcolor-text" value="${comp.styles?.backgroundColor || '#ffffff'}">
+            
+            <div class="property-group">
+                <label>Opacity (%)</label>
+                <input type="number" id="prop-opacity" value="${comp.styles?.opacity || 100}" min="0" max="100">
             </div>
-        </div>
-        
-        <div class="property-group">
-            <label>Font Weight</label>
-            <select id="prop-fontweight">
-                <option value="normal" ${comp.styles?.fontWeight === 'normal' ? 'selected' : ''}>Normal</option>
-                <option value="bold" ${comp.styles?.fontWeight === 'bold' ? 'selected' : ''}>Bold</option>
-            </select>
-        </div>
-        
-        <div class="property-group">
-            <label>Text Alignment</label>
-            <select id="prop-textalign">
-                <option value="left" ${comp.styles?.textAlign === 'left' ? 'selected' : ''}>Left</option>
-                <option value="center" ${comp.styles?.textAlign === 'center' ? 'selected' : ''}>Center</option>
-                <option value="right" ${comp.styles?.textAlign === 'right' ? 'selected' : ''}>Right</option>
-                <option value="justify" ${comp.styles?.textAlign === 'justify' ? 'selected' : ''}>Justify</option>
-            </select>
-        </div>
-        
-        <div class="property-group">
-            <label>Word Wrap</label>
-            <select id="prop-wordwrap">
-                <option value="normal" ${!comp.styles?.whiteSpace || comp.styles?.whiteSpace === 'normal' ? 'selected' : ''}>Wrap Text</option>
-                <option value="nowrap" ${comp.styles?.whiteSpace === 'nowrap' ? 'selected' : ''}>No Wrap</option>
-            </select>
-        </div>
-        
-        <div class="property-group">
-            <label>Text Overflow</label>
-            <select id="prop-overflow">
-                <option value="visible" ${!comp.styles?.overflow || comp.styles?.overflow === 'visible' ? 'selected' : ''}>Visible</option>
-                <option value="hidden" ${comp.styles?.overflow === 'hidden' ? 'selected' : ''}>Hidden</option>
-                <option value="scroll" ${comp.styles?.overflow === 'scroll' ? 'selected' : ''}>Scroll</option>
-                <option value="auto" ${comp.styles?.overflow === 'auto' ? 'selected' : ''}>Auto</option>
-            </select>
-        </div>
-        
-        <div class="property-group">
-            <label>Line Height</label>
-            <input type="number" id="prop-lineheight" value="${comp.styles?.lineHeight || 1.5}" min="0.5" max="3" step="0.1">
-        </div>
-        
-        <div class="property-group">
-            <label>Auto Scale Text</label>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
-                    <input type="checkbox" id="prop-autoscale" ${comp.styles?.autoScale ? 'checked' : ''} style="margin-right: 8px;">
-                    Auto scale text to fit
-                </label>
-                <small style="color: #666; font-size: 11px; margin-top: -4px;">Text size adjusts when box is resized</small>
+            
+            <div class="property-group">
+                <label>Fit Mode</label>
+                <select id="prop-objectfit">
+                    <option value="contain" ${comp.styles?.objectFit === 'contain' ? 'selected' : ''}>Contain</option>
+                    <option value="cover" ${comp.styles?.objectFit === 'cover' ? 'selected' : ''}>Cover</option>
+                    <option value="fill" ${comp.styles?.objectFit === 'fill' ? 'selected' : ''}>Fill</option>
+                    <option value="scale-down" ${comp.styles?.objectFit === 'scale-down' ? 'selected' : ''}>Scale Down</option>
+                </select>
             </div>
-        </div>
+        ` : ''}
+        
+        ${comp.type !== 'image' ? `
+            <div class="property-group">
+                <label>Font Size</label>
+                <input type="number" id="prop-fontsize" value="${comp.styles?.fontSize || 16}" min="8" max="100">
+            </div>
+            
+            <div class="property-group">
+                <label>Text Color</label>
+                <div class="color-picker-group">
+                    <input type="color" id="prop-color" value="${comp.styles?.color || '#333333'}">
+                    <input type="text" id="prop-color-text" value="${comp.styles?.color || '#333333'}">
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <label>Background Color</label>
+                <div class="color-picker-group">
+                    <input type="color" id="prop-bgcolor" value="${comp.styles?.backgroundColor || '#ffffff'}">
+                    <input type="text" id="prop-bgcolor-text" value="${comp.styles?.backgroundColor || '#ffffff'}">
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <label>Font Weight</label>
+                <select id="prop-fontweight">
+                    <option value="normal" ${comp.styles?.fontWeight === 'normal' ? 'selected' : ''}>Normal</option>
+                    <option value="bold" ${comp.styles?.fontWeight === 'bold' ? 'selected' : ''}>Bold</option>
+                </select>
+            </div>
+            
+            <div class="property-group">
+                <label>Text Alignment</label>
+                <select id="prop-textalign">
+                    <option value="left" ${comp.styles?.textAlign === 'left' ? 'selected' : ''}>Left</option>
+                    <option value="center" ${comp.styles?.textAlign === 'center' ? 'selected' : ''}>Center</option>
+                    <option value="right" ${comp.styles?.textAlign === 'right' ? 'selected' : ''}>Right</option>
+                    <option value="justify" ${comp.styles?.textAlign === 'justify' ? 'selected' : ''}>Justify</option>
+                </select>
+            </div>
+            
+            <div class="property-group">
+                <label>Word Wrap</label>
+                <select id="prop-wordwrap">
+                    <option value="normal" ${!comp.styles?.whiteSpace || comp.styles?.whiteSpace === 'normal' ? 'selected' : ''}>Wrap Text</option>
+                    <option value="nowrap" ${comp.styles?.whiteSpace === 'nowrap' ? 'selected' : ''}>No Wrap</option>
+                </select>
+            </div>
+            
+            <div class="property-group">
+                <label>Text Overflow</label>
+                <select id="prop-overflow">
+                    <option value="visible" ${!comp.styles?.overflow || comp.styles?.overflow === 'visible' ? 'selected' : ''}>Visible</option>
+                    <option value="hidden" ${comp.styles?.overflow === 'hidden' ? 'selected' : ''}>Hidden</option>
+                    <option value="scroll" ${comp.styles?.overflow === 'scroll' ? 'selected' : ''}>Scroll</option>
+                    <option value="auto" ${comp.styles?.overflow === 'auto' ? 'selected' : ''}>Auto</option>
+                </select>
+            </div>
+            
+            <div class="property-group">
+                <label>Line Height</label>
+                <input type="number" id="prop-lineheight" value="${comp.styles?.lineHeight || 1.5}" min="0.5" max="3" step="0.1">
+            </div>
+            
+            <div class="property-group">
+                <label>Auto Scale Text</label>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
+                        <input type="checkbox" id="prop-autoscale" ${comp.styles?.autoScale ? 'checked' : ''} style="margin-right: 8px;">
+                        Auto scale text to fit
+                    </label>
+                    <small style="color: #666; font-size: 11px; margin-top: -4px;">Text size adjusts when box is resized</small>
+                </div>
+            </div>
+        ` : ''}
         
         <div class="property-actions">
             <button type="button" class="btn btn-danger" onclick="deleteComponent()">Delete</button>
@@ -1572,6 +1689,66 @@ function showComponentProperties(comp) {
     
     // Add real-time event listeners to all property inputs
     attachPropertyListeners();
+}
+
+function showCanvasProperties() {
+    const panel = document.getElementById('properties-panel');
+    
+    panel.innerHTML = `
+        <h4 style="margin-bottom: 15px;">Canvas Properties</h4>
+        
+        <div class="property-group">
+            <label>Background Color</label>
+            <div class="color-picker-group">
+                <input type="color" id="canvas-bgcolor" value="${currentLayout.backgroundColor || '#ffffff'}">
+                <input type="text" id="canvas-bgcolor-text" value="${currentLayout.backgroundColor || '#ffffff'}">
+            </div>
+        </div>
+        
+        <div class="property-group">
+            <label>Background Image</label>
+            ${currentLayout.backgroundImage ? `
+                <div style="margin-bottom: 10px;">
+                    <img src="${currentLayout.backgroundImage}" style="width: 100%; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">
+                    <button class="btn btn-danger" onclick="removeCanvasBackground()" style="width: 100%;">Remove Background</button>
+                </div>
+            ` : `
+                <button class="btn btn-secondary" onclick="openImageUploadModal()" style="width: 100%;">Set Background Image</button>
+            `}
+        </div>
+    `;
+    
+    // Add canvas property listeners
+    const bgcolorEl = document.getElementById('canvas-bgcolor');
+    const bgcolorTextEl = document.getElementById('canvas-bgcolor-text');
+    
+    if (bgcolorEl && bgcolorTextEl) {
+        bgcolorEl.addEventListener('input', (e) => {
+            bgcolorTextEl.value = e.target.value;
+            applyCanvasBackground();
+        });
+        bgcolorTextEl.addEventListener('input', (e) => {
+            bgcolorEl.value = e.target.value;
+            applyCanvasBackground();
+        });
+    }
+}
+
+function applyCanvasBackground() {
+    const bgcolor = document.getElementById('canvas-bgcolor')?.value;
+    
+    if (bgcolor) {
+        currentLayout.backgroundColor = bgcolor;
+        const canvas = document.getElementById('layout-canvas');
+        canvas.style.backgroundColor = bgcolor;
+    }
+}
+
+function removeCanvasBackground() {
+    currentLayout.backgroundImage = null;
+    const canvas = document.getElementById('layout-canvas');
+    canvas.style.backgroundImage = 'none';
+    showCanvasProperties();
 }
 
 function attachPropertyListeners() {
@@ -1636,6 +1813,13 @@ function attachPropertyListeners() {
     // Auto scale checkbox
     const autoscaleEl = document.getElementById('prop-autoscale');
     if (autoscaleEl) autoscaleEl.addEventListener('change', applyComponentProperties);
+    
+    // Image specific properties
+    const opacityEl = document.getElementById('prop-opacity');
+    if (opacityEl) opacityEl.addEventListener('input', applyComponentProperties);
+    
+    const objectfitEl = document.getElementById('prop-objectfit');
+    if (objectfitEl) objectfitEl.addEventListener('change', applyComponentProperties);
 }
 
 function hideComponentProperties() {
@@ -1657,25 +1841,32 @@ function applyComponentProperties() {
     }
     
     if (selectedComponent.type === 'datapoint') {
-        selectedComponent.label = document.getElementById('prop-label').value;
-        selectedComponent.unit = document.getElementById('prop-unit').value;
+        selectedComponent.label = document.getElementById('prop-label')?.value;
+        selectedComponent.unit = document.getElementById('prop-unit')?.value;
     }
     
-    const baseFontSize = parseInt(document.getElementById('prop-fontsize').value);
-    const autoScale = document.getElementById('prop-autoscale')?.checked || false;
-    
-    selectedComponent.styles = {
-        fontSize: baseFontSize,
-        baseFontSize: baseFontSize, // Store original font size
-        color: document.getElementById('prop-color').value,
-        backgroundColor: document.getElementById('prop-bgcolor').value,
-        fontWeight: document.getElementById('prop-fontweight').value,
-        textAlign: document.getElementById('prop-textalign').value,
-        whiteSpace: document.getElementById('prop-wordwrap').value,
-        overflow: document.getElementById('prop-overflow').value,
-        lineHeight: parseFloat(document.getElementById('prop-lineheight').value),
-        autoScale: autoScale
-    };
+    if (selectedComponent.type === 'image') {
+        selectedComponent.styles = {
+            opacity: parseInt(document.getElementById('prop-opacity')?.value || 100),
+            objectFit: document.getElementById('prop-objectfit')?.value || 'contain'
+        };
+    } else {
+        const baseFontSize = parseInt(document.getElementById('prop-fontsize')?.value || 16);
+        const autoScale = document.getElementById('prop-autoscale')?.checked || false;
+        
+        selectedComponent.styles = {
+            fontSize: baseFontSize,
+            baseFontSize: baseFontSize, // Store original font size
+            color: document.getElementById('prop-color')?.value,
+            backgroundColor: document.getElementById('prop-bgcolor')?.value,
+            fontWeight: document.getElementById('prop-fontweight')?.value,
+            textAlign: document.getElementById('prop-textalign')?.value,
+            whiteSpace: document.getElementById('prop-wordwrap')?.value,
+            overflow: document.getElementById('prop-overflow')?.value,
+            lineHeight: parseFloat(document.getElementById('prop-lineheight')?.value || 1.5),
+            autoScale: autoScale
+        };
+    }
     
     // Re-render component
     const el = document.querySelector(`[data-id="${selectedComponent.id}"]`);
@@ -1760,6 +1951,13 @@ let offsetX = 0, offsetY = 0;
 function handleComponentMouseDown(e) {
     const component = e.target.closest('.canvas-component');
     if (!component) return;
+    
+    // Check if component is locked
+    const compId = component.dataset.id;
+    const comp = currentLayout.components.find(c => c.id === compId);
+    if (comp && comp.locked) {
+        return; // Don't allow dragging or resizing locked components
+    }
     
     const handle = e.target.closest('.component-resize-handle');
     if (handle) {
@@ -1990,6 +2188,385 @@ function copyLayoutURL(layoutId) {
     navigator.clipboard.writeText(url).then(() => {
         showToast('URL copied to clipboard!', 'success');
     });
+}
+
+// ==========================================
+// Image Upload Functions
+// ==========================================
+
+async function openImageUploadModal() {
+    if (!currentLayout) {
+        showToast('Please create or open a layout first', 'error');
+        return;
+    }
+    
+    document.getElementById('image-upload-modal').style.display = 'flex';
+    
+    // Load existing images for this layout
+    await loadLayoutImages();
+    
+    // Switch to gallery tab
+    switchImageTab('gallery');
+}
+
+function closeImageUploadModal() {
+    document.getElementById('image-upload-modal').style.display = 'none';
+    selectedFiles = [];
+    document.getElementById('image-preview-area').style.display = 'none';
+    document.getElementById('upload-images-btn').style.display = 'none';
+}
+
+function switchImageTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.image-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    
+    // Update tab content
+    document.querySelectorAll('.image-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `${tabName}-tab`);
+    });
+}
+
+// Initialize image modal interactions
+function initializeImageModal() {
+    const fileInput = document.getElementById('image-file-input');
+    const uploadArea = document.getElementById('upload-area');
+    const uploadBtn = document.getElementById('upload-images-btn');
+    
+    // Tab switching
+    document.querySelectorAll('.image-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchImageTab(btn.dataset.tab));
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        handleFileSelect(e.target.files);
+    });
+    
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('drag-over');
+    });
+    
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('drag-over');
+    });
+    
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('drag-over');
+        handleFileSelect(e.dataTransfer.files);
+    });
+    
+    // Upload button
+    uploadBtn.addEventListener('click', uploadSelectedImages);
+}
+
+function handleFileSelect(files) {
+    selectedFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    
+    if (selectedFiles.length === 0) {
+        showToast('Please select image files', 'error');
+        return;
+    }
+    
+    // Show previews
+    const previewArea = document.getElementById('image-preview-area');
+    previewArea.innerHTML = '';
+    previewArea.style.display = 'grid';
+    
+    selectedFiles.forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const preview = document.createElement('div');
+            preview.className = 'image-preview-item';
+            preview.innerHTML = `
+                <img src="${e.target.result}" alt="${file.name}">
+                <button class="remove-preview" onclick="removePreview(${index})">&times;</button>
+            `;
+            previewArea.appendChild(preview);
+        };
+        reader.readAsDataURL(file);
+    });
+    
+    document.getElementById('upload-images-btn').style.display = 'block';
+}
+
+function removePreview(index) {
+    selectedFiles.splice(index, 1);
+    
+    if (selectedFiles.length === 0) {
+        document.getElementById('image-preview-area').style.display = 'none';
+        document.getElementById('upload-images-btn').style.display = 'none';
+    } else {
+        handleFileSelect(selectedFiles);
+    }
+}
+
+async function uploadSelectedImages() {
+    if (!currentLayout || selectedFiles.length === 0) return;
+    
+    const uploadBtn = document.getElementById('upload-images-btn');
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Uploading...';
+    
+    try {
+        const formData = new FormData();
+        selectedFiles.forEach(file => {
+            formData.append('images', file);
+        });
+        
+        const response = await fetch(`${API_BASE}/api/opcua/admin/layouts/${currentLayout.layoutId}/images`, {
+            method: 'POST',
+            headers: {
+                'X-Session-User': currentUser
+            },
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast(`Uploaded ${data.images.length} image(s)`, 'success');
+            uploadedImages = [...uploadedImages, ...data.images];
+            selectedFiles = [];
+            
+            // Clear preview
+            document.getElementById('image-preview-area').style.display = 'none';
+            document.getElementById('upload-images-btn').style.display = 'none';
+            document.getElementById('image-file-input').value = '';
+            
+            // Switch to gallery and refresh
+            switchImageTab('gallery');
+            await loadLayoutImages();
+        } else {
+            showToast('Failed to upload images', 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading images:', error);
+        showToast('Error uploading images', 'error');
+    } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload All';
+    }
+}
+
+async function loadLayoutImages() {
+    if (!currentLayout) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/opcua/admin/layouts/${currentLayout.layoutId}/images`, {
+            headers: {
+                'X-Session-User': currentUser
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            uploadedImages = data.images;
+            renderImageGallery();
+        }
+    } catch (error) {
+        console.error('Error loading images:', error);
+    }
+}
+
+function renderImageGallery() {
+    const gallery = document.getElementById('image-gallery');
+    
+    if (uploadedImages.length === 0) {
+        gallery.innerHTML = '<div class="empty-state">No images uploaded yet</div>';
+        return;
+    }
+    
+    gallery.innerHTML = uploadedImages.map(img => `
+        <div class="gallery-item" draggable="true" data-image='${JSON.stringify(img)}'>
+            <img src="${img.url}" alt="${img.name}">
+            <div class="image-name">${img.name}</div>
+            <button class="delete-image" onclick="deleteImage('${img.path}')">&times;</button>
+        </div>
+    `).join('');
+    
+    // Add drag listeners to gallery items
+    document.querySelectorAll('.gallery-item').forEach(item => {
+        item.addEventListener('dragstart', handleGalleryDragStart);
+        item.addEventListener('dragend', handleGalleryDragEnd);
+    });
+}
+
+function handleGalleryDragStart(e) {
+    e.target.classList.add('dragging');
+    const imageData = e.target.dataset.image;
+    e.dataTransfer.setData('image', imageData);
+}
+
+function handleGalleryDragEnd(e) {
+    e.target.classList.remove('dragging');
+    // Close modal when dragging to canvas
+    closeImageUploadModal();
+}
+
+async function deleteImage(imagePath) {
+    if (!confirm('Delete this image? This cannot be undone.')) return;
+    
+    try {
+        const fileName = imagePath.split('/').pop();
+        const response = await fetch(`${API_BASE}/api/opcua/admin/layouts/${currentLayout.layoutId}/images/${fileName}`, {
+            method: 'DELETE',
+            headers: {
+                'X-Session-User': currentUser
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('Image deleted', 'success');
+            await loadLayoutImages();
+        } else {
+            showToast('Failed to delete image', 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting image:', error);
+        showToast('Error deleting image', 'error');
+    }
+}
+
+// ==========================================
+// Context Menu Functions
+// ==========================================
+
+function initializeContextMenu() {
+    const contextMenu = document.getElementById('component-context-menu');
+    
+    // Close context menu on click outside
+    document.addEventListener('click', () => {
+        contextMenu.style.display = 'none';
+    });
+    
+    // Context menu item actions
+    document.querySelectorAll('.context-menu-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const action = item.dataset.action;
+            handleContextMenuAction(action);
+            contextMenu.style.display = 'none';
+        });
+    });
+}
+
+function showContextMenu(e, component) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    contextMenuTarget = component;
+    const contextMenu = document.getElementById('component-context-menu');
+    
+    // Update lock menu text
+    document.getElementById('lock-menu-text').textContent = 
+        component.locked ? 'Unlock Position' : 'Lock Position';
+    
+    // Position the menu
+    contextMenu.style.display = 'block';
+    contextMenu.style.left = e.pageX + 'px';
+    contextMenu.style.top = e.pageY + 'px';
+}
+
+function handleContextMenuAction(action) {
+    if (!contextMenuTarget) return;
+    
+    switch (action) {
+        case 'move-front':
+            moveComponentToFront(contextMenuTarget);
+            break;
+        case 'move-forward':
+            moveComponentForward(contextMenuTarget);
+            break;
+        case 'move-backward':
+            moveComponentBackward(contextMenuTarget);
+            break;
+        case 'move-back':
+            moveComponentToBack(contextMenuTarget);
+            break;
+        case 'lock':
+            toggleComponentLock(contextMenuTarget);
+            break;
+        case 'duplicate':
+            duplicateComponent(contextMenuTarget);
+            break;
+        case 'delete':
+            deleteComponent();
+            break;
+    }
+}
+
+function moveComponentToFront(comp) {
+    const maxZ = Math.max(...currentLayout.components.map(c => c.zIndex || 0));
+    comp.zIndex = maxZ + 1;
+    updateComponentZIndex(comp);
+}
+
+function moveComponentForward(comp) {
+    const currentZ = comp.zIndex || 0;
+    comp.zIndex = currentZ + 1;
+    updateComponentZIndex(comp);
+}
+
+function moveComponentBackward(comp) {
+    const currentZ = comp.zIndex || 0;
+    comp.zIndex = Math.max(0, currentZ - 1);
+    updateComponentZIndex(comp);
+}
+
+function moveComponentToBack(comp) {
+    comp.zIndex = 0;
+    // Shift other components up
+    currentLayout.components.forEach(c => {
+        if (c.id !== comp.id && c.zIndex > 0) {
+            c.zIndex++;
+        }
+    });
+    updateComponentZIndex(comp);
+}
+
+function updateComponentZIndex(comp) {
+    const el = document.querySelector(`[data-id="${comp.id}"]`);
+    if (el) {
+        el.style.zIndex = comp.zIndex || 0;
+    }
+}
+
+function toggleComponentLock(comp) {
+    comp.locked = !comp.locked;
+    const el = document.querySelector(`[data-id="${comp.id}"]`);
+    if (el) {
+        if (comp.locked) {
+            el.classList.add('locked');
+            el.style.cursor = 'default';
+        } else {
+            el.classList.remove('locked');
+            el.style.cursor = 'move';
+        }
+    }
+    showToast(comp.locked ? 'Component locked' : 'Component unlocked', 'success');
+}
+
+function duplicateComponent(comp) {
+    const newComp = {
+        ...comp,
+        id: 'comp-' + Date.now(),
+        x: comp.x + 20,
+        y: comp.y + 20
+    };
+    
+    currentLayout.components.push(newComp);
+    const el = createComponentElement(newComp);
+    document.getElementById('layout-canvas').appendChild(el);
+    selectComponent(newComp.id);
+    showToast('Component duplicated', 'success');
 }
 
 // ==========================================

@@ -495,6 +495,10 @@
                                         <span>📊</span>
                                         <span>Data Point</span>
                                     </div>
+                                    <div class="component-item" onclick="openImageUploadModal()" style="cursor: pointer;">
+                                        <span>🖼️</span>
+                                        <span>Image</span>
+                                    </div>
                                 </div>
 
                                 <h4 style="margin-top: 30px;">Datapoints</h4>
@@ -523,6 +527,63 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Image Upload Modal -->
+                <div id="image-upload-modal" class="modal" style="display: none;">
+                    <div class="modal-content" style="width: 700px; max-height: 80vh;">
+                        <div class="modal-header">
+                            <h3>Manage Images</h3>
+                            <button class="close-modal" onclick="closeImageUploadModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <!-- Tabs -->
+                            <div class="image-modal-tabs">
+                                <button class="image-tab-btn active" data-tab="upload">Upload</button>
+                                <button class="image-tab-btn" data-tab="gallery">Gallery</button>
+                            </div>
+
+                            <!-- Upload Tab -->
+                            <div id="upload-tab" class="image-tab-content active">
+                                <div class="upload-area" id="upload-area">
+                                    <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;">
+                                    <div class="upload-placeholder">
+                                        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                                        </svg>
+                                        <button class="btn btn-primary" onclick="document.getElementById('image-file-input').click()">Browse</button>
+                                        <p>or drag files here</p>
+                                    </div>
+                                </div>
+                                <div id="image-preview-area" class="image-preview-area" style="display: none;">
+                                    <!-- Preview thumbnails will appear here -->
+                                </div>
+                                <button id="upload-images-btn" class="btn btn-primary" style="display: none; margin-top: 10px; width: 100%;">Upload All</button>
+                            </div>
+
+                            <!-- Gallery Tab -->
+                            <div id="gallery-tab" class="image-tab-content">
+                                <div id="image-gallery" class="image-gallery">
+                                    <!-- Uploaded images will appear here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Context Menu -->
+                <div id="component-context-menu" class="context-menu" style="display: none;">
+                    <div class="context-menu-item" data-action="move-front">Move to Front</div>
+                    <div class="context-menu-item" data-action="move-forward">Move Forward</div>
+                    <div class="context-menu-item" data-action="move-backward">Move Backward</div>
+                    <div class="context-menu-item" data-action="move-back">Move to Back</div>
+                    <div class="context-menu-divider"></div>
+                    <div class="context-menu-item" data-action="lock">
+                        <span id="lock-menu-text">Lock Position</span>
+                    </div>
+                    <div class="context-menu-item" data-action="duplicate">Duplicate</div>
+                    <div class="context-menu-divider"></div>
+                    <div class="context-menu-item" data-action="delete" style="color: #dc2626;">Delete</div>
                 </div>
             </section>
         </main>

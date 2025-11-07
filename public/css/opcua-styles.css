@@ -1011,3 +1011,220 @@ tr:last-child td {
 .property-actions button {
     flex: 1;
 }
+
+/* Image Upload Modal */
+.image-modal-tabs {
+    display: flex;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 20px;
+}
+
+.image-tab-btn {
+    padding: 10px 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: #6b7280;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+}
+
+.image-tab-btn:hover {
+    color: var(--primary-color);
+}
+
+.image-tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.image-tab-content {
+    display: none;
+}
+
+.image-tab-content.active {
+    display: block;
+}
+
+.upload-area {
+    border: 2px dashed #d1d5db;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    transition: all 0.3s;
+}
+
+.upload-area.drag-over {
+    border-color: var(--primary-color);
+    background: #f0f4ff;
+}
+
+.upload-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.upload-placeholder p {
+    color: #9ca3af;
+    margin: 0;
+}
+
+.image-preview-area {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-top: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.image-preview-item {
+    position: relative;
+    aspect-ratio: 1;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.image-preview-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.image-preview-item .remove-preview {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(220, 38, 38, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.image-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.gallery-item {
+    position: relative;
+    aspect-ratio: 1;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: grab;
+    transition: all 0.2s;
+}
+
+.gallery-item:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.gallery-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+.gallery-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.gallery-item .image-name {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 5px;
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gallery-item .delete-image {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(220, 38, 38, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.gallery-item:hover .delete-image {
+    opacity: 1;
+}
+
+/* Context Menu */
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    z-index: 10000;
+    min-width: 180px;
+    padding: 5px 0;
+}
+
+.context-menu-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.context-menu-item:hover {
+    background: #f3f4f6;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 5px 0;
+}
+
+/* Component Image Type */
+.component-image {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.component-image.locked::before {
+    content: '🔒';
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: 16px;
+    opacity: 0.7;
+}

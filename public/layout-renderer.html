@@ -154,6 +154,16 @@
             container.style.width = layout.canvasWidth + 'px';
             container.style.height = layout.canvasHeight + 'px';
             
+            // Apply canvas background
+            if (layout.backgroundColor) {
+                container.style.backgroundColor = layout.backgroundColor;
+            }
+            if (layout.backgroundImage) {
+                container.style.backgroundImage = `url('${layout.backgroundImage}')`;
+                container.style.backgroundSize = 'cover';
+                container.style.backgroundPosition = 'center';
+            }
+            
             // Center container on screen
             container.style.position = 'absolute';
             container.style.top = '50%';
@@ -181,6 +191,7 @@
             el.style.top = comp.y + 'px';
             el.style.width = comp.width + 'px';
             el.style.height = comp.height + 'px';
+            el.style.zIndex = comp.zIndex || 0;
             
             if (comp.styles) {
                 if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';
@@ -203,6 +214,13 @@
                     <div class="datapoint-value" data-datapoint-id="${comp.datapointId}">---</div>
                     ${comp.unit ? `<div class="datapoint-unit">${comp.unit}</div>` : ''}
                 `;
+            } else if (comp.type === 'image') {
+                el.classList.add('component-image');
+                el.style.backgroundImage = `url('${comp.imageUrl}')`;
+                el.style.backgroundSize = comp.styles?.objectFit || 'contain';
+                el.style.backgroundPosition = 'center';
+                el.style.backgroundRepeat = 'no-repeat';
+                el.style.opacity = (comp.styles?.opacity || 100) / 100;
             }
             
             return el;
