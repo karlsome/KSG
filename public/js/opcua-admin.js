@@ -1168,6 +1168,13 @@ async function openCanvasEditor() {
     if (layoutId) {
         // Load existing layout
         currentLayout = layouts.find(l => l.layoutId === layoutId);
+        if (!currentLayout) {
+            showToast('Layout not found', 'error');
+            return;
+        }
+        // Ensure all required properties exist
+        if (!currentLayout.components) currentLayout.components = [];
+        if (!currentLayout.backgroundColor) currentLayout.backgroundColor = '#ffffff';
     } else {
         // Create new layout
         currentLayout = {
@@ -1176,7 +1183,9 @@ async function openCanvasEditor() {
             raspberryId,
             canvasWidth: width,
             canvasHeight: height,
-            components: []
+            components: [],
+            backgroundColor: '#ffffff',
+            backgroundImage: null
         };
     }
     
@@ -1195,11 +1204,15 @@ async function openCanvasEditor() {
     // Apply canvas background
     if (currentLayout.backgroundColor) {
         canvas.style.backgroundColor = currentLayout.backgroundColor;
+    } else {
+        canvas.style.backgroundColor = '#ffffff';
     }
     if (currentLayout.backgroundImage) {
         canvas.style.backgroundImage = `url('${currentLayout.backgroundImage}')`;
         canvas.style.backgroundSize = 'cover';
         canvas.style.backgroundPosition = 'center';
+    } else {
+        canvas.style.backgroundImage = 'none';
     }
     
     document.getElementById('canvas-editor-title').textContent = `Editing: ${layoutName}`;
@@ -1430,6 +1443,11 @@ function handleCanvasKeydown(e) {
 }
 
 function addComponent(type, x, y) {
+    if (!currentLayout) {
+        showToast('Please create or open a layout first', 'error');
+        return;
+    }
+    
     const comp = {
         id: 'comp-' + (++componentIdCounter),
         type: type,
@@ -1460,6 +1478,11 @@ function addComponent(type, x, y) {
 }
 
 function addDatapointComponent(datapoint, x, y) {
+    if (!currentLayout) {
+        showToast('Please create or open a layout first', 'error');
+        return;
+    }
+    
     const comp = {
         id: 'comp-' + (++componentIdCounter),
         type: 'datapoint',
@@ -1490,6 +1513,11 @@ function addDatapointComponent(datapoint, x, y) {
 }
 
 function addImageComponent(image, x, y) {
+    if (!currentLayout) {
+        showToast('Please create or open a layout first', 'error');
+        return;
+    }
+    
     const comp = {
         id: 'comp-' + (++componentIdCounter),
         type: 'image',
@@ -1514,6 +1542,9 @@ function addImageComponent(image, x, y) {
     document.getElementById('layout-canvas').appendChild(el);
     
     selectComponent(comp.id);
+    
+    // Auto-save after adding component
+    autoSaveLayout();
 }
 
 function selectComponent(componentId) {
@@ -1698,6 +1729,8 @@ function showComponentProperties(comp) {
 }
 
 function showCanvasProperties() {
+    if (!currentLayout) return;
+    
     const panel = document.getElementById('properties-panel');
     
     panel.innerHTML = `
@@ -1961,6 +1994,9 @@ function deleteComponent() {
         hideComponentProperties();
         
         showToast('Component deleted', 'success');
+        
+        // Auto-save after deletion
+        autoSaveLayout();
     }
 }
 
@@ -2062,6 +2098,8 @@ function handleComponentMouseMove(e) {
 }
 
 function handleComponentMouseUp(e) {
+    let needsAutoSave = false;
+    
     if (isDragging && draggedElement) {
         draggedElement.classList.remove('dragging');
         
@@ -2077,6 +2115,7 @@ function handleComponentMouseUp(e) {
                 document.getElementById('prop-x').value = comp.x;
                 document.getElementById('prop-y').value = comp.y;
             }
+            needsAutoSave = true;
         }
         
         draggedElement = null;
@@ -2103,11 +2142,17 @@ function handleComponentMouseUp(e) {
             if (comp.styles?.autoScale) {
                 applyAutoScale(comp, resizingComponent);
             }
+            needsAutoSave = true;
         }
         
         resizingComponent = null;
         isResizing = false;
         resizingHandle = null;
+    }
+    
+    // Auto-save after drag or resize
+    if (needsAutoSave) {
+        autoSaveLayout();
     }
 }
 
@@ -2137,6 +2182,48 @@ async function saveLayout() {
         console.error('Error saving layout:', error);
         showToast('Error saving layout', 'error');
     }
+}
+
+// Auto-save with debouncing
+let autoSaveTimeout = null;
+async function autoSaveLayout() {
+    if (!currentLayout) return;
+    
+    // Clear existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    
+    // Debounce: wait 500ms after last change before saving
+    autoSaveTimeout = setTimeout(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/opcua/admin/layouts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-User': currentUser
+                },
+                body: JSON.stringify(currentLayout)
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('✅ Layout auto-saved');
+                // Show subtle indicator
+                const saveBtn = document.getElementById('canvas-save-btn');
+                if (saveBtn) {
+                    const originalText = saveBtn.textContent;
+                    saveBtn.textContent = '✓ Saved';
+                    setTimeout(() => {
+                        saveBtn.textContent = originalText;
+                    }, 1000);
+                }
+            }
+        } catch (error) {
+            console.error('Auto-save error:', error);
+        }
+    }, 500);
 }
 
 function previewLayout() {
@@ -2563,18 +2650,21 @@ function moveComponentToFront(comp) {
     const maxZ = Math.max(...currentLayout.components.map(c => c.zIndex || 0));
     comp.zIndex = maxZ + 1;
     updateComponentZIndex(comp);
+    autoSaveLayout();
 }
 
 function moveComponentForward(comp) {
     const currentZ = comp.zIndex || 0;
     comp.zIndex = currentZ + 1;
     updateComponentZIndex(comp);
+    autoSaveLayout();
 }
 
 function moveComponentBackward(comp) {
     const currentZ = comp.zIndex || 0;
     comp.zIndex = Math.max(0, currentZ - 1);
     updateComponentZIndex(comp);
+    autoSaveLayout();
 }
 
 function moveComponentToBack(comp) {
@@ -2586,6 +2676,7 @@ function moveComponentToBack(comp) {
         }
     });
     updateComponentZIndex(comp);
+    autoSaveLayout();
 }
 
 function updateComponentZIndex(comp) {
@@ -2608,6 +2699,7 @@ function toggleComponentLock(comp) {
         }
     }
     showToast(comp.locked ? 'Component locked' : 'Component unlocked', 'success');
+    autoSaveLayout();
 }
 
 function duplicateComponent(comp) {
@@ -2623,6 +2715,9 @@ function duplicateComponent(comp) {
     document.getElementById('layout-canvas').appendChild(el);
     selectComponent(newComp.id);
     showToast('Component duplicated', 'success');
+    
+    // Auto-save after duplication
+    autoSaveLayout();
 }
 
 // ==========================================
