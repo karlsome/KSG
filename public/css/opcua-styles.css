@@ -919,6 +919,10 @@ tr:last-child td {
     overflow: hidden;
 }
 
+.component-datapoint > div:not(.component-resize-handle) {
+    pointer-events: none;
+}
+
 .component-resize-handle {
     position: absolute;
     width: 10px;
@@ -926,6 +930,8 @@ tr:last-child td {
     background: var(--primary-color);
     border: 1px solid white;
     border-radius: 2px;
+    pointer-events: auto;
+    z-index: 10;
 }
 
 .component-resize-handle.se {

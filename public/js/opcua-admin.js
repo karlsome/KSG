@@ -1321,9 +1321,9 @@ function createComponentElement(comp) {
         el.textContent = comp.content || 'Text Label';
     } else if (comp.type === 'datapoint') {
         el.innerHTML = `
-            <div style="font-size: 0.8em; opacity: 0.7;">${comp.label || 'Label'}</div>
-            <div style="font-size: 1.2em; font-weight: bold;">${comp.datapointId ? '[Live Value]' : '---'}</div>
-            <div style="font-size: 0.7em; opacity: 0.5;">${comp.unit || ''}</div>
+            <div style="font-size: 0.8em; opacity: 0.7; pointer-events: none;">${comp.label || 'Label'}</div>
+            <div style="font-size: 1.2em; font-weight: bold; pointer-events: none;">${comp.datapointId ? '[Live Value]' : '---'}</div>
+            <div style="font-size: 0.7em; opacity: 0.5; pointer-events: none;">${comp.unit || ''}</div>
         `;
     } else if (comp.type === 'image') {
         el.classList.add('component-image');
@@ -1349,15 +1349,17 @@ function createComponentElement(comp) {
     // Click to select
     el.addEventListener('click', (e) => {
         e.stopPropagation();
+        e.preventDefault();
         selectComponent(comp.id);
-    });
+    }, true); // Use capture phase
     
     // Right-click for context menu
     el.addEventListener('contextmenu', (e) => {
         e.stopPropagation();
+        e.preventDefault();
         selectComponent(comp.id);
         showContextMenu(e, comp);
-    });
+    }, true); // Use capture phase
     
     return el;
 }
@@ -1614,7 +1616,7 @@ function showComponentProperties(comp) {
         ${comp.type === 'datapoint' ? `
             <div class="property-group">
                 <label>Label</label>
-                <input type="number" id="prop-label" value="${comp.label || ''}">
+                <input type="text" id="prop-label" value="${comp.label || ''}">
             </div>
             <div class="property-group">
                 <label>Unit</label>
@@ -2038,7 +2040,10 @@ let draggedElement = null;
 let offsetX = 0, offsetY = 0;
 
 function handleComponentMouseDown(e) {
+    // First check if it's a resize handle
+    const handle = e.target.closest('.component-resize-handle');
     const component = e.target.closest('.canvas-component');
+    
     if (!component) return;
     
     // Check if component is locked
@@ -2048,7 +2053,6 @@ function handleComponentMouseDown(e) {
         return; // Don't allow dragging or resizing locked components
     }
     
-    const handle = e.target.closest('.component-resize-handle');
     if (handle) {
         isResizing = true;
         resizingHandle = handle.dataset.handle;
