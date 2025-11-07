@@ -1208,9 +1208,7 @@ async function openCanvasEditor() {
         canvas.style.backgroundColor = '#ffffff';
     }
     if (currentLayout.backgroundImage) {
-        canvas.style.backgroundImage = `url('${currentLayout.backgroundImage}')`;
-        canvas.style.backgroundSize = 'cover';
-        canvas.style.backgroundPosition = 'center';
+        applyCanvasBackgroundImage();
     } else {
         canvas.style.backgroundImage = 'none';
     }
@@ -1764,6 +1762,18 @@ function showCanvasProperties() {
             ${currentLayout.backgroundImage ? `
                 <div style="margin-bottom: 10px;">
                     <img src="${currentLayout.backgroundImage}" style="width: 100%; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">
+                    
+                    <div class="property-group" style="margin-bottom: 10px;">
+                        <label style="font-size: 12px;">Fit Mode</label>
+                        <select id="canvas-bg-fit" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="cover" ${currentLayout.backgroundImageFit === 'cover' ? 'selected' : ''}>Fill Screen (Cover)</option>
+                            <option value="contain" ${currentLayout.backgroundImageFit === 'contain' ? 'selected' : ''}>Fit to Screen (Contain)</option>
+                            <option value="fill" ${currentLayout.backgroundImageFit === 'fill' ? 'selected' : ''}>Stretch to Fill Screen</option>
+                            <option value="none center" ${currentLayout.backgroundImageFit === 'none center' ? 'selected' : ''}>Center (Actual Size)</option>
+                            <option value="auto" ${currentLayout.backgroundImageFit === 'auto' ? 'selected' : ''}>Tile/Repeat</option>
+                        </select>
+                    </div>
+                    
                     <button class="btn btn-danger" onclick="removeCanvasBackground()" style="width: 100%;">Remove Background</button>
                 </div>
             ` : `
@@ -1786,6 +1796,16 @@ function showCanvasProperties() {
             applyCanvasBackground();
         });
     }
+    
+    // Add listener for background fit mode
+    const bgFitEl = document.getElementById('canvas-bg-fit');
+    if (bgFitEl) {
+        bgFitEl.addEventListener('change', (e) => {
+            currentLayout.backgroundImageFit = e.target.value;
+            applyCanvasBackgroundImage();
+            autoSaveLayout();
+        });
+    }
 }
 
 function applyCanvasBackground() {
@@ -1800,15 +1820,63 @@ function applyCanvasBackground() {
 
 function setCanvasBackgroundImage(imageUrl) {
     currentLayout.backgroundImage = imageUrl;
-    const canvas = document.getElementById('layout-canvas');
-    canvas.style.backgroundImage = `url('${imageUrl}')`;
-    canvas.style.backgroundSize = 'cover';
-    canvas.style.backgroundPosition = 'center';
-    canvas.style.backgroundRepeat = 'no-repeat';
+    if (!currentLayout.backgroundImageFit) {
+        currentLayout.backgroundImageFit = 'cover'; // Default to fill screen
+    }
+    
+    applyCanvasBackgroundImage();
     
     closeImageUploadModal();
     showCanvasProperties();
     showToast('Background image set', 'success');
+    autoSaveLayout();
+}
+
+function applyCanvasBackgroundImage() {
+    if (!currentLayout.backgroundImage) return;
+    
+    const canvas = document.getElementById('layout-canvas');
+    const fitMode = currentLayout.backgroundImageFit || 'cover';
+    
+    canvas.style.backgroundImage = `url('${currentLayout.backgroundImage}')`;
+    
+    // Apply different styles based on fit mode
+    switch(fitMode) {
+        case 'cover':
+            // Fill Screen - scales to cover entire area, may crop
+            canvas.style.backgroundSize = 'cover';
+            canvas.style.backgroundPosition = 'center';
+            canvas.style.backgroundRepeat = 'no-repeat';
+            break;
+        case 'contain':
+            // Fit to Screen - scales to fit entirely, may show margins
+            canvas.style.backgroundSize = 'contain';
+            canvas.style.backgroundPosition = 'center';
+            canvas.style.backgroundRepeat = 'no-repeat';
+            break;
+        case 'fill':
+            // Stretch to Fill - stretches to fill, may distort
+            canvas.style.backgroundSize = '100% 100%';
+            canvas.style.backgroundPosition = 'center';
+            canvas.style.backgroundRepeat = 'no-repeat';
+            break;
+        case 'none center':
+            // Center - shows at actual size, centered
+            canvas.style.backgroundSize = 'auto';
+            canvas.style.backgroundPosition = 'center';
+            canvas.style.backgroundRepeat = 'no-repeat';
+            break;
+        case 'auto':
+            // Tile/Repeat - repeats the image
+            canvas.style.backgroundSize = 'auto';
+            canvas.style.backgroundPosition = 'top left';
+            canvas.style.backgroundRepeat = 'repeat';
+            break;
+        default:
+            canvas.style.backgroundSize = 'cover';
+            canvas.style.backgroundPosition = 'center';
+            canvas.style.backgroundRepeat = 'no-repeat';
+    }
 }
 
 function removeCanvasBackground() {
