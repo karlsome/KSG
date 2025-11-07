@@ -880,6 +880,9 @@ tr:last-child td {
     transition: border-color 0.2s;
     padding: 10px;
     border-radius: 4px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    box-sizing: border-box;
 }
 
 .canvas-component:hover {

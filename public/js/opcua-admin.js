@@ -1201,6 +1201,9 @@ function closeCanvasEditor() {
         currentLayout = null;
         selectedComponent = null;
         document.getElementById('layout-canvas').innerHTML = '';
+        
+        // Remove keyboard listener
+        document.removeEventListener('keydown', handleCanvasKeydown);
     }
 }
 
@@ -1257,6 +1260,10 @@ function createComponentElement(comp) {
         if (comp.styles.color) el.style.color = comp.styles.color;
         if (comp.styles.backgroundColor) el.style.backgroundColor = comp.styles.backgroundColor;
         if (comp.styles.fontWeight) el.style.fontWeight = comp.styles.fontWeight;
+        if (comp.styles.textAlign) el.style.textAlign = comp.styles.textAlign;
+        if (comp.styles.whiteSpace) el.style.whiteSpace = comp.styles.whiteSpace;
+        if (comp.styles.overflow) el.style.overflow = comp.styles.overflow;
+        if (comp.styles.lineHeight) el.style.lineHeight = comp.styles.lineHeight;
     }
     
     if (comp.type === 'text') {
@@ -1337,6 +1344,28 @@ function initializeCanvasDragDrop() {
     canvas.addEventListener('mousedown', handleComponentMouseDown);
     document.addEventListener('mousemove', handleComponentMouseMove);
     document.addEventListener('mouseup', handleComponentMouseUp);
+    
+    // Keyboard listener for Delete/Backspace
+    document.addEventListener('keydown', handleCanvasKeydown);
+}
+
+function handleCanvasKeydown(e) {
+    // Only handle if canvas editor is open and a component is selected
+    const editorModal = document.getElementById('canvas-editor-modal');
+    if (editorModal.style.display !== 'block' || !selectedComponent) {
+        return;
+    }
+    
+    // Check if user is typing in an input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+    }
+    
+    // Delete or Backspace key
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deleteComponent();
+    }
 }
 
 function addComponent(type, x, y) {
@@ -1492,6 +1521,39 @@ function showComponentProperties(comp) {
             </select>
         </div>
         
+        <div class="property-group">
+            <label>Text Alignment</label>
+            <select id="prop-textalign">
+                <option value="left" ${comp.styles?.textAlign === 'left' ? 'selected' : ''}>Left</option>
+                <option value="center" ${comp.styles?.textAlign === 'center' ? 'selected' : ''}>Center</option>
+                <option value="right" ${comp.styles?.textAlign === 'right' ? 'selected' : ''}>Right</option>
+                <option value="justify" ${comp.styles?.textAlign === 'justify' ? 'selected' : ''}>Justify</option>
+            </select>
+        </div>
+        
+        <div class="property-group">
+            <label>Word Wrap</label>
+            <select id="prop-wordwrap">
+                <option value="normal" ${!comp.styles?.whiteSpace || comp.styles?.whiteSpace === 'normal' ? 'selected' : ''}>Wrap Text</option>
+                <option value="nowrap" ${comp.styles?.whiteSpace === 'nowrap' ? 'selected' : ''}>No Wrap</option>
+            </select>
+        </div>
+        
+        <div class="property-group">
+            <label>Text Overflow</label>
+            <select id="prop-overflow">
+                <option value="visible" ${!comp.styles?.overflow || comp.styles?.overflow === 'visible' ? 'selected' : ''}>Visible</option>
+                <option value="hidden" ${comp.styles?.overflow === 'hidden' ? 'selected' : ''}>Hidden</option>
+                <option value="scroll" ${comp.styles?.overflow === 'scroll' ? 'selected' : ''}>Scroll</option>
+                <option value="auto" ${comp.styles?.overflow === 'auto' ? 'selected' : ''}>Auto</option>
+            </select>
+        </div>
+        
+        <div class="property-group">
+            <label>Line Height</label>
+            <input type="number" id="prop-lineheight" value="${comp.styles?.lineHeight || 1.5}" min="0.5" max="3" step="0.1">
+        </div>
+        
         <div class="property-actions">
             <button type="button" class="btn btn-primary" onclick="applyComponentProperties()">Apply</button>
             <button type="button" class="btn btn-danger" onclick="deleteComponent()">Delete</button>
@@ -1540,7 +1602,11 @@ function applyComponentProperties() {
         fontSize: parseInt(document.getElementById('prop-fontsize').value),
         color: document.getElementById('prop-color').value,
         backgroundColor: document.getElementById('prop-bgcolor').value,
-        fontWeight: document.getElementById('prop-fontweight').value
+        fontWeight: document.getElementById('prop-fontweight').value,
+        textAlign: document.getElementById('prop-textalign').value,
+        whiteSpace: document.getElementById('prop-wordwrap').value,
+        overflow: document.getElementById('prop-overflow').value,
+        lineHeight: parseFloat(document.getElementById('prop-lineheight').value)
     };
     
     // Re-render component
