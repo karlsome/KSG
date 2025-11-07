@@ -1282,6 +1282,11 @@ function renderCanvasComponents() {
     currentLayout.components.forEach(comp => {
         const el = createComponentElement(comp);
         canvas.appendChild(el);
+        
+        // Apply auto-scale if enabled
+        if (comp.styles?.autoScale) {
+            applyAutoScale(comp, el);
+        }
     });
 }
 
@@ -1897,6 +1902,8 @@ function applyComponentProperties() {
         selectedComponent.unit = document.getElementById('prop-unit')?.value;
     }
     
+    let shouldAutoScale = false;
+    
     if (selectedComponent.type === 'image') {
         selectedComponent.styles = {
             opacity: parseInt(document.getElementById('prop-opacity')?.value || 100),
@@ -1918,6 +1925,8 @@ function applyComponentProperties() {
             lineHeight: parseFloat(document.getElementById('prop-lineheight')?.value || 1.5),
             autoScale: autoScale
         };
+        
+        shouldAutoScale = autoScale;
     }
     
     // Re-render component
@@ -1929,7 +1938,7 @@ function applyComponentProperties() {
         newEl.classList.add('selected');
         
         // If auto-scale is enabled, calculate and apply scaled font size
-        if (autoScale) {
+        if (shouldAutoScale) {
             applyAutoScale(selectedComponent, newEl);
         }
     }
@@ -1938,33 +1947,58 @@ function applyComponentProperties() {
 function applyAutoScale(comp, element) {
     if (!comp.styles?.autoScale) return;
     
-    const baseFontSize = comp.styles.baseFontSize || comp.styles.fontSize;
+    const baseFontSize = comp.styles.baseFontSize || comp.styles.fontSize || 16;
     const containerWidth = comp.width;
     const containerHeight = comp.height;
+    const padding = 20; // Padding on all sides
+    
+    // Get text content
+    let textContent = '';
+    if (comp.type === 'text') {
+        textContent = comp.content || '';
+    } else if (comp.type === 'datapoint') {
+        // For datapoints, measure the longest possible text
+        textContent = (comp.label || 'Label') + '\n000.00\n' + (comp.unit || '');
+    }
+    
+    if (!textContent.trim()) return;
     
     // Create temporary element to measure text
-    const tempEl = element.cloneNode(true);
+    const tempEl = document.createElement('div');
     tempEl.style.position = 'absolute';
     tempEl.style.visibility = 'hidden';
-    tempEl.style.width = 'auto';
-    tempEl.style.height = 'auto';
-    tempEl.style.whiteSpace = 'nowrap';
+    tempEl.style.left = '-9999px';
+    tempEl.style.display = 'flex';
+    tempEl.style.alignItems = 'center';
+    tempEl.style.justifyContent = 'center';
+    tempEl.style.textAlign = comp.styles.textAlign || 'center';
+    tempEl.style.fontWeight = comp.styles.fontWeight || 'normal';
+    tempEl.style.lineHeight = comp.styles.lineHeight || '1.5';
+    tempEl.style.whiteSpace = comp.styles.whiteSpace || 'pre-wrap';
+    tempEl.style.wordWrap = 'break-word';
+    tempEl.style.padding = padding + 'px';
+    tempEl.textContent = textContent;
+    
     document.body.appendChild(tempEl);
     
     // Binary search for optimal font size
     let minSize = 8;
-    let maxSize = baseFontSize * 2;
+    let maxSize = Math.max(200, baseFontSize * 3); // Allow scaling up
     let optimalSize = baseFontSize;
+    let iterations = 0;
+    const maxIterations = 20;
     
-    while (maxSize - minSize > 1) {
+    while (maxSize - minSize > 1 && iterations < maxIterations) {
+        iterations++;
         const testSize = Math.floor((minSize + maxSize) / 2);
         tempEl.style.fontSize = testSize + 'px';
+        tempEl.style.width = containerWidth + 'px';
+        tempEl.style.height = containerHeight + 'px';
         
-        const textWidth = tempEl.scrollWidth;
-        const textHeight = tempEl.scrollHeight;
+        // Check if text fits without overflow
+        const isOverflowing = tempEl.scrollHeight > containerHeight || tempEl.scrollWidth > containerWidth;
         
-        // Check if text fits within container (with padding)
-        if (textWidth <= containerWidth - 20 && textHeight <= containerHeight - 20) {
+        if (!isOverflowing) {
             optimalSize = testSize;
             minSize = testSize;
         } else {
