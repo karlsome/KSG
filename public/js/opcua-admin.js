@@ -1320,10 +1320,11 @@ function createComponentElement(comp) {
     if (comp.type === 'text') {
         el.textContent = comp.content || 'Text Label';
     } else if (comp.type === 'datapoint') {
+        const baseFontSize = comp.styles?.fontSize || 16;
         el.innerHTML = `
-            <div style="font-size: 0.8em; opacity: 0.7; pointer-events: none;">${comp.label || 'Label'}</div>
-            <div style="font-size: 1.2em; font-weight: bold; pointer-events: none;">${comp.datapointId ? '[Live Value]' : '---'}</div>
-            <div style="font-size: 0.7em; opacity: 0.5; pointer-events: none;">${comp.unit || ''}</div>
+            <div class="datapoint-label" style="font-size: ${baseFontSize * 0.7}px; opacity: 0.7; pointer-events: none;">${comp.label || 'Label'}</div>
+            <div class="datapoint-value" style="font-size: ${baseFontSize}px; font-weight: bold; pointer-events: none;">${comp.datapointId ? '[Live Value]' : '---'}</div>
+            <div class="datapoint-unit" style="font-size: ${baseFontSize * 0.6}px; opacity: 0.5; pointer-events: none;">${comp.unit || ''}</div>
         `;
     } else if (comp.type === 'image') {
         el.classList.add('component-image');
@@ -1505,9 +1506,11 @@ function addDatapointComponent(datapoint, x, y) {
         unit: datapoint.unit || '',
         styles: {
             fontSize: 16,
+            baseFontSize: 16,
             color: '#1e40af',
             backgroundColor: '#f0f4ff',
-            fontWeight: 'normal'
+            fontWeight: 'normal',
+            autoScale: true  // Enable auto-scale by default for datapoints
         }
     };
     
@@ -1515,6 +1518,11 @@ function addDatapointComponent(datapoint, x, y) {
     
     const el = createComponentElement(comp);
     document.getElementById('layout-canvas').appendChild(el);
+    
+    // Apply auto-scale immediately
+    if (comp.styles.autoScale) {
+        applyAutoScale(comp, el);
+    }
     
     selectComponent(comp.id);
 }
@@ -1959,8 +1967,8 @@ function applyAutoScale(comp, element) {
     if (comp.type === 'text') {
         textContent = comp.content || '';
     } else if (comp.type === 'datapoint') {
-        // For datapoints, measure the longest possible text
-        textContent = (comp.label || 'Label') + '\n000.00\n' + (comp.unit || '');
+        // For datapoints, measure the longest possible text (simulate actual value like "999.99")
+        textContent = (comp.label || 'Label') + '\n[Live Value]\n' + (comp.unit || '');
     }
     
     if (!textContent.trim()) return;
@@ -2013,6 +2021,17 @@ function applyAutoScale(comp, element) {
     // Apply the optimal font size
     comp.styles.fontSize = optimalSize;
     element.style.fontSize = optimalSize + 'px';
+    
+    // For datapoints, also update the child elements' font sizes
+    if (comp.type === 'datapoint') {
+        const labelEl = element.querySelector('.datapoint-label');
+        const valueEl = element.querySelector('.datapoint-value');
+        const unitEl = element.querySelector('.datapoint-unit');
+        
+        if (labelEl) labelEl.style.fontSize = (optimalSize * 0.7) + 'px';
+        if (valueEl) valueEl.style.fontSize = optimalSize + 'px';
+        if (unitEl) unitEl.style.fontSize = (optimalSize * 0.6) + 'px';
+    }
 }
 
 function deleteComponent() {

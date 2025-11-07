@@ -59,12 +59,10 @@
         
         .datapoint-value {
             font-weight: bold;
-            font-size: 1.2em;
         }
         
         .datapoint-unit {
             opacity: 0.5;
-            font-size: 0.8em;
             margin-top: 4px;
         }
         
@@ -218,10 +216,11 @@
                 el.textContent = comp.content || '';
             } else if (comp.type === 'datapoint') {
                 el.classList.add('component-datapoint');
+                const baseFontSize = comp.styles?.fontSize || 16;
                 el.innerHTML = `
-                    <div class="datapoint-label">${comp.label || 'Label'}</div>
-                    <div class="datapoint-value" data-datapoint-id="${comp.datapointId}">---</div>
-                    ${comp.unit ? `<div class="datapoint-unit">${comp.unit}</div>` : ''}
+                    <div class="datapoint-label" style="font-size: ${baseFontSize * 0.7}px;">${comp.label || 'Label'}</div>
+                    <div class="datapoint-value" data-datapoint-id="${comp.datapointId}" style="font-size: ${baseFontSize}px;">---</div>
+                    ${comp.unit ? `<div class="datapoint-unit" style="font-size: ${baseFontSize * 0.6}px;">${comp.unit}</div>` : ''}
                 `;
             } else if (comp.type === 'image') {
                 el.classList.add('component-image');
