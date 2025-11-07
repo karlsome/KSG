@@ -1252,8 +1252,20 @@ function createComponentElement(comp) {
     el.dataset.id = comp.id;
     el.style.left = comp.x + 'px';
     el.style.top = comp.y + 'px';
-    el.style.width = comp.width + 'px';
-    el.style.height = comp.height + 'px';
+    // Apply width/height with auto-adjust support
+    if (comp.styles?.autoWidth) {
+        el.style.width = 'auto';
+        el.style.minWidth = '50px';
+    } else {
+        el.style.width = comp.width + 'px';
+    }
+    
+    if (comp.styles?.autoHeight) {
+        el.style.height = 'auto';
+        el.style.minHeight = '30px';
+    } else {
+        el.style.height = comp.height + 'px';
+    }
     
     if (comp.styles) {
         if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';
@@ -1554,25 +1566,94 @@ function showComponentProperties(comp) {
             <input type="number" id="prop-lineheight" value="${comp.styles?.lineHeight || 1.5}" min="0.5" max="3" step="0.1">
         </div>
         
+        <div class="property-group">
+            <label>Auto Adjust</label>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
+                    <input type="checkbox" id="prop-autowidth" ${comp.styles?.autoWidth ? 'checked' : ''} style="margin-right: 8px;">
+                    Auto adjust width
+                </label>
+                <label style="display: flex; align-items: center; font-weight: normal; font-size: 13px;">
+                    <input type="checkbox" id="prop-autoheight" ${comp.styles?.autoHeight ? 'checked' : ''} style="margin-right: 8px;">
+                    Auto adjust height
+                </label>
+            </div>
+        </div>
+        
         <div class="property-actions">
-            <button type="button" class="btn btn-primary" onclick="applyComponentProperties()">Apply</button>
             <button type="button" class="btn btn-danger" onclick="deleteComponent()">Delete</button>
         </div>
     `;
     
-    // Sync color inputs
-    document.getElementById('prop-color').addEventListener('input', (e) => {
-        document.getElementById('prop-color-text').value = e.target.value;
+    // Add real-time event listeners to all property inputs
+    attachPropertyListeners();
+}
+
+function attachPropertyListeners() {
+    // Position & Size
+    ['prop-x', 'prop-y', 'prop-width', 'prop-height'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', applyComponentProperties);
     });
-    document.getElementById('prop-color-text').addEventListener('input', (e) => {
-        document.getElementById('prop-color').value = e.target.value;
+    
+    // Content
+    const contentEl = document.getElementById('prop-content');
+    if (contentEl) contentEl.addEventListener('input', applyComponentProperties);
+    
+    // Datapoint fields
+    const labelEl = document.getElementById('prop-label');
+    if (labelEl) labelEl.addEventListener('input', applyComponentProperties);
+    
+    const unitEl = document.getElementById('prop-unit');
+    if (unitEl) unitEl.addEventListener('input', applyComponentProperties);
+    
+    // Font Size
+    const fontsizeEl = document.getElementById('prop-fontsize');
+    if (fontsizeEl) fontsizeEl.addEventListener('input', applyComponentProperties);
+    
+    // Colors with sync
+    const colorEl = document.getElementById('prop-color');
+    const colorTextEl = document.getElementById('prop-color-text');
+    if (colorEl && colorTextEl) {
+        colorEl.addEventListener('input', (e) => {
+            colorTextEl.value = e.target.value;
+            applyComponentProperties();
+        });
+        colorTextEl.addEventListener('input', (e) => {
+            colorEl.value = e.target.value;
+            applyComponentProperties();
+        });
+    }
+    
+    const bgcolorEl = document.getElementById('prop-bgcolor');
+    const bgcolorTextEl = document.getElementById('prop-bgcolor-text');
+    if (bgcolorEl && bgcolorTextEl) {
+        bgcolorEl.addEventListener('input', (e) => {
+            bgcolorTextEl.value = e.target.value;
+            applyComponentProperties();
+        });
+        bgcolorTextEl.addEventListener('input', (e) => {
+            bgcolorEl.value = e.target.value;
+            applyComponentProperties();
+        });
+    }
+    
+    // Dropdowns
+    ['prop-fontweight', 'prop-textalign', 'prop-wordwrap', 'prop-overflow'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', applyComponentProperties);
     });
-    document.getElementById('prop-bgcolor').addEventListener('input', (e) => {
-        document.getElementById('prop-bgcolor-text').value = e.target.value;
-    });
-    document.getElementById('prop-bgcolor-text').addEventListener('input', (e) => {
-        document.getElementById('prop-bgcolor').value = e.target.value;
-    });
+    
+    // Line Height
+    const lineheightEl = document.getElementById('prop-lineheight');
+    if (lineheightEl) lineheightEl.addEventListener('input', applyComponentProperties);
+    
+    // Auto adjust checkboxes
+    const autowidthEl = document.getElementById('prop-autowidth');
+    if (autowidthEl) autowidthEl.addEventListener('change', applyComponentProperties);
+    
+    const autoheightEl = document.getElementById('prop-autoheight');
+    if (autoheightEl) autoheightEl.addEventListener('change', applyComponentProperties);
 }
 
 function hideComponentProperties() {
@@ -1606,7 +1687,9 @@ function applyComponentProperties() {
         textAlign: document.getElementById('prop-textalign').value,
         whiteSpace: document.getElementById('prop-wordwrap').value,
         overflow: document.getElementById('prop-overflow').value,
-        lineHeight: parseFloat(document.getElementById('prop-lineheight').value)
+        lineHeight: parseFloat(document.getElementById('prop-lineheight').value),
+        autoWidth: document.getElementById('prop-autowidth')?.checked || false,
+        autoHeight: document.getElementById('prop-autoheight')?.checked || false
     };
     
     // Re-render component
@@ -1616,9 +1699,28 @@ function applyComponentProperties() {
         const newEl = createComponentElement(selectedComponent);
         parent.replaceChild(newEl, el);
         newEl.classList.add('selected');
+        
+        // If auto-adjust is enabled, update dimensions after rendering
+        if (selectedComponent.styles.autoWidth || selectedComponent.styles.autoHeight) {
+            setTimeout(() => {
+                if (selectedComponent.styles.autoWidth) {
+                    selectedComponent.width = newEl.scrollWidth + 20; // Add padding
+                    document.getElementById('prop-width').value = selectedComponent.width;
+                }
+                if (selectedComponent.styles.autoHeight) {
+                    selectedComponent.height = newEl.scrollHeight + 20; // Add padding
+                    document.getElementById('prop-height').value = selectedComponent.height;
+                }
+                
+                // Re-render with updated dimensions
+                if (selectedComponent.styles.autoWidth || selectedComponent.styles.autoHeight) {
+                    const finalEl = createComponentElement(selectedComponent);
+                    parent.replaceChild(finalEl, newEl);
+                    finalEl.classList.add('selected');
+                }
+            }, 10);
+        }
     }
-    
-    showToast('Properties applied', 'success');
 }
 
 function deleteComponent() {

@@ -2513,8 +2513,12 @@ app.post('/api/opcua/admin/layouts', validateAdminUser, async (req, res) => {
         
         // Add timestamps
         const now = new Date().toISOString();
+        
+        // Remove _id and createdAt from layout data to avoid conflicts
+        const { _id, createdAt, ...layoutWithoutImmutableFields } = layout;
+        
         const layoutData = {
-            ...layout,
+            ...layoutWithoutImmutableFields,
             updatedAt: now
         };
         
