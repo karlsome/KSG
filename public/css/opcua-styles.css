@@ -1232,9 +1232,14 @@ tr:last-child td {
 
 /* Component Image Type */
 .component-image {
-    background-size: cover;
+    background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
+    padding: 0 !important;
+}
+
+.component-image > div {
+    pointer-events: none;
 }
 
 .component-image.locked::before {

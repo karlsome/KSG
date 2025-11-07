@@ -1335,7 +1335,7 @@ function createComponentElement(comp) {
         el.style.opacity = (comp.styles?.opacity || 100) / 100;
         
         if (comp.locked) {
-            el.innerHTML = '<div style="position: absolute; top: 5px; left: 5px; font-size: 16px; opacity: 0.7;">🔒</div>';
+            el.innerHTML = '<div style="position: absolute; top: 5px; left: 5px; font-size: 16px; opacity: 0.7; pointer-events: none;">🔒</div>';
         }
     }
     
@@ -1962,48 +1962,59 @@ function applyAutoScale(comp, element) {
     const containerHeight = comp.height;
     const padding = 20; // Padding on all sides
     
-    // Get text content
-    let textContent = '';
-    if (comp.type === 'text') {
-        textContent = comp.content || '';
-    } else if (comp.type === 'datapoint') {
-        // For datapoints, measure the longest possible text (simulate actual value like "999.99")
-        textContent = (comp.label || 'Label') + '\n[Live Value]\n' + (comp.unit || '');
-    }
-    
-    if (!textContent.trim()) return;
-    
-    // Create temporary element to measure text
+    // Create temporary element that matches the actual structure
     const tempEl = document.createElement('div');
     tempEl.style.position = 'absolute';
     tempEl.style.visibility = 'hidden';
     tempEl.style.left = '-9999px';
     tempEl.style.display = 'flex';
+    tempEl.style.flexDirection = 'column';
     tempEl.style.alignItems = 'center';
     tempEl.style.justifyContent = 'center';
-    tempEl.style.textAlign = comp.styles.textAlign || 'center';
+    tempEl.style.textAlign = 'center';
     tempEl.style.fontWeight = comp.styles.fontWeight || 'normal';
-    tempEl.style.lineHeight = comp.styles.lineHeight || '1.5';
-    tempEl.style.whiteSpace = comp.styles.whiteSpace || 'pre-wrap';
-    tempEl.style.wordWrap = 'break-word';
     tempEl.style.padding = padding + 'px';
-    tempEl.textContent = textContent;
+    tempEl.style.boxSizing = 'border-box';
+    tempEl.style.width = containerWidth + 'px';
+    tempEl.style.height = containerHeight + 'px';
+    
+    // Build content based on component type
+    if (comp.type === 'text') {
+        tempEl.style.whiteSpace = comp.styles.whiteSpace || 'pre-wrap';
+        tempEl.style.wordWrap = 'break-word';
+        tempEl.style.lineHeight = comp.styles.lineHeight || '1.5';
+        tempEl.textContent = comp.content || '';
+    } else if (comp.type === 'datapoint') {
+        // Create the same structure as datapoints with proper proportions
+        tempEl.innerHTML = `
+            <div style="opacity: 0.7; margin-bottom: 4px;">${comp.label || 'Label'}</div>
+            <div style="font-weight: bold;">[Live Value]</div>
+            <div style="opacity: 0.5; margin-top: 4px;">${comp.unit || ''}</div>
+        `;
+    }
     
     document.body.appendChild(tempEl);
     
     // Binary search for optimal font size
-    let minSize = 8;
-    let maxSize = Math.max(200, baseFontSize * 3); // Allow scaling up
-    let optimalSize = baseFontSize;
+    let minSize = 6;
+    let maxSize = Math.max(200, baseFontSize * 3);
+    let optimalSize = minSize;
     let iterations = 0;
-    const maxIterations = 20;
+    const maxIterations = 25;
     
     while (maxSize - minSize > 1 && iterations < maxIterations) {
         iterations++;
         const testSize = Math.floor((minSize + maxSize) / 2);
-        tempEl.style.fontSize = testSize + 'px';
-        tempEl.style.width = containerWidth + 'px';
-        tempEl.style.height = containerHeight + 'px';
+        
+        // For datapoints, set proportional sizes
+        if (comp.type === 'datapoint') {
+            const children = tempEl.children;
+            if (children[0]) children[0].style.fontSize = (testSize * 0.7) + 'px';  // label
+            if (children[1]) children[1].style.fontSize = testSize + 'px';           // value
+            if (children[2]) children[2].style.fontSize = (testSize * 0.6) + 'px';  // unit
+        } else {
+            tempEl.style.fontSize = testSize + 'px';
+        }
         
         // Check if text fits without overflow
         const isOverflowing = tempEl.scrollHeight > containerHeight || tempEl.scrollWidth > containerWidth;
