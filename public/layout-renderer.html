@@ -49,7 +49,9 @@
         }
         
         .component-datapoint {
-            padding: 10px;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
         }
         
         .component-image {
@@ -58,20 +60,6 @@
             background-size: contain;
             background-position: center;
             background-repeat: no-repeat;
-        }
-        
-        .datapoint-label {
-            opacity: 0.7;
-            margin-bottom: 4px;
-        }
-        
-        .datapoint-value {
-            font-weight: bold;
-        }
-        
-        .datapoint-unit {
-            opacity: 0.5;
-            margin-top: 4px;
         }
         
         .datapoint-value.updating {
@@ -258,9 +246,9 @@
                 el.classList.add('component-datapoint');
                 const baseFontSize = comp.styles?.fontSize || 16;
                 el.innerHTML = `
-                    <div class="datapoint-label" style="font-size: ${baseFontSize * 0.7}px;">${comp.label || 'Label'}</div>
-                    <div class="datapoint-value" data-datapoint-id="${comp.datapointId}" style="font-size: ${baseFontSize}px;">---</div>
-                    ${comp.unit ? `<div class="datapoint-unit" style="font-size: ${baseFontSize * 0.6}px;">${comp.unit}</div>` : ''}
+                    <div class="datapoint-label" style="font-size: ${baseFontSize * 0.7}px; opacity: 0.7;">${comp.label || 'Label'}</div>
+                    <div class="datapoint-value" data-datapoint-id="${comp.datapointId}" style="font-size: ${baseFontSize}px; font-weight: bold;">---</div>
+                    <div class="datapoint-unit" style="font-size: ${baseFontSize * 0.6}px; opacity: 0.5;">${comp.unit || ''}</div>
                 `;
             } else if (comp.type === 'image') {
                 el.classList.add('component-image');

@@ -1297,6 +1297,10 @@ function createComponentElement(comp) {
     el.style.width = comp.width + 'px';
     el.style.height = comp.height + 'px';
     
+    // CRITICAL: Prevent default HTML5 drag-and-drop on canvas components
+    // Only library items should be draggable
+    el.draggable = false;
+    
     if (comp.styles) {
         if (comp.styles.fontSize) el.style.fontSize = comp.styles.fontSize + 'px';
         if (comp.styles.color) el.style.color = comp.styles.color;
