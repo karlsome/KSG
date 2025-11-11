@@ -1729,15 +1729,78 @@ io.on('connection', (socket) => {
     });
     
     // Handle tablet monitor registration
-    socket.on('monitor_register', (data) => {
+    socket.on('monitor_register', async (data) => {
         console.log('📱 Monitor tablet registered:', data);
         socket.isMonitor = true;
         socket.clientType = 'monitor';
+        socket.monitorRaspberryId = data.raspberryId;
+        socket.monitorLayoutId = data.layoutId;
         
         // Optionally join specific equipment rooms for targeted updates
         if (data.equipmentId) {
             socket.join(`equipment_${data.equipmentId}`);
             console.log(`📱 Tablet joined room: equipment_${data.equipmentId}`);
+        }
+        
+        // Send latest cached datapoint values immediately
+        try {
+            if (!mongoClient || !data.raspberryId) {
+                console.log('⚠️ Cannot send cached values: missing mongoClient or raspberryId');
+                return;
+            }
+            
+            // Find which company/database this Raspberry Pi belongs to
+            const masterDB = mongoClient.db(DB_NAME);
+            const masterUsers = masterDB.collection(COLLECTION_NAME);
+            
+            const user = await masterUsers.findOne({
+                'devices': {
+                    $elemMatch: { uniqueId: data.raspberryId }
+                }
+            });
+            
+            if (!user || !user.dbName) {
+                console.log(`⚠️ Raspberry Pi ${data.raspberryId} not found in any user's devices`);
+                return;
+            }
+            
+            // Get latest values from opcua_realtime collection
+            const db = mongoClient.db(user.dbName);
+            const realtimeData = await db.collection('opcua_realtime')
+                .find({ raspberryId: data.raspberryId })
+                .toArray();
+            
+            if (realtimeData && realtimeData.length > 0) {
+                // Group by equipment
+                const equipmentGroups = {};
+                realtimeData.forEach(item => {
+                    if (!equipmentGroups[item.equipmentId]) {
+                        equipmentGroups[item.equipmentId] = [];
+                    }
+                    equipmentGroups[item.equipmentId].push({
+                        datapointId: item.datapointId,
+                        opcNodeId: item.opcNodeId,
+                        value: item.value,
+                        quality: item.quality,
+                        timestamp: item.timestamp
+                    });
+                });
+                
+                // Send cached data for each equipment group
+                for (const [equipmentId, datapoints] of Object.entries(equipmentGroups)) {
+                    socket.emit('opcua_realtime_update', {
+                        raspberryId: data.raspberryId,
+                        equipmentId: equipmentId,
+                        data: datapoints
+                    });
+                }
+                
+                console.log(`✅ Sent ${realtimeData.length} cached datapoint(s) to monitor ${socket.id}`);
+            } else {
+                console.log(`ℹ️ No cached data available for Raspberry Pi ${data.raspberryId}`);
+            }
+        } catch (error) {
+            console.error('❌ Error sending cached values to monitor:', error.message);
         }
     });
     

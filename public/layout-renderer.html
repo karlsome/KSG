@@ -132,9 +132,12 @@
         const layoutId = pathParts[pathParts.length - 1];
         
         async function loadLayout() {
+            console.log('🔄 Loading layout with ID:', layoutId);
             try {
                 const response = await fetch(`${API_BASE}/api/layout/${layoutId}`);
                 const data = await response.json();
+                
+                console.log('📥 Layout data received:', data);
                 
                 if (!data.success) {
                     showError(data.error || 'Layout not found');
@@ -142,17 +145,25 @@
                 }
                 
                 layout = data.layout;
+                console.log('✅ Layout loaded:', {
+                    layoutId: layout.layoutId,
+                    layoutName: layout.layoutName,
+                    raspberryId: layout.raspberryId,
+                    componentCount: layout.components.length
+                });
+                
                 document.title = layout.layoutName;
                 renderLayout();
                 connectWebSocket();
                 
             } catch (error) {
-                console.error('Error loading layout:', error);
+                console.error('❌ Error loading layout:', error);
                 showError('Failed to load layout');
             }
         }
         
         function renderLayout() {
+            console.log('🎨 Rendering layout:', layout);
             const container = document.getElementById('layout-container');
             container.style.width = layout.canvasWidth + 'px';
             container.style.height = layout.canvasHeight + 'px';
@@ -206,16 +217,19 @@
             container.style.transform = 'translate(-50%, -50%)';
             
             // Render components
+            console.log(`📦 Rendering ${layout.components.length} components...`);
             layout.components.forEach(comp => {
                 const el = createComponentElement(comp);
                 container.appendChild(el);
                 
                 // Track datapoint components
                 if (comp.type === 'datapoint' && comp.datapointId) {
+                    console.log(`📍 Tracking datapoint: ${comp.datapointId} (${comp.label})`);
                     datapointMap[comp.datapointId] = el;
                 }
             });
             
+            console.log('✅ Layout rendered. DatapointMap:', datapointMap);
             document.getElementById('loading').style.display = 'none';
         }
         
@@ -263,19 +277,22 @@
         }
         
         function connectWebSocket() {
+            console.log('🔌 Connecting to WebSocket at:', API_BASE);
             socket = io(API_BASE, {
                 transports: ['websocket', 'polling']
             });
             
             socket.on('connect', () => {
-                console.log('✅ WebSocket connected');
+                console.log('✅ WebSocket connected with ID:', socket.id);
                 updateConnectionStatus(true);
                 
                 // Register as monitor
-                socket.emit('monitor_register', {
+                const registrationData = {
                     raspberryId: layout.raspberryId,
                     layoutId: layout.layoutId
-                });
+                };
+                console.log('📱 Registering as monitor:', registrationData);
+                socket.emit('monitor_register', registrationData);
             });
             
             socket.on('disconnect', () => {
@@ -284,27 +301,52 @@
             });
             
             socket.on('opcua_realtime_update', (data) => {
+                console.log('📡 Received opcua_realtime_update event');
                 updateDatapoints(data);
             });
             
             socket.on('raspberry_status_update', (data) => {
-                console.log('Raspberry status:', data);
+                console.log('📱 Raspberry status:', data);
                 // Could show indicator if Raspberry Pi is offline
+            });
+            
+            // Debug: Log all incoming events
+            socket.onAny((eventName, ...args) => {
+                console.log(`🔔 Socket event received: ${eventName}`, args);
             });
         }
         
         function updateDatapoints(data) {
-            if (!data || !data.data || !Array.isArray(data.data)) return;
+            console.log('📊 Received opcua_realtime_update:', data);
+            
+            if (!data || !data.data || !Array.isArray(data.data)) {
+                console.warn('⚠️ Invalid data format:', data);
+                return;
+            }
+            
+            console.log(`📈 Updating ${data.data.length} datapoints...`);
+            console.log('🗺️ Current datapointMap:', datapointMap);
             
             data.data.forEach(dp => {
+                console.log(`🔍 Looking for datapointId: ${dp.datapointId}, value: ${dp.value}`);
                 const el = datapointMap[dp.datapointId];
+                
                 if (el) {
+                    console.log(`✅ Found element for ${dp.datapointId}`);
                     const valueEl = el.querySelector('.datapoint-value');
                     if (valueEl) {
-                        valueEl.textContent = dp.value !== null && dp.value !== undefined ? dp.value : '---';
+                        const newValue = dp.value !== null && dp.value !== undefined ? dp.value : '---';
+                        console.log(`✅ Updating value from "${valueEl.textContent}" to "${newValue}"`);
+                        console.log(`   Raw value: ${dp.value}, Type: ${typeof dp.value}`);
+                        valueEl.textContent = newValue;
+                        console.log(`   DOM updated. Current textContent: "${valueEl.textContent}"`);
                         valueEl.classList.add('updating');
                         setTimeout(() => valueEl.classList.remove('updating'), 300);
+                    } else {
+                        console.warn(`⚠️ No .datapoint-value element found in component`);
                     }
+                } else {
+                    console.warn(`⚠️ No element found in datapointMap for datapointId: ${dp.datapointId}`);
                 }
             });
         }
