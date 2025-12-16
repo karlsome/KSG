@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPC UA Array Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .controls {
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        select {
+            padding: 12px 20px;
+            font-size: 16px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            min-width: 250px;
+            transition: all 0.3s;
+        }
+
+        select:hover {
+            border-color: #667eea;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status.connected .status-dot {
+            background: #28a745;
+        }
+
+        .status.disconnected .status-dot {
+            background: #dc3545;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .info-panel {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .info-panel h3 {
+            color: #1976D2;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .info-panel p {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 2px solid #dee2e6;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        th:last-child {
+            border-right: none;
+        }
+
+        tbody tr {
+            transition: background 0.2s;
+        }
+
+        tbody tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        tbody tr:hover {
+            background: #e7f3ff;
+        }
+
+        td {
+            padding: 14px 12px;
+            text-align: center;
+            border-bottom: 1px solid #dee2e6;
+            border-right: 1px solid #dee2e6;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        td:last-child {
+            border-right: none;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .timestamp {
+            text-align: center;
+            padding: 15px;
+            color: #6c757d;
+            font-size: 13px;
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 OPC UA Array Data Viewer</h1>
+            <p>Real-time Array Data Monitoring</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <span class="status disconnected" id="connection-status">
+                    <span class="status-dot"></span>
+                    Connecting...
+                </span>
+                
+                <label for="array-select">Select Array:</label>
+                <select id="array-select" disabled>
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="content">
+            
+
+            <div class="info-panel" id="array-info" style="display: none;">
+                <h3 id="array-name">Array Information</h3>
+                <p id="array-details">Loading array details...</p>
+            </div>
+
+            <div id="table-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Connecting to server...</p>
+                </div>
+            </div>
+
+            <div class="timestamp" id="last-update" style="display: none;">
+                Last updated: <span id="update-time">--</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Configuration
+        const API_BASE_URL = window.location.origin;
+        const COMPANY = 'KSG'; // Change this to match your company name in database
+        
+        // State
+        let socket = null;
+        let arrayData = {};
+        let currentArray = null;
+
+        // Elements
+        const arraySelect = document.getElementById('array-select');
+        const tableContainer = document.getElementById('table-container');
+        const connectionStatus = document.getElementById('connection-status');
+        const arrayInfo = document.getElementById('array-info');
+        const arrayName = document.getElementById('array-name');
+        const arrayDetails = document.getElementById('array-details');
+        const lastUpdate = document.getElementById('last-update');
+        const updateTime = document.getElementById('update-time');
+
+        // Initialize
+        function init() {
+            connectWebSocket();
+            setupEventListeners();
+        }
+
+        // WebSocket connection
+        function connectWebSocket() {
+            socket = io(API_BASE_URL, {
+                transports: ['websocket', 'polling']
+            });
+
+            socket.on('connect', () => {
+                console.log('✅ Connected to server');
+                updateConnectionStatus(true);
+                
+                // Join the OPC UA room for this company
+                socket.emit('join', { room: `opcua_${COMPANY}` });
+                
+                fetchInitialData();
+            });
+
+            socket.on('disconnect', () => {
+                console.log('❌ Disconnected from server');
+                updateConnectionStatus(false);
+            });
+
+            socket.on('opcua_data_update', (data) => {
+                console.log('📡 Received data update:', data);
+                handleDataUpdate(data);
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('❌ Connection error:', error);
+                updateConnectionStatus(false);
+            });
+        }
+
+        // Fetch initial data
+        async function fetchInitialData() {
+            try {
+                console.log(`🔄 Fetching discovered arrays from: ${API_BASE_URL}/api/opcua/discovered-arrays?company=${COMPANY}`);
+                const response = await fetch(`${API_BASE_URL}/api/opcua/discovered-arrays?company=${COMPANY}`);
+                console.log('📥 Response status:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('📦 Received data:', data);
+                    
+                    if (data.success && data.data) {
+                        console.log(`📊 Processing ${data.data.length} discovered arrays`);
+                        processDataPoints(data.data);
+                    } else {
+                        console.warn('⚠️ Response success but no data');
+                        showEmptyState('No arrays discovered yet. Click "Discover Nodes" in OPC UA Admin to scan for arrays.');
+                    }
+                } else {
+                    console.error('Failed to fetch data:', response.status, response.statusText);
+                    showEmptyState('Failed to load data from server');
+                }
+            } catch (error) {
+                console.error('Error fetching initial data:', error);
+                showEmptyState('Error loading data');
+            }
+        }
+
+        // Handle incoming data update
+        function handleDataUpdate(update) {
+            if (update.data && Array.isArray(update.data)) {
+                processDataPoints(update.data);
+            }
+        }
+
+        // Process datapoints and extract arrays
+        function processDataPoints(dataPoints) {
+            console.log('📊 Processing datapoints:', dataPoints);
+            let hasArrays = false;
+
+            dataPoints.forEach(dp => {
+                console.log('  Checking datapoint:', {
+                    opcNodeId: dp.opcNodeId,
+                    datapointId: dp.datapointId,
+                    valueType: typeof dp.value,
+                    isArray: Array.isArray(dp.value),
+                    value: dp.value
+                });
+                
+                // Check if value is an array
+                if (Array.isArray(dp.value) && dp.value.length > 0) {
+                    const key = dp.opcNodeId || dp.datapointId || 'Unknown';
+                    const displayName = extractArrayName(key);
+                    
+                    console.log('  ✅ Found array:', displayName, 'with', dp.value.length, 'elements');
+                    
+                    arrayData[displayName] = {
+                        key: key,
+                        value: dp.value,
+                        timestamp: dp.timestamp || dp.sourceTimestamp,
+                        quality: dp.quality,
+                        equipmentId: dp.equipmentId
+                    };
+                    
+                    hasArrays = true;
+                }
+            });
+
+            console.log('Total arrays found:', Object.keys(arrayData).length);
+
+            if (hasArrays) {
+                updateArraySelect();
+                if (currentArray && arrayData[currentArray]) {
+                    renderTable(currentArray);
+                } else if (Object.keys(arrayData).length > 0) {
+                    // Auto-select first array
+                    const firstArray = Object.keys(arrayData)[0];
+                    arraySelect.value = firstArray;
+                    currentArray = firstArray;
+                    renderTable(firstArray);
+                }
+            } else {
+                console.warn('⚠️ No arrays found in datapoints');
+                showEmptyState('No array data available. Make sure array datapoints are configured in OPC UA Admin.');
+            }
+        }
+
+        // Extract array name from node ID
+        function extractArrayName(nodeId) {
+            // Try to extract a readable name
+            if (nodeId.includes('ARRAY')) {
+                const match = nodeId.match(/ARRAY\d+/i);
+                if (match) return match[0];
+            }
+            
+            // Extract last part after separator
+            const parts = nodeId.split(/[;|]/);
+            const lastPart = parts[parts.length - 1];
+            
+            // Clean up
+            return lastPart.replace(/^[si]=/, '').trim() || nodeId;
+        }
+
+        // Update array dropdown
+        function updateArraySelect() {
+            const arrays = Object.keys(arrayData).sort();
+            
+            if (arrays.length === 0) {
+                arraySelect.innerHTML = '<option value="">No arrays available</option>';
+                arraySelect.disabled = true;
+                return;
+            }
+
+            arraySelect.innerHTML = arrays.map(name => 
+                `<option value="${name}">${name}</option>`
+            ).join('');
+            
+            arraySelect.disabled = false;
+        }
+
+        // Render table
+        function renderTable(arrayName) {
+            const data = arrayData[arrayName];
+            
+            if (!data || !data.value || data.value.length === 0) {
+                showEmptyState('No data available for this array');
+                return;
+            }
+
+            // Show info panel
+            arrayInfo.style.display = 'block';
+            arrayName.textContent = arrayName;
+            arrayDetails.innerHTML = `
+                <strong>Equipment:</strong> ${data.equipmentId || 'N/A'} | 
+                <strong>Quality:</strong> ${data.quality || 'N/A'} | 
+                <strong>Length:</strong> ${data.value.length} elements
+            `;
+
+            // Create table
+            const headers = data.value.map((_, index) => index);
+            
+            let html = `
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                ${headers.map(index => `<th>${index}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                ${data.value.map(value => {
+                                    // Format the value
+                                    let displayValue = value;
+                                    if (typeof value === 'number') {
+                                        displayValue = value.toLocaleString();
+                                    }
+                                    return `<td>${displayValue}</td>`;
+                                }).join('')}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            tableContainer.innerHTML = html;
+
+            // Update timestamp
+            if (data.timestamp) {
+                lastUpdate.style.display = 'block';
+                updateTime.textContent = new Date(data.timestamp).toLocaleString();
+            }
+        }
+
+        // Show empty state
+        function showEmptyState(message) {
+            tableContainer.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📭</div>
+                    <h3>No Data Available</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+            arrayInfo.style.display = 'none';
+            lastUpdate.style.display = 'none';
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            if (connected) {
+                connectionStatus.className = 'status connected';
+                connectionStatus.innerHTML = '<span class="status-dot"></span>Connected';
+            } else {
+                connectionStatus.className = 'status disconnected';
+                connectionStatus.innerHTML = '<span class="status-dot"></span>Disconnected';
+            }
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            arraySelect.addEventListener('change', (e) => {
+                currentArray = e.target.value;
+                if (currentArray && arrayData[currentArray]) {
+                    renderTable(currentArray);
+                }
+            });
+        }
+
+        // Start the application
+        init();
+    </script>
+</body>
+</html>

@@ -32,7 +32,7 @@ import threading
 RASPBERRY_ID = "6C10F6"  # Example: Change to your device's uniqueId
 
 # API Configuration
-API_BASE_URL = "http://192.168.0.168:3000"  # Change if using different server
+API_BASE_URL = "http://192.168.24.31:3000"  # Change if using different server
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
@@ -641,6 +641,20 @@ def discover_nodes():
                                 # Extract namespace
                                 namespace = node_id.split(';')[0].replace('ns=', '')
                                 
+                                # Determine type (list, number, string, boolean)
+                                value_type = 'unknown'
+                                actual_value = value
+                                
+                                if isinstance(value, list):
+                                    value_type = 'list'
+                                    actual_value = value  # Keep full array
+                                elif isinstance(value, (int, float)):
+                                    value_type = 'number'
+                                elif isinstance(value, bool):
+                                    value_type = 'boolean'
+                                elif isinstance(value, str):
+                                    value_type = 'string'
+                                
                                 # Check for duplicates using node_id
                                 if node_id not in seen_node_ids:
                                     seen_node_ids.add(node_id)
@@ -650,7 +664,9 @@ def discover_nodes():
                                         'browseName': browse_name,
                                         'opcNodeId': node_id,
                                         'dataType': data_type,
-                                        'currentValue': str(value)[:100]  # Limit length
+                                        'type': value_type,
+                                        'value': actual_value,  # Full value including arrays
+                                        'currentValue': str(value)[:100]  # String preview
                                     })
                                 
                             except Exception as e:

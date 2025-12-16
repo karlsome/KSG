@@ -1621,6 +1621,14 @@ io.on('connection', (socket) => {
         socket.clientType = 'webapp';
     });
     
+    // Handle generic room join requests
+    socket.on('join', (data) => {
+        if (data && data.room) {
+            socket.join(data.room);
+            console.log(`🔗 Client ${socket.id} joined room: ${data.room}`);
+        }
+    });
+    
     // Handle Raspberry Pi registration
     socket.on('raspberry_register', async (data) => {
         console.log('🥧 Raspberry Pi registered:', data);
@@ -2205,6 +2213,81 @@ app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
     }
 });
 
+// GET /api/opcua/data/latest - Get latest real-time data (for array viewer)
+app.get('/api/opcua/data/latest', async (req, res) => {
+    try {
+        const company = req.headers['x-company'] || req.query.company;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        // Get dbName for company
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({ company });
+        
+        if (!masterUser) {
+            return res.status(404).json({ error: 'Company not found' });
+        }
+        
+        const db = mongoClient.db(masterUser.dbName);
+        
+        // Get all latest real-time data
+        const data = await db.collection('opcua_realtime')
+            .find({})
+            .toArray();
+        
+        res.json({ success: true, data });
+        
+    } catch (error) {
+        console.error('❌ Error fetching latest data:', error);
+        res.status(500).json({ error: 'Failed to fetch data' });
+    }
+});
+
+// GET /api/opcua/discovered-arrays - Get all discovered array nodes (for array viewer)
+app.get('/api/opcua/discovered-arrays', async (req, res) => {
+    try {
+        const company = req.headers['x-company'] || req.query.company;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        // Get dbName for company
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({ company });
+        
+        if (!masterUser) {
+            return res.status(404).json({ error: 'Company not found' });
+        }
+        
+        const db = mongoClient.db(masterUser.dbName);
+        
+        // Get all discovered nodes that are arrays (type: 'list')
+        const arrays = await db.collection('opcua_discovered_nodes')
+            .find({ type: 'list' })
+            .sort({ variableName: 1 })
+            .toArray();
+        
+        // Format the response to match what array-viewer expects
+        const formattedArrays = arrays.map(node => ({
+            opcNodeId: node.opcNodeId,
+            datapointId: node._id.toString(),
+            value: node.value || [],
+            quality: 'Good',
+            timestamp: node.discoveredAt,
+            equipmentId: node.raspberryId
+        }));
+        
+        res.json({ success: true, data: formattedArrays });
+        
+    } catch (error) {
+        console.error('❌ Error fetching discovered arrays:', error);
+        res.status(500).json({ error: 'Failed to fetch arrays' });
+    }
+});
+
 // POST /api/opcua/discovered-nodes - Save discovered nodes from Raspberry Pi
 app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) => {
     try {
@@ -2228,6 +2311,8 @@ app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) =>
             browseName: node.browseName,
             opcNodeId: node.opcNodeId,
             dataType: node.dataType,
+            type: node.type || 'unknown',  // list, number, string, boolean
+            value: node.value,  // Full value including arrays
             currentValue: node.currentValue,
             discoveredAt: timestamp,
             createdAt: new Date().toISOString()
