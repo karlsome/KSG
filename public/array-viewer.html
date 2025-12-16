@@ -203,6 +203,206 @@
             border-right: none;
         }
 
+        td.clickable {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        td.clickable:hover {
+            background: #fff3cd !important;
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        td.converted {
+            background: #d4edda !important;
+            font-weight: 600;
+        }
+
+        tr.converted-row {
+            background: #f0f8ff;
+        }
+
+        tr.converted-row td {
+            border-top: 2px solid #667eea;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            animation: fadeIn 0.2s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #495057;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #6c757d;
+            line-height: 1;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+
+        .modal-close:hover {
+            color: #dc3545;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .conversion-group {
+            margin-bottom: 20px;
+        }
+
+        .conversion-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .conversion-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .conversion-info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .conversion-info p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        .conversion-info strong {
+            color: #1976D2;
+        }
+
+        .conversion-result {
+            background: #d4edda;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .conversion-result h4 {
+            margin: 0 0 10px 0;
+            color: #155724;
+        }
+
+        .conversion-result p {
+            margin: 5px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -259,8 +459,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 OPC UA Array Data Viewer</h1>
-            <p>Real-time Array Data Monitoring</p>
+            <h1>Data conversion test</h1>
+    
         </div>
 
         <div class="controls">
@@ -298,6 +498,68 @@
         </div>
     </div>
 
+    <!-- Conversion Modal -->
+    <div id="conversion-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔄 Data Conversion</h3>
+                <button class="modal-close" onclick="closeConversionModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="conversion-info">
+                    <p><strong>Index:</strong> <span id="modal-index">-</span></p>
+                    <p><strong>Original Value:</strong> <span id="modal-value">-</span></p>
+                </div>
+
+                <div class="conversion-group">
+                    <label for="from-type">Convert From:</label>
+                    <select id="from-type">
+                        <option value="uint16">Unsigned Integer (16-bit)</option>
+                        <option value="uint8">Unsigned Integer (8-bit)</option>
+                        <option value="uint32">Unsigned Integer (32-bit)</option>
+                        <option value="int16">Signed Integer (16-bit)</option>
+                        <option value="int8">Signed Integer (8-bit)</option>
+                        <option value="int32">Signed Integer (32-bit)</option>
+                        <option value="hex16">Hexadecimal (16-bit)</option>
+                        <option value="hex8">Hexadecimal (8-bit)</option>
+                        <option value="binary16">Binary (16-bit)</option>
+                        <option value="binary8">Binary (8-bit)</option>
+                        <option value="ascii2">ASCII (2 chars from 16-bit)</option>
+                        <option value="ascii1">ASCII (1 char from 8-bit)</option>
+                    </select>
+                </div>
+
+                <div class="conversion-group">
+                    <label for="to-type">Convert To:</label>
+                    <select id="to-type">
+                        <option value="uint16">Unsigned Integer (16-bit)</option>
+                        <option value="uint8">Unsigned Integer (8-bit)</option>
+                        <option value="uint32">Unsigned Integer (32-bit)</option>
+                        <option value="int16">Signed Integer (16-bit)</option>
+                        <option value="int8">Signed Integer (8-bit)</option>
+                        <option value="int32">Signed Integer (32-bit)</option>
+                        <option value="hex16">Hexadecimal (16-bit)</option>
+                        <option value="hex8">Hexadecimal (8-bit)</option>
+                        <option value="binary16">Binary (16-bit)</option>
+                        <option value="binary8">Binary (8-bit)</option>
+                        <option value="ascii2">ASCII (2 chars from 16-bit)</option>
+                        <option value="ascii1">ASCII (1 char from 8-bit)</option>
+                    </select>
+                </div>
+
+                <div class="conversion-result" id="conversion-result">
+                    <h4>✅ Converted Value:</h4>
+                    <p id="converted-value">-</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeConversionModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="performConversion()">Convert</button>
+                <button class="btn btn-success" onclick="applyConversion()" style="display: none;" id="apply-btn">Apply to Row</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
         // Configuration
@@ -308,6 +570,7 @@
         let socket = null;
         let arrayData = {};
         let currentArray = null;
+        let convertedValues = {}; // Store converted values for each index
 
         // Elements
         const arraySelect = document.getElementById('array-select');
@@ -318,6 +581,10 @@
         const arrayDetails = document.getElementById('array-details');
         const lastUpdate = document.getElementById('last-update');
         const updateTime = document.getElementById('update-time');
+
+        // Modal state
+        let currentConversionIndex = null;
+        let currentConvertedValue = null;
 
         // Initialize
         function init() {
@@ -507,16 +774,38 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                ${data.value.map(value => {
+                            <tr class="original-row">
+                                ${data.value.map((value, index) => {
                                     // Format the value
                                     let displayValue = value;
                                     if (typeof value === 'number') {
                                         displayValue = value.toLocaleString();
                                     }
-                                    return `<td>${displayValue}</td>`;
+                                    return `<td class="clickable" onclick="openConversionModal(${index}, ${value})">${displayValue}</td>`;
                                 }).join('')}
-                            </tr>
+                            </tr>`;
+            
+            // Add converted row if any conversions exist
+            if (Object.keys(convertedValues).length > 0) {
+                html += `
+                            <tr class="converted-row">
+                                ${data.value.map((value, index) => {
+                                    // Check if this cell has a conversion
+                                    if (convertedValues[index] !== undefined) {
+                                        return `<td class="converted">${convertedValues[index]}</td>`;
+                                    } else {
+                                        // Show original value
+                                        let displayValue = value;
+                                        if (typeof value === 'number') {
+                                            displayValue = value.toLocaleString();
+                                        }
+                                        return `<td>${displayValue}</td>`;
+                                    }
+                                }).join('')}
+                            </tr>`;
+            }
+            
+            html += `
                         </tbody>
                     </table>
                 </div>
@@ -560,10 +849,150 @@
             arraySelect.addEventListener('change', (e) => {
                 currentArray = e.target.value;
                 if (currentArray && arrayData[currentArray]) {
+                    // Reset conversions when switching arrays
+                    convertedValues = {};
                     renderTable(currentArray);
                 }
             });
         }
+
+        // Conversion Modal Functions
+        function openConversionModal(index, value) {
+            currentConversionIndex = index;
+            currentConvertedValue = null;
+            
+            document.getElementById('modal-index').textContent = index;
+            document.getElementById('modal-value').textContent = value;
+            document.getElementById('conversion-result').style.display = 'none';
+            document.getElementById('apply-btn').style.display = 'none';
+            
+            document.getElementById('conversion-modal').classList.add('show');
+        }
+
+        function closeConversionModal() {
+            document.getElementById('conversion-modal').classList.remove('show');
+        }
+
+        function performConversion() {
+            const fromType = document.getElementById('from-type').value;
+            const toType = document.getElementById('to-type').value;
+            const originalValue = parseInt(document.getElementById('modal-value').textContent.replace(/,/g, ''));
+            
+            try {
+                // Step 1: Parse the original value according to "from" type
+                let intermediateValue = parseValue(originalValue, fromType);
+                
+                // Step 2: Convert to "to" type
+                let convertedValue = formatValue(intermediateValue, toType);
+                
+                // Display result
+                document.getElementById('converted-value').textContent = convertedValue;
+                document.getElementById('conversion-result').style.display = 'block';
+                document.getElementById('apply-btn').style.display = 'inline-block';
+                
+                currentConvertedValue = convertedValue;
+                
+            } catch (error) {
+                alert('Conversion error: ' + error.message);
+            }
+        }
+
+        function parseValue(value, fromType) {
+            // Parse the value according to the "from" type
+            switch(fromType) {
+                case 'uint16':
+                case 'uint8':
+                case 'uint32':
+                    return value;
+                    
+                case 'int16':
+                    // If value > 32767, treat as negative (two's complement)
+                    return value > 32767 ? value - 65536 : value;
+                    
+                case 'int8':
+                    // If value > 127, treat as negative
+                    return value > 127 ? value - 256 : value;
+                    
+                case 'int32':
+                    // If value > 2147483647, treat as negative
+                    return value > 2147483647 ? value - 4294967296 : value;
+                    
+                case 'hex16':
+                case 'hex8':
+                case 'binary16':
+                case 'binary8':
+                case 'ascii2':
+                case 'ascii1':
+                    return value;
+                    
+                default:
+                    return value;
+            }
+        }
+
+        function formatValue(value, toType) {
+            switch(toType) {
+                case 'uint16':
+                    return (value & 0xFFFF).toString();
+                    
+                case 'uint8':
+                    return (value & 0xFF).toString();
+                    
+                case 'uint32':
+                    return (value >>> 0).toString();
+                    
+                case 'int16':
+                    let int16 = value & 0xFFFF;
+                    return int16 > 32767 ? int16 - 65536 : int16;
+                    
+                case 'int8':
+                    let int8 = value & 0xFF;
+                    return int8 > 127 ? int8 - 256 : int8;
+                    
+                case 'int32':
+                    return value | 0;
+                    
+                case 'hex16':
+                    return '0x' + (value & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+                    
+                case 'hex8':
+                    return '0x' + (value & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+                    
+                case 'binary16':
+                    return (value & 0xFFFF).toString(2).padStart(16, '0');
+                    
+                case 'binary8':
+                    return (value & 0xFF).toString(2).padStart(8, '0');
+                    
+                case 'ascii2':
+                    // Treat 16-bit value as 2 ASCII characters
+                    const highByte = (value >> 8) & 0xFF;
+                    const lowByte = value & 0xFF;
+                    return String.fromCharCode(highByte) + String.fromCharCode(lowByte);
+                    
+                case 'ascii1':
+                    // Treat 8-bit value as 1 ASCII character
+                    return String.fromCharCode(value & 0xFF);
+                    
+                default:
+                    return value.toString();
+            }
+        }
+
+        function applyConversion() {
+            if (currentConversionIndex !== null && currentConvertedValue !== null) {
+                convertedValues[currentConversionIndex] = currentConvertedValue;
+                renderTable(currentArray);
+                closeConversionModal();
+            }
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('conversion-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeConversionModal();
+            }
+        });
 
         // Start the application
         init();
