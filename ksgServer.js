@@ -1671,33 +1671,68 @@ io.on('connection', (socket) => {
         
         try {
             const { raspberryId, equipmentId, data: datapoints } = data;
+            const deviceId = raspberryId; // device_id from Raspberry Pi
             
-            // Find which company/database this Raspberry Pi belongs to
-            const masterDB = mongoClient.db(DB_NAME);
-            const masterUsers = masterDB.collection(COLLECTION_NAME);
-            
-            const user = await masterUsers.findOne({
-                'devices': {
-                    $elemMatch: { uniqueId: raspberryId }
-                }
-            });
-            
-            if (!user) {
-                console.error(`❌ Raspberry Pi ${raspberryId} not found in any user's devices`);
+            if (!deviceId || !datapoints || datapoints.length === 0) {
+                console.error('❌ Invalid opcua_data_change payload');
                 return;
             }
             
-            const dbName = user.dbName;
+            // Find which company/database this device belongs to
+            // First try deviceInfo collection (new system)
+            let dbName = null;
+            let company = null;
+            
+            // Check all possible companies by looking at deviceInfo
+            const masterDB = mongoClient.db(DB_NAME);
+            const masterUsers = await masterDB.collection(COLLECTION_NAME).find({}).toArray();
+            
+            for (const user of masterUsers) {
+                const testDb = mongoClient.db(user.company || user.dbName);
+                const device = await testDb.collection('deviceInfo').findOne({ device_id: deviceId });
+                
+                if (device) {
+                    dbName = user.company || user.dbName;
+                    company = user.company;
+                    console.log(`✅ Found device ${deviceId} in company: ${company}`);
+                    break;
+                }
+            }
+            
+            // Fallback: Try old devices structure
+            if (!dbName) {
+                const user = await masterDB.collection(COLLECTION_NAME).findOne({
+                    'devices': {
+                        $elemMatch: { uniqueId: deviceId }
+                    }
+                });
+                
+                if (user) {
+                    dbName = user.dbName;
+                    company = user.company;
+                }
+            }
+            
+            if (!dbName) {
+                console.error(`❌ Device ${deviceId} not found in any company database`);
+                return;
+            }
+            
             const db = mongoClient.db(dbName);
             
             // Save to MongoDB (async, non-blocking)
             const bulkOps = datapoints.map(item => ({
                 updateOne: {
-                    filter: { datapointId: item.datapointId },
+                    filter: { 
+                        datapointId: item.datapointId,
+                        device_id: deviceId 
+                    },
                     update: {
                         $set: {
-                            raspberryId,
+                            device_id: deviceId,
+                            raspberryId: deviceId, // Keep for backward compatibility
                             equipmentId: item.equipmentId || equipmentId,
+                            datapointId: item.datapointId,
                             opcNodeId: item.opcNodeId,
                             value: item.value,
                             valueString: String(item.value),
@@ -1716,9 +1751,22 @@ io.on('connection', (socket) => {
                 console.error('❌ Error saving OPC UA data to MongoDB:', err.message);
             });
             
-            // Broadcast to all tablets immediately (don't wait for MongoDB)
-            io.emit('opcua_realtime_update', {
-                raspberryId,
+            // Update device last_seen in deviceInfo
+            db.collection('deviceInfo').updateOne(
+                { device_id: deviceId },
+                { 
+                    $set: { 
+                        updated_at: new Date().toISOString() 
+                    } 
+                }
+            ).catch(err => {
+                console.error('❌ Error updating device timestamp:', err.message);
+            });
+            
+            // Broadcast to company room for OPC Management page
+            const broadcastData = {
+                device_id: deviceId,
+                raspberryId: deviceId, // backward compatibility
                 equipmentId,
                 data: datapoints.map(item => ({
                     datapointId: item.datapointId,
@@ -1727,12 +1775,19 @@ io.on('connection', (socket) => {
                     quality: item.quality,
                     timestamp: item.timestamp
                 }))
-            });
+            };
             
-            console.log(`📤 Broadcasted ${datapoints.length} datapoint(s) to tablets`);
+            // Emit to company-specific room
+            io.to(`opcua_${dbName}`).emit('opcua_data_update', broadcastData);
+            
+            // Also emit to general tablets (backward compatibility)
+            io.emit('opcua_realtime_update', broadcastData);
+            
+            console.log(`📤 Broadcasted ${datapoints.length} datapoint(s) from ${deviceId} to company ${company}`);
             
         } catch (error) {
             console.error('❌ Error handling OPC UA data change:', error.message);
+            console.error(error.stack);
         }
     });
     
@@ -2231,6 +2286,76 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
     } catch (error) {
         console.error('❌ Error updating device:', error);
         res.status(500).json({ error: 'Failed to update device' });
+    }
+});
+
+// GET /api/deviceInfo/:deviceId/opcua-data - Get OPC UA data for a specific device
+app.get('/api/deviceInfo/:deviceId/opcua-data', async (req, res) => {
+    try {
+        const { deviceId } = req.params;
+        const company = req.headers['x-company'] || req.query.company;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
+        const db = mongoClient.db(company);
+        
+        // Get device info to verify it exists
+        const device = await db.collection('deviceInfo').findOne({ device_id: deviceId });
+        
+        if (!device) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+        
+        // Get datapoints configuration for this device
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ 
+                device_id: deviceId,
+                enabled: true 
+            })
+            .sort({ sortOrder: 1 })
+            .toArray();
+        
+        // Get latest real-time values for each datapoint
+        const datapointIds = datapoints.map(dp => dp._id.toString());
+        const realtimeData = await db.collection('opcua_realtime')
+            .find({ 
+                device_id: deviceId,
+                datapointId: { $in: datapointIds }
+            })
+            .toArray();
+        
+        // Merge datapoint config with real-time values
+        const mergedData = datapoints.map(dp => {
+            const rtData = realtimeData.find(rt => rt.datapointId === dp._id.toString());
+            return {
+                _id: dp._id,
+                name: dp.name || dp.displayName,
+                opcNodeId: dp.opcNodeId,
+                value: rtData ? rtData.value : null,
+                quality: rtData ? rtData.quality : null,
+                timestamp: rtData ? rtData.sourceTimestamp : null,
+                updatedAt: rtData ? rtData.updatedAt : null
+            };
+        });
+        
+        res.json({ 
+            success: true, 
+            device: {
+                device_id: device.device_id,
+                device_name: device.device_name
+            },
+            datapoints: mergedData 
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching device OPC UA data:', error);
+        res.status(500).json({ error: 'Failed to fetch device data' });
     }
 });
 

@@ -175,13 +175,18 @@ function setupEventListeners() {
 }
 
 // Load real-time data for selected Raspberry Pi
-async function loadRealTimeData(raspberryId) {
+async function loadRealTimeData(deviceId) {
     try {
-        const response = await fetch(`${API_URL}/api/opcua/realtime-data/${raspberryId}`);
+        const response = await fetch(`${API_URL}/api/deviceInfo/${deviceId}/opcua-data?company=${COMPANY}`);
         const data = await response.json();
         
-        rawDataCache = data;
-        renderRealTimeData(data);
+        if (data.success) {
+            window.opcManagementState.rawDataCache = data;
+            rawDataCache = data;
+            renderRealTimeData(data);
+        } else {
+            showNotification('Failed to load data: ' + (data.error || 'Unknown error'), 'error');
+        }
         
     } catch (error) {
         console.error('Error loading real-time data:', error);
@@ -191,12 +196,29 @@ async function loadRealTimeData(raspberryId) {
 
 // Handle real-time WebSocket data
 function handleRealtimeData(data) {
-    if (data.raspberryId === currentRaspberryId) {
-        rawDataCache = data;
-        renderRealTimeData(data);
-        
-        // Recalculate variable values
-        updateVariableValues();
+    // Check if this update is for the currently selected device
+    if (data.device_id === currentRaspberryId || data.raspberryId === currentRaspberryId) {
+        // Update the cached data with new values
+        if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
+            // Update existing datapoints with new values
+            const updatedData = window.opcManagementState.rawDataCache;
+            if (data.data && Array.isArray(data.data)) {
+                data.data.forEach(update => {
+                    const dpIndex = updatedData.datapoints.findIndex(dp => 
+                        dp._id.toString() === update.datapointId || dp.opcNodeId === update.opcNodeId
+                    );
+                    if (dpIndex !== -1) {
+                        updatedData.datapoints[dpIndex].value = update.value;
+                        updatedData.datapoints[dpIndex].quality = update.quality;
+                        updatedData.datapoints[dpIndex].timestamp = update.timestamp;
+                    }
+                });
+            }
+            renderRealTimeData(updatedData);
+            
+            // Recalculate variable values
+            updateVariableValues();
+        }
     }
 }
 
