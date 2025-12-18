@@ -4,12 +4,39 @@ const BASE_URL = 'http://localhost:3000/';
 // const BASE_URL = 'https://ksg-server-url.com/'; // Update when deployed
 
 let allUsers = [];
+let availableRoles = ["admin", "member", "operator", "viewer"]; // Default roles
+
+// Load roles from the database
+async function loadAvailableRoles() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getRoles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    if (res.ok) {
+      const roles = await res.json();
+      if (roles.length > 0) {
+        availableRoles = roles.map(r => r.roleName);
+      }
+    }
+  } catch (err) {
+    console.log("Using default roles, couldn't fetch from database:", err);
+  }
+}
 
 async function loadUsers() {
   // Get current user info (should be set when user logs in)
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const role = currentUser.role || "admin";
+
+  // Load available roles first
+  await loadAvailableRoles();
 
   try {
     const res = await fetch(BASE_URL + "customerGetUsers", {
@@ -66,10 +93,7 @@ function showCreateUserForm() {
           <label class="block text-sm font-medium text-gray-700">Role</label>
           <select id="newRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors">
             <option value="">Select Role</option>
-            <option value="admin">admin</option>
-            <option value="member">member</option>
-            <option value="operator">operator</option>
-            <option value="viewer">viewer</option>
+            ${availableRoles.map(r => `<option value="${r}">${r}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
@@ -219,7 +243,7 @@ function renderUserTable(users) {
                   ${
                     h === "role"
                       ? `<select class="border border-gray-300 p-1 rounded" disabled data-role user-id="${u._id}">
-                          ${["admin", "member", "operator", "viewer"].map(r => `
+                          ${availableRoles.map(r => `
                             <option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>
                           `).join("")}
                         </select>`

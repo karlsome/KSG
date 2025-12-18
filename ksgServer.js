@@ -3287,6 +3287,550 @@ app.post("/customerResetUserPassword", async (req, res) => {
 // END CUSTOMER USER MANAGEMENT ROUTES
 // ==========================================
 
+// ==========================================
+// MASTER DB ROUTES
+// ==========================================
+
+// Get Master DB records
+app.post("/getMasterDB", async (req, res) => {
+  const { dbName, role } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const masterDB = db.collection("masterDB");
+
+    const records = await masterDB.find({}).toArray();
+    res.json(records);
+  } catch (err) {
+    console.error("Error fetching masterDB:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create Master DB record with image upload
+app.post("/createMasterRecord", async (req, res) => {
+  const { dbName, username, imageBase64, ...recordData } = req.body;
+
+  if (!dbName || !username) {
+    return res.status(400).json({ error: "dbName and username required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const masterDB = db.collection("masterDB");
+
+    // Handle image upload to Firebase if provided
+    let imageURL = null;
+    if (imageBase64) {
+      const buffer = Buffer.from(imageBase64, 'base64');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `${recordData.品番 || 'unknown'}_${timestamp}.jpg`;
+      const filePath = `${dbName}/masterImages/${fileName}`;
+      const file = admin.storage().bucket().file(filePath);
+      const downloadToken = crypto.randomBytes(16).toString('hex');
+
+      await file.save(buffer, {
+        metadata: {
+          contentType: 'image/jpeg',
+          metadata: {
+            firebaseStorageDownloadTokens: downloadToken
+          }
+        }
+      });
+
+      imageURL = `https://firebasestorage.googleapis.com/v0/b/${file.bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+    }
+
+    const newRecord = {
+      ...recordData,
+      imageURL,
+      changeHistory: [{
+        timestamp: new Date(),
+        changedBy: username,
+        action: "新規作成",
+        changes: [{ field: "全体", oldValue: "(なし)", newValue: "新規レコード作成" }]
+      }],
+      createdAt: new Date(),
+      createdBy: username
+    };
+
+    const result = await masterDB.insertOne(newRecord);
+    res.json({ message: "Record created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating master record:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update Master DB record
+app.post("/updateMasterRecord", async (req, res) => {
+  const { recordId, updateData, dbName, username } = req.body;
+
+  if (!recordId || !dbName || !username) {
+    return res.status(400).json({ error: "recordId, dbName, username required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const masterDB = db.collection("masterDB");
+
+    // Get old record for change history
+    const oldRecord = await masterDB.findOne({ _id: new ObjectId(recordId) });
+    if (!oldRecord) {
+      return res.status(404).json({ error: "Record not found" });
+    }
+
+    // Build change history
+    const changes = [];
+    for (const [key, newValue] of Object.entries(updateData)) {
+      const oldValue = oldRecord[key];
+      if (oldValue !== newValue) {
+        changes.push({ field: key, oldValue: oldValue || "(なし)", newValue });
+      }
+    }
+
+    const historyEntry = {
+      timestamp: new Date(),
+      changedBy: username,
+      action: "更新",
+      changes
+    };
+
+    const result = await masterDB.updateOne(
+      { _id: new ObjectId(recordId) },
+      { 
+        $set: updateData,
+        $push: { changeHistory: historyEntry }
+      }
+    );
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating master record:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete Master DB record
+app.post("/deleteMasterRecord", async (req, res) => {
+  const { recordId, dbName, username } = req.body;
+
+  if (!recordId || !dbName || !username) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const masterDB = db.collection("masterDB");
+
+    const result = await masterDB.deleteOne({ _id: new ObjectId(recordId) });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting master record:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// FACTORY ROUTES
+// ==========================================
+
+// Get all factories
+app.post("/getFactories", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    const result = await factories.find({}).toArray();
+    res.json(result);
+  } catch (err) {
+    console.error("Error fetching factories:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create factory
+app.post("/createFactory", async (req, res) => {
+  const { dbName, ...factoryData } = req.body;
+
+  if (!dbName || !factoryData.name) {
+    return res.status(400).json({ error: "dbName and name required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    const result = await factories.insertOne({
+      ...factoryData,
+      createdAt: new Date()
+    });
+
+    res.json({ message: "Factory created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating factory:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update factory
+app.post("/updateFactory", async (req, res) => {
+  const { factoryId, updateData, dbName } = req.body;
+
+  if (!factoryId || !dbName) {
+    return res.status(400).json({ error: "factoryId and dbName required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    const result = await factories.updateOne(
+      { _id: new ObjectId(factoryId) },
+      { $set: updateData }
+    );
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating factory:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete factory
+app.post("/deleteFactory", async (req, res) => {
+  const { factoryId, dbName } = req.body;
+
+  if (!factoryId || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    const result = await factories.deleteOne({ _id: new ObjectId(factoryId) });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting factory:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add division to factory
+app.post("/addDivision", async (req, res) => {
+  const { factoryId, division, dbName } = req.body;
+
+  if (!factoryId || !division || !dbName) {
+    return res.status(400).json({ error: "factoryId, division, dbName required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    const result = await factories.updateOne(
+      { _id: new ObjectId(factoryId) },
+      { $push: { divisions: division } }
+    );
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error adding division:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete division from factory
+app.post("/deleteDivision", async (req, res) => {
+  const { factoryId, divisionIndex, dbName } = req.body;
+
+  if (factoryId === undefined || divisionIndex === undefined || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const factories = db.collection("factory");
+
+    // Get the factory first
+    const factory = await factories.findOne({ _id: new ObjectId(factoryId) });
+    if (!factory || !factory.divisions) {
+      return res.status(404).json({ error: "Factory or divisions not found" });
+    }
+
+    // Remove division at index
+    factory.divisions.splice(divisionIndex, 1);
+
+    const result = await factories.updateOne(
+      { _id: new ObjectId(factoryId) },
+      { $set: { divisions: factory.divisions } }
+    );
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error deleting division:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// EQUIPMENT ROUTES
+// ==========================================
+
+// Get all equipment
+app.post("/getEquipment", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const equipment = db.collection("equipment");
+
+    const result = await equipment.find({}).toArray();
+    res.json(result);
+  } catch (err) {
+    console.error("Error fetching equipment:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create equipment
+app.post("/createEquipment", async (req, res) => {
+  const { dbName, ...equipmentData } = req.body;
+
+  if (!dbName || !equipmentData.設備名) {
+    return res.status(400).json({ error: "dbName and 設備名 required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const equipment = db.collection("equipment");
+
+    const result = await equipment.insertOne({
+      ...equipmentData,
+      createdAt: new Date()
+    });
+
+    res.json({ message: "Equipment created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating equipment:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update equipment
+app.post("/updateEquipment", async (req, res) => {
+  const { equipmentId, updateData, dbName } = req.body;
+
+  if (!equipmentId || !dbName) {
+    return res.status(400).json({ error: "equipmentId and dbName required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const equipment = db.collection("equipment");
+
+    const result = await equipment.updateOne(
+      { _id: new ObjectId(equipmentId) },
+      { $set: updateData }
+    );
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating equipment:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete equipment
+app.post("/deleteEquipment", async (req, res) => {
+  const { equipmentId, dbName } = req.body;
+
+  if (!equipmentId || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const equipment = db.collection("equipment");
+
+    const result = await equipment.deleteOne({ _id: new ObjectId(equipmentId) });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting equipment:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// ROLES ROUTES
+// ==========================================
+
+// Get all roles
+app.post("/getRoles", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const roles = db.collection("roles");
+
+    const result = await roles.find({}).toArray();
+    res.json(result);
+  } catch (err) {
+    console.error("Error fetching roles:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create role
+app.post("/createRole", async (req, res) => {
+  const { dbName, ...roleData } = req.body;
+
+  if (!dbName || !roleData.roleName) {
+    return res.status(400).json({ error: "dbName and roleName required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const roles = db.collection("roles");
+
+    // Check if role already exists
+    const existing = await roles.findOne({ roleName: roleData.roleName });
+    if (existing) {
+      return res.status(400).json({ error: "Role already exists" });
+    }
+
+    const result = await roles.insertOne({
+      ...roleData,
+      createdAt: new Date()
+    });
+
+    res.json({ message: "Role created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating role:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete role
+app.post("/deleteRole", async (req, res) => {
+  const { roleId, dbName } = req.body;
+
+  if (!roleId || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const roles = db.collection("roles");
+
+    const result = await roles.deleteOne({ _id: new ObjectId(roleId) });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting role:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// END MASTER DB ROUTES
+// ==========================================
+
 // �🚀 Start server with MongoDB connection
 async function startServer() {
     console.log('🚀 Starting KSG IoT Function Server...');

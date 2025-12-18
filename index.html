@@ -180,12 +180,34 @@
           break;
           
         case 'master-db':
-          mainContent.innerHTML = `
-            <h2 class="text-2xl font-semibold mb-4">Master Database</h2>
-            <div class="bg-white p-6 rounded-lg shadow">
-              <p class="text-gray-600">Master database content will be displayed here</p>
-            </div>
-          `;
+          fetch('public/masterDB.html')
+            .then(response => response.text())
+            .then(html => {
+              // Extract the content part only (not the full HTML structure)
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const container = doc.querySelector('.container');
+              mainContent.innerHTML = container ? container.innerHTML : html;
+              
+              // Load the masterDB.js script
+              const script = document.createElement('script');
+              script.src = 'public/js/masterDB.js';
+              script.onload = () => {
+                // Initialize the master DB page
+                if (typeof loadMasterData === 'function') {
+                  loadMasterData();
+                }
+              };
+              document.body.appendChild(script);
+            })
+            .catch(err => {
+              mainContent.innerHTML = `
+                <h2 class="text-2xl font-semibold mb-4">Master Database</h2>
+                <div class="bg-white p-6 rounded-lg shadow">
+                  <p class="text-red-600">Failed to load Master DB: ${err.message}</p>
+                </div>
+              `;
+            });
           break;
           
         case 'opc-management':
