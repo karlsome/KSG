@@ -801,11 +801,24 @@ function renderVariables() {
     variablesCache.forEach(variable => {
         const value = variable.currentValue !== undefined ? variable.currentValue : '-';
         
-        // Get device name from allDevicesDataCache
+        // Get device name and variable name from allDevicesDataCache
         let deviceDisplay = '';
+        let sourceVariableName = variable.datapointName || variable.datapointId;
+        
         if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
-            const deviceInfo = allDevicesDataCache[variable.raspberryId].device;
+            const deviceCache = allDevicesDataCache[variable.raspberryId];
+            const deviceInfo = deviceCache.device;
             deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
+            
+            // Find the actual variable name from datapoints
+            if (deviceCache.datapoints && variable.datapointId) {
+                const datapoint = deviceCache.datapoints.find(dp => 
+                    dp._id && dp._id.toString() === variable.datapointId.toString()
+                );
+                if (datapoint) {
+                    sourceVariableName = datapoint.name || datapoint.opcNodeId;
+                }
+            }
         } else if (variable.raspberryId) {
             deviceDisplay = variable.raspberryId;
         }
@@ -815,7 +828,7 @@ function renderVariables() {
                 <td class="px-4 py-3">
                     <div class="font-semibold text-gray-800">${variable.variableName}</div>
                     <div class="text-xs text-gray-500 mt-1">
-                        ${variable.sourceType === 'combined' ? 'Combined Variable' : `${variable.datapointName || variable.datapointId}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
+                        ${variable.sourceType === 'combined' ? 'Combined Variable' : `${sourceVariableName}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
                     </div>
                     ${deviceDisplay ? `<div class="text-xs text-blue-600 mt-1"><i class="ri-cpu-line"></i> ${deviceDisplay}</div>` : ''}
                 </td>
