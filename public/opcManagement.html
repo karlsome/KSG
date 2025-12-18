@@ -12,7 +12,7 @@
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-800">🔧 OPC Management</h1>
+            <h1 class="text-3xl font-bold text-gray-800">🔧OPC Management</h1>
             <div class="flex items-center gap-3">
                 <span id="opc-connection-status" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-600">
                     <span class="w-2 h-2 rounded-full bg-gray-400"></span>
@@ -118,11 +118,34 @@
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Conversion Type <span class="text-red-500">*</span>
+                            Convert From <span class="text-red-500">*</span>
                         </label>
-                        <select id="conv-type" required onchange="updateConversionPreview()"
+                        <select id="conv-from-type" required onchange="updateConversionPreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">Select conversion...</option>
+                            <option value="">Select source format...</option>
+                            <option value="uint16">Unsigned Integer (16-bit)</option>
+                            <option value="uint8">Unsigned Integer (8-bit)</option>
+                            <option value="uint32">Unsigned Integer (32-bit)</option>
+                            <option value="int16">Signed Integer (16-bit)</option>
+                            <option value="int8">Signed Integer (8-bit)</option>
+                            <option value="int32">Signed Integer (32-bit)</option>
+                            <option value="hex16">Hexadecimal (16-bit)</option>
+                            <option value="hex8">Hexadecimal (8-bit)</option>
+                            <option value="binary16">Binary (16-bit)</option>
+                            <option value="binary8">Binary (8-bit)</option>
+                            <option value="binary4">Binary (4-bit)</option>
+                            <option value="float32">Float (32-bit)</option>
+                            <option value="double64">Double (64-bit)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Convert To <span class="text-red-500">*</span>
+                        </label>
+                        <select id="conv-to-type" required onchange="updateConversionPreview()"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="">Select target format...</option>
                             <option value="uint16">Unsigned Integer (16-bit)</option>
                             <option value="uint8">Unsigned Integer (8-bit)</option>
                             <option value="uint32">Unsigned Integer (32-bit)</option>
@@ -135,6 +158,9 @@
                             <option value="binary8">Binary (8-bit)</option>
                             <option value="ascii2">ASCII (2 chars from 16-bit)</option>
                             <option value="ascii1">ASCII (1 char from 8-bit)</option>
+                            <option value="float32">Float (32-bit)</option>
+                            <option value="double64">Double (64-bit)</option>
+                            <option value="string">String</option>
                             <option value="none">No Conversion (Keep Original)</option>
                         </select>
                     </div>

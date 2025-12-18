@@ -306,7 +306,15 @@ function showDataDetailModal(datapoint) {
         valueDisplay = `
             <div class="max-h-60 overflow-y-auto bg-gray-50 p-3 rounded">
                 <div class="font-mono text-sm space-y-1">
-                    ${datapoint.value.map((val, idx) => `<div>[${idx}]: ${val}</div>`).join('')}
+                    ${datapoint.value.map((val, idx) => `
+                        <div class="flex items-center justify-between p-2 hover:bg-blue-100 rounded cursor-pointer transition-colors"
+                             onclick="createVariableFromArrayItem(${idx}, ${JSON.stringify(val).replace(/"/g, '&quot;')})">
+                            <span><strong>[${idx}]:</strong> ${val}</span>
+                            <button class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">
+                                <i class="ri-add-line"></i> Create
+                            </button>
+                        </div>
+                    `).join('')}
                 </div>
             </div>
         `;
@@ -383,11 +391,19 @@ function showDataDetailModal(datapoint) {
                         class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
                         Close
                     </button>
-                    <button onclick="createVariableFromDetail()" 
-                        class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
-                        <i class="ri-add-circle-line mr-2"></i>
-                        Create Variable
-                    </button>
+                    ${isArray ? 
+                        `<button disabled 
+                            class="px-6 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed flex items-center opacity-60">
+                            <i class="ri-add-circle-line mr-2"></i>
+                            Create Variable (Use array items below)
+                        </button>` 
+                        : 
+                        `<button onclick="createVariableFromDetail()" 
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+                            <i class="ri-add-circle-line mr-2"></i>
+                            Create Variable
+                        </button>`
+                    }
                 </div>
             </div>
         </div>
@@ -401,24 +417,95 @@ function closeDataDetailModal() {
     if (modal) modal.remove();
 }
 
-function createVariableFromDetail() {
-    if (!lastViewedDatapoint) return;
+function createVariableFromArrayItem(arrayIndex, value) {
+    console.log('createVariableFromArrayItem called with index:', arrayIndex, 'value:', value);
     
+    if (!lastViewedDatapoint) {
+        console.error('No lastViewedDatapoint available');
+        return;
+    }
+    
+    const dp = lastViewedDatapoint;
+    
+    // Close detail modal
     closeDataDetailModal();
     
-    // Open conversion modal
+    // Open conversion modal with array index
+    setTimeout(() => {
+        console.log('Opening conversion modal for array item:', {
+            id: dp._id,
+            arrayIndex: arrayIndex,
+            value: value,
+            name: `${dp.name || dp.opcNodeId}[${arrayIndex}]`
+        });
+        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`);
+    }, 100);
+}
+
+function createVariableFromArrayItem(arrayIndex, value) {
+    console.log('createVariableFromArrayItem called with index:', arrayIndex, 'value:', value);
+    
+    if (!lastViewedDatapoint) {
+        console.error('No lastViewedDatapoint available');
+        return;
+    }
+    
     const dp = lastViewedDatapoint;
-    openConversionModal(dp._id, null, dp.value, dp.name || dp.opcNodeId);
+    
+    // Close detail modal
+    closeDataDetailModal();
+    
+    // Open conversion modal with array index
+    setTimeout(() => {
+        console.log('Opening conversion modal for array item:', {
+            id: dp._id,
+            arrayIndex: arrayIndex,
+            value: value,
+            name: `${dp.name || dp.opcNodeId}[${arrayIndex}]`
+        });
+        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`);
+    }, 100);
+}
+
+function createVariableFromDetail() {
+    console.log('createVariableFromDetail called');
+    console.log('lastViewedDatapoint:', lastViewedDatapoint);
+    
+    if (!lastViewedDatapoint) {
+        console.log('No lastViewedDatapoint, returning');
+        return;
+    }
+    
+    const dp = lastViewedDatapoint;
+    console.log('Datapoint data:', dp);
+    
+    // Close detail modal first
+    console.log('Closing detail modal');
+    closeDataDetailModal();
+    
+    // Wait a moment for DOM to update, then open conversion modal
+    setTimeout(() => {
+        console.log('Opening conversion modal with:', {
+            id: dp._id,
+            value: dp.value,
+            name: dp.name || dp.opcNodeId
+        });
+        openConversionModal(dp._id, null, dp.value, dp.name || dp.opcNodeId);
+    }, 100);
 }
 
 // Open conversion modal
 function openConversionModal(datapointId, arrayIndex, rawValue, datapointName) {
+    console.log('openConversionModal called with:', { datapointId, arrayIndex, rawValue, datapointName });
+    
     currentConversionData = {
         datapointId,
         arrayIndex,
         rawValue,
         datapointName
     };
+    
+    console.log('currentConversionData set:', currentConversionData);
     
     // Set modal content
     const convDatapointName = document.getElementById('conv-datapoint-name');
@@ -428,6 +515,16 @@ function openConversionModal(datapointId, arrayIndex, rawValue, datapointName) {
     const convForm = document.getElementById('opc-conversion-form');
     const convPreview = document.getElementById('conv-preview');
     const convModal = document.getElementById('opc-conversion-modal');
+    
+    console.log('Modal elements found:', {
+        convDatapointName: !!convDatapointName,
+        convRawValue: !!convRawValue,
+        convArrayIndexRow: !!convArrayIndexRow,
+        convArrayIndex: !!convArrayIndex,
+        convForm: !!convForm,
+        convPreview: !!convPreview,
+        convModal: !!convModal
+    });
     
     if (convDatapointName) convDatapointName.textContent = datapointName;
     if (convRawValue) convRawValue.textContent = Array.isArray(rawValue) ? JSON.stringify(rawValue) : rawValue;
@@ -444,52 +541,95 @@ function openConversionModal(datapointId, arrayIndex, rawValue, datapointName) {
     if (convPreview) convPreview.style.display = 'none';
     
     // Show modal
-    if (convModal) convModal.classList.remove('hidden');
+    if (convModal) {
+        console.log('Showing conversion modal');
+        convModal.classList.remove('hidden');
+    } else {
+        console.error('Conversion modal element not found!');
+    }
 }
 
 // Update conversion preview
 function updateConversionPreview() {
-    const convType = document.getElementById('conv-type').value;
-    if (!convType || !currentConversionData) return;
+    const convFromType = document.getElementById('conv-from-type').value;
+    const convToType = document.getElementById('conv-to-type').value;
+    
+    if (!convFromType || !convToType || !currentConversionData) return;
     
     const rawValue = currentConversionData.rawValue;
-    const converted = applyConversion(rawValue, convType);
+    const converted = applyConversion(rawValue, convFromType, convToType);
     
     document.getElementById('conv-preview-value').textContent = converted;
     document.getElementById('conv-preview').style.display = 'block';
 }
 
 // Apply conversion to a value
-function applyConversion(value, convType) {
-    const num = parseInt(value);
+function applyConversion(value, fromType, toType) {
+    // Step 1: Parse value based on fromType
+    let numValue;
     
-    switch (convType) {
+    switch (fromType) {
         case 'uint16':
-            return (num & 0xFFFF).toString();
         case 'uint8':
-            return (num & 0xFF).toString();
         case 'uint32':
-            return (num >>> 0).toString();
         case 'int16':
-            return (num << 16 >> 16).toString();
         case 'int8':
-            return (num << 24 >> 24).toString();
         case 'int32':
-            return (num | 0).toString();
+            numValue = parseInt(value);
+            break;
         case 'hex16':
-            return '0x' + (num & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
         case 'hex8':
-            return '0x' + (num & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+            numValue = parseInt(value, 16);
+            break;
         case 'binary16':
-            return (num & 0xFFFF).toString(2).padStart(16, '0');
         case 'binary8':
-            return (num & 0xFF).toString(2).padStart(8, '0');
+        case 'binary4':
+            numValue = parseInt(value, 2);
+            break;
+        case 'float32':
+        case 'double64':
+            numValue = parseFloat(value);
+            break;
+        default:
+            numValue = parseInt(value);
+    }
+    
+    // Step 2: Convert to target format
+    switch (toType) {
+        case 'uint16':
+            return (numValue & 0xFFFF).toString();
+        case 'uint8':
+            return (numValue & 0xFF).toString();
+        case 'uint32':
+            return (numValue >>> 0).toString();
+        case 'int16':
+            return (numValue << 16 >> 16).toString();
+        case 'int8':
+            return (numValue << 24 >> 24).toString();
+        case 'int32':
+            return (numValue | 0).toString();
+        case 'hex16':
+            return '0x' + (numValue & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+        case 'hex8':
+            return '0x' + (numValue & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+        case 'binary16':
+            return (numValue & 0xFFFF).toString(2).padStart(16, '0');
+        case 'binary8':
+            return (numValue & 0xFF).toString(2).padStart(8, '0');
+        case 'binary4':
+            return (numValue & 0xF).toString(2).padStart(4, '0');
         case 'ascii2':
-            const high = (num >> 8) & 0xFF;
-            const low = num & 0xFF;
+            const high = (numValue >> 8) & 0xFF;
+            const low = numValue & 0xFF;
             return String.fromCharCode(high) + String.fromCharCode(low);
         case 'ascii1':
-            return String.fromCharCode(num & 0xFF);
+            return String.fromCharCode(numValue & 0xFF);
+        case 'float32':
+            return parseFloat(numValue).toFixed(6);
+        case 'double64':
+            return parseFloat(numValue).toFixed(12);
+        case 'string':
+            return numValue.toString();
         case 'none':
         default:
             return value.toString();
@@ -501,7 +641,8 @@ async function handleConversionSubmit(e) {
     e.preventDefault();
     
     const variableName = document.getElementById('conv-variable-name').value;
-    const convType = document.getElementById('conv-type').value;
+    const convFromType = document.getElementById('conv-from-type').value;
+    const convToType = document.getElementById('conv-to-type').value;
     
     const payload = {
         company: COMPANY,
@@ -509,7 +650,9 @@ async function handleConversionSubmit(e) {
         sourceType: currentConversionData.arrayIndex !== null ? 'array' : 'single',
         datapointId: currentConversionData.datapointId,
         arrayIndex: currentConversionData.arrayIndex,
-        conversionType: convType,
+        conversionFromType: convFromType,
+        conversionToType: convToType,
+        conversionType: convToType, // For backward compatibility
         createdBy: localStorage.getItem('username') || 'admin'
     };
     
@@ -633,7 +776,9 @@ function updateVariableValues() {
                     : datapoint.value;
                 
                 if (rawValue !== null && rawValue !== undefined) {
-                    variable.currentValue = applyConversion(rawValue, variable.conversionType);
+                    const fromType = variable.conversionFromType || 'uint16'; // Default fallback
+                    const toType = variable.conversionToType || variable.conversionType || 'none';
+                    variable.currentValue = applyConversion(rawValue, fromType, toType);
                 }
             }
         }

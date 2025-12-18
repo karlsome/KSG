@@ -228,6 +228,16 @@
               const container = doc.querySelector('.container') || doc.querySelector('body > div');
               mainContent.innerHTML = container ? container.innerHTML : html;
               
+              // Also load the modals (they're outside the container)
+              const modals = doc.querySelectorAll('[id$="-modal"]');
+              modals.forEach(modal => {
+                // Remove existing modal if it exists
+                const existingModal = document.getElementById(modal.id);
+                if (existingModal) existingModal.remove();
+                // Append modal to body
+                document.body.appendChild(modal.cloneNode(true));
+              });
+              
               // Load Socket.IO if not already loaded
               if (typeof io === 'undefined') {
                 const socketScript = document.createElement('script');
