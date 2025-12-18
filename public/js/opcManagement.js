@@ -713,49 +713,55 @@ function renderVariables() {
         return;
     }
     
-    let html = '<div class="space-y-3">';
+    let html = `
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b-2 border-gray-200">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+    `;
     
     variablesCache.forEach(variable => {
         const value = variable.currentValue !== undefined ? variable.currentValue : '-';
         
         html += `
-            <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div class="flex justify-between items-start mb-2">
-                    <div class="flex-1">
-                        <h4 class="font-semibold text-gray-800 text-lg">${variable.variableName}</h4>
-                        <p class="text-xs text-gray-500 mt-1">
-                            ${variable.sourceType === 'combined' ? 'Combined Variable' : `${variable.datapointName || variable.datapointId}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
-                        </p>
+            <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3">
+                    <div class="font-semibold text-gray-800">${variable.variableName}</div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        ${variable.sourceType === 'combined' ? 'Combined Variable' : `${variable.datapointName || variable.datapointId}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
                     </div>
-                    <div class="flex gap-2">
+                </td>
+                <td class="px-4 py-3">
+                    <div class="font-mono text-lg font-bold text-gray-900">${value}</div>
+                </td>
+                <td class="px-4 py-3 text-center">
+                    <div class="flex justify-center gap-2">
                         <button onclick="editVariable('${variable._id}')" 
-                            class="text-blue-600 hover:text-blue-800 p-2">
+                            class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded transition-colors">
                             <i class="ri-edit-line"></i>
                         </button>
                         <button onclick="deleteVariable('${variable._id}')" 
-                            class="text-red-600 hover:text-red-800 p-2">
+                            class="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded transition-colors">
                             <i class="ri-delete-bin-line"></i>
                         </button>
                     </div>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-3 mb-2">
-                    <div class="text-xs text-gray-500 mb-1">Current Value</div>
-                    <div class="font-mono text-2xl font-bold text-gray-900">${value}</div>
-                </div>
-                <div class="flex gap-2 text-xs">
-                    <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                        ${variable.conversionType || variable.operation || 'none'}
-                    </span>
-                    ${variable.sourceType === 'combined' ? 
-                        `<span class="px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                            ${variable.sourceVariables ? variable.sourceVariables.length : 0} sources
-                        </span>` : ''}
-                </div>
-            </div>
+                </td>
+            </tr>
         `;
     });
     
-    html += '</div>';
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
     container.innerHTML = html;
 }
 

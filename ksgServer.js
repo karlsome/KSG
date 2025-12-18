@@ -3233,6 +3233,7 @@ app.post('/api/opcua/conversions', async (req, res) => {
 // GET /api/opcua/conversions - Get all conversions/variables for company
 app.get('/api/opcua/conversions', async (req, res) => {
     try {
+        const { ObjectId } = require('mongodb');
         const { company } = req.query;
         if (!company) {
             return res.status(400).json({ error: 'Company parameter required' });
