@@ -236,59 +236,58 @@ function renderRealTimeData(data) {
         return;
     }
     
-    let html = '<div class="space-y-4">';
+    let html = `
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b-2 border-gray-200">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OPC Node ID</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+    `;
     
     data.datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
+        const timestamp = new Date(dp.timestamp || Date.now()).toLocaleString('ja-JP');
+        const displayValue = isArray ? `[${dp.value.length} items]` : dp.value;
+        const valueStr = JSON.stringify(dp.value).replace(/"/g, '&quot;');
+        const nameStr = (dp.name || dp.opcNodeId).replace(/'/g, "\\'");
         
         html += `
-            <div class="border border-gray-200 rounded-lg overflow-hidden">
-                <div class="bg-gray-50 px-4 py-3 border-b border-gray-200">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <h3 class="font-semibold text-gray-800">${dp.name || dp.opcNodeId}</h3>
-                            <p class="text-xs text-gray-500 mt-1">Node: ${dp.opcNodeId}</p>
-                        </div>
-                        <span class="px-2 py-1 text-xs rounded-full ${isArray ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}">
-                            ${isArray ? 'Array' : 'Single'}
-                        </span>
-                    </div>
-                </div>
-                <div class="p-4">
-        `;
-        
-        if (isArray) {
-            html += '<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">';
-            dp.value.forEach((val, index) => {
-                html += `
-                    <button onclick="openConversionModal('${dp._id}', ${index}, ${val}, '${dp.name || dp.opcNodeId}')"
-                        class="px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 transition-colors text-left">
-                        <div class="text-xs text-gray-500">[${index}]</div>
-                        <div class="font-mono font-bold text-gray-900">${val}</div>
-                    </button>
-                `;
-            });
-            html += '</div>';
-        } else {
-            html += `
-                <button onclick="openConversionModal('${dp._id}', null, ${dp.value}, '${dp.name || dp.opcNodeId}')"
-                    class="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 transition-colors text-left">
-                    <div class="text-sm text-gray-500 mb-1">Current Value</div>
-                    <div class="font-mono text-2xl font-bold text-gray-900">${dp.value}</div>
-                </button>
-            `;
-        }
-        
-        html += `
-                </div>
-                <div class="bg-gray-50 px-4 py-2 text-xs text-gray-500 border-t border-gray-200">
-                    Last updated: ${new Date(dp.timestamp || Date.now()).toLocaleString('ja-JP')}
-                </div>
-            </div>
+            <tr onclick="openConversionModal('${dp._id}', null, ${valueStr}, '${nameStr}')" 
+                class="hover:bg-blue-50 cursor-pointer transition-colors">
+                <td class="px-4 py-3">
+                    <div class="font-medium text-gray-900">${dp.name || dp.opcNodeId}</div>
+                </td>
+                <td class="px-4 py-3">
+                    <code class="text-xs text-gray-600">${dp.opcNodeId}</code>
+                </td>
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 text-xs rounded ${isArray ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}">
+                        ${isArray ? 'Array' : 'Single'}
+                    </span>
+                </td>
+                <td class="px-4 py-3">
+                    <span class="font-mono text-sm font-semibold text-gray-900">${displayValue}</span>
+                </td>
+                <td class="px-4 py-3">
+                    <span class="text-xs text-gray-500">${timestamp}</span>
+                </td>
+            </tr>
         `;
     });
     
-    html += '</div>';
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
     container.innerHTML = html;
 }
 
