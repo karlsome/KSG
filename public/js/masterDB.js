@@ -182,23 +182,18 @@ function renderMasterTable(data) {
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" onclick="showCreateMasterForm()">
-            <i class="ri-add-line mr-2"></i>Create New
-          </button>
-          <button id="deleteMasterBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('master')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="masterSelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
+      <div class="flex gap-3">
+        <button id="deleteMasterBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('master')">
+          <i class="ri-delete-bin-line mr-2"></i>選択した項目を削除 (<span id="masterSelectedCount">0</span>)
+        </button>
+      </div>
       <div class="text-sm text-gray-600">Total: ${data.length} records</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded"></th>` : ''}
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded"></th>
             ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${h}</th>`).join("")}
             <th class="px-4 py-3 text-left font-semibold text-gray-700">Image</th>
           </tr>
@@ -206,7 +201,7 @@ function renderMasterTable(data) {
         <tbody class="bg-white divide-y divide-gray-200">
           ${data.map(record => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>` : ''}
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
               ${headers.map(h => `<td class="px-4 py-3">${record[h] || ""}</td>`).join("")}
               <td class="px-4 py-3">
                 ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">No image</span>`}
@@ -374,12 +369,8 @@ function renderModalDetails(type, data) {
   // Render history
   renderModalHistory(data);
   
-  // Show/hide edit button based on permissions
-  if (canEdit) {
-    document.getElementById('modalEditBtn').classList.remove('hidden');
-  } else {
-    document.getElementById('modalEditBtn').classList.add('hidden');
-  }
+  // Always show edit button
+  document.getElementById('modalEditBtn').classList.remove('hidden');
 }
 
 function renderModalHistory(data) {
@@ -1483,6 +1474,318 @@ async function deleteRole(roleId) {
 }
 
 // ====================
+// CSV Upload Functions
+// ====================
+let csvData = [];
+
+function showCSVUploadModal() {
+  document.getElementById('csvUploadModal').classList.remove('hidden');
+}
+
+function closeCSVUploadModal() {
+  document.getElementById('csvUploadModal').classList.add('hidden');
+  document.getElementById('csvFileInput').value = '';
+  document.getElementById('csvPreview').classList.add('hidden');
+  csvData = [];
+}
+
+function handleCSVUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+    
+    // Assuming first row is headers
+    const headers = rows[0];
+    csvData = rows.slice(1).filter(row => row.some(cell => cell)).map(row => {
+      const obj = {};
+      headers.forEach((header, i) => {
+        obj[header] = row[i] || '';
+      });
+      return obj;
+    });
+
+    // Show preview
+    const previewTable = document.getElementById('csvPreviewTable');
+    previewTable.innerHTML = `
+      <thead>
+        <tr>${headers.map(h => `<th class="px-2 py-1 text-left border">${h}</th>`).join('')}</tr>
+      </thead>
+      <tbody>
+        ${csvData.slice(0, 5).map(row => 
+          `<tr>${headers.map(h => `<td class="px-2 py-1 border">${row[h]}</td>`).join('')}</tr>`
+        ).join('')}
+        ${csvData.length > 5 ? `<tr><td colspan="${headers.length}" class="px-2 py-1 text-center text-gray-500">... and ${csvData.length - 5} more rows</td></tr>` : ''}
+      </tbody>
+    `;
+    
+    document.getElementById('csvPreview').classList.remove('hidden');
+    document.getElementById('csvUploadBtn').classList.remove('hidden');
+  };
+  reader.readAsText(file);
+}
+
+async function uploadCSVData() {
+  if (csvData.length === 0) {
+    alert('CSVデータがありません');
+    return;
+  }
+
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  try {
+    let successCount = 0;
+    for (const record of csvData) {
+      const data = {
+        品番: record['品番'] || record['Part Number'],
+        製品名: record['製品名'] || record['Product Name'],
+        'LH/RH': record['LH/RH'],
+        kanbanID: record['kanbanID'],
+        設備: record['設備'] || record['Equipment'],
+        工場: record['工場'] || record['Factory'],
+        cycleTime: record['cycleTime'],
+        dbName,
+        username
+      };
+
+      const res = await fetch(BASE_URL + "createMasterRecord", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+
+      if (res.ok) successCount++;
+    }
+
+    alert(`${successCount}/${csvData.length} レコードを登録しました`);
+    closeCSVUploadModal();
+    loadMasterData();
+  } catch (err) {
+    alert('アップロードエラー: ' + err.message);
+  }
+}
+
+// ====================
+// Quick Create Functions
+// ====================
+function showQuickCreateModal() {
+  // Dynamically populate modal based on current tab
+  const modalTitle = document.querySelector('#quickCreateModal h3');
+  const modalBody = document.querySelector('#quickCreateModal .p-6 .grid');
+  
+  switch(currentTab) {
+    case 'master':
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Master)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">品番 *</label>
+          <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">製品名 *</label>
+          <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">LH/RH</label>
+          <select id="quickLHRH" class="w-full px-3 py-2 border rounded-lg">
+            <option value="">選択してください</option>
+            <option value="LH">LH</option>
+            <option value="RH">RH</option>
+            <option value="MID">MID</option>
+            <option value="CTR">CTR</option>
+            <option value="BOTH">BOTH</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">kanbanID</label>
+          <input type="text" id="quickKanbanID" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">設備</label>
+          <input type="text" id="quick設備" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">工場</label>
+          <input type="text" id="quick工場" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">cycleTime</label>
+          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">画像</label>
+          <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+      `;
+      break;
+      
+    case 'factory':
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (工場)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">Factory Name *</label>
+          <input type="text" id="quickFactoryName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tokyo Factory">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Address</label>
+          <input type="text" id="quickFactoryAddress" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 〒100-0001 Tokyo">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Phone</label>
+          <input type="text" id="quickFactoryPhone" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 03-1234-5678">
+        </div>
+      `;
+      break;
+      
+    case 'equipment':
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (設備)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <input type="text" id="quickEquipmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Machine A">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">工場 (カンマ区切り)</label>
+          <input type="text" id="quickEquipmentFactories" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Factory1, Factory2">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium mb-1">Description</label>
+          <textarea id="quickEquipmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+        </div>
+      `;
+      break;
+      
+    case 'roles':
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Role)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">Role Name *</label>
+          <input type="text" id="quickRoleName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: operator">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium mb-1">Description</label>
+          <textarea id="quickRoleDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+        </div>
+      `;
+      break;
+  }
+  
+  document.getElementById('quickCreateModal').classList.remove('hidden');
+}
+
+function closeQuickCreateModal() {
+  document.getElementById('quickCreateModal').classList.add('hidden');
+  // Form will be regenerated on next open, so no need to clear
+}
+
+async function submitQuickCreate() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+  
+  let data = {};
+  let endpoint = '';
+  
+  try {
+    switch(currentTab) {
+      case 'master':
+        data = {
+          品番: document.getElementById("quick品番").value.trim(),
+          製品名: document.getElementById("quick製品名").value.trim(),
+          "LH/RH": document.getElementById("quickLHRH").value,
+          kanbanID: document.getElementById("quickKanbanID").value.trim(),
+          設備: document.getElementById("quick設備").value.trim(),
+          工場: document.getElementById("quick工場").value.trim(),
+          cycleTime: document.getElementById("quickCycleTime").value,
+          dbName,
+          username
+        };
+        
+        if (!data.品番 || !data.製品名) {
+          return alert("品番と製品名は必須です");
+        }
+        
+        // Handle image upload
+        const imageFile = document.getElementById("quickImage");
+        if (imageFile && imageFile.files[0]) {
+          const base64 = await fileToBase64(imageFile.files[0]);
+          data.imageBase64 = base64;
+        }
+        
+        endpoint = "createMasterRecord";
+        break;
+        
+      case 'factory':
+        data = {
+          name: document.getElementById("quickFactoryName").value.trim(),
+          address: document.getElementById("quickFactoryAddress").value.trim(),
+          phone: document.getElementById("quickFactoryPhone").value.trim(),
+          divisions: [],
+          dbName
+        };
+        
+        if (!data.name) {
+          return alert("Factory Nameは必須です");
+        }
+        
+        endpoint = "createFactory";
+        break;
+        
+      case 'equipment':
+        const factoriesInput = document.getElementById("quickEquipmentFactories").value.trim();
+        data = {
+          設備名: document.getElementById("quickEquipmentName").value.trim(),
+          工場: factoriesInput ? factoriesInput.split(',').map(f => f.trim()) : [],
+          description: document.getElementById("quickEquipmentDesc").value.trim(),
+          dbName
+        };
+        
+        if (!data.設備名) {
+          return alert("設備名は必須です");
+        }
+        
+        endpoint = "createEquipment";
+        break;
+        
+      case 'roles':
+        data = {
+          roleName: document.getElementById("quickRoleName").value.trim(),
+          description: document.getElementById("quickRoleDesc").value.trim(),
+          dbName
+        };
+        
+        if (!data.roleName) {
+          return alert("Role Nameは必須です");
+        }
+        
+        endpoint = "createRole";
+        break;
+    }
+
+    const res = await fetch(BASE_URL + endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || "Failed to create record");
+
+    alert("登録しました");
+    closeQuickCreateModal();
+    loadTabData(currentTab);
+  } catch (err) {
+    console.error("Create error:", err);
+    alert("登録失敗: " + err.message);
+  }
+}
+
+// ====================
 // Utility Functions
 // ====================
 function fileToBase64(file) {
@@ -1510,6 +1813,13 @@ if (typeof window !== 'undefined') {
   window.showDeleteConfirmation = showDeleteConfirmation;
   window.closeDeleteConfirmModal = closeDeleteConfirmModal;
   window.confirmDelete = confirmDelete;
+  window.showCSVUploadModal = showCSVUploadModal;
+  window.closeCSVUploadModal = closeCSVUploadModal;
+  window.handleCSVUpload = handleCSVUpload;
+  window.uploadCSVData = uploadCSVData;
+  window.showQuickCreateModal = showQuickCreateModal;
+  window.closeQuickCreateModal = closeQuickCreateModal;
+  window.submitQuickCreate = submitQuickCreate;
   window.loadMasterData = loadMasterData;
   window.showCreateMasterForm = showCreateMasterForm;
   window.submitNewMaster = submitNewMaster;

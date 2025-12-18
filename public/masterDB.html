@@ -29,7 +29,18 @@
 </head>
 <body class="bg-gray-50">
     <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-6">Master DB</h1>
+        <!-- Header with Title and Action Buttons -->
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">Master DB</h1>
+            <div class="flex gap-3">
+                <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm" onclick="showCSVUploadModal()">
+                    <i class="ri-file-upload-line mr-2"></i>CSV一括登録
+                </button>
+                <button class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm" onclick="showQuickCreateModal()">
+                    <i class="ri-add-line mr-2"></i>新規登録
+                </button>
+            </div>
+        </div>
         
         <!-- Main Tabs -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
@@ -205,6 +216,105 @@
                     </button>
                     <button onclick="confirmDelete()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
                         <i class="ri-delete-bin-line mr-2"></i>削除
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CSV Upload Modal -->
+        <div id="csvUploadModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
+                <div class="p-6 border-b">
+                    <h3 class="text-xl font-semibold text-blue-600">
+                        <i class="ri-file-upload-line mr-2"></i>CSV一括登録
+                    </h3>
+                </div>
+                <div class="p-6">
+                    <p class="mb-4 text-gray-600">CSVファイルを選択して一括でデータを登録できます</p>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+                        <i class="ri-file-upload-line text-5xl text-gray-400 mb-4"></i>
+                        <p class="text-gray-600 mb-2">CSVファイルをドラッグ＆ドロップ</p>
+                        <p class="text-sm text-gray-500 mb-4">または</p>
+                        <label class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
+                            <i class="ri-folder-open-line mr-2"></i>ファイルを選択
+                            <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleCSVUpload(event)">
+                        </label>
+                    </div>
+                    <div id="csvPreview" class="mt-4 hidden">
+                        <h4 class="font-semibold mb-2">プレビュー</h4>
+                        <div class="bg-gray-50 p-4 rounded-lg max-h-60 overflow-auto">
+                            <table class="w-full text-sm" id="csvPreviewTable"></table>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                    <button onclick="closeCSVUploadModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        キャンセル
+                    </button>
+                    <button id="csvUploadBtn" onclick="uploadCSVData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hidden">
+                        <i class="ri-upload-line mr-2"></i>アップロード
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Create Modal -->
+        <div id="quickCreateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full">
+                <div class="p-6 border-b">
+                    <h3 class="text-xl font-semibold text-green-600">
+                        <i class="ri-add-line mr-2"></i>新規登録
+                    </h3>
+                </div>
+                <div class="p-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">品番 *</label>
+                            <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">製品名 *</label>
+                            <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">LH/RH</label>
+                            <select id="quickLHRH" class="w-full px-3 py-2 border rounded-lg">
+                                <option value="">選択してください</option>
+                                <option value="LH">LH</option>
+                                <option value="RH">RH</option>
+                                <option value="MID">MID</option>
+                                <option value="CTR">CTR</option>
+                                <option value="BOTH">BOTH</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">kanbanID</label>
+                            <input type="text" id="quickKanbanID" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">設備</label>
+                            <input type="text" id="quick設備" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">工場</label>
+                            <input type="text" id="quick工場" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">cycleTime</label>
+                            <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">画像</label>
+                            <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                    <button onclick="closeQuickCreateModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        キャンセル
+                    </button>
+                    <button onclick="submitQuickCreate()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                        <i class="ri-check-line mr-2"></i>登録
                     </button>
                 </div>
             </div>
