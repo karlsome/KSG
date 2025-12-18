@@ -2875,6 +2875,225 @@ app.delete('/api/opcua/admin/layouts/:layoutId/images/*', validateAdminUser, asy
 });
 
 // ==========================================
+// OPC MANAGEMENT API - Data Conversions & Variables
+// ==========================================
+
+// GET /api/opcua/raspberries - Get all Raspberry Pis for company (for OPC Management page)
+app.get('/api/opcua/raspberries', async (req, res) => {
+    try {
+        const { company } = req.query;
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        const db = mongoClient.db(company);
+        const raspberries = await db.collection('opcua_raspberries').find({}).toArray();
+        
+        res.json({ success: true, raspberries });
+    } catch (error) {
+        console.error('❌ Error loading raspberries:', error);
+        res.status(500).json({ error: 'Failed to load raspberries' });
+    }
+});
+
+// GET /api/opcua/realtime-data/:raspberryId - Get current real-time data for a Raspberry Pi
+app.get('/api/opcua/realtime-data/:raspberryId', async (req, res) => {
+    try {
+        const { raspberryId } = req.params;
+        const { company } = req.query || 'sasaki';
+        
+        const db = mongoClient.db(company);
+        
+        // Get latest data for this Raspberry Pi
+        const latestData = await db.collection('opcua_data')
+            .find({ raspberryId })
+            .sort({ timestamp: -1 })
+            .limit(1)
+            .toArray();
+        
+        if (latestData.length === 0) {
+            return res.json({ 
+                success: true, 
+                raspberryId, 
+                datapoints: [],
+                message: 'No data available yet' 
+            });
+        }
+        
+        // Get datapoint configurations with names
+        const datapoints = await db.collection('opcua_datapoints')
+            .find({ raspberryId })
+            .toArray();
+        
+        // Merge data with datapoint info
+        const dataWithNames = latestData[0].data.map(d => {
+            const dpConfig = datapoints.find(dp => dp._id.toString() === d.datapointId || dp.opcNodeId === d.opcNodeId);
+            return {
+                ...d,
+                name: dpConfig?.name || d.opcNodeId,
+                _id: d.datapointId
+            };
+        });
+        
+        res.json({
+            success: true,
+            raspberryId,
+            timestamp: latestData[0].timestamp,
+            datapoints: dataWithNames
+        });
+        
+    } catch (error) {
+        console.error('❌ Error loading real-time data:', error);
+        res.status(500).json({ error: 'Failed to load real-time data' });
+    }
+});
+
+// POST /api/opcua/conversions - Create a new data conversion/variable
+app.post('/api/opcua/conversions', async (req, res) => {
+    try {
+        const { company, variableName, sourceType, datapointId, arrayIndex, conversionType, sourceVariables, operation, createdBy } = req.body;
+        
+        if (!company || !variableName) {
+            return res.status(400).json({ error: 'Company and variableName are required' });
+        }
+        
+        const db = mongoClient.db(company);
+        
+        // Check if variable name already exists
+        const existing = await db.collection('opcua_conversions').findOne({ variableName });
+        if (existing) {
+            return res.status(400).json({ error: 'Variable name already exists' });
+        }
+        
+        const conversion = {
+            company,
+            variableName,
+            sourceType, // 'array', 'single', or 'combined'
+            datapointId: datapointId || null,
+            arrayIndex: arrayIndex !== undefined ? arrayIndex : null,
+            conversionType: conversionType || null,
+            sourceVariables: sourceVariables || [], // for combined variables
+            operation: operation || null, // for combined variables
+            createdBy: createdBy || 'admin',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+        
+        const result = await db.collection('opcua_conversions').insertOne(conversion);
+        
+        console.log(`✅ Created variable: ${variableName} (${sourceType})`);
+        res.json({ success: true, conversionId: result.insertedId, conversion });
+        
+    } catch (error) {
+        console.error('❌ Error creating conversion:', error);
+        res.status(500).json({ error: 'Failed to create conversion' });
+    }
+});
+
+// GET /api/opcua/conversions - Get all conversions/variables for company
+app.get('/api/opcua/conversions', async (req, res) => {
+    try {
+        const { company } = req.query;
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        const db = mongoClient.db(company);
+        const conversions = await db.collection('opcua_conversions').find({}).toArray();
+        
+        // Enrich with datapoint names
+        for (const conv of conversions) {
+            if (conv.datapointId) {
+                const datapoint = await db.collection('opcua_datapoints').findOne({ _id: new ObjectId(conv.datapointId) });
+                if (datapoint) {
+                    conv.datapointName = datapoint.name || datapoint.opcNodeId;
+                }
+            }
+        }
+        
+        res.json({ success: true, conversions });
+        
+    } catch (error) {
+        console.error('❌ Error loading conversions:', error);
+        res.status(500).json({ error: 'Failed to load conversions' });
+    }
+});
+
+// PUT /api/opcua/conversions/:id - Update a conversion/variable
+app.put('/api/opcua/conversions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { variableName, conversionType } = req.body;
+        const { company } = req.query || { company: 'sasaki' };
+        
+        const db = mongoClient.db(company);
+        
+        const updateData = {
+            updatedAt: new Date()
+        };
+        
+        if (variableName) updateData.variableName = variableName;
+        if (conversionType) updateData.conversionType = conversionType;
+        
+        const result = await db.collection('opcua_conversions').updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateData }
+        );
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ error: 'Variable not found' });
+        }
+        
+        console.log(`✅ Updated variable: ${id}`);
+        res.json({ success: true, message: 'Variable updated successfully' });
+        
+    } catch (error) {
+        console.error('❌ Error updating conversion:', error);
+        res.status(500).json({ error: 'Failed to update conversion' });
+    }
+});
+
+// DELETE /api/opcua/conversions/:id - Delete a conversion/variable
+app.delete('/api/opcua/conversions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { company } = req.query || { company: 'sasaki' };
+        
+        const db = mongoClient.db(company);
+        
+        // Check if variable is used in any combined variables
+        const usedIn = await db.collection('opcua_conversions').find({
+            sourceType: 'combined',
+            sourceVariables: { $exists: true }
+        }).toArray();
+        
+        const variable = await db.collection('opcua_conversions').findOne({ _id: new ObjectId(id) });
+        if (variable) {
+            const usages = usedIn.filter(cv => cv.sourceVariables && cv.sourceVariables.includes(variable.variableName));
+            if (usages.length > 0) {
+                return res.status(400).json({ 
+                    error: 'Variable is used in combined variables', 
+                    usedIn: usages.map(u => u.variableName) 
+                });
+            }
+        }
+        
+        const result = await db.collection('opcua_conversions').deleteOne({ _id: new ObjectId(id) });
+        
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ error: 'Variable not found' });
+        }
+        
+        console.log(`🗑️ Deleted variable: ${id}`);
+        res.json({ success: true, message: 'Variable deleted successfully' });
+        
+    } catch (error) {
+        console.error('❌ Error deleting conversion:', error);
+        res.status(500).json({ error: 'Failed to delete conversion' });
+    }
+});
+
+// ==========================================
 // MONITOR ENDPOINTS
 // ==========================================
 

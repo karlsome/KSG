@@ -211,12 +211,48 @@
           break;
           
         case 'opc-management':
-          mainContent.innerHTML = `
-            <h2 class="text-2xl font-semibold mb-4">OPC Management</h2>
-            <div class="bg-white p-6 rounded-lg shadow">
-              <p class="text-gray-600">OPC UA management tools will be displayed here</p>
-            </div>
-          `;
+          fetch('public/opcManagement.html')
+            .then(response => response.text())
+            .then(html => {
+              // Extract the content part only (not the full HTML structure)
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const container = doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.innerHTML : html;
+              
+              // Load Socket.IO if not already loaded
+              if (typeof io === 'undefined') {
+                const socketScript = document.createElement('script');
+                socketScript.src = 'https://cdn.socket.io/4.5.4/socket.io.min.js';
+                socketScript.onload = () => {
+                  // Then load the opcManagement.js script
+                  loadOPCManagementScript();
+                };
+                document.body.appendChild(socketScript);
+              } else {
+                loadOPCManagementScript();
+              }
+              
+              function loadOPCManagementScript() {
+                const script = document.createElement('script');
+                script.src = 'public/js/opcManagement.js';
+                script.onload = () => {
+                  // Initialize the OPC Management page
+                  if (typeof initializeOPCManagement === 'function') {
+                    initializeOPCManagement();
+                  }
+                };
+                document.body.appendChild(script);
+              }
+            })
+            .catch(err => {
+              mainContent.innerHTML = `
+                <h2 class="text-2xl font-semibold mb-4">OPC Management</h2>
+                <div class="bg-white p-6 rounded-lg shadow">
+                  <p class="text-red-600">Failed to load OPC Management: ${err.message}</p>
+                </div>
+              `;
+            });
           break;
           
         default:
