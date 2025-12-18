@@ -6,6 +6,7 @@ if (typeof window.opcManagementState === 'undefined') {
     window.opcManagementState = {
         currentRaspberryId: null,
         rawDataCache: {},
+        allDevicesDataCache: {}, // Stores data from all devices for variable updates
         variablesCache: [],
         selectedVariablesForCombine: [],
         currentConversionData: null
@@ -13,11 +14,12 @@ if (typeof window.opcManagementState === 'undefined') {
 }
 
 // Shorthand references for cleaner code
-let currentRaspberryId, rawDataCache, variablesCache, selectedVariablesForCombine, currentConversionData;
+let currentRaspberryId, rawDataCache, allDevicesDataCache, variablesCache, selectedVariablesForCombine, currentConversionData;
 
 function initOpcState() {
     currentRaspberryId = window.opcManagementState.currentRaspberryId;
     rawDataCache = window.opcManagementState.rawDataCache;
+    allDevicesDataCache = window.opcManagementState.allDevicesDataCache;
     variablesCache = window.opcManagementState.variablesCache;
     selectedVariablesForCombine = window.opcManagementState.selectedVariablesForCombine;
     currentConversionData = window.opcManagementState.currentConversionData;
@@ -39,6 +41,20 @@ async function initializeOPCManagement() {
         
         // Load existing variables
         await loadVariables();
+        
+        // Load data from all devices for variable updates
+        await loadAllDevicesData();
+        
+        // Check if there's a previously selected device and auto-select it
+        const lastSelectedDevice = localStorage.getItem('opcLastSelectedDevice');
+        if (lastSelectedDevice) {
+            const select = document.getElementById('opc-raspberry-filter');
+            if (select) {
+                select.value = lastSelectedDevice;
+                // Trigger change to load data
+                await handleRaspberryChange({ target: select });
+            }
+        }
         
         // Initialize WebSocket
         initializeWebSocket();
@@ -76,6 +92,36 @@ async function loadRaspberryPis() {
         }
     } catch (error) {
         console.error('Error loading Raspberry Pis:', error);
+    }
+}
+
+// Load data from all devices for variable updates
+async function loadAllDevicesData() {
+    try {
+        const response = await fetch(`${API_URL}/api/deviceInfo?company=${COMPANY}`);
+        const data = await response.json();
+        
+        if (data.success && data.devices) {
+            // Load data for each device
+            for (const device of data.devices) {
+                try {
+                    const dataResponse = await fetch(`${API_URL}/api/deviceInfo/${device.device_id}/opcua-data?company=${COMPANY}`);
+                    const deviceData = await dataResponse.json();
+                    
+                    if (deviceData.success) {
+                        window.opcManagementState.allDevicesDataCache[device.device_id] = deviceData;
+                        allDevicesDataCache[device.device_id] = deviceData;
+                    }
+                } catch (error) {
+                    console.error(`Error loading data for device ${device.device_id}:`, error);
+                }
+            }
+            
+            // Update variable values after loading all device data
+            updateVariableValues();
+        }
+    } catch (error) {
+        console.error('Error loading all devices data:', error);
     }
 }
 
@@ -135,14 +181,7 @@ function setupEventListeners() {
     // Raspberry Pi selection
     const filterSelect = document.getElementById('opc-raspberry-filter');
     if (filterSelect) {
-        filterSelect.addEventListener('change', (e) => {
-            currentRaspberryId = e.target.value;
-            if (currentRaspberryId) {
-                loadRealTimeData(currentRaspberryId);
-            } else {
-                clearDataDisplay();
-            }
-        });
+        filterSelect.addEventListener('change', handleRaspberryChange);
     }
     
     // Refresh button
@@ -174,6 +213,21 @@ function setupEventListeners() {
     }
 }
 
+// Handle Raspberry Pi selection change
+async function handleRaspberryChange(e) {
+    currentRaspberryId = e.target.value;
+    window.opcManagementState.currentRaspberryId = currentRaspberryId;
+    
+    if (currentRaspberryId) {
+        // Save to localStorage for persistence across page reloads
+        localStorage.setItem('opcLastSelectedDevice', currentRaspberryId);
+        await loadRealTimeData(currentRaspberryId);
+    } else {
+        localStorage.removeItem('opcLastSelectedDevice');
+        clearDataDisplay();
+    }
+}
+
 // Load real-time data for selected Raspberry Pi
 async function loadRealTimeData(deviceId) {
     try {
@@ -196,11 +250,28 @@ async function loadRealTimeData(deviceId) {
 
 // Handle real-time WebSocket data
 function handleRealtimeData(data) {
-    // Check if this update is for the currently selected device
-    if (data.device_id === currentRaspberryId || data.raspberryId === currentRaspberryId) {
-        // Update the cached data with new values
+    const deviceId = data.device_id || data.raspberryId;
+    
+    // Update allDevicesDataCache for this device (for variable updates)
+    if (deviceId && window.opcManagementState.allDevicesDataCache[deviceId]) {
+        const deviceCache = window.opcManagementState.allDevicesDataCache[deviceId];
+        if (deviceCache.datapoints && data.data && Array.isArray(data.data)) {
+            data.data.forEach(update => {
+                const dpIndex = deviceCache.datapoints.findIndex(dp => 
+                    dp._id.toString() === update.datapointId || dp.opcNodeId === update.opcNodeId
+                );
+                if (dpIndex !== -1) {
+                    deviceCache.datapoints[dpIndex].value = update.value;
+                    deviceCache.datapoints[dpIndex].quality = update.quality;
+                    deviceCache.datapoints[dpIndex].timestamp = update.timestamp;
+                }
+            });
+        }
+    }
+    
+    // Update rawDataCache if this is the currently selected device (for Real-Time Data table)
+    if (deviceId === currentRaspberryId) {
         if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
-            // Update existing datapoints with new values
             const updatedData = window.opcManagementState.rawDataCache;
             if (data.data && Array.isArray(data.data)) {
                 data.data.forEach(update => {
@@ -215,11 +286,11 @@ function handleRealtimeData(data) {
                 });
             }
             renderRealTimeData(updatedData);
-            
-            // Recalculate variable values
-            updateVariableValues();
         }
     }
+    
+    // Update variable values regardless of selected device
+    updateVariableValues();
 }
 
 // Render real-time data in the left panel
@@ -649,6 +720,7 @@ async function handleConversionSubmit(e) {
         variableName,
         sourceType: currentConversionData.arrayIndex !== null ? 'array' : 'single',
         datapointId: currentConversionData.datapointId,
+        raspberryId: currentRaspberryId, // Remember source device
         arrayIndex: currentConversionData.arrayIndex,
         conversionFromType: convFromType,
         conversionToType: convToType,
@@ -729,6 +801,15 @@ function renderVariables() {
     variablesCache.forEach(variable => {
         const value = variable.currentValue !== undefined ? variable.currentValue : '-';
         
+        // Get device name from allDevicesDataCache
+        let deviceDisplay = '';
+        if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
+            const deviceInfo = allDevicesDataCache[variable.raspberryId].device;
+            deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
+        } else if (variable.raspberryId) {
+            deviceDisplay = variable.raspberryId;
+        }
+        
         html += `
             <tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-4 py-3">
@@ -736,6 +817,7 @@ function renderVariables() {
                     <div class="text-xs text-gray-500 mt-1">
                         ${variable.sourceType === 'combined' ? 'Combined Variable' : `${variable.datapointName || variable.datapointId}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
                     </div>
+                    ${deviceDisplay ? `<div class="text-xs text-blue-600 mt-1"><i class="ri-cpu-line"></i> ${deviceDisplay}</div>` : ''}
                 </td>
                 <td class="px-4 py-3">
                     <div class="font-mono text-lg font-bold text-gray-900">${value}</div>
@@ -765,17 +847,26 @@ function renderVariables() {
     container.innerHTML = html;
 }
 
-// Update variable values based on current raw data
+// Update variable values based on all devices data
 function updateVariableValues() {
-    if (!rawDataCache.datapoints) return;
-    
     variablesCache.forEach(variable => {
         if (variable.sourceType === 'combined') {
             // Handle combined variables
             variable.currentValue = calculateCombinedValue(variable);
         } else {
             // Handle single conversion variables
-            const datapoint = rawDataCache.datapoints.find(dp => dp._id === variable.datapointId);
+            // Get data from the variable's source device
+            const deviceData = allDevicesDataCache[variable.raspberryId];
+            if (!deviceData || !deviceData.datapoints) {
+                return; // Skip if device data not loaded yet
+            }
+            
+            // Match by comparing _id as strings since one might be ObjectId
+            const datapoint = deviceData.datapoints.find(dp => 
+                dp._id && variable.datapointId && 
+                dp._id.toString() === variable.datapointId.toString()
+            );
+            
             if (datapoint) {
                 const rawValue = variable.arrayIndex !== null 
                     ? (Array.isArray(datapoint.value) ? datapoint.value[variable.arrayIndex] : null)

@@ -3191,7 +3191,7 @@ app.get('/api/opcua/realtime-data/:raspberryId', async (req, res) => {
 // POST /api/opcua/conversions - Create a new data conversion/variable
 app.post('/api/opcua/conversions', async (req, res) => {
     try {
-        const { company, variableName, sourceType, datapointId, arrayIndex, conversionType, sourceVariables, operation, createdBy } = req.body;
+        const { company, variableName, sourceType, datapointId, raspberryId, arrayIndex, conversionType, conversionFromType, conversionToType, sourceVariables, operation, createdBy } = req.body;
         
         if (!company || !variableName) {
             return res.status(400).json({ error: 'Company and variableName are required' });
@@ -3210,8 +3210,11 @@ app.post('/api/opcua/conversions', async (req, res) => {
             variableName,
             sourceType, // 'array', 'single', or 'combined'
             datapointId: datapointId || null,
+            raspberryId: raspberryId || null, // Source device ID
             arrayIndex: arrayIndex !== undefined ? arrayIndex : null,
             conversionType: conversionType || null,
+            conversionFromType: conversionFromType || null,
+            conversionToType: conversionToType || null,
             sourceVariables: sourceVariables || [], // for combined variables
             operation: operation || null, // for combined variables
             createdBy: createdBy || 'admin',
@@ -3221,7 +3224,7 @@ app.post('/api/opcua/conversions', async (req, res) => {
         
         const result = await db.collection('opcua_conversions').insertOne(conversion);
         
-        console.log(`✅ Created variable: ${variableName} (${sourceType})`);
+        console.log(`✅ Created variable: ${variableName} (${sourceType}) from device ${raspberryId || 'unknown'}`);
         res.json({ success: true, conversionId: result.insertedId, conversion });
         
     } catch (error) {
@@ -3263,6 +3266,7 @@ app.get('/api/opcua/conversions', async (req, res) => {
 // PUT /api/opcua/conversions/:id - Update a conversion/variable
 app.put('/api/opcua/conversions/:id', async (req, res) => {
     try {
+        const { ObjectId } = require('mongodb');
         const { id } = req.params;
         const { variableName, conversionType } = req.body;
         const { company } = req.query || { company: 'sasaki' };
@@ -3297,6 +3301,7 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
 // DELETE /api/opcua/conversions/:id - Delete a conversion/variable
 app.delete('/api/opcua/conversions/:id', async (req, res) => {
     try {
+        const { ObjectId } = require('mongodb');
         const { id } = req.params;
         const { company } = req.query || { company: 'sasaki' };
         
