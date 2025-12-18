@@ -40,9 +40,6 @@
                 <button id="tabFactory" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('factory')">
                     <i class="ri-building-line mr-2"></i>工場
                 </button>
-                <button id="tabDivision" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('division')">
-                    <i class="ri-organization-chart mr-2"></i>係
-                </button>
                 <button id="tabEquipment" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('equipment')">
                     <i class="ri-tools-line mr-2"></i>設備
                 </button>
@@ -53,42 +50,162 @@
 
             <!-- Master Tab Content -->
             <div id="contentMaster" class="p-6">
-                <div id="masterTableContainer">
-                    <p class="text-gray-500">Loading...</p>
+                <!-- Sub Tabs -->
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="masterSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('master', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="masterSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('master', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
+                </div>
+                <div id="masterDataContent">
+                    <div id="masterTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div id="masterHistoryContent" class="hidden">
+                    <div id="masterHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
                 </div>
             </div>
 
             <!-- Factory Tab Content -->
             <div id="contentFactory" class="p-6 hidden">
-                <div id="factoryTableContainer">
-                    <p class="text-gray-500">Loading...</p>
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="factorySubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('factory', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="factorySubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('factory', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
                 </div>
-            </div>
-
-            <!-- Division Tab Content -->
-            <div id="contentDivision" class="p-6 hidden">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Factory:</label>
-                    <select id="factorySelectForDivision" class="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white" onchange="loadDivisions()">
-                        <option value="">-- Select Factory --</option>
-                    </select>
+                <div id="factoryDataContent">
+                    <div id="factoryTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
                 </div>
-                <div id="divisionTableContainer">
-                    <p class="text-gray-500">Select a factory to view divisions</p>
+                <div id="factoryHistoryContent" class="hidden">
+                    <div id="factoryHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
                 </div>
             </div>
 
             <!-- Equipment Tab Content -->
             <div id="contentEquipment" class="p-6 hidden">
-                <div id="equipmentTableContainer">
-                    <p class="text-gray-500">Loading...</p>
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="equipmentSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('equipment', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="equipmentSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('equipment', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
+                </div>
+                <div id="equipmentDataContent">
+                    <div id="equipmentTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div id="equipmentHistoryContent" class="hidden">
+                    <div id="equipmentHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
                 </div>
             </div>
 
             <!-- Roles Tab Content -->
             <div id="contentRoles" class="p-6 hidden">
-                <div id="rolesTableContainer">
-                    <p class="text-gray-500">Loading...</p>
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="rolesSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('roles', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="rolesSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('roles', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
+                </div>
+                <div id="rolesDataContent">
+                    <div id="rolesTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div id="rolesHistoryContent" class="hidden">
+                    <div id="rolesHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Modal -->
+        <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                <div class="flex items-center justify-between p-6 border-b">
+                    <h2 id="modalTitle" class="text-2xl font-semibold">製品詳細</h2>
+                    <button onclick="closeDetailModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="ri-close-line text-2xl"></i>
+                    </button>
+                </div>
+                
+                <!-- Modal Sub Tabs -->
+                <div class="flex gap-3 px-6 pt-4 border-b">
+                    <button id="modalTabDetails" class="px-4 py-2 rounded-t-lg bg-blue-600 text-white" onclick="switchModalTab('details')">
+                        <i class="ri-information-line mr-2"></i>詳細
+                    </button>
+                    <button id="modalTabHistory" class="px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchModalTab('history')">
+                        <i class="ri-history-line mr-2"></i>変更履歴
+                    </button>
+                </div>
+
+                <div class="overflow-y-auto" style="max-height: calc(90vh - 180px);">
+                    <!-- Details Tab -->
+                    <div id="modalDetailsContent" class="p-6">
+                        <div id="modalDetailsBody"></div>
+                    </div>
+                    
+                    <!-- History Tab -->
+                    <div id="modalHistoryContent" class="p-6 hidden">
+                        <div id="modalHistoryBody"></div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                    <button id="modalEditBtn" onclick="toggleEditMode()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        <i class="ri-edit-line mr-2"></i>編集
+                    </button>
+                    <button id="modalSaveBtn" onclick="saveModalChanges()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 hidden">
+                        <i class="ri-save-line mr-2"></i>保存
+                    </button>
+                    <button id="modalCancelBtn" onclick="cancelEditMode()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 hidden">
+                        キャンセル
+                    </button>
+                    <button onclick="closeDetailModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        閉じる
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div id="deleteConfirmModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-md w-full">
+                <div class="p-6 border-b">
+                    <h3 class="text-xl font-semibold text-red-600">
+                        <i class="ri-alert-line mr-2"></i>削除確認
+                    </h3>
+                </div>
+                <div class="p-6">
+                    <p class="mb-4">以下のデータを削除しますか？</p>
+                    <div id="deleteItemsList" class="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto"></div>
+                </div>
+                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                    <button onclick="closeDeleteConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        キャンセル
+                    </button>
+                    <button onclick="confirmDelete()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                        <i class="ri-delete-bin-line mr-2"></i>削除
+                    </button>
                 </div>
             </div>
         </div>

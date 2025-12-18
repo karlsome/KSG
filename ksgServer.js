@@ -3827,6 +3827,231 @@ app.post("/deleteRole", async (req, res) => {
   }
 });
 
+// ====================
+// Activity Logs Routes
+// ====================
+
+// Get activity logs for a collection
+app.post("/getActivityLogs", async (req, res) => {
+  const { dbName, collection } = req.body;
+
+  if (!dbName || !collection) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const activityLogs = db.collection("activityLogs");
+
+    const logs = await activityLogs.find({ collection })
+      .sort({ timestamp: -1 })
+      .limit(100)
+      .toArray();
+
+    res.json(logs);
+  } catch (err) {
+    console.error("Error fetching activity logs:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create activity log entry
+app.post("/createActivityLog", async (req, res) => {
+  const { dbName, collection, action, performedBy, recordsAffected, recordIds } = req.body;
+
+  if (!dbName || !collection || !action) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const activityLogs = db.collection("activityLogs");
+
+    await activityLogs.insertOne({
+      collection,
+      action, // 'create' or 'delete'
+      performedBy: performedBy || 'Unknown',
+      recordsAffected: recordsAffected || 1,
+      recordIds: recordIds || [],
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error creating activity log:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====================
+// Bulk Delete Routes
+// ====================
+
+// Bulk delete master records
+app.post("/deleteMultipleMasterRecords", async (req, res) => {
+  const { ids, dbName, username } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || !dbName) {
+    return res.status(400).json({ error: "Missing or invalid required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const collection = db.collection("masterDB");
+
+    const result = await collection.deleteMany({
+      _id: { $in: ids.map(id => new ObjectId(id)) }
+    });
+
+    // Log to activity logs
+    await db.collection("activityLogs").insertOne({
+      collection: 'masterDB',
+      action: 'delete',
+      performedBy: username || 'Unknown',
+      recordsAffected: result.deletedCount,
+      recordIds: ids,
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting multiple master records:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Bulk delete factories
+app.post("/deleteMultipleFactories", async (req, res) => {
+  const { ids, dbName, username } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || !dbName) {
+    return res.status(400).json({ error: "Missing or invalid required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const collection = db.collection("factory");
+
+    const result = await collection.deleteMany({
+      _id: { $in: ids.map(id => new ObjectId(id)) }
+    });
+
+    // Log to activity logs
+    await db.collection("activityLogs").insertOne({
+      collection: 'factory',
+      action: 'delete',
+      performedBy: username || 'Unknown',
+      recordsAffected: result.deletedCount,
+      recordIds: ids,
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting multiple factories:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Bulk delete equipment
+app.post("/deleteMultipleEquipment", async (req, res) => {
+  const { ids, dbName, username } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || !dbName) {
+    return res.status(400).json({ error: "Missing or invalid required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const collection = db.collection("equipment");
+
+    const result = await collection.deleteMany({
+      _id: { $in: ids.map(id => new ObjectId(id)) }
+    });
+
+    // Log to activity logs
+    await db.collection("activityLogs").insertOne({
+      collection: 'equipment',
+      action: 'delete',
+      performedBy: username || 'Unknown',
+      recordsAffected: result.deletedCount,
+      recordIds: ids,
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting multiple equipment:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Bulk delete roles
+app.post("/deleteMultipleRoles", async (req, res) => {
+  const { ids, dbName, username } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0 || !dbName) {
+    return res.status(400).json({ error: "Missing or invalid required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const collection = db.collection("roles");
+
+    const result = await collection.deleteMany({
+      _id: { $in: ids.map(id => new ObjectId(id)) }
+    });
+
+    // Log to activity logs
+    await db.collection("activityLogs").insertOne({
+      collection: 'roles',
+      action: 'delete',
+      performedBy: username || 'Unknown',
+      recordsAffected: result.deletedCount,
+      recordIds: ids,
+      timestamp: new Date(),
+      ip: req.ip
+    });
+
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting multiple roles:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ==========================================
 // END MASTER DB ROUTES
 // ==========================================

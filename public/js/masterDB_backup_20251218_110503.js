@@ -1,6 +1,6 @@
 // masterDB.js for KSG - Enhanced with modals, checkboxes, and activity logging
 
-
+const BASE_URL = 'http://localhost:3000/';
 let currentTab = 'master';
 let currentSubTab = 'data';
 let allMasterData = [];
@@ -223,393 +223,6 @@ function renderMasterTable(data) {
   updateSelectedCount('master');
 }
 
-// ====================
-// Checkbox & Selection Functions
-// ====================
-function toggleSelectAll(type) {
-  const selectAllCheckbox = document.getElementById(`selectAll${capitalizeFirst(type)}`);
-  const checkboxes = document.querySelectorAll(`.${type}Checkbox`);
-  
-  checkboxes.forEach(cb => {
-    cb.checked = selectAllCheckbox.checked;
-  });
-  
-  updateSelectedCount(type);
-}
-
-function updateSelectedCount(type) {
-  const checkboxes = document.querySelectorAll(`.${type}Checkbox:checked`);
-  const count = checkboxes.length;
-  const countSpan = document.getElementById(`${type}SelectedCount`);
-  const deleteBtn = document.getElementById(`delete${capitalizeFirst(type)}Btn`);
-  
-  if (countSpan) countSpan.textContent = count;
-  if (deleteBtn) {
-    if (count > 0) {
-      deleteBtn.disabled = false;
-      deleteBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-    } else {
-      deleteBtn.disabled = true;
-      deleteBtn.classList.add('opacity-50', 'cursor-not-allowed');
-    }
-  }
-}
-
-// ====================
-// Detail Modal Functions
-// ====================
-async function openDetailModal(type, id) {
-  currentModalType = type;
-  let data = null;
-  
-  // Find the data
-  switch(type) {
-    case 'master':
-      data = allMasterData.find(item => item._id === id);
-      break;
-    case 'factory':
-      data = allFactories.find(item => item._id === id);
-      break;
-    case 'equipment':
-      data = allEquipment.find(item => item._id === id);
-      break;
-    case 'roles':
-      data = allRoles.find(item => item._id === id);
-      break;
-  }
-  
-  if (!data) {
-    alert("Data not found");
-    return;
-  }
-  
-  currentModalData = data;
-  
-  // Set modal title
-  const titleMap = {
-    'master': '製品詳細',
-    'factory': '工場詳細',
-    'equipment': '設備詳細',
-    'roles': 'ロール詳細'
-  };
-  document.getElementById('modalTitle').textContent = titleMap[type];
-  
-  // Render details
-  renderModalDetails(type, data);
-  
-  // Show modal
-  document.getElementById('detailModal').classList.remove('hidden');
-  
-  // Reset to details tab
-  switchModalTab('details');
-}
-
-function renderModalDetails(type, data) {
-  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-  const role = currentUser.role || "member";
-  const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
-  
-  let detailsHTML = '';
-  
-  switch(type) {
-    case 'master':
-      detailsHTML = `
-        ${data.imageURL ? `
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">製品画像</label>
-            <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-md w-full rounded-lg shadow" />
-            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
-          </div>
-        ` : `
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">製品画像</label>
-            <p class="text-gray-500 mb-2">No image</p>
-            <input type="file" id="modalImageUpload" accept="image/*" class="hidden w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
-          </div>
-        `}
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium mb-1">品番</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.品番 || ''}" disabled data-field="品番" /></div>
-          <div><label class="block text-sm font-medium mb-1">製品名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
-          <div><label class="block text-sm font-medium mb-1">LH/RH</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
-          <div><label class="block text-sm font-medium mb-1">kanbanID</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
-          <div><label class="block text-sm font-medium mb-1">設備</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備 || ''}" disabled data-field="設備" /></div>
-          <div><label class="block text-sm font-medium mb-1">工場</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.工場 || ''}" disabled data-field="工場" /></div>
-          <div><label class="block text-sm font-medium mb-1">cycleTime</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
-        </div>
-      `;
-      break;
-      
-    case 'factory':
-      detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">Factory Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">Address</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.address || ''}" disabled data-field="address" /></div>
-          <div><label class="block text-sm font-medium mb-1">Phone</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.phone || ''}" disabled data-field="phone" /></div>
-        </div>
-      `;
-      break;
-      
-    case 'equipment':
-      detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">設備名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
-          <div><label class="block text-sm font-medium mb-1">工場</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" /></div>
-          <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
-        </div>
-      `;
-      break;
-      
-    case 'roles':
-      detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">Role Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
-          <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
-        </div>
-      `;
-      break;
-  }
-  
-  document.getElementById('modalDetailsBody').innerHTML = detailsHTML;
-  
-  // Render history
-  renderModalHistory(data);
-  
-  // Show/hide edit button based on permissions
-  if (canEdit) {
-    document.getElementById('modalEditBtn').classList.remove('hidden');
-  } else {
-    document.getElementById('modalEditBtn').classList.add('hidden');
-  }
-}
-
-function renderModalHistory(data) {
-  const changeHistory = data.changeHistory || [];
-  
-  if (changeHistory.length === 0) {
-    document.getElementById('modalHistoryBody').innerHTML = '<p class="text-gray-500">No change history</p>';
-    return;
-  }
-  
-  const historyHTML = `
-    <div class="space-y-4">
-      ${changeHistory.map(entry => `
-        <div class="border-l-4 border-blue-500 pl-4 py-2">
-          <div class="flex justify-between items-start mb-2">
-            <div>
-              <p class="font-medium">${entry.action}</p>
-              <p class="text-sm text-gray-600">By: ${entry.changedBy}</p>
-            </div>
-            <p class="text-sm text-gray-500">${new Date(entry.timestamp).toLocaleString('ja-JP')}</p>
-          </div>
-          <div class="space-y-1">
-            ${entry.changes.map(change => `
-              <div class="text-sm bg-gray-50 p-2 rounded">
-                <strong>${change.field}:</strong> 
-                <span class="text-red-600">${change.oldValue}</span> → 
-                <span class="text-green-600">${change.newValue}</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-  
-  document.getElementById('modalHistoryBody').innerHTML = historyHTML;
-}
-
-function switchModalTab(tab) {
-  if (tab === 'details') {
-    document.getElementById('modalTabDetails').className = 'px-4 py-2 rounded-t-lg bg-blue-600 text-white';
-    document.getElementById('modalTabHistory').className = 'px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
-    document.getElementById('modalDetailsContent').classList.remove('hidden');
-    document.getElementById('modalHistoryContent').classList.add('hidden');
-  } else {
-    document.getElementById('modalTabDetails').className = 'px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
-    document.getElementById('modalTabHistory').className = 'px-4 py-2 rounded-t-lg bg-blue-600 text-white';
-    document.getElementById('modalDetailsContent').classList.add('hidden');
-    document.getElementById('modalHistoryContent').classList.remove('hidden');
-  }
-}
-
-function closeDetailModal() {
-  document.getElementById('detailModal').classList.add('hidden');
-  currentModalData = null;
-  currentModalType = null;
-  isEditMode = false;
-}
-
-function toggleEditMode() {
-  isEditMode = true;
-  
-  // Enable all inputs
-  document.querySelectorAll('#modalDetailsBody input, #modalDetailsBody textarea, #modalDetailsBody select').forEach(el => {
-    el.disabled = false;
-    el.classList.remove('bg-gray-50');
-    el.classList.add('bg-white');
-  });
-  
-  // Show image upload
-  const imageUpload = document.getElementById('modalImageUpload');
-  if (imageUpload) imageUpload.classList.remove('hidden');
-  
-  // Toggle buttons
-  document.getElementById('modalEditBtn').classList.add('hidden');
-  document.getElementById('modalSaveBtn').classList.remove('hidden');
-  document.getElementById('modalCancelBtn').classList.remove('hidden');
-}
-
-function cancelEditMode() {
-  isEditMode = false;
-  
-  // Re-render modal to reset values
-  renderModalDetails(currentModalType, currentModalData);
-  
-  // Toggle buttons
-  document.getElementById('modalEditBtn').classList.remove('hidden');
-  document.getElementById('modalSaveBtn').classList.add('hidden');
-  document.getElementById('modalCancelBtn').classList.add('hidden');
-}
-
-async function saveModalChanges() {
-  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-  const dbName = currentUser.dbName || "KSG";
-  const username = currentUser.username || "admin";
-  
-  const updateData = {};
-  document.querySelectorAll('#modalDetailsBody input[data-field], #modalDetailsBody textarea[data-field]').forEach(el => {
-    updateData[el.dataset.field] = el.value;
-  });
-  
-  // Handle image upload
-  const imageFile = document.getElementById('modalImageUpload');
-  if (imageFile && imageFile.files.length > 0) {
-    const base64 = await fileToBase64(imageFile.files[0]);
-    updateData.imageBase64 = base64;
-  }
-  
-  try {
-    const endpoints = {
-      'master': 'updateMasterRecord',
-      'factory': 'updateFactory',
-      'equipment': 'updateEquipment',
-      'roles': 'updateRole'
-    };
-    
-    const idField = currentModalType === 'master' ? 'recordId' : 
-                    currentModalType === 'factory' ? 'factoryId' :
-                    currentModalType === 'equipment' ? 'equipmentId' : 'roleId';
-    
-    const res = await fetch(BASE_URL + endpoints[currentModalType], {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        [idField]: currentModalData._id,
-        updateData,
-        dbName,
-        username
-      })
-    });
-    
-    if (!res.ok) throw new Error("Update failed");
-    
-    alert("Updated successfully");
-    closeDetailModal();
-    loadTabData(currentTab);
-  } catch (err) {
-    alert("Update failed: " + err.message);
-  }
-}
-
-function previewImage() {
-  const file = document.getElementById('modalImageUpload').files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      document.getElementById('modalImage').src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-}
-
-// ====================
-// Delete Confirmation Functions
-// ====================
-function showDeleteConfirmation(type) {
-  const checkboxes = document.querySelectorAll(`.${type}Checkbox:checked`);
-  const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-  
-  if (selectedIds.length === 0) {
-    alert("No items selected");
-    return;
-  }
-  
-  // Get item details for confirmation
-  let items = [];
-  switch(type) {
-    case 'master':
-      items = allMasterData.filter(item => selectedIds.includes(item._id));
-      break;
-    case 'factory':
-      items = allFactories.filter(item => selectedIds.includes(item._id));
-      break;
-    case 'equipment':
-      items = allEquipment.filter(item => selectedIds.includes(item._id));
-      break;
-    case 'roles':
-      items = allRoles.filter(item => selectedIds.includes(item._id));
-      break;
-  }
-  
-  const itemsListHTML = items.map(item => {
-    const displayName = item.品番 || item.name || item.設備名 || item.roleName || item._id;
-    return `<div class="py-1">• ${displayName}</div>`;
-  }).join('');
-  
-  document.getElementById('deleteItemsList').innerHTML = itemsListHTML;
-  document.getElementById('deleteConfirmModal').classList.remove('hidden');
-  
-  // Store for later
-  window.pendingDelete = { type, ids: selectedIds };
-}
-
-function closeDeleteConfirmModal() {
-  document.getElementById('deleteConfirmModal').classList.add('hidden');
-  window.pendingDelete = null;
-}
-
-async function confirmDelete() {
-  if (!window.pendingDelete) return;
-  
-  const { type, ids } = window.pendingDelete;
-  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-  const dbName = currentUser.dbName || "KSG";
-  const username = currentUser.username || "admin";
-  
-  try {
-    const endpoints = {
-      'master': 'deleteMultipleMasterRecords',
-      'factory': 'deleteMultipleFactories',
-      'equipment': 'deleteMultipleEquipment',
-      'roles': 'deleteMultipleRoles'
-    };
-    
-    const res = await fetch(BASE_URL + endpoints[type], {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, dbName, username })
-    });
-    
-    if (!res.ok) throw new Error("Delete failed");
-    
-    alert(`${ids.length} item(s) deleted successfully`);
-    closeDeleteConfirmModal();
-    loadTabData(type);
-  } catch (err) {
-    alert("Delete failed: " + err.message);
-  }
-}
-
 function showCreateMasterForm() {
   const container = document.getElementById("masterTableContainer");
 
@@ -817,36 +430,41 @@ function renderFactoryTable(factories) {
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
-    <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateFactoryForm()">
-            <i class="ri-add-line mr-2"></i>Create New Factory
-          </button>
-          <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="factorySelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
-      <div class="text-sm text-gray-600">Total: ${factories.length} factories</div>
-    </div>
+    ${canEdit ? `
+      <div class="mb-4">
+        <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateFactoryForm()">
+          <i class="ri-add-line mr-2"></i>Create New Factory
+        </button>
+      </div>
+    ` : ""}
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded"></th>` : ''}
             <th class="px-4 py-3 text-left font-semibold">Factory Name</th>
             <th class="px-4 py-3 text-left font-semibold">Address</th>
             <th class="px-4 py-3 text-left font-semibold">Phone</th>
+            ${canEdit ? `<th class="px-4 py-3 text-left font-semibold">Actions</th>` : ""}
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
           ${factories.map(f => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('factory', '${f._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="factoryCheckbox rounded" value="${f._id}" onchange="updateSelectedCount('factory')"></td>` : ''}
-              <td class="px-4 py-3">${f.name || ""}</td>
-              <td class="px-4 py-3">${f.address || ""}</td>
-              <td class="px-4 py-3">${f.phone || ""}</td>
+            <tr class="hover:bg-gray-50" id="factoryRow-${f._id}">
+              <td class="px-4 py-3">
+                <input class="border border-gray-300 p-1 rounded w-full" value="${f.name || ""}" disabled data-field="name" factory-id="${f._id}" />
+              </td>
+              <td class="px-4 py-3">
+                <input class="border border-gray-300 p-1 rounded w-full" value="${f.address || ""}" disabled data-field="address" factory-id="${f._id}" />
+              </td>
+              <td class="px-4 py-3">
+                <input class="border border-gray-300 p-1 rounded w-full" value="${f.phone || ""}" disabled data-field="phone" factory-id="${f._id}" />
+              </td>
+              ${canEdit ? `
+                <td class="px-4 py-3" id="factoryActions-${f._id}">
+                  <button class="text-blue-600 hover:underline text-sm mr-2" onclick="startEditingFactory('${f._id}')">Edit</button>
+                  <button class="text-red-600 hover:underline text-sm" onclick="deleteFactory('${f._id}')">Delete</button>
+                </td>
+              ` : ""}
             </tr>
           `).join("")}
         </tbody>
@@ -855,8 +473,6 @@ function renderFactoryTable(factories) {
   `;
 
   document.getElementById("factoryTableContainer").innerHTML = tableHTML;
-  selectedItems = [];
-  updateSelectedCount('factory');
 }
 
 function showCreateFactoryForm() {
@@ -1176,38 +792,37 @@ function renderEquipmentTable(equipment) {
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
-    <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateEquipmentForm()">
-            <i class="ri-add-line mr-2"></i>Create Equipment
-          </button>
-          <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="equipmentSelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
-      <div class="text-sm text-gray-600">Total: ${equipment.length} items</div>
-    </div>
+    ${canEdit ? `
+      <div class="mb-4">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateEquipmentForm()">
+          <i class="ri-add-line mr-2"></i>Create Equipment
+        </button>
+      </div>
+    ` : ""}
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="rounded"></th>` : ''}
             <th class="px-4 py-3 text-left">設備名</th>
             <th class="px-4 py-3 text-left">工場 (Factories)</th>
             <th class="px-4 py-3 text-left">Description</th>
+            ${canEdit ? `<th class="px-4 py-3 text-left">Actions</th>` : ""}
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
           ${equipment.map(eq => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>` : ''}
+            <tr>
               <td class="px-4 py-3">${eq.設備名 || ""}</td>
               <td class="px-4 py-3">
                 ${(eq.工場 || []).map(f => `<span class="tag">${f}</span>`).join(" ")}
               </td>
               <td class="px-4 py-3">${eq.description || ""}</td>
+              ${canEdit ? `
+                <td class="px-4 py-3">
+                  <button class="text-blue-600 hover:underline text-sm mr-2" onclick="editEquipment('${eq._id}')">Edit</button>
+                  <button class="text-red-600 hover:underline text-sm" onclick="deleteEquipment('${eq._id}')">Delete</button>
+                </td>
+              ` : ""}
             </tr>
           `).join("")}
         </tbody>
@@ -1216,8 +831,6 @@ function renderEquipmentTable(equipment) {
   `;
 
   document.getElementById("equipmentTableContainer").innerHTML = tableHTML;
-  selectedItems = [];
-  updateSelectedCount('equipment');
 }
 
 function showCreateEquipmentForm() {
@@ -1368,34 +981,32 @@ function renderRolesTable(roles) {
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
-    <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateRoleForm()">
-            <i class="ri-add-line mr-2"></i>Create Role
-          </button>
-          <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="rolesSelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
-      <div class="text-sm text-gray-600">Total: ${roles.length} roles</div>
-    </div>
+    ${canEdit ? `
+      <div class="mb-4">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateRoleForm()">
+          <i class="ri-add-line mr-2"></i>Create Role
+        </button>
+      </div>
+    ` : ""}
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="rounded"></th>` : ''}
             <th class="px-4 py-3 text-left">Role Name</th>
             <th class="px-4 py-3 text-left">Description</th>
+            ${canEdit ? `<th class="px-4 py-3 text-left">Actions</th>` : ""}
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
           ${roles.map(r => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('roles', '${r._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="rolesCheckbox rounded" value="${r._id}" onchange="updateSelectedCount('roles')"></td>` : ''}
+            <tr>
               <td class="px-4 py-3">${r.roleName || ""}</td>
               <td class="px-4 py-3">${r.description || ""}</td>
+              ${canEdit ? `
+                <td class="px-4 py-3">
+                  <button class="text-red-600 hover:underline text-sm" onclick="deleteRole('${r._id}')">Delete</button>
+                </td>
+              ` : ""}
             </tr>
           `).join("")}
         </tbody>
@@ -1404,8 +1015,6 @@ function renderRolesTable(roles) {
   `;
 
   document.getElementById("rolesTableContainer").innerHTML = tableHTML;
-  selectedItems = [];
-  updateSelectedCount('roles');
 }
 
 function showCreateRoleForm() {
@@ -1497,19 +1106,6 @@ function fileToBase64(file) {
 // Initialize on page load
 if (typeof window !== 'undefined') {
   window.switchMainTab = switchMainTab;
-  window.switchSubTab = switchSubTab;
-  window.switchModalTab = switchModalTab;
-  window.toggleSelectAll = toggleSelectAll;
-  window.updateSelectedCount = updateSelectedCount;
-  window.openDetailModal = openDetailModal;
-  window.closeDetailModal = closeDetailModal;
-  window.toggleEditMode = toggleEditMode;
-  window.cancelEditMode = cancelEditMode;
-  window.saveModalChanges = saveModalChanges;
-  window.previewImage = previewImage;
-  window.showDeleteConfirmation = showDeleteConfirmation;
-  window.closeDeleteConfirmModal = closeDeleteConfirmModal;
-  window.confirmDelete = confirmDelete;
   window.loadMasterData = loadMasterData;
   window.showCreateMasterForm = showCreateMasterForm;
   window.submitNewMaster = submitNewMaster;
