@@ -823,14 +823,24 @@ function renderVariables() {
             deviceDisplay = variable.raspberryId;
         }
         
+        // Build full source path with device name
+        let fullSourcePath = '';
+        if (variable.sourceType === 'combined') {
+            fullSourcePath = 'Combined Variable';
+        } else {
+            fullSourcePath = deviceDisplay ? `${deviceDisplay}.${sourceVariableName}` : sourceVariableName;
+            if (variable.arrayIndex !== null) {
+                fullSourcePath += `[${variable.arrayIndex}]`;
+            }
+        }
+        
         html += `
             <tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-4 py-3">
                     <div class="font-semibold text-gray-800">${variable.variableName}</div>
                     <div class="text-xs text-gray-500 mt-1">
-                        ${variable.sourceType === 'combined' ? 'Combined Variable' : `${sourceVariableName}${variable.arrayIndex !== null ? `[${variable.arrayIndex}]` : ''}`}
+                        ${fullSourcePath}
                     </div>
-                    ${deviceDisplay ? `<div class="text-xs text-blue-600 mt-1"><i class="ri-cpu-line"></i> ${deviceDisplay}</div>` : ''}
                 </td>
                 <td class="px-4 py-3">
                     <div class="font-mono text-lg font-bold text-gray-900">${value}</div>
