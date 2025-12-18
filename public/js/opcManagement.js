@@ -317,12 +317,12 @@ function showDataDetailModal(datapoint) {
     const modalHtml = `
         <div id="dataDetailModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+                <div class="flex items-center justify-between p-6 border-b">
                     <h2 class="text-2xl font-semibold flex items-center">
                         <i class="ri-database-2-line mr-3"></i>
                         Data Details
                     </h2>
-                    <button onclick="closeDataDetailModal()" class="text-white hover:text-gray-200 transition-colors">
+                    <button onclick="closeDataDetailModal()" class="text-gray-500 hover:text-gray-700 transition-colors">
                         <i class="ri-close-line text-2xl"></i>
                     </button>
                 </div>
@@ -421,22 +421,30 @@ function openConversionModal(datapointId, arrayIndex, rawValue, datapointName) {
     };
     
     // Set modal content
-    document.getElementById('conv-datapoint-name').textContent = datapointName;
-    document.getElementById('conv-raw-value').textContent = rawValue;
+    const convDatapointName = document.getElementById('conv-datapoint-name');
+    const convRawValue = document.getElementById('conv-raw-value');
+    const convArrayIndexRow = document.getElementById('conv-array-index-row');
+    const convArrayIndex = document.getElementById('conv-array-index');
+    const convForm = document.getElementById('opc-conversion-form');
+    const convPreview = document.getElementById('conv-preview');
+    const convModal = document.getElementById('opc-conversion-modal');
+    
+    if (convDatapointName) convDatapointName.textContent = datapointName;
+    if (convRawValue) convRawValue.textContent = Array.isArray(rawValue) ? JSON.stringify(rawValue) : rawValue;
     
     if (arrayIndex !== null) {
-        document.getElementById('conv-array-index-row').style.display = 'flex';
-        document.getElementById('conv-array-index').textContent = `[${arrayIndex}]`;
+        if (convArrayIndexRow) convArrayIndexRow.style.display = 'flex';
+        if (convArrayIndex) convArrayIndex.textContent = `[${arrayIndex}]`;
     } else {
-        document.getElementById('conv-array-index-row').style.display = 'none';
+        if (convArrayIndexRow) convArrayIndexRow.style.display = 'none';
     }
     
     // Reset form
-    document.getElementById('opc-conversion-form').reset();
-    document.getElementById('conv-preview').style.display = 'none';
+    if (convForm) convForm.reset();
+    if (convPreview) convPreview.style.display = 'none';
     
     // Show modal
-    document.getElementById('opc-conversion-modal').classList.remove('hidden');
+    if (convModal) convModal.classList.remove('hidden');
 }
 
 // Update conversion preview
