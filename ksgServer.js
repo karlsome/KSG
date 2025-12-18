@@ -1763,6 +1763,25 @@ io.on('connection', (socket) => {
                 console.error('❌ Error updating device timestamp:', err.message);
             });
             
+            // Also update discovered nodes with current values
+            datapoints.forEach(item => {
+                db.collection('opcua_discovered_nodes').updateOne(
+                    { 
+                        raspberryId: deviceId,
+                        opcNodeId: item.opcNodeId 
+                    },
+                    {
+                        $set: {
+                            value: item.value,
+                            currentValue: typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value),
+                            updatedAt: new Date().toISOString()
+                        }
+                    }
+                ).catch(err => {
+                    console.error('❌ Error updating discovered node:', err.message);
+                });
+            });
+            
             // Broadcast to company room for OPC Management page
             const broadcastData = {
                 device_id: deviceId,
@@ -2289,7 +2308,7 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
     }
 });
 
-// GET /api/deviceInfo/:deviceId/opcua-data - Get OPC UA data for a specific device
+// GET /api/deviceInfo/:deviceId/opcua-data - Get OPC UA discovered nodes for a specific device
 app.get('/api/deviceInfo/:deviceId/opcua-data', async (req, res) => {
     try {
         const { deviceId } = req.params;
@@ -2312,35 +2331,32 @@ app.get('/api/deviceInfo/:deviceId/opcua-data', async (req, res) => {
             return res.status(404).json({ error: 'Device not found' });
         }
         
-        // Get datapoints configuration for this device
-        const datapoints = await db.collection('opcua_datapoints')
-            .find({ 
-                device_id: deviceId,
-                enabled: true 
-            })
-            .sort({ sortOrder: 1 })
+        // Get discovered nodes for this device (raspberryId = device_id)
+        const discoveredNodes = await db.collection('opcua_discovered_nodes')
+            .find({ raspberryId: deviceId })
+            .sort({ variableName: 1 })
             .toArray();
         
-        // Get latest real-time values for each datapoint
-        const datapointIds = datapoints.map(dp => dp._id.toString());
-        const realtimeData = await db.collection('opcua_realtime')
-            .find({ 
-                device_id: deviceId,
-                datapointId: { $in: datapointIds }
-            })
-            .toArray();
-        
-        // Merge datapoint config with real-time values
-        const mergedData = datapoints.map(dp => {
-            const rtData = realtimeData.find(rt => rt.datapointId === dp._id.toString());
+        // Format discovered nodes for display
+        const formattedNodes = discoveredNodes.map(node => {
+            // Parse currentValue if it's a string representation of array
+            let value = node.value;
+            if (node.currentValue && typeof node.currentValue === 'string') {
+                try {
+                    value = JSON.parse(node.currentValue);
+                } catch (e) {
+                    value = node.currentValue;
+                }
+            }
+            
             return {
-                _id: dp._id,
-                name: dp.name || dp.displayName,
-                opcNodeId: dp.opcNodeId,
-                value: rtData ? rtData.value : null,
-                quality: rtData ? rtData.quality : null,
-                timestamp: rtData ? rtData.sourceTimestamp : null,
-                updatedAt: rtData ? rtData.updatedAt : null
+                _id: node._id,
+                name: node.variableName || node.browseName,
+                opcNodeId: node.opcNodeId,
+                dataType: node.dataType || node.type,
+                value: value,
+                timestamp: node.discoveredAt || node.createdAt,
+                namespace: node.namespace
             };
         });
         
@@ -2350,7 +2366,7 @@ app.get('/api/deviceInfo/:deviceId/opcua-data', async (req, res) => {
                 device_id: device.device_id,
                 device_name: device.device_name
             },
-            datapoints: mergedData 
+            datapoints: formattedNodes 
         });
         
     } catch (error) {
