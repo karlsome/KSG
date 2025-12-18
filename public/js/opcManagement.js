@@ -144,8 +144,9 @@ function initializeWebSocket() {
             updateConnectionStatus(false);
         });
         
-        // Listen for real-time OPC UA data
-        window.opcSocket.on('opcua_data', (data) => {
+        // Listen for real-time OPC UA data updates
+        window.opcSocket.on('opcua_data_update', (data) => {
+            console.log('📡 Received real-time data update:', data);
             handleRealtimeData(data);
         });
     } else {
