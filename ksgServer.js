@@ -3033,6 +3033,260 @@ io.of('/opcua').on('connection', (socket) => {
 // END OPC UA MONITORING SYSTEM
 // ==========================================
 
+// ==========================================
+// CUSTOMER USER MANAGEMENT ROUTES
+// ==========================================
+
+// Get all users for a customer database
+app.post("/customerGetUsers", async (req, res) => {
+  const { dbName, role } = req.body;
+  console.log("Received request to get users:", { dbName, role });
+
+  if (!dbName) {
+    return res.status(400).json({ error: "Missing dbName" });
+  }
+
+  if (!["admin", "masterUser"].includes(role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+    
+    const db = mongoClient.db(dbName);
+    const users = db.collection("users");
+
+    const result = await users.find({}, { projection: { password: 0 } }).toArray();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create new user in customer database
+app.post("/customerCreateUser", async (req, res) => {
+  const {
+    firstName,
+    lastName,
+    email,
+    username,
+    password,
+    role,
+    dbName,
+    creatorRole
+  } = req.body;
+
+  if (!firstName || !lastName || !email || !username || !password || !role || !dbName || !creatorRole) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  if (!["admin", "masterUser"].includes(creatorRole)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const normalizedUsername = username.trim().toLowerCase();
+
+    const customerDB = mongoClient.db(dbName);
+    const masterDB = mongoClient.db(DB_NAME);
+
+    const users = customerDB.collection("users");
+    const masterUsers = masterDB.collection(COLLECTION_NAME);
+
+    // 1. Check in customer DB
+    const existingInCustomer = await users.findOne({ username: normalizedUsername });
+    if (existingInCustomer) {
+      return res.status(400).json({ error: "Username already exists in this customer database" });
+    }
+
+    // 2. Check in masterUsers (username or subUsernames)
+    const conflictInMaster = await masterUsers.findOne({
+      $or: [
+        { username: normalizedUsername },
+        { subUsernames: normalizedUsername }
+      ]
+    });
+    if (conflictInMaster) {
+      return res.status(400).json({ error: "Username already exists in a master account" });
+    }
+
+    // 3. Check across all other customer DBs
+    const dbs = await mongoClient.db().admin().listDatabases();
+    for (const db of dbs.databases) {
+      if (["admin", "local", "config", DB_NAME, dbName].includes(db.name)) continue;
+      const userCol = mongoClient.db(db.name).collection("users");
+      const existsElsewhere = await userCol.findOne({ username: normalizedUsername });
+      if (existsElsewhere) {
+        return res.status(400).json({ error: "Username already exists in another customer company" });
+      }
+    }
+
+    // 4. Insert user in customer DB
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await users.insertOne({
+      firstName,
+      lastName,
+      email,
+      username: normalizedUsername,
+      password: hashedPassword,
+      role,
+      createdAt: new Date()
+    });
+
+    // 5. Track sub-user in masterUsers
+    await masterUsers.updateOne(
+      { dbName },
+      { $addToSet: { subUsernames: normalizedUsername } }
+    );
+
+    res.status(201).json({ message: "User created successfully" });
+  } catch (error) {
+    console.error("Error creating customer user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update user or record in customer database
+app.post("/customerUpdateRecord", async (req, res) => {
+  const { recordId, updateData, dbName, collectionName, role, username } = req.body;
+
+  if (!recordId || !updateData || !dbName || !collectionName || !username) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  if (!["admin", "masterUser"].includes(role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const collection = db.collection(collectionName);
+
+    const result = await collection.updateOne(
+      { _id: new ObjectId(recordId) },
+      { $set: updateData }
+    );
+
+    res.status(200).json({
+      message: `Record updated in ${collectionName}`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error("Error updating record:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete user from customer database
+app.post("/customerDeleteUser", async (req, res) => {
+  const { recordId, dbName, role, username } = req.body;
+
+  if (!recordId || !dbName || !username) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  if (!["admin", "masterUser"].includes(role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const customerDB = mongoClient.db(dbName);
+    const masterDB = mongoClient.db(DB_NAME);
+    
+    const users = customerDB.collection("users");
+    const masterUsers = masterDB.collection(COLLECTION_NAME);
+
+    // 1. Get the user to be deleted first to get their username
+    const userToDelete = await users.findOne({ _id: new ObjectId(recordId) });
+    if (!userToDelete) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // 2. Delete user from customer database
+    const result = await users.deleteOne({ _id: new ObjectId(recordId) });
+
+    // 3. Remove username from subUsernames in master database
+    if (result.deletedCount > 0) {
+      await masterUsers.updateOne(
+        { dbName },
+        { $pull: { subUsernames: userToDelete.username } }
+      );
+    }
+
+    res.status(200).json({
+      message: "User record deleted",
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Reset user password
+app.post("/customerResetUserPassword", async (req, res) => {
+  const { userId, newPassword, dbName, role, username } = req.body;
+
+  if (!userId || !newPassword || !dbName || !username) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  if (!["admin", "masterUser"].includes(role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const users = db.collection("users");
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const result = await users.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { password: hashedPassword } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    if (result.modifiedCount === 0) {
+      return res.status(200).json({ message: "Password is the same as the old one, no update needed." });
+    }
+
+    res.json({ message: "Password reset successfully" });
+  } catch (err) {
+    console.error("Error resetting customer user password:", err);
+    res.status(500).json({ error: "Internal server error during password reset." });
+  }
+});
+
+// ==========================================
+// END CUSTOMER USER MANAGEMENT ROUTES
+// ==========================================
+
 // �🚀 Start server with MongoDB connection
 async function startServer() {
     console.log('🚀 Starting KSG IoT Function Server...');

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sasaki Coating Management System</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Remix Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet" />
+
+  <!-- ECharts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+
+  <!-- jsPDF Plugins -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/encoding-japanese@1.0.30/encoding.min.js"></script>
+</head>
+
+<body class="bg-gray-50">
+  <!-- Mobile Sidebar Overlay -->
+  <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-30 hidden z-40 md:hidden" onclick="toggleSidebar()"></div>
+
+  <div class="relative flex flex-col md:flex-row min-h-screen">
+    <!-- Sidebar -->
+    <aside id="sidebar"
+  class="fixed md:fixed md:top-0 md:left-0 md:h-screen w-64 bg-white border-r border-gray-200 flex flex-col transition-transform transform -translate-x-full md:translate-x-0 z-50">
+      <div class="p-4 border-b border-gray-200 flex justify-center items-center">
+        <a href="index.html">
+          <img src="src/logo.png" alt="Sasaki Coating Logo" class="h-16" />
+        </a>
+      </div>
+      <nav class="flex-1 overflow-y-auto p-4">
+        <ul id="dynamicNav" class="space-y-2">
+          <li>
+            <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-dashboard-line text-xl"></i>
+              <span>Dashboard</span>
+            </a>
+          </li>
+          <li>
+            <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-user-settings-line text-xl"></i>
+              <span>User Management</span>
+            </a>
+          </li>
+          <li>
+            <a href="#master-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-database-2-line text-xl"></i>
+              <span>Master DB</span>
+            </a>
+          </li>
+          <li>
+            <a href="#opc-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-settings-3-line text-xl"></i>
+              <span>OPC Management</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-y-auto md:ml-64 min-h-screen">
+      <header class="bg-white border-b border-gray-200 p-4">
+        <div class="flex items-center justify-between">
+          <div class="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
+            <!-- Hamburger button for mobile -->
+            <button id="mobileMenuButton" class="md:hidden text-gray-600 focus:outline-none text-2xl">
+              <i class="ri-menu-line"></i>
+            </button>
+            <input type="text" id="searchInput" class="w-full md:w-64 p-2 bg-gray-100 rounded-md" placeholder="Search..." />
+            <select id="languageSelector" class="p-2 border rounded bg-white text-sm">
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+          </div>
+
+          <!-- Profile Dropdown -->
+          <div class="relative" id="profileMenu">
+            <button onclick="toggleDropdown()" class="focus:outline-none">
+              <img src="https://i.pravatar.cc/40" class="w-10 h-10 rounded-full border" alt="Profile" />
+            </button>
+
+            <div id="dropdownContent" class="hidden absolute right-0 mt-2 w-48 bg-white border rounded shadow-lg z-50">
+              <div class="px-4 py-2 text-sm text-gray-700">
+                Role: <span id="userRole">admin</span>
+              </div>
+              <div class="border-t"></div>
+              <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Page Content -->
+      <div id="mainContent" class="p-4 md:p-6 space-y-4">
+        <h2 class="text-2xl font-semibold" id="mainContentTitle">Welcome to Sasaki Coating</h2>
+        <div class="bg-white p-6 rounded-lg shadow">
+          <p class="text-gray-600">Select a page from the sidebar to get started.</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- JS Scripts -->
+  <script src="public/js/userManagement.js"></script>
+  <script>
+    // Toggle dropdown
+    function toggleDropdown() {
+      const dropdown = document.getElementById('dropdownContent');
+      dropdown.classList.toggle('hidden');
+    }
+
+    // Logout function
+    function logout() {
+      window.location.href = 'login.html';
+    }
+
+    // Close dropdown when clicking outside
+    window.addEventListener('click', function(e) {
+      if (!document.getElementById('profileMenu').contains(e.target)) {
+        document.getElementById('dropdownContent').classList.add('hidden');
+      }
+    });
+
+    // Sidebar toggle
+    const sidebar = document.getElementById("sidebar");
+    const menuBtn = document.getElementById("mobileMenuButton");
+    const overlay = document.getElementById("sidebarOverlay");
+
+    function toggleSidebar() {
+      sidebar.classList.toggle("-translate-x-full");
+      overlay.classList.toggle("hidden");
+    }
+
+    function handleNavClick() {
+      // Only hide sidebar on mobile
+      if (window.innerWidth < 768) {
+        toggleSidebar();
+      }
+    }
+
+    menuBtn.addEventListener("click", toggleSidebar);
+
+    // Page loading functionality
+    function loadPage(page) {
+      const mainContent = document.getElementById('mainContent');
+      
+      handleNavClick(); // Close sidebar on mobile
+      
+      switch(page) {
+        case 'dashboard':
+          mainContent.innerHTML = `
+            <h2 class="text-2xl font-semibold mb-4">Dashboard</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+              <p class="text-gray-600">Welcome to Sasaki Coating Management System</p>
+            </div>
+          `;
+          break;
+          
+        case 'user-management':
+          mainContent.innerHTML = `
+            <h2 class="text-2xl font-semibold mb-4">User Management</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+              <div id="userTableContainer">
+                <p class="text-gray-600">Loading users...</p>
+              </div>
+            </div>
+          `;
+          // Load users after DOM is ready
+          setTimeout(() => loadUsers(), 100);
+          break;
+          
+        case 'master-db':
+          mainContent.innerHTML = `
+            <h2 class="text-2xl font-semibold mb-4">Master Database</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+              <p class="text-gray-600">Master database content will be displayed here</p>
+            </div>
+          `;
+          break;
+          
+        case 'opc-management':
+          mainContent.innerHTML = `
+            <h2 class="text-2xl font-semibold mb-4">OPC Management</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+              <p class="text-gray-600">OPC UA management tools will be displayed here</p>
+            </div>
+          `;
+          break;
+          
+        default:
+          mainContent.innerHTML = `
+            <h2 class="text-2xl font-semibold mb-4">Page Not Found</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+              <p class="text-red-600">The requested page could not be found.</p>
+            </div>
+          `;
+      }
+    }
+
+    // Add click handlers to nav items
+    document.querySelectorAll('#dynamicNav a').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const page = link.getAttribute('href').substring(1);
+        loadPage(page);
+        handleNavClick();
+      });
+    });
+    
+    // Load dashboard by default
+    document.addEventListener('DOMContentLoaded', () => {
+      loadPage('dashboard');
+    });
+  </script>
+</body>
+</html>
