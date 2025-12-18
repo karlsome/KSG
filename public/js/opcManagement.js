@@ -1,24 +1,39 @@
 // OPC Management JavaScript
 // Handles real-time data display, variable creation, and data conversion
 
-let socket = null;
-let currentRaspberryId = null;
-let rawDataCache = {};
-let variablesCache = [];
-let selectedVariablesForCombine = [];
-let currentConversionData = null;
+// Use window scope to avoid redeclaration errors on page reload
+if (typeof window.opcManagementState === 'undefined') {
+    window.opcManagementState = {
+        currentRaspberryId: null,
+        rawDataCache: {},
+        variablesCache: [],
+        selectedVariablesForCombine: [],
+        currentConversionData: null
+    };
+}
+
+// Shorthand references for cleaner code
+let currentRaspberryId, rawDataCache, variablesCache, selectedVariablesForCombine, currentConversionData;
+
+function initOpcState() {
+    currentRaspberryId = window.opcManagementState.currentRaspberryId;
+    rawDataCache = window.opcManagementState.rawDataCache;
+    variablesCache = window.opcManagementState.variablesCache;
+    selectedVariablesForCombine = window.opcManagementState.selectedVariablesForCombine;
+    currentConversionData = window.opcManagementState.currentConversionData;
+}
 
 // Get company from localStorage
 //const COMPANY = localStorage.getItem('company') || 'sasaki';
 //const API_URL = 'http://localhost:3000';
 
-// Initialize page
-document.addEventListener('DOMContentLoaded', () => {
-    initializeOPCManagement();
-});
+// Note: initializeOPCManagement() is called directly from index.html after script load
 
 async function initializeOPCManagement() {
     try {
+        // Initialize state references
+        initOpcState();
+        
         // Load Raspberry Pis
         await loadRaspberryPis();
         
@@ -40,18 +55,25 @@ async function initializeOPCManagement() {
 // Load Raspberry Pis into dropdown
 async function loadRaspberryPis() {
     try {
-        const response = await fetch(`${API_URL}/api/opcua/raspberries?company=${COMPANY}`);
+        const response = await fetch(`${API_URL}/api/deviceInfo?company=${COMPANY}`);
         const data = await response.json();
         
         const select = document.getElementById('opc-raspberry-filter');
+        if (!select) {
+            console.error('Raspberry Pi filter select element not found');
+            return;
+        }
+        
         select.innerHTML = '<option value="">Select Raspberry Pi...</option>';
         
-        data.raspberries.forEach(rpi => {
-            const option = document.createElement('option');
-            option.value = rpi._id;
-            option.textContent = `${rpi.name} (${rpi.ipAddress})`;
-            select.appendChild(option);
-        });
+        if (data.success && data.devices) {
+            data.devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.device_id;
+                option.textContent = device.device_name || device.device_id;
+                select.appendChild(option);
+            });
+        }
     } catch (error) {
         console.error('Error loading Raspberry Pis:', error);
     }
@@ -59,30 +81,40 @@ async function loadRaspberryPis() {
 
 // Initialize WebSocket connection
 function initializeWebSocket() {
-    socket = io(API_URL);
-    
-    socket.on('connect', () => {
-        console.log('WebSocket connected');
-        updateConnectionStatus(true);
+    // Reuse existing socket if available, otherwise create new one
+    if (typeof window.opcSocket === 'undefined' || !window.opcSocket || !window.opcSocket.connected) {
+        window.opcSocket = io(API_URL);
         
-        // Join company room
-        socket.emit('join', { room: `opcua_${COMPANY}` });
-    });
-    
-    socket.on('disconnect', () => {
-        console.log('WebSocket disconnected');
-        updateConnectionStatus(false);
-    });
-    
-    // Listen for real-time OPC UA data
-    socket.on('opcua_data', (data) => {
-        handleRealtimeData(data);
-    });
+        window.opcSocket.on('connect', () => {
+            console.log('WebSocket connected');
+            updateConnectionStatus(true);
+            
+            // Join company room
+            window.opcSocket.emit('join', { room: `opcua_${COMPANY}` });
+        });
+        
+        window.opcSocket.on('disconnect', () => {
+            console.log('WebSocket disconnected');
+            updateConnectionStatus(false);
+        });
+        
+        // Listen for real-time OPC UA data
+        window.opcSocket.on('opcua_data', (data) => {
+            handleRealtimeData(data);
+        });
+    } else {
+        // Socket already exists and is connected
+        updateConnectionStatus(window.opcSocket.connected);
+        // Re-join company room
+        window.opcSocket.emit('join', { room: `opcua_${COMPANY}` });
+    }
 }
 
 // Update connection status indicator
 function updateConnectionStatus(connected) {
     const statusEl = document.getElementById('opc-connection-status');
+    if (!statusEl) return; // Element not yet in DOM
+    
     if (connected) {
         statusEl.innerHTML = `
             <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
@@ -101,30 +133,45 @@ function updateConnectionStatus(connected) {
 // Setup event listeners
 function setupEventListeners() {
     // Raspberry Pi selection
-    document.getElementById('opc-raspberry-filter').addEventListener('change', (e) => {
-        currentRaspberryId = e.target.value;
-        if (currentRaspberryId) {
-            loadRealTimeData(currentRaspberryId);
-        } else {
-            clearDataDisplay();
-        }
-    });
+    const filterSelect = document.getElementById('opc-raspberry-filter');
+    if (filterSelect) {
+        filterSelect.addEventListener('change', (e) => {
+            currentRaspberryId = e.target.value;
+            if (currentRaspberryId) {
+                loadRealTimeData(currentRaspberryId);
+            } else {
+                clearDataDisplay();
+            }
+        });
+    }
     
     // Refresh button
-    document.getElementById('refresh-data-btn').addEventListener('click', () => {
-        if (currentRaspberryId) {
-            loadRealTimeData(currentRaspberryId);
-        }
-    });
+    const refreshBtn = document.getElementById('refresh-data-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (currentRaspberryId) {
+                loadRealTimeData(currentRaspberryId);
+            }
+        });
+    }
     
     // Conversion form
-    document.getElementById('opc-conversion-form').addEventListener('submit', handleConversionSubmit);
+    const conversionForm = document.getElementById('opc-conversion-form');
+    if (conversionForm) {
+        conversionForm.addEventListener('submit', handleConversionSubmit);
+    }
     
     // Combine form
-    document.getElementById('opc-combine-form').addEventListener('submit', handleCombineSubmit);
+    const combineForm = document.getElementById('opc-combine-form');
+    if (combineForm) {
+        combineForm.addEventListener('submit', handleCombineSubmit);
+    }
     
     // Edit variable form
-    document.getElementById('opc-edit-variable-form').addEventListener('submit', handleEditVariableSubmit);
+    const editForm = document.getElementById('opc-edit-variable-form');
+    if (editForm) {
+        editForm.addEventListener('submit', handleEditVariableSubmit);
+    }
 }
 
 // Load real-time data for selected Raspberry Pi

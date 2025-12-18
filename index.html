@@ -242,6 +242,17 @@
               }
               
               function loadOPCManagementScript() {
+                // Check if script is already loaded
+                const existingScript = document.querySelector('script[src="public/js/opcManagement.js"]');
+                if (existingScript) {
+                  // Script already loaded, just reinitialize
+                  if (typeof initializeOPCManagement === 'function') {
+                    initializeOPCManagement();
+                  }
+                  return;
+                }
+                
+                // Load script for first time
                 const script = document.createElement('script');
                 script.src = 'public/js/opcManagement.js';
                 script.onload = () => {
