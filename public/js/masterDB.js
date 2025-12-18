@@ -327,8 +327,17 @@ function renderModalDetails(type, data) {
           <div><label class="block text-sm font-medium mb-1">製品名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
           <div><label class="block text-sm font-medium mb-1">LH/RH</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
           <div><label class="block text-sm font-medium mb-1">kanbanID</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
-          <div><label class="block text-sm font-medium mb-1">設備</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備 || ''}" disabled data-field="設備" /></div>
-          <div><label class="block text-sm font-medium mb-1">工場</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.工場 || ''}" disabled data-field="工場" /></div>
+          <div>
+            <label class="block text-sm font-medium mb-1">設備</label>
+            <input type="text" id="modalEquipmentDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備 || ''}" disabled data-field="設備" />
+            <select id="modalEquipmentSelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white" data-field="設備"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">工場</label>
+            <input type="text" id="modalFactoryDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.工場 || ''}" disabled data-field="工場" />
+            <div id="modalFactoryTags" class="hidden w-full px-3 py-2 border rounded-lg bg-white min-h-[42px]" data-field="工場"></div>
+            <select id="modalFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
+          </div>
           <div><label class="block text-sm font-medium mb-1">cycleTime</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
         </div>
       `;
@@ -430,14 +439,21 @@ function closeDetailModal() {
   isEditMode = false;
 }
 
-function toggleEditMode() {
+async function toggleEditMode() {
   isEditMode = true;
+  
+  // Load factories and equipment data for master tab
+  if (currentModalType === 'master') {
+    await loadFactoriesAndEquipmentForModal();
+  }
   
   // Enable all inputs
   document.querySelectorAll('#modalDetailsBody input, #modalDetailsBody textarea, #modalDetailsBody select').forEach(el => {
-    el.disabled = false;
-    el.classList.remove('bg-gray-50');
-    el.classList.add('bg-white');
+    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay') {
+      el.disabled = false;
+      el.classList.remove('bg-gray-50');
+      el.classList.add('bg-white');
+    }
   });
   
   // Show image upload
@@ -448,6 +464,140 @@ function toggleEditMode() {
   document.getElementById('modalEditBtn').classList.add('hidden');
   document.getElementById('modalSaveBtn').classList.remove('hidden');
   document.getElementById('modalCancelBtn').classList.remove('hidden');
+}
+
+let selectedModalFactories = [];
+
+async function loadFactoriesAndEquipmentForModal() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  
+  try {
+    // Load factories
+    const factoriesRes = await fetch(BASE_URL + "getFactories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    const factories = await factoriesRes.json();
+    
+    // Load equipment
+    const equipmentRes = await fetch(BASE_URL + "getEquipment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    const equipment = await equipmentRes.json();
+    
+    // Setup Equipment dropdown
+    const equipmentSelect = document.getElementById('modalEquipmentSelect');
+    const equipmentDisplay = document.getElementById('modalEquipmentDisplay');
+    
+    if (equipmentSelect && equipmentDisplay) {
+      if (equipment.length === 0) {
+        equipmentSelect.innerHTML = '<option value="" class="text-red-600">⚠️ 設備データがありません</option>';
+        equipmentSelect.classList.add('border-red-500');
+      } else {
+        equipmentSelect.innerHTML = '<option value="">選択してください</option>' + 
+          equipment.map(eq => `<option value="${eq.設備名}" ${currentModalData.設備 === eq.設備名 ? 'selected' : ''}>${eq.設備名}</option>`).join('');
+      }
+      equipmentDisplay.classList.add('hidden');
+      equipmentSelect.classList.remove('hidden');
+    }
+    
+    // Setup Factory multi-select with tags
+    const factoryDisplay = document.getElementById('modalFactoryDisplay');
+    const factoryTags = document.getElementById('modalFactoryTags');
+    const factorySelect = document.getElementById('modalFactorySelect');
+    
+    if (factoryDisplay && factoryTags && factorySelect) {
+      if (factories.length === 0) {
+        factorySelect.innerHTML = '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+        factorySelect.classList.add('border-red-500');
+      } else {
+        factorySelect.innerHTML = '<option value="">+ 工場を追加</option>' + 
+          factories.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+        factorySelect.onchange = (e) => {
+          if (e.target.value && !selectedModalFactories.includes(e.target.value)) {
+            selectedModalFactories.push(e.target.value);
+            renderModalFactoryTags();
+          }
+          e.target.value = '';
+        };
+      }
+      
+      // Initialize selected factories from comma-delimited string
+      selectedModalFactories = currentModalData.工場 ? currentModalData.工場.split(',').map(f => f.trim()).filter(f => f) : [];
+      
+      factoryDisplay.classList.add('hidden');
+      factoryTags.classList.remove('hidden');
+      factorySelect.classList.remove('hidden');
+      
+      renderModalFactoryTags();
+    }
+    
+  } catch (err) {
+    console.error('Failed to load factories/equipment:', err);
+  }
+}
+
+function renderModalFactoryTags() {
+  const factoryTags = document.getElementById('modalFactoryTags');
+  if (!factoryTags) return;
+  
+  factoryTags.innerHTML = selectedModalFactories.length > 0 ? 
+    selectedModalFactories.map(f => `
+      <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 bg-blue-100 text-blue-800 rounded">
+        ${f}
+        <button type="button" onclick="removeModalFactoryTag('${f}')" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+}
+
+function removeModalFactoryTag(factory) {
+  selectedModalFactories = selectedModalFactories.filter(f => f !== factory);
+  renderModalFactoryTags();
+}
+
+let selectedQuickEquipmentFactories = [];
+
+async function loadFactoriesForEquipmentCreate() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  
+  try {
+    const res = await fetch(BASE_URL + "getFactories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    allFactories = await res.json();
+  } catch (err) {
+    console.error('Failed to load factories:', err);
+    allFactories = [];
+  }
+}
+
+function renderQuickEquipmentFactoryTags() {
+  const tagsDiv = document.getElementById('quickEquipmentFactoryTags');
+  if (!tagsDiv) return;
+  
+  tagsDiv.innerHTML = selectedQuickEquipmentFactories.length > 0 ? 
+    selectedQuickEquipmentFactories.map(f => `
+      <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 bg-blue-100 text-blue-800 rounded">
+        ${f}
+        <button type="button" onclick="removeQuickEquipmentFactoryTag('${f}')" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+}
+
+function removeQuickEquipmentFactoryTag(factory) {
+  selectedQuickEquipmentFactories = selectedQuickEquipmentFactories.filter(f => f !== factory);
+  renderQuickEquipmentFactoryTags();
 }
 
 function cancelEditMode() {
@@ -468,8 +618,28 @@ async function saveModalChanges() {
   const username = currentUser.username || "admin";
   
   const updateData = {};
-  document.querySelectorAll('#modalDetailsBody input[data-field], #modalDetailsBody textarea[data-field]').forEach(el => {
-    updateData[el.dataset.field] = el.value;
+  
+  // Handle special fields for master
+  if (currentModalType === 'master') {
+    // Get equipment from dropdown
+    const equipmentSelect = document.getElementById('modalEquipmentSelect');
+    if (equipmentSelect && !equipmentSelect.classList.contains('hidden')) {
+      updateData['設備'] = equipmentSelect.value;
+    }
+    
+    // Get factories from tags (comma-delimited)
+    if (selectedModalFactories.length > 0) {
+      updateData['工場'] = selectedModalFactories.join(',');
+    } else {
+      updateData['工場'] = '';
+    }
+  }
+  
+  // Get other fields
+  document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
+    if (!el.disabled) {
+      updateData[el.dataset.field] = el.value;
+    }
   });
   
   // Handle image upload
@@ -1573,7 +1743,7 @@ async function uploadCSVData() {
 // ====================
 // Quick Create Functions
 // ====================
-function showQuickCreateModal() {
+async function showQuickCreateModal() {
   // Dynamically populate modal based on current tab
   const modalTitle = document.querySelector('#quickCreateModal h3');
   const modalBody = document.querySelector('#quickCreateModal .p-6 .grid');
@@ -1643,6 +1813,13 @@ function showQuickCreateModal() {
       break;
       
     case 'equipment':
+      // Load factories for dropdown
+      await loadFactoriesForEquipmentCreate();
+      
+      const factoryOptions = allFactories.length > 0 ? 
+        allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
+        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+      
       modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (設備)';
       modalBody.innerHTML = `
         <div>
@@ -1650,14 +1827,34 @@ function showQuickCreateModal() {
           <input type="text" id="quickEquipmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Machine A">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">工場 (カンマ区切り)</label>
-          <input type="text" id="quickEquipmentFactories" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Factory1, Factory2">
+          <label class="block text-sm font-medium mb-1">工場 (複数選択可能)</label>
+          <div id="quickEquipmentFactoryTags" class="w-full px-3 py-2 border rounded-lg bg-white min-h-[42px] mb-2"></div>
+          <select id="quickEquipmentFactorySelect" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
+            <option value="">+ 工場を追加</option>
+            ${factoryOptions}
+          </select>
         </div>
         <div class="col-span-2">
           <label class="block text-sm font-medium mb-1">Description</label>
           <textarea id="quickEquipmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
       `;
+      
+      // Initialize factory selection
+      selectedQuickEquipmentFactories = [];
+      renderQuickEquipmentFactoryTags();
+      
+      // Setup factory select handler
+      const factorySelectEl = document.getElementById('quickEquipmentFactorySelect');
+      if (factorySelectEl) {
+        factorySelectEl.onchange = (e) => {
+          if (e.target.value && !selectedQuickEquipmentFactories.includes(e.target.value)) {
+            selectedQuickEquipmentFactories.push(e.target.value);
+            renderQuickEquipmentFactoryTags();
+          }
+          e.target.value = '';
+        };
+      }
       break;
       
     case 'roles':
@@ -1737,10 +1934,9 @@ async function submitQuickCreate() {
         break;
         
       case 'equipment':
-        const factoriesInput = document.getElementById("quickEquipmentFactories").value.trim();
         data = {
           設備名: document.getElementById("quickEquipmentName").value.trim(),
-          工場: factoriesInput ? factoriesInput.split(',').map(f => f.trim()) : [],
+          工場: selectedQuickEquipmentFactories,
           description: document.getElementById("quickEquipmentDesc").value.trim(),
           dbName
         };
@@ -1820,6 +2016,8 @@ if (typeof window !== 'undefined') {
   window.showQuickCreateModal = showQuickCreateModal;
   window.closeQuickCreateModal = closeQuickCreateModal;
   window.submitQuickCreate = submitQuickCreate;
+  window.removeModalFactoryTag = removeModalFactoryTag;
+  window.removeQuickEquipmentFactoryTag = removeQuickEquipmentFactoryTag;
   window.loadMasterData = loadMasterData;
   window.showCreateMasterForm = showCreateMasterForm;
   window.submitNewMaster = submitNewMaster;
