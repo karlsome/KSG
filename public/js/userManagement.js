@@ -5,6 +5,8 @@ const BASE_URL = 'http://localhost:3000/';
 
 let allUsers = [];
 let availableRoles = ["admin", "member", "operator", "viewer"]; // Default roles
+let availableFactories = []; // Factories from 工場 tab
+let selectedUserFactories = []; // For create/edit factory tags
 
 // Load roles from the database
 async function loadAvailableRoles() {
@@ -29,14 +31,39 @@ async function loadAvailableRoles() {
   }
 }
 
+// Load factories from the database
+async function loadAvailableFactories() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getFactories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    if (res.ok) {
+      const factories = await res.json();
+      if (factories.length > 0) {
+        availableFactories = factories.map(f => f.name);
+      }
+    }
+  } catch (err) {
+    console.log("Couldn't fetch factories from database:", err);
+    availableFactories = [];
+  }
+}
+
 async function loadUsers() {
   // Get current user info (should be set when user logs in)
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const role = currentUser.role || "admin";
 
-  // Load available roles first
+  // Load available roles and factories first
   await loadAvailableRoles();
+  await loadAvailableFactories();
 
   try {
     const res = await fetch(BASE_URL + "customerGetUsers", {
@@ -108,8 +135,12 @@ function showCreateUserForm() {
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">工場</label>
-          <input type="text" id="newFactory" placeholder="工場" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">工場 (複数選択可能)</label>
+          <div id="userFactoryTags" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white min-h-[42px] mb-2"></div>
+          <select id="newFactory" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableFactories.length === 0 ? 'border-red-500' : ''}">
+            <option value="">${availableFactories.length > 0 ? '+ 工場を追加' : '⚠️ 工場データがありません'}</option>
+            ${availableFactories.map(f => `<option value="${f}">${f}</option>`).join("")}
+          </select>
         </div>
         <div class="space-y-1">
           <label class="block text-sm font-medium text-gray-700">User ID</label>
@@ -130,15 +161,92 @@ function showCreateUserForm() {
   `;
 
   container.innerHTML = formHTML + container.innerHTML;
+  
+  // Initialize factory tagging system
+  selectedUserFactories = [];
+  renderUserFactoryTags();
+  
+  const factorySelect = document.getElementById('newFactory');
+  if (factorySelect) {
+    factorySelect.onchange = (e) => {
+      if (e.target.value && !selectedUserFactories.includes(e.target.value)) {
+        selectedUserFactories.push(e.target.value);
+        renderUserFactoryTags();
+      }
+      e.target.value = '';
+    };
+  }
 }
 
 function startEditingUser(userId) {
-  document.querySelectorAll(`[user-id='${userId}']`).forEach(el => el.disabled = false);
+  // Get user data
+  const user = allUsers.find(u => u._id === userId);
+  if (!user) return;
+  
+  // Enable all input fields except factory
+  document.querySelectorAll(`[user-id='${userId}']`).forEach(el => {
+    if (el.dataset.field !== 'factory') {
+      el.disabled = false;
+    }
+  });
+  
+  // Replace factory display div with tagging system
+  const factoryCell = document.querySelector(`#userRow-${userId} td:nth-child(8)`);
+  if (factoryCell) {
+    // Initialize selected factories from user data
+    selectedUserFactories = user.factory ? user.factory.split(',').map(f => f.trim()).filter(f => f) : [];
+    
+    factoryCell.innerHTML = `
+      <div>
+        <div id="editUserFactoryTags-${userId}" class="flex gap-1 flex-wrap mb-2 min-h-[32px] p-1 border rounded"></div>
+        <select id="editUserFactorySelect-${userId}" class="w-full p-1 border rounded text-xs" data-field="factory" user-id="${userId}">
+          <option value="">+ Add Factory</option>
+          ${availableFactories.map(f => `<option value="${f}">${f}</option>`).join("")}
+        </select>
+      </div>
+    `;
+    
+    // Render initial tags
+    renderEditUserFactoryTags(userId);
+    
+    // Setup select handler
+    const factorySelect = document.getElementById(`editUserFactorySelect-${userId}`);
+    if (factorySelect) {
+      factorySelect.onchange = (e) => {
+        if (e.target.value && !selectedUserFactories.includes(e.target.value)) {
+          selectedUserFactories.push(e.target.value);
+          renderEditUserFactoryTags(userId);
+        }
+        e.target.value = '';
+      };
+    }
+  }
+  
   const actions = document.getElementById(`actions-${userId}`);
   actions.innerHTML = `
     <button class="text-green-600 hover:underline text-sm" onclick="saveUser('${userId}')">Save</button>
     <button class="ml-2 text-gray-600 hover:underline text-sm" onclick="cancelEditUser('${userId}')">Cancel</button>
   `;
+}
+
+function renderEditUserFactoryTags(userId) {
+  const tagsDiv = document.getElementById(`editUserFactoryTags-${userId}`);
+  if (!tagsDiv) return;
+  
+  tagsDiv.innerHTML = selectedUserFactories.length > 0 ? 
+    selectedUserFactories.map(f => `
+      <span class="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+        ${f}
+        <button type="button" onclick="removeEditUserFactoryTag('${f}', '${userId}')" class="ml-1 text-blue-600 hover:text-blue-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-xs">No factories selected</span>';
+}
+
+function removeEditUserFactoryTag(factory, userId) {
+  selectedUserFactories = selectedUserFactories.filter(f => f !== factory);
+  renderEditUserFactoryTags(userId);
 }
 
 function cancelEditUser(userId) {
@@ -153,13 +261,16 @@ async function saveUser(userId) {
 
   const updated = {};
   document.querySelectorAll(`[user-id='${userId}']`).forEach(el => {
-    if (el.dataset.field) {
+    if (el.dataset.field && el.dataset.field !== 'factory') {
       updated[el.dataset.field] = el.value;
     }
     if (el.hasAttribute('data-role')) {
       updated.role = el.value;
     }
   });
+  
+  // Add factory from selectedUserFactories
+  updated.factory = selectedUserFactories.join(',');
 
   try {
     const res = await fetch(BASE_URL + "customerUpdateRecord", {
@@ -252,6 +363,12 @@ function renderUserTable(users) {
                           <option value="enabled" ${(u[h] || "enabled") === "enabled" ? "selected" : ""}>enabled</option>
                           <option value="disabled" ${u[h] === "disabled" ? "selected" : ""}>disabled</option>
                         </select>`
+                      : h === "factory"
+                      ? `<div class="flex gap-1 flex-wrap">
+                          ${(u[h] ? u[h].split(',').map(f => f.trim()).filter(f => f) : []).map(f => 
+                            `<span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${f}</span>`
+                          ).join('') || '<span class="text-gray-400">-</span>'}
+                        </div>`
                       : `<input class="border border-gray-300 p-1 rounded w-full" value="${u[h] || ""}" disabled data-field="${h}" user-id="${u._id}" />`
                   }
                 </td>
@@ -284,7 +401,7 @@ async function submitNewUser() {
     role: document.getElementById("newRole").value.trim(),
     division: document.getElementById("newDivision").value.trim(),
     enable: document.getElementById("newEnable").value.trim(),
-    factory: document.getElementById("newFactory").value.trim(),
+    factory: selectedUserFactories.join(','), // Convert array to comma-delimited
     userID: document.getElementById("newUserID").value.trim(),
     dbName,
     creatorRole
@@ -332,6 +449,26 @@ async function submitNewUser() {
   }
 }
 
+function renderUserFactoryTags() {
+  const tagsDiv = document.getElementById('userFactoryTags');
+  if (!tagsDiv) return;
+  
+  tagsDiv.innerHTML = selectedUserFactories.length > 0 ? 
+    selectedUserFactories.map(f => `
+      <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 bg-blue-100 text-blue-800 rounded">
+        ${f}
+        <button type="button" onclick="removeUserFactoryTag('${f}')" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+}
+
+function removeUserFactoryTag(factory) {
+  selectedUserFactories = selectedUserFactories.filter(f => f !== factory);
+  renderUserFactoryTags();
+}
+
 // Initialize when page loads
 if (typeof window !== 'undefined') {
   window.loadUsers = loadUsers;
@@ -341,4 +478,8 @@ if (typeof window !== 'undefined') {
   window.saveUser = saveUser;
   window.deleteUser = deleteUser;
   window.submitNewUser = submitNewUser;
+  window.renderUserFactoryTags = renderUserFactoryTags;
+  window.removeUserFactoryTag = removeUserFactoryTag;
+  window.renderEditUserFactoryTags = renderEditUserFactoryTags;
+  window.removeEditUserFactoryTag = removeEditUserFactoryTag;
 }

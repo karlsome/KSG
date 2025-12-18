@@ -975,27 +975,24 @@ async function loadFactories() {
 function renderFactoryTable(factories) {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const role = currentUser.role || "member";
-  const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateFactoryForm()">
-            <i class="ri-add-line mr-2"></i>Create New Factory
-          </button>
-          <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="factorySelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
+      <div class="flex gap-3">
+        <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateFactoryForm()">
+          <i class="ri-add-line mr-2"></i>Create New Factory
+        </button>
+        <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
+          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="factorySelectedCount">0</span>)
+        </button>
+      </div>
       <div class="text-sm text-gray-600">Total: ${factories.length} factories</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded"></th>` : ''}
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded"></th>
             <th class="px-4 py-3 text-left font-semibold">Factory Name</th>
             <th class="px-4 py-3 text-left font-semibold">Address</th>
             <th class="px-4 py-3 text-left font-semibold">Phone</th>
@@ -1004,7 +1001,7 @@ function renderFactoryTable(factories) {
         <tbody class="bg-white divide-y divide-gray-200">
           ${factories.map(f => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('factory', '${f._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="factoryCheckbox rounded" value="${f._id}" onchange="updateSelectedCount('factory')"></td>` : ''}
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="factoryCheckbox rounded" value="${f._id}" onchange="updateSelectedCount('factory')"></td>
               <td class="px-4 py-3">${f.name || ""}</td>
               <td class="px-4 py-3">${f.address || ""}</td>
               <td class="px-4 py-3">${f.phone || ""}</td>
@@ -1334,27 +1331,24 @@ async function loadEquipment() {
 function renderEquipmentTable(equipment) {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const role = currentUser.role || "member";
-  const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateEquipmentForm()">
-            <i class="ri-add-line mr-2"></i>Create Equipment
-          </button>
-          <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="equipmentSelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
+      <div class="flex gap-3">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateEquipmentForm()">
+          <i class="ri-add-line mr-2"></i>Create Equipment
+        </button>
+        <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
+          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="equipmentSelectedCount">0</span>)
+        </button>
+      </div>
       <div class="text-sm text-gray-600">Total: ${equipment.length} items</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="rounded"></th>` : ''}
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="rounded"></th>
             <th class="px-4 py-3 text-left">設備名</th>
             <th class="px-4 py-3 text-left">工場 (Factories)</th>
             <th class="px-4 py-3 text-left">Description</th>
@@ -1363,7 +1357,7 @@ function renderEquipmentTable(equipment) {
         <tbody class="bg-white divide-y">
           ${equipment.map(eq => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>` : ''}
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>
               <td class="px-4 py-3">${eq.設備名 || ""}</td>
               <td class="px-4 py-3">
                 ${(eq.工場 || []).map(f => `<span class="tag">${f}</span>`).join(" ")}
@@ -1526,27 +1520,24 @@ async function loadRoles() {
 function renderRolesTable(roles) {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const role = currentUser.role || "member";
-  const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
-      ${canEdit ? `
-        <div class="flex gap-3">
-          <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateRoleForm()">
-            <i class="ri-add-line mr-2"></i>Create Role
-          </button>
-          <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
-            <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="rolesSelectedCount">0</span>)
-          </button>
-        </div>
-      ` : '<div></div>'}
+      <div class="flex gap-3">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateRoleForm()">
+          <i class="ri-add-line mr-2"></i>Create Role
+        </button>
+        <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
+          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="rolesSelectedCount">0</span>)
+        </button>
+      </div>
       <div class="text-sm text-gray-600">Total: ${roles.length} roles</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            ${canEdit ? `<th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="rounded"></th>` : ''}
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="rounded"></th>
             <th class="px-4 py-3 text-left">Role Name</th>
             <th class="px-4 py-3 text-left">Description</th>
           </tr>
@@ -1554,7 +1545,7 @@ function renderRolesTable(roles) {
         <tbody class="bg-white divide-y">
           ${roles.map(r => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('roles', '${r._id}')">
-              ${canEdit ? `<td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="rolesCheckbox rounded" value="${r._id}" onchange="updateSelectedCount('roles')"></td>` : ''}
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="rolesCheckbox rounded" value="${r._id}" onchange="updateSelectedCount('roles')"></td>
               <td class="px-4 py-3">${r.roleName || ""}</td>
               <td class="px-4 py-3">${r.description || ""}</td>
             </tr>
