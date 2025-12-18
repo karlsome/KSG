@@ -21,12 +21,14 @@ function switchMainTab(tabName) {
   document.getElementById('contentFactory').classList.add('hidden');
   document.getElementById('contentEquipment').classList.add('hidden');
   document.getElementById('contentRoles').classList.add('hidden');
+  document.getElementById('contentRpiServer').classList.add('hidden');
 
   // Remove active class from all tabs
   document.getElementById('tabMaster').classList.remove('tab-active');
   document.getElementById('tabFactory').classList.remove('tab-active');
   document.getElementById('tabEquipment').classList.remove('tab-active');
   document.getElementById('tabRoles').classList.remove('tab-active');
+  document.getElementById('tabRpiServer').classList.remove('tab-active');
 
   // Show selected content and activate tab
   currentTab = tabName;
@@ -34,8 +36,10 @@ function switchMainTab(tabName) {
   document.getElementById(`content${capitalizeFirst(tabName)}`).classList.remove('hidden');
   document.getElementById(`tab${capitalizeFirst(tabName)}`).classList.add('tab-active');
 
-  // Reset sub-tab buttons
-  switchSubTab(tabName, 'data');
+  // Reset sub-tab buttons (if they exist)
+  if (tabName !== 'rpiServer') {
+    switchSubTab(tabName, 'data');
+  }
 
   // Load data for the tab
   loadTabData(tabName);
@@ -75,6 +79,9 @@ function loadTabData(tabName) {
       break;
     case 'roles':
       loadRoles();
+      break;
+    case 'rpiServer':
+      loadRpiServers();
       break;
   }
 }
@@ -2039,4 +2046,245 @@ if (typeof window !== 'undefined') {
 
   // Load master data by default
   loadMasterData();
+}
+
+// ====================
+// Rpi Server Functions
+// ====================
+async function loadRpiServers() {
+  try {
+    const response = await fetch(`${API_URL}/api/deviceInfo?company=${COMPANY}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      renderRpiServerTable(data.devices);
+    } else {
+      showToast('Failed to load Raspberry Pi devices', 'error');
+    }
+  } catch (error) {
+    console.error('Error loading RPI servers:', error);
+    showToast('Failed to load Raspberry Pi devices', 'error');
+  }
+}
+
+function renderRpiServerTable(devices) {
+  const container = document.getElementById('rpiServerTableContainer');
+  
+  if (!devices || devices.length === 0) {
+    container.innerHTML = `
+      <div class="text-center py-12">
+        <i class="ri-server-line text-6xl text-gray-300 mb-4"></i>
+        <p class="text-gray-500 text-lg">No Raspberry Pi devices registered yet</p>
+        <p class="text-gray-400 text-sm mt-2">Devices will appear here automatically when they connect</p>
+      </div>
+    `;
+    return;
+  }
+  
+  let html = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b-2 border-gray-200">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device ID</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device Name</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Local IP</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+  `;
+  
+  devices.forEach(device => {
+    const isActive = isDeviceActive(device.updated_at);
+    const statusBadge = isActive 
+      ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Active</span>'
+      : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Inactive</span>';
+    
+    const lastUpdated = new Date(device.updated_at).toLocaleString('ja-JP');
+    const authorizedUntil = new Date(device.authorized_until).toLocaleDateString('ja-JP');
+    
+    html += `
+      <tr class="hover:bg-gray-50 transition-colors">
+        <td class="px-4 py-3">
+          <div class="flex items-center">
+            <i class="ri-cpu-line text-blue-600 mr-2"></i>
+            <span class="font-mono font-semibold">${device.device_id}</span>
+          </div>
+        </td>
+        <td class="px-4 py-3">
+          <div class="font-medium text-gray-900">${device.device_name || '-'}</div>
+          <div class="text-sm text-gray-500">${device.device_brand || 'Raspberry Pi'}</div>
+        </td>
+        <td class="px-4 py-3">
+          <span class="font-mono text-sm">${device.local_ip || '-'}</span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="text-sm">${device.owner || '-'}</span>
+        </td>
+        <td class="px-4 py-3">${statusBadge}</td>
+        <td class="px-4 py-3">
+          <div class="text-sm text-gray-900">${lastUpdated}</div>
+          <div class="text-xs text-gray-500">Valid until: ${authorizedUntil}</div>
+        </td>
+        <td class="px-4 py-3 text-center">
+          <button onclick="editRpiServer('${device._id}')" 
+            class="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
+            <i class="ri-edit-line mr-1"></i> Edit
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+  
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+}
+
+function isDeviceActive(updatedAt) {
+  const lastUpdate = new Date(updatedAt);
+  const now = new Date();
+  const diffMinutes = (now - lastUpdate) / 1000 / 60;
+  return diffMinutes < 10; // Consider active if updated within last 10 minutes
+}
+
+let editingRpiServerId = null;
+let originalRpiServerData = null;
+
+async function editRpiServer(deviceId) {
+  try {
+    const response = await fetch(`${API_URL}/api/deviceInfo/${deviceId}?company=${COMPANY}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      editingRpiServerId = deviceId;
+      originalRpiServerData = { ...data.device };
+      showRpiServerEditModal(data.device);
+    }
+  } catch (error) {
+    console.error('Error loading device:', error);
+    showToast('Failed to load device details', 'error');
+  }
+}
+
+function showRpiServerEditModal(device) {
+  const modalHtml = `
+    <div id="rpiServerEditModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
+        <div class="flex items-center justify-between p-6 border-b">
+          <h2 class="text-2xl font-semibold">Edit Raspberry Pi Device</h2>
+          <button onclick="closeRpiServerEditModal()" class="text-gray-500 hover:text-gray-700">
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        
+        <div class="p-6">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Device ID (Read-only)</label>
+              <input type="text" value="${device.device_id}" disabled 
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono">
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Device Name *</label>
+              <input type="text" id="editDeviceName" value="${device.device_name || ''}" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              <p class="mt-1 text-sm text-gray-500">Friendly name for this device (e.g., KSG2, Factory Line 1)</p>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Owner</label>
+              <input type="text" id="editDeviceOwner" value="${device.owner || ''}" 
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Local IP (Read-only)</label>
+                <input type="text" value="${device.local_ip || '-'}" disabled 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Last Updated</label>
+                <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
+              </div>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Authorized Until</label>
+              <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled 
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+            </div>
+          </div>
+        </div>
+        
+        <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+          <button onclick="closeRpiServerEditModal()" 
+            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+            Cancel
+          </button>
+          <button onclick="saveRpiServer()" 
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <i class="ri-save-line mr-2"></i>Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeRpiServerEditModal() {
+  const modal = document.getElementById('rpiServerEditModal');
+  if (modal) {
+    modal.remove();
+  }
+  editingRpiServerId = null;
+  originalRpiServerData = null;
+}
+
+async function saveRpiServer() {
+  const deviceName = document.getElementById('editDeviceName').value.trim();
+  const owner = document.getElementById('editDeviceOwner').value.trim();
+  
+  if (!deviceName) {
+    showToast('Device name is required', 'error');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${API_URL}/api/deviceInfo/${editingRpiServerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: COMPANY,
+        device_name: deviceName,
+        owner: owner
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      showToast('Raspberry Pi device updated successfully', 'success');
+      closeRpiServerEditModal();
+      loadRpiServers();
+    } else {
+      showToast(data.message || 'Failed to update device', 'error');
+    }
+  } catch (error) {
+    console.error('Error updating device:', error);
+    showToast('Failed to update device', 'error');
+  }
 }

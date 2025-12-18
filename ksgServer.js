@@ -2135,6 +2135,105 @@ app.post('/api/opcua/device-info', async (req, res) => {
     }
 });
 
+// GET /api/deviceInfo - Get all devices for a company
+app.get('/api/deviceInfo', async (req, res) => {
+    try {
+        const { company } = req.query;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
+        const db = mongoClient.db(company);
+        const devices = await db.collection('deviceInfo').find({}).toArray();
+        
+        res.json({ success: true, devices });
+        
+    } catch (error) {
+        console.error('❌ Error loading devices:', error);
+        res.status(500).json({ error: 'Failed to load devices' });
+    }
+});
+
+// GET /api/deviceInfo/:deviceId - Get specific device
+app.get('/api/deviceInfo/:deviceId', async (req, res) => {
+    try {
+        const { ObjectId } = require('mongodb');
+        const { deviceId } = req.params;
+        const { company } = req.query;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
+        const db = mongoClient.db(company);
+        const device = await db.collection('deviceInfo').findOne({ _id: new ObjectId(deviceId) });
+        
+        if (!device) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+        
+        res.json({ success: true, device });
+        
+    } catch (error) {
+        console.error('❌ Error loading device:', error);
+        res.status(500).json({ error: 'Failed to load device' });
+    }
+});
+
+// PUT /api/deviceInfo/:deviceId - Update device name and owner
+app.put('/api/deviceInfo/:deviceId', async (req, res) => {
+    try {
+        const { ObjectId } = require('mongodb');
+        const { deviceId } = req.params;
+        const { company, device_name, owner } = req.body;
+        
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        if (!device_name) {
+            return res.status(400).json({ error: 'Device name is required' });
+        }
+        
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
+        const db = mongoClient.db(company);
+        
+        const result = await db.collection('deviceInfo').updateOne(
+            { _id: new ObjectId(deviceId) },
+            {
+                $set: {
+                    device_name,
+                    owner,
+                    updated_at: new Date()
+                }
+            }
+        );
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ error: 'Device not found' });
+        }
+        
+        console.log(`✅ Device updated: ${device_name} (${deviceId})`);
+        res.json({ success: true, message: 'Device updated successfully' });
+        
+    } catch (error) {
+        console.error('❌ Error updating device:', error);
+        res.status(500).json({ error: 'Failed to update device' });
+    }
+});
+
 // POST /api/opcua/heartbeat - Update Raspberry Pi heartbeat
 app.post('/api/opcua/heartbeat', validateRaspberryPi, async (req, res) => {
     try {

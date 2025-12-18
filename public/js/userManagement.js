@@ -1,6 +1,6 @@
 // userManagement.js for KSG
 
-const BASE_URL = 'http://localhost:3000/';
+//const BASE_URL = 'http://localhost:3000/';
 // const BASE_URL = 'https://ksg-server-url.com/'; // Update when deployed
 
 let allUsers = [];

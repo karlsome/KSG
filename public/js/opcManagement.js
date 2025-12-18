@@ -9,8 +9,8 @@ let selectedVariablesForCombine = [];
 let currentConversionData = null;
 
 // Get company from localStorage
-const COMPANY = localStorage.getItem('company') || 'sasaki';
-const API_URL = 'http://localhost:3000';
+//const COMPANY = localStorage.getItem('company') || 'sasaki';
+//const API_URL = 'http://localhost:3000';
 
 // Initialize page
 document.addEventListener('DOMContentLoaded', () => {
