@@ -635,6 +635,65 @@ function updateConversionPreview() {
     document.getElementById('conv-preview').style.display = 'block';
 }
 
+// Update edit conversion preview
+function updateEditConversionPreview() {
+    const convFromType = document.getElementById('edit-conv-from-type').value;
+    const convToType = document.getElementById('edit-conv-to-type').value;
+    
+    if (!convFromType || !convToType) return;
+    
+    // Get the variable being edited
+    const variableId = document.getElementById('edit-variable-id').value;
+    const variable = variablesCache.find(v => v._id === variableId);
+    
+    if (!variable) {
+        document.getElementById('edit-conv-preview').style.display = 'none';
+        return;
+    }
+    
+    // Get the raw value from the data cache
+    let rawValue = null;
+    
+    if (variable.sourceType === 'combined') {
+        // For combined variables, show the current combined result
+        const currentValue = calculateCombinedValue(variable);
+        if (currentValue !== '-' && currentValue !== null) {
+            document.getElementById('edit-conv-preview-value').textContent = currentValue;
+            document.getElementById('edit-conv-preview').style.display = 'block';
+        } else {
+            document.getElementById('edit-conv-preview').style.display = 'none';
+        }
+        return;
+    }
+    
+    // For simple variables, get the raw value from the datapoint
+    if (variable.raspberryId && variable.datapointId) {
+        const deviceData = allDevicesDataCache[variable.raspberryId];
+        if (deviceData && deviceData.datapoints) {
+            const datapoint = deviceData.datapoints.find(dp => dp._id === variable.datapointId);
+            if (datapoint) {
+                rawValue = datapoint.value;
+                
+                // Extract array value if needed
+                if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
+                    rawValue = rawValue[variable.arrayIndex];
+                }
+            }
+        }
+    }
+    
+    // Apply conversion and show preview
+    if (rawValue !== null && rawValue !== undefined) {
+        const converted = applyConversion(rawValue, convFromType, convToType);
+        document.getElementById('edit-conv-preview-value').textContent = converted;
+        document.getElementById('edit-conv-preview').style.display = 'block';
+    } else {
+        // Show placeholder if no data available
+        document.getElementById('edit-conv-preview-value').textContent = 'No data available';
+        document.getElementById('edit-conv-preview').style.display = 'block';
+    }
+}
+
 // Apply conversion to a value
 function applyConversion(value, fromType, toType) {
     // Step 1: Parse value based on fromType
@@ -1376,10 +1435,14 @@ async function editVariable(variableId) {
     // Populate edit form
     document.getElementById('edit-variable-id').value = variableId;
     document.getElementById('edit-variable-name').value = variable.variableName;
-    document.getElementById('edit-conv-type').value = variable.conversionType || 'none';
+    document.getElementById('edit-conv-from-type').value = variable.conversionFromType || '';
+    document.getElementById('edit-conv-to-type').value = variable.conversionToType || 'none';
     
     // Show modal
     document.getElementById('opc-edit-variable-modal').classList.remove('hidden');
+    
+    // Update preview with current variable's real-time value
+    updateEditConversionPreview();
 }
 
 // Handle edit variable form submission
@@ -1388,7 +1451,13 @@ async function handleEditVariableSubmit(e) {
     
     const variableId = document.getElementById('edit-variable-id').value;
     const variableName = document.getElementById('edit-variable-name').value;
-    const convType = document.getElementById('edit-conv-type').value;
+    const convFromType = document.getElementById('edit-conv-from-type').value;
+    const convToType = document.getElementById('edit-conv-to-type').value;
+    
+    if (!convFromType || !convToType) {
+        showNotification('Please select both conversion types', 'error');
+        return;
+    }
     
     try {
         const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
@@ -1396,7 +1465,8 @@ async function handleEditVariableSubmit(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 variableName,
-                conversionType: convType
+                conversionFromType: convFromType,
+                conversionToType: convToType
             })
         });
         
