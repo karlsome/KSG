@@ -895,6 +895,17 @@ def discover_nodes():
                                 # Check for duplicates using node_id
                                 if node_id not in seen_node_ids:
                                     seen_node_ids.add(node_id)
+                                    
+                                    # Create a dynamic currentValue that shows the complete value
+                                    if isinstance(value, list):
+                                        # For arrays, always show all elements (dynamic size)
+                                        current_value_str = str(value)
+                                    else:
+                                        # For non-arrays, show full value but limit extremely long strings
+                                        current_value_str = str(value)
+                                        if len(current_value_str) > 1000:  # Only limit extremely long strings
+                                            current_value_str = current_value_str[:997] + "..."
+                                    
                                     discovered.append({
                                         'namespace': int(namespace),
                                         'variableName': variable_name,
@@ -903,7 +914,7 @@ def discover_nodes():
                                         'dataType': data_type,
                                         'type': value_type,
                                         'value': actual_value,  # Full value including arrays
-                                        'currentValue': str(value)[:100]  # String preview
+                                        'currentValue': current_value_str  # Dynamic preview showing complete arrays
                                     })
                                 
                             except Exception as e:
