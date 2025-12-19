@@ -467,7 +467,8 @@ class DataChangeHandler:
                     # Add to buffer for batch upload
                     changed_data_buffer.append(changed_data)
                     
-                    # Log the value change event
+                # Only log event if value actually changed (or if it's the first value)
+                if old_value is None or old_value != val:
                     log_event(
                         event_type='value_change' if quality == 'Good' else 'quality_degraded',
                         opc_node_id=node_id,
@@ -482,9 +483,23 @@ class DataChangeHandler:
                             'datapointId': str(dp['id'])
                         }
                     )
-                    
-                    # Update last known value
-                    last_values[node_id] = val
+                else:
+                    # Value didn't change, only log if quality degraded
+                    if quality != 'Good':
+                        log_event(
+                            event_type='quality_degraded',
+                            opc_node_id=node_id,
+                            variable_name=variable_name,
+                            old_value=old_value,
+                            new_value=val,
+                            quality=quality,
+                            message=f"Quality degraded to {quality} (value unchanged: {val})",
+                            metadata={
+                                'dataType': type(val).__name__,
+                                'equipmentId': dp['equipmentId'],
+                                'datapointId': str(dp['id'])
+                            }
+                        )
                     
                     logger.info(f"📊 Value changed: {variable_name} = {val} (quality: {quality})")
                     break

@@ -3401,11 +3401,16 @@ app.get('/api/opcua/variables/values', async (req, res) => {
         const devices = await db.collection('deviceInfo').find({}).toArray();
         
         const result = {};
+        const now = new Date();
         
         for (const variable of conversions) {
             try {
                 let calculatedValue = null;
                 let sourceInfo = '';
+                let quality = 'Unknown';
+                let dataTimestamp = null;
+                let dataAge = null;
+                let isStale = false;
                 
                 // Check if it's a simple conversion variable (not combined)
                 if (variable.sourceType !== 'combined' && variable.datapointId && variable.raspberryId) {
@@ -3416,7 +3421,7 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                     );
                     
                     if (device) {
-                        // Get the datapoint with current value
+                        // Get the datapoint with current value from opcua_discovered_nodes
                         const datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
                             _id: new ObjectId(variable.datapointId),
                             raspberryId: variable.raspberryId
@@ -3424,6 +3429,34 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                         
                         if (datapoint && datapoint.value !== undefined) {
                             let rawValue = datapoint.value;
+                            
+                            // Get actual data timestamp and quality from opcua_realtime if available
+                            const realtimeData = await db.collection('opcua_realtime').findOne({
+                                raspberryId: variable.raspberryId,
+                                opcNodeId: datapoint.opcNodeId
+                            });
+                            
+                            if (realtimeData) {
+                                quality = realtimeData.quality || 'Unknown';
+                                dataTimestamp = realtimeData.sourceTimestamp || realtimeData.updatedAt;
+                                
+                                // Calculate data age in seconds
+                                if (dataTimestamp) {
+                                    const timestampDate = new Date(dataTimestamp);
+                                    dataAge = Math.floor((now - timestampDate) / 1000);
+                                    // Mark as stale if older than 60 seconds
+                                    isStale = dataAge > 60;
+                                }
+                            } else {
+                                // Fallback to discovered node timestamp
+                                dataTimestamp = datapoint.discoveredAt || datapoint.updatedAt;
+                                quality = 'Unknown';
+                                if (dataTimestamp) {
+                                    const timestampDate = new Date(dataTimestamp);
+                                    dataAge = Math.floor((now - timestampDate) / 1000);
+                                    isStale = dataAge > 60;
+                                }
+                            }
                             
                             // Extract array value if needed
                             if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
@@ -3444,6 +3477,9 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                 } else if (variable.sourceType === 'combined' && variable.sourceVariables && variable.operation) {
                     // Get values of all source variables
                     const sourceValues = [];
+                    const sourceQualities = [];
+                    const sourceTimestamps = [];
+                    
                     for (const sourceVarName of variable.sourceVariables) {
                         const sourceVar = conversions.find(v => v.variableName === sourceVarName);
                         if (sourceVar && sourceVar.datapointId && sourceVar.raspberryId) {
@@ -3459,6 +3495,20 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                                 }
                                 const converted = applyConversionOnServer(rawValue, sourceVar.conversionFromType, sourceVar.conversionToType);
                                 sourceValues.push(converted);
+                                
+                                // Get quality for this source
+                                const realtimeData = await db.collection('opcua_realtime').findOne({
+                                    raspberryId: sourceVar.raspberryId,
+                                    opcNodeId: datapoint.opcNodeId
+                                });
+                                
+                                if (realtimeData) {
+                                    sourceQualities.push(realtimeData.quality || 'Unknown');
+                                    sourceTimestamps.push(realtimeData.sourceTimestamp || realtimeData.updatedAt);
+                                } else {
+                                    sourceQualities.push('Unknown');
+                                    sourceTimestamps.push(datapoint.discoveredAt || datapoint.updatedAt);
+                                }
                             }
                         }
                     }
@@ -3467,28 +3517,65 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                     if (sourceValues.length > 0) {
                         calculatedValue = applyCombinedOperation(sourceValues, variable.operation);
                         sourceInfo = `Combined: ${variable.sourceVariables.join(', ')}`;
+                        
+                        // Combined quality: Bad if any Bad, Uncertain if any Uncertain, else Good
+                        if (sourceQualities.includes('Bad')) {
+                            quality = 'Bad';
+                        } else if (sourceQualities.includes('Uncertain')) {
+                            quality = 'Uncertain';
+                        } else if (sourceQualities.every(q => q === 'Good')) {
+                            quality = 'Good';
+                        } else {
+                            quality = 'Unknown';
+                        }
+                        
+                        // Use oldest timestamp
+                        if (sourceTimestamps.length > 0) {
+                            dataTimestamp = sourceTimestamps.reduce((oldest, ts) => {
+                                return new Date(ts) < new Date(oldest) ? ts : oldest;
+                            });
+                            
+                            if (dataTimestamp) {
+                                const timestampDate = new Date(dataTimestamp);
+                                dataAge = Math.floor((now - timestampDate) / 1000);
+                                isStale = dataAge > 60;
+                            }
+                        }
                     }
                 }
                 
                 result[variable.variableName] = {
                     value: calculatedValue,
+                    quality: quality,
+                    timestamp: dataTimestamp,
+                    dataAge: dataAge,
+                    isStale: isStale,
                     source: sourceInfo,
                     type: variable.sourceType,
                     conversionType: variable.conversionToType || null,
                     operation: variable.operation || null,
-                    timestamp: new Date().toISOString()
+                    serverTime: now.toISOString()
                 };
             } catch (error) {
                 console.error(`Error calculating variable ${variable.variableName}:`, error);
                 result[variable.variableName] = {
                     value: null,
+                    quality: 'Bad',
                     error: 'Calculation failed',
-                    timestamp: new Date().toISOString()
+                    timestamp: null,
+                    dataAge: null,
+                    isStale: true,
+                    serverTime: now.toISOString()
                 };
             }
         }
         
-        res.json({ success: true, variables: result, count: Object.keys(result).length });
+        res.json({ 
+            success: true, 
+            variables: result, 
+            count: Object.keys(result).length,
+            serverTime: now.toISOString()
+        });
         
     } catch (error) {
         console.error('❌ Error getting variable values:', error);

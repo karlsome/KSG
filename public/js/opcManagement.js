@@ -317,17 +317,79 @@ function renderRealTimeData(data) {
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OPC Node ID</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
     `;
     
+    const now = new Date();
+    
     data.datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
-        const timestamp = new Date(dp.timestamp || Date.now()).toLocaleString('ja-JP');
         const displayValue = isArray ? `[${dp.value.length} items]` : dp.value;
         const dpDataStr = JSON.stringify(dp).replace(/"/g, '&quot;');
+        
+        // Parse timestamp correctly from UTC and display in local timezone
+        let timestampStr = 'N/A';
+        let ageSeconds = 0;
+        let isStale = false;
+        let ageDisplay = '';
+        
+        if (dp.timestamp) {
+            // Parse the UTC timestamp
+            console.log('🕐 Timestamp Debug:', {
+                raw: dp.timestamp,
+                now: now.toISOString(),
+                variable: dp.name || dp.opcNodeId
+            });
+            const timestamp = new Date(dp.timestamp);
+            console.log('  → Parsed timestamp:', timestamp.toISOString());
+            // Display in user's local timezone
+            timestampStr = timestamp.toLocaleString();
+            console.log('  → Display string:', timestampStr);
+            
+            // Calculate age based on UTC time
+            ageSeconds = Math.floor((now - timestamp) / 1000);
+            console.log('  → Age in seconds:', ageSeconds);
+            isStale = ageSeconds > 60; // Stale if older than 60 seconds
+            
+            if (isStale) {
+                const ageMinutes = Math.floor(ageSeconds / 60);
+                if (ageMinutes < 60) {
+                    ageDisplay = ` <span class="text-orange-600 text-xs font-medium">⚠️ ${ageMinutes}m ago</span>`;
+                } else {
+                    const ageHours = Math.floor(ageMinutes / 60);
+                    ageDisplay = ` <span class="text-red-600 text-xs font-medium">⚠️ ${ageHours}h ago</span>`;
+                }
+            }
+        }
+        
+        // Quality badge
+        const quality = dp.quality || 'Unknown';
+        let qualityBadge = '';
+        if (quality === 'Good') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">Good</span>';
+        } else if (quality === 'Bad') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">Bad</span>';
+        } else if (quality === 'Uncertain') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">Uncertain</span>';
+        } else {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+        }
+        
+        // Apply styling for bad quality or stale data
+        let valueClass = 'font-mono text-sm font-semibold';
+        if (quality === 'Bad') {
+            valueClass += ' text-red-600';
+        } else if (quality === 'Uncertain') {
+            valueClass += ' text-yellow-700';
+        } else if (isStale) {
+            valueClass += ' text-orange-600';
+        } else {
+            valueClass += ' text-gray-900';
+        }
         
         html += `
             <tr onclick='showDataDetailModal(${dpDataStr})' 
@@ -344,10 +406,11 @@ function renderRealTimeData(data) {
                     </span>
                 </td>
                 <td class="px-4 py-3">
-                    <span class="font-mono text-sm font-semibold text-gray-900">${displayValue}</span>
+                    <span class="${valueClass}">${displayValue}</span>
                 </td>
+                <td class="px-4 py-3">${qualityBadge}</td>
                 <td class="px-4 py-3">
-                    <span class="text-xs text-gray-500">${timestamp}</span>
+                    <span class="text-xs text-gray-500">${timestampStr}${ageDisplay}</span>
                 </td>
             </tr>
         `;
@@ -370,7 +433,7 @@ function showDataDetailModal(datapoint) {
     lastViewedDatapoint = datapoint;
     
     const isArray = Array.isArray(datapoint.value);
-    const timestamp = new Date(datapoint.timestamp || Date.now()).toLocaleString('ja-JP');
+    const timestamp = new Date(datapoint.timestamp || Date.now()).toLocaleString();
     
     // Format value display
     let valueDisplay = '';
@@ -453,7 +516,7 @@ function showDataDetailModal(datapoint) {
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Discovered At</label>
-                            <div class="text-sm text-gray-700">${datapoint.discoveredAt ? new Date(datapoint.discoveredAt).toLocaleString('ja-JP') : 'N/A'}</div>
+                            <div class="text-sm text-gray-700">${datapoint.discoveredAt ? new Date(datapoint.discoveredAt).toLocaleString() : 'N/A'}</div>
                         </div>
                     </div>
                 </div>
@@ -845,6 +908,8 @@ function renderVariables() {
         return;
     }
     
+    const now = new Date();
+    
     let html = `
         <div class="overflow-x-auto">
             <table class="w-full">
@@ -852,6 +917,7 @@ function renderVariables() {
                     <tr>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                         <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Actions</th>
                     </tr>
                 </thead>
@@ -864,6 +930,8 @@ function renderVariables() {
         // Get device name and variable name from allDevicesDataCache
         let deviceDisplay = '';
         let sourceVariableName = variable.datapointName || variable.datapointId;
+        let quality = variable.quality || 'Unknown';
+        let dataTimestamp = variable.timestamp || null;
         
         if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
             const deviceCache = allDevicesDataCache[variable.raspberryId];
@@ -877,6 +945,8 @@ function renderVariables() {
                 );
                 if (datapoint) {
                     sourceVariableName = datapoint.name || datapoint.opcNodeId;
+                    quality = datapoint.quality || quality;
+                    dataTimestamp = datapoint.timestamp || dataTimestamp;
                 }
             }
         } else if (variable.raspberryId) {
@@ -894,6 +964,53 @@ function renderVariables() {
             }
         }
         
+        // Quality badge
+        let qualityBadge = '';
+        if (quality === 'Good') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ Good</span>';
+        } else if (quality === 'Bad') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ Bad</span>';
+        } else if (quality === 'Uncertain') {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">⚠️ Uncertain</span>';
+        } else {
+            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+        }
+        
+        // Calculate staleness
+        let ageWarning = '';
+        if (dataTimestamp) {
+            console.log('🕐 Variable Timestamp Debug:', {
+                variable: variable.variableName,
+                raw: dataTimestamp,
+                now: now.toISOString()
+            });
+            const timestamp = new Date(dataTimestamp);
+            console.log('  → Parsed:', timestamp.toISOString());
+            const ageSeconds = Math.floor((now - timestamp) / 1000);
+            console.log('  → Age seconds:', ageSeconds);
+            if (ageSeconds > 60) {
+                const ageMinutes = Math.floor(ageSeconds / 60);
+                if (ageMinutes < 60) {
+                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ Stale (${ageMinutes}m ago)</div>`;
+                } else {
+                    const ageHours = Math.floor(ageMinutes / 60);
+                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ Stale (${ageHours}h ago)</div>`;
+                }
+            }
+        }
+        
+        // Value styling based on quality
+        let valueClass = 'font-mono text-lg font-bold';
+        if (quality === 'Bad') {
+            valueClass += ' text-red-600';
+        } else if (quality === 'Uncertain') {
+            valueClass += ' text-yellow-700';
+        } else if (ageWarning) {
+            valueClass += ' text-orange-600';
+        } else {
+            valueClass += ' text-gray-900';
+        }
+        
         html += `
             <tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-4 py-3">
@@ -903,7 +1020,11 @@ function renderVariables() {
                     </div>
                 </td>
                 <td class="px-4 py-3">
-                    <div class="font-mono text-lg font-bold text-gray-900">${value}</div>
+                    <div class="${valueClass}">${value}</div>
+                </td>
+                <td class="px-4 py-3">
+                    ${qualityBadge}
+                    ${ageWarning}
                 </td>
                 <td class="px-4 py-3 text-center">
                     <div class="flex justify-center gap-2">
