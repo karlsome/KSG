@@ -38,6 +38,11 @@ app.use(express.json());
 // Serve static files
 app.use(express.static('public'));
 
+// Serve index.html at root
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/index.html');
+});
+
 // Enable CORS for all origins (development mode)
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
