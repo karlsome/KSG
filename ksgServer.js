@@ -6,6 +6,7 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const bcrypt = require('bcrypt');
 const admin = require('firebase-admin');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -426,6 +427,30 @@ Object.keys(DEVICE_FUNCTIONS).forEach(deviceId => {
 });
 
 // 📡 API ENDPOINTS
+
+// 🔐 TOKEN VALIDATION ENDPOINT
+app.post("/validateToken", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Token is valid, return user data
+    res.json({
+      username: decoded.username,
+      role: decoded.role,
+      dbName: decoded.dbName
+    });
+  } catch (error) {
+    console.error('Token validation error:', error);
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+});
 
 // 🔐 LOGIN ENDPOINT
 app.post("/loginCustomer", async (req, res) => {
@@ -3505,7 +3530,7 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
     try {
         const { ObjectId } = require('mongodb');
         const { id } = req.params;
-        const { variableName, conversionType } = req.body;
+        const { variableName, conversionType, conversionFromType, conversionToType } = req.body;
         const { company } = req.query || { company: 'sasaki' };
         
         const db = mongoClient.db(company);
@@ -3516,6 +3541,8 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
         
         if (variableName) updateData.variableName = variableName;
         if (conversionType) updateData.conversionType = conversionType;
+        if (conversionFromType) updateData.conversionFromType = conversionFromType;
+        if (conversionToType) updateData.conversionToType = conversionToType;
         
         const result = await db.collection('opcua_conversions').updateOne(
             { _id: new ObjectId(id) },
