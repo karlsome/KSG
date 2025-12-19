@@ -1552,14 +1552,44 @@ async function editVariable(variableId) {
     // Populate edit form
     document.getElementById('edit-variable-id').value = variableId;
     document.getElementById('edit-variable-name').value = variable.variableName;
-    document.getElementById('edit-conv-from-type').value = variable.conversionFromType || '';
-    document.getElementById('edit-conv-to-type').value = variable.conversionToType || 'none';
+    
+    // Check if this is a combined variable
+    const isCombined = variable.sourceType === 'combined';
+    const operationField = document.getElementById('edit-operation-field');
+    const conversionFields = document.getElementById('edit-conversion-fields');
+    
+    if (isCombined) {
+        // Show operation field, hide conversion fields
+        operationField.style.display = 'block';
+        conversionFields.style.display = 'none';
+        document.getElementById('edit-operation').value = variable.operation || '';
+        
+        // Remove required from conversion fields
+        document.getElementById('edit-conv-from-type').removeAttribute('required');
+        document.getElementById('edit-conv-to-type').removeAttribute('required');
+        // Add required to operation
+        document.getElementById('edit-operation').setAttribute('required', 'required');
+    } else {
+        // Show conversion fields, hide operation field
+        operationField.style.display = 'none';
+        conversionFields.style.display = 'block';
+        document.getElementById('edit-conv-from-type').value = variable.conversionFromType || '';
+        document.getElementById('edit-conv-to-type').value = variable.conversionToType || 'none';
+        
+        // Add required to conversion fields
+        document.getElementById('edit-conv-from-type').setAttribute('required', 'required');
+        document.getElementById('edit-conv-to-type').setAttribute('required', 'required');
+        // Remove required from operation
+        document.getElementById('edit-operation').removeAttribute('required');
+    }
     
     // Show modal
     document.getElementById('opc-edit-variable-modal').classList.remove('hidden');
     
-    // Update preview with current variable's real-time value
-    updateEditConversionPreview();
+    // Update preview with current variable's real-time value (only for non-combined)
+    if (!isCombined) {
+        updateEditConversionPreview();
+    }
 }
 
 // Handle edit variable form submission
@@ -1568,23 +1598,42 @@ async function handleEditVariableSubmit(e) {
     
     const variableId = document.getElementById('edit-variable-id').value;
     const variableName = document.getElementById('edit-variable-name').value;
-    const convFromType = document.getElementById('edit-conv-from-type').value;
-    const convToType = document.getElementById('edit-conv-to-type').value;
     
-    if (!convFromType || !convToType) {
-        showNotification('Please select both conversion types', 'error');
-        return;
+    // Find the variable to check if it's combined
+    const variable = variablesCache.find(v => v._id === variableId);
+    const isCombined = variable && variable.sourceType === 'combined';
+    
+    let payload = {
+        variableName
+    };
+    
+    if (isCombined) {
+        // For combined variables, update operation
+        const operation = document.getElementById('edit-operation').value;
+        if (!operation) {
+            showNotification('Please select an operation', 'error');
+            return;
+        }
+        payload.operation = operation;
+    } else {
+        // For single/array variables, update conversion types
+        const convFromType = document.getElementById('edit-conv-from-type').value;
+        const convToType = document.getElementById('edit-conv-to-type').value;
+        
+        if (!convFromType || !convToType) {
+            showNotification('Please select both conversion types', 'error');
+            return;
+        }
+        
+        payload.conversionFromType = convFromType;
+        payload.conversionToType = convToType;
     }
     
     try {
         const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                variableName,
-                conversionFromType: convFromType,
-                conversionToType: convToType
-            })
+            body: JSON.stringify(payload)
         });
         
         const data = await response.json();

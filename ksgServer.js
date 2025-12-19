@@ -3711,7 +3711,7 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
     try {
         const { ObjectId } = require('mongodb');
         const { id } = req.params;
-        const { variableName, conversionType, conversionFromType, conversionToType } = req.body;
+        const { variableName, conversionType, conversionFromType, conversionToType, operation } = req.body;
         const { company } = req.query || { company: 'sasaki' };
         
         const db = mongoClient.db(company);
@@ -3724,6 +3724,7 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
         if (conversionType) updateData.conversionType = conversionType;
         if (conversionFromType) updateData.conversionFromType = conversionFromType;
         if (conversionToType) updateData.conversionToType = conversionToType;
+        if (operation) updateData.operation = operation; // For combined variables
         
         const result = await db.collection('opcua_conversions').updateOne(
             { _id: new ObjectId(id) },
