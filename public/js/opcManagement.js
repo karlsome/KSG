@@ -565,7 +565,7 @@ function createVariableFromArrayItem(arrayIndex, value) {
             value: value,
             name: `${dp.name || dp.opcNodeId}[${arrayIndex}]`
         });
-        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`);
+        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`, dp.opcNodeId);
     }, 100);
 }
 
@@ -590,7 +590,7 @@ function createVariableFromArrayItem(arrayIndex, value) {
             value: value,
             name: `${dp.name || dp.opcNodeId}[${arrayIndex}]`
         });
-        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`);
+        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`, dp.opcNodeId);
     }, 100);
 }
 
@@ -617,19 +617,20 @@ function createVariableFromDetail() {
             value: dp.value,
             name: dp.name || dp.opcNodeId
         });
-        openConversionModal(dp._id, null, dp.value, dp.name || dp.opcNodeId);
+        openConversionModal(dp._id, null, dp.value, dp.name || dp.opcNodeId, dp.opcNodeId);
     }, 100);
 }
 
 // Open conversion modal
-function openConversionModal(datapointId, arrayIndex, rawValue, datapointName) {
-    console.log('openConversionModal called with:', { datapointId, arrayIndex, rawValue, datapointName });
+function openConversionModal(datapointId, arrayIndex, rawValue, datapointName, opcNodeId) {
+    console.log('openConversionModal called with:', { datapointId, arrayIndex, rawValue, datapointName, opcNodeId });
     
     currentConversionData = {
         datapointId,
         arrayIndex,
         rawValue,
-        datapointName
+        datapointName,
+        opcNodeId
     };
     
     console.log('currentConversionData set:', currentConversionData);
@@ -835,6 +836,7 @@ async function handleConversionSubmit(e) {
         variableName,
         sourceType: currentConversionData.arrayIndex !== null ? 'array' : 'single',
         datapointId: currentConversionData.datapointId,
+        opcNodeId: currentConversionData.opcNodeId, // Store for stable matching
         raspberryId: currentRaspberryId, // Remember source device
         arrayIndex: currentConversionData.arrayIndex,
         conversionFromType: convFromType,
@@ -1047,15 +1049,23 @@ function updateVariableValues() {
             // Handle single conversion variables
             // Get data from the variable's source device
             const deviceData = allDevicesDataCache[variable.raspberryId];
+            
             if (!deviceData || !deviceData.datapoints) {
                 return; // Skip if device data not loaded yet
             }
             
-            // Match by comparing _id as strings since one might be ObjectId
-            const datapoint = deviceData.datapoints.find(dp => 
+            // First try to match by _id
+            let datapoint = deviceData.datapoints.find(dp => 
                 dp._id && variable.datapointId && 
                 dp._id.toString() === variable.datapointId.toString()
             );
+            
+            // If not found by _id, try to match by opcNodeId as fallback (more stable identifier)
+            if (!datapoint && variable.opcNodeId) {
+                datapoint = deviceData.datapoints.find(dp => 
+                    dp.opcNodeId === variable.opcNodeId
+                );
+            }
             
             if (datapoint) {
                 const rawValue = variable.arrayIndex !== null 
