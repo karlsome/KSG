@@ -4021,8 +4021,10 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
     try {
         const { ObjectId } = require('mongodb');
         const { id } = req.params;
-        const { variableName, conversionType, conversionFromType, conversionToType, operation } = req.body;
+        const { variableName, conversionType, conversionFromType, conversionToType, operation, sourceVariables } = req.body;
         const { company } = req.query || { company: 'sasaki' };
+        
+        console.log(`🔧 Updating variable ${id} with data:`, req.body);
         
         const db = mongoClient.db(company);
         
@@ -4035,6 +4037,10 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
         if (conversionFromType) updateData.conversionFromType = conversionFromType;
         if (conversionToType) updateData.conversionToType = conversionToType;
         if (operation) updateData.operation = operation; // For combined variables
+        if (sourceVariables && Array.isArray(sourceVariables)) {
+            updateData.sourceVariables = sourceVariables; // For combined variables
+            console.log(`🔗 Updating sourceVariables to:`, sourceVariables);
+        }
         
         const result = await db.collection('opcua_conversions').updateOne(
             { _id: new ObjectId(id) },
@@ -4051,6 +4057,28 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
     } catch (error) {
         console.error('❌ Error updating conversion:', error);
         res.status(500).json({ error: 'Failed to update conversion' });
+    }
+});
+
+// GET /api/opcua/conversions/:id - Get a specific conversion/variable by ID
+app.get('/api/opcua/conversions/:id', async (req, res) => {
+    try {
+        const { ObjectId } = require('mongodb');
+        const { id } = req.params;
+        const { company } = req.query || { company: 'sasaki' };
+        
+        const db = mongoClient.db(company);
+        const variable = await db.collection('opcua_conversions').findOne({ _id: new ObjectId(id) });
+        
+        if (!variable) {
+            return res.status(404).json({ error: 'Variable not found' });
+        }
+        
+        res.json(variable);
+        
+    } catch (error) {
+        console.error('❌ Error fetching variable:', error);
+        res.status(500).json({ error: 'Failed to fetch variable' });
     }
 });
 

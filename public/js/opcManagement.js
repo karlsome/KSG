@@ -696,7 +696,12 @@ function updateEditConversionPreview() {
     const convFromType = document.getElementById('edit-conv-from-type').value;
     const convToType = document.getElementById('edit-conv-to-type').value;
     
-    if (!convFromType || !convToType) return;
+    console.log('🔄 Updating edit conversion preview:', { convFromType, convToType });
+    
+    if (!convFromType || !convToType) {
+        document.getElementById('edit-conv-preview').style.display = 'none';
+        return;
+    }
     
     // Get the variable being edited
     const variableId = document.getElementById('edit-variable-id').value;
@@ -707,48 +712,32 @@ function updateEditConversionPreview() {
         return;
     }
     
-    // Get the raw value from the data cache
-    let rawValue = null;
+    // Get the raw value from the source information display
+    const rawValueElement = document.getElementById('edit-source-raw-value');
+    const rawValue = rawValueElement ? rawValueElement.textContent : null;
     
-    if (variable.sourceType === 'combined') {
-        // For combined variables, show the current combined result
-        const currentValue = calculateCombinedValue(variable);
-        if (currentValue !== '-' && currentValue !== null) {
-            document.getElementById('edit-conv-preview-value').textContent = currentValue;
-            document.getElementById('edit-conv-preview').style.display = 'block';
-        } else {
-            document.getElementById('edit-conv-preview').style.display = 'none';
-        }
+    console.log('📊 Raw value for preview:', rawValue);
+    
+    if (!rawValue || rawValue === '-' || rawValue === 'No data available' || rawValue === 'Error getting value') {
+        document.getElementById('edit-conv-preview-value').textContent = 'No data available';
+        document.getElementById('edit-conv-preview').style.display = 'block';
         return;
     }
     
-    // For simple variables, get the raw value from the datapoint
-    if (variable.raspberryId && variable.datapointId) {
-        const deviceData = allDevicesDataCache[variable.raspberryId];
-        if (deviceData && deviceData.datapoints) {
-            const datapoint = deviceData.datapoints.find(dp => dp._id === variable.datapointId);
-            if (datapoint) {
-                rawValue = datapoint.value;
-                
-                // Extract array value if needed
-                if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
-                    rawValue = rawValue[variable.arrayIndex];
-                }
-            }
-        }
-    }
-    
-    // Apply conversion and show preview
-    if (rawValue !== null && rawValue !== undefined) {
-        const converted = applyConversion(rawValue, convFromType, convToType);
-        document.getElementById('edit-conv-preview-value').textContent = converted;
+    try {
+        // Apply conversion to the raw value
+        const convertedValue = applyConversion(rawValue, convFromType, convToType);
+        document.getElementById('edit-conv-preview-value').textContent = convertedValue;
         document.getElementById('edit-conv-preview').style.display = 'block';
-    } else {
-        // Show placeholder if no data available
-        document.getElementById('edit-conv-preview-value').textContent = 'No data available';
+        
+        console.log('✅ Conversion preview updated:', { rawValue, convertedValue });
+    } catch (error) {
+        console.error('❌ Error in conversion preview:', error);
+        document.getElementById('edit-conv-preview-value').textContent = 'Conversion error';
         document.getElementById('edit-conv-preview').style.display = 'block';
     }
 }
+
 
 // Apply conversion to a value
 function applyConversion(value, fromType, toType) {
@@ -875,10 +864,22 @@ async function handleConversionSubmit(e) {
 // Load all variables
 async function loadVariables() {
     try {
+        console.log('🔄 Loading variables from server...');
         const response = await fetch(`${API_URL}/api/opcua/conversions?company=${COMPANY}`);
         const data = await response.json();
         
         variablesCache = data.conversions || [];
+        
+        console.log('📊 Loaded variables count:', variablesCache.length);
+        
+        // Debug specific combined variables
+        const combinedVars = variablesCache.filter(v => v.sourceType === 'combined');
+        console.log('🔗 Combined variables loaded:', combinedVars.map(v => ({
+            name: v.variableName,
+            sourceVariables: v.sourceVariables,
+            operation: v.operation
+        })));
+        
         renderVariables();
         updateVariableValues();
         
@@ -1101,6 +1102,9 @@ function updateVariableValues() {
 
 // State for combined variable modal
 let selectedSourceVariables = [];
+
+// State for editing combined variables 
+let editingSourceVariables = [];
 
 // Open combined variable modal
 function openCombinedVariableModal() {
@@ -1577,7 +1581,19 @@ async function editVariable(variableId) {
         // Show operation field, hide conversion fields
         operationField.style.display = 'block';
         conversionFields.style.display = 'none';
+        
+        // Populate source variables and operation
+        editingSourceVariables = [...(variable.sourceVariables || [])];
         document.getElementById('edit-operation').value = variable.operation || '';
+        
+        // Populate available variables dropdown
+        populateEditVariableSelect();
+        
+        // Render source variables
+        renderEditSourceVariables();
+        
+        // Update preview
+        updateEditCombinedPreview();
         
         // Remove required from conversion fields
         document.getElementById('edit-conv-from-type').removeAttribute('required');
@@ -1596,6 +1612,9 @@ async function editVariable(variableId) {
         document.getElementById('edit-conv-to-type').setAttribute('required', 'required');
         // Remove required from operation
         document.getElementById('edit-operation').removeAttribute('required');
+        
+        // Populate source information for normal variables
+        populateSourceInformation(variable);
     }
     
     // Show modal
@@ -1607,6 +1626,61 @@ async function editVariable(variableId) {
     }
 }
 
+// Populate source information for normal variables
+function populateSourceInformation(variable) {
+    console.log('📋 Populating source info for variable:', variable);
+    
+    document.getElementById('edit-source-node-id').textContent = variable.opcNodeId || variable.nodeId || '-';
+    document.getElementById('edit-source-type').textContent = variable.sourceType || '-';
+    document.getElementById('edit-array-index').textContent = variable.arrayIndex !== undefined ? variable.arrayIndex : 'N/A';
+    
+    // Get the current raw value from the data cache
+    const rawValue = getCurrentRawValue(variable);
+    document.getElementById('edit-source-raw-value').textContent = rawValue;
+    console.log('📊 Current raw value:', rawValue);
+}
+
+// Get current raw value for a variable
+function getCurrentRawValue(variable) {
+    try {
+        if (!variable.opcNodeId && !variable.nodeId) {
+            return 'No node ID';
+        }
+        
+        const nodeId = variable.opcNodeId || variable.nodeId;
+        
+        // Search through all devices data for this node
+        if (window.allDevicesData) {
+            for (const deviceData of Object.values(window.allDevicesData)) {
+                if (deviceData.data) {
+                    // Check direct match
+                    if (deviceData.data[nodeId] !== undefined) {
+                        const value = deviceData.data[nodeId];
+                        if (variable.arrayIndex !== undefined && Array.isArray(value)) {
+                            return value[variable.arrayIndex] !== undefined ? value[variable.arrayIndex] : 'Array index not found';
+                        }
+                        return value;
+                    }
+                    
+                    // Check in arrays
+                    for (const [key, value] of Object.entries(deviceData.data)) {
+                        if (Array.isArray(value) && key.includes(nodeId.split('.')[0])) {
+                            if (variable.arrayIndex !== undefined) {
+                                return value[variable.arrayIndex] !== undefined ? value[variable.arrayIndex] : 'Array index not found';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return 'No data available';
+    } catch (error) {
+        console.error('Error getting raw value:', error);
+        return 'Error getting value';
+    }
+}
+
 // Handle edit variable form submission
 async function handleEditVariableSubmit(e) {
     e.preventDefault();
@@ -1614,22 +1688,34 @@ async function handleEditVariableSubmit(e) {
     const variableId = document.getElementById('edit-variable-id').value;
     const variableName = document.getElementById('edit-variable-name').value;
     
+    console.log('🔧 Editing variable:', { variableId, variableName });
+    
     // Find the variable to check if it's combined
     const variable = variablesCache.find(v => v._id === variableId);
     const isCombined = variable && variable.sourceType === 'combined';
+    
+    console.log('📊 Variable details:', { variable, isCombined });
     
     let payload = {
         variableName
     };
     
     if (isCombined) {
-        // For combined variables, update operation
+        // For combined variables, update operation and source variables
         const operation = document.getElementById('edit-operation').value;
         if (!operation) {
             showNotification('Please select an operation', 'error');
             return;
         }
+        if (editingSourceVariables.length < 2) {
+            showNotification('Please select at least 2 source variables', 'error');
+            return;
+        }
         payload.operation = operation;
+        payload.sourceVariables = editingSourceVariables;
+        
+        console.log('🔗 Combined variable payload:', payload);
+        console.log('📝 Source variables order:', editingSourceVariables);
     } else {
         // For single/array variables, update conversion types
         const convFromType = document.getElementById('edit-conv-from-type').value;
@@ -1642,9 +1728,14 @@ async function handleEditVariableSubmit(e) {
         
         payload.conversionFromType = convFromType;
         payload.conversionToType = convToType;
+        
+        console.log('🔄 Normal variable payload:', payload);
     }
     
     try {
+        console.log('📤 Sending PUT request to:', `${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`);
+        console.log('📤 Payload:', JSON.stringify(payload, null, 2));
+        
         const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1653,15 +1744,44 @@ async function handleEditVariableSubmit(e) {
         
         const data = await response.json();
         
+        console.log('📥 Server response:', { status: response.status, data });
+        console.log('📥 Updated variable data:', JSON.stringify(data, null, 2));
+        
         if (response.ok) {
+            // Check if server actually updated the sourceVariables correctly
+            if (isCombined && data.sourceVariables) {
+                console.log('🔍 Server returned sourceVariables:', data.sourceVariables);
+                console.log('🔍 Expected sourceVariables:', editingSourceVariables);
+                console.log('🔍 Do they match?', JSON.stringify(data.sourceVariables) === JSON.stringify(editingSourceVariables));
+            }
+            
             showNotification('Variable updated successfully', 'success');
             closeOPCModal('opc-edit-variable-modal');
             await loadVariables();
+            
+            // Double-check what was actually saved by fetching the specific variable
+            if (isCombined) {
+                setTimeout(async () => {
+                    try {
+                        console.log('🔍 Double-checking saved variable...');
+                        const checkResponse = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`);
+                        const checkData = await checkResponse.json();
+                        console.log('🔍 Variable after save:', {
+                            name: checkData.variableName,
+                            sourceVariables: checkData.sourceVariables,
+                            expectedOrder: editingSourceVariables
+                        });
+                    } catch (err) {
+                        console.error('Failed to double-check variable:', err);
+                    }
+                }, 1000);
+            }
         } else {
+            console.error('❌ Update failed:', data);
             showNotification(data.message || 'Failed to update variable', 'error');
         }
     } catch (error) {
-        console.error('Error updating variable:', error);
+        console.error('💥 Error updating variable:', error);
         showNotification('Failed to update variable', 'error');
     }
 }
@@ -1786,6 +1906,109 @@ async function deleteVariableWithDependencies(variableId, usedInVariableNames) {
         console.error('Error deleting variables:', error);
         showNotification('Failed to delete variables', 'error');
     }
+}
+
+// Helper functions for editing combined variables
+function populateEditVariableSelect() {
+    const select = document.getElementById('edit-add-variable-select');
+    select.innerHTML = '<option value="">+ Add variable...</option>';
+    
+    variablesCache.forEach(v => {
+        if (v.sourceType !== 'combined' && !editingSourceVariables.includes(v.variableName)) {
+            const option = document.createElement('option');
+            option.value = v.variableName;
+            option.textContent = v.variableName;
+            select.appendChild(option);
+        }
+    });
+}
+
+function addVariableToEdit() {
+    const select = document.getElementById('edit-add-variable-select');
+    const varName = select.value;
+    
+    if (!varName || editingSourceVariables.includes(varName)) {
+        select.value = '';
+        return;
+    }
+    
+    editingSourceVariables.push(varName);
+    renderEditSourceVariables();
+    populateEditVariableSelect();
+    updateEditCombinedPreview();
+    
+    select.value = '';
+}
+
+function removeVariableFromEdit(varName) {
+    editingSourceVariables = editingSourceVariables.filter(v => v !== varName);
+    renderEditSourceVariables();
+    populateEditVariableSelect();
+    updateEditCombinedPreview();
+}
+
+function renderEditSourceVariables() {
+    const container = document.getElementById('edit-source-variables');
+    
+    console.log('🎨 Rendering edit source variables:', editingSourceVariables);
+    
+    if (editingSourceVariables.length === 0) {
+        container.innerHTML = '<span class="text-gray-400 text-sm">No variables selected</span>';
+        return;
+    }
+    
+    container.innerHTML = editingSourceVariables.map((varName, index) => `
+        <div class="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm mr-2 mb-2">
+            <button onclick="moveVariableInEdit(${index}, -1)" class="hover:text-blue-900 ${index === 0 ? 'opacity-50 cursor-not-allowed' : ''}" ${index === 0 ? 'disabled' : ''}>
+                <i class="ri-arrow-left-s-line"></i>
+            </button>
+            <span class="font-medium">${varName}</span>
+            <button onclick="moveVariableInEdit(${index}, 1)" class="hover:text-blue-900 ${index === editingSourceVariables.length - 1 ? 'opacity-50 cursor-not-allowed' : ''}" ${index === editingSourceVariables.length - 1 ? 'disabled' : ''}>
+                <i class="ri-arrow-right-s-line"></i>
+            </button>
+            <button onclick="removeVariableFromEdit('${varName}')" class="hover:text-blue-900">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function moveVariableInEdit(fromIndex, direction) {
+    const toIndex = fromIndex + direction;
+    
+    if (toIndex < 0 || toIndex >= editingSourceVariables.length) {
+        return;
+    }
+    
+    // Swap variables
+    const temp = editingSourceVariables[fromIndex];
+    editingSourceVariables[fromIndex] = editingSourceVariables[toIndex];
+    editingSourceVariables[toIndex] = temp;
+    
+    renderEditSourceVariables();
+    updateEditCombinedPreview();
+}
+
+function updateEditCombinedPreview() {
+    if (editingSourceVariables.length < 2) {
+        document.getElementById('edit-combined-preview').style.display = 'none';
+        return;
+    }
+    
+    const operation = document.getElementById('edit-operation').value;
+    if (!operation) {
+        document.getElementById('edit-combined-preview').style.display = 'none';
+        return;
+    }
+    
+    const tempVar = {
+        sourceVariables: editingSourceVariables,
+        operation: operation
+    };
+    
+    const previewValue = calculateCombinedValue(tempVar);
+    document.getElementById('edit-combined-preview-value').textContent = previewValue;
+    document.getElementById('edit-combined-preview').style.display = 'block';
 }
 
 // Close modal
