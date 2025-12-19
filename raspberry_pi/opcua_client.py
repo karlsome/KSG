@@ -32,7 +32,7 @@ import threading
 RASPBERRY_ID = "6C10F6"  # Example: Change to your device's uniqueId
 
 # API Configuration
-API_BASE_URL = "http://192.168.24.31:3000"  # Change if using different server
+API_BASE_URL = "http://192.168.0.34:3000"  # Change if using different server
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
@@ -124,7 +124,7 @@ def log_event(event_type, opc_node_id=None, variable_name=None, old_value=None, 
             'newValue': new_value,
             'quality': quality,
             'message': message,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
             'metadata': metadata or {}
         }
         
@@ -373,7 +373,7 @@ def connect():
     sio.emit('raspberry_register', {
         'raspberryId': RASPBERRY_ID,
         'status': 'online',
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.utcnow().isoformat() + 'Z'
     })
 
 @sio.event
@@ -414,7 +414,7 @@ def stop_websocket():
             sio.emit('raspberry_register', {
                 'raspberryId': RASPBERRY_ID,
                 'status': 'offline',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
             })
             sio.disconnect()
             logger.info("🔌 WebSocket disconnected gracefully")
@@ -461,45 +461,48 @@ class DataChangeHandler:
                         'opcNodeId': dp['opcNodeId'],
                         'value': val,
                         'quality': quality,
-                        'timestamp': datetime.utcnow().isoformat()
+                        'timestamp': datetime.utcnow().isoformat() + 'Z'
                     }
                     
                     # Add to buffer for batch upload
                     changed_data_buffer.append(changed_data)
                     
-                # Only log event if value actually changed (or if it's the first value)
-                if old_value is None or old_value != val:
-                    log_event(
-                        event_type='value_change' if quality == 'Good' else 'quality_degraded',
-                        opc_node_id=node_id,
-                        variable_name=variable_name,
-                        old_value=old_value,
-                        new_value=val,
-                        quality=quality,
-                        message=f"Value changed from {old_value} to {val}" if old_value is not None else f"Initial value: {val}",
-                        metadata={
-                            'dataType': type(val).__name__,
-                            'equipmentId': dp['equipmentId'],
-                            'datapointId': str(dp['id'])
-                        }
-                    )
-                else:
-                    # Value didn't change, only log if quality degraded
-                    if quality != 'Good':
+                    # Only log event if value actually changed (or if it's the first value)
+                    if old_value is None or old_value != val:
                         log_event(
-                            event_type='quality_degraded',
+                            event_type='value_change' if quality == 'Good' else 'quality_degraded',
                             opc_node_id=node_id,
                             variable_name=variable_name,
                             old_value=old_value,
                             new_value=val,
                             quality=quality,
-                            message=f"Quality degraded to {quality} (value unchanged: {val})",
+                            message=f"Value changed from {old_value} to {val}" if old_value is not None else f"Initial value: {val}",
                             metadata={
                                 'dataType': type(val).__name__,
                                 'equipmentId': dp['equipmentId'],
                                 'datapointId': str(dp['id'])
                             }
                         )
+                    else:
+                        # Value didn't change, only log if quality degraded
+                        if quality != 'Good':
+                            log_event(
+                                event_type='quality_degraded',
+                                opc_node_id=node_id,
+                                variable_name=variable_name,
+                                old_value=old_value,
+                                new_value=val,
+                                quality=quality,
+                                message=f"Quality degraded to {quality} (value unchanged: {val})",
+                                metadata={
+                                    'dataType': type(val).__name__,
+                                    'equipmentId': dp['equipmentId'],
+                                    'datapointId': str(dp['id'])
+                                }
+                            )
+                    
+                    # Update last known value
+                    last_values[node_id] = val
                     
                     logger.info(f"📊 Value changed: {variable_name} = {val} (quality: {quality})")
                     break
@@ -681,7 +684,7 @@ def read_datapoints():
                 'opcNodeId': dp['opcNodeId'],
                 'value': value.Value.Value,
                 'quality': 'Good' if value.StatusCode.is_good() else 'Bad',
-                'timestamp': value.SourceTimestamp.isoformat() if value.SourceTimestamp else datetime.utcnow().isoformat()
+                'timestamp': value.SourceTimestamp.isoformat() + 'Z' if value.SourceTimestamp else datetime.utcnow().isoformat() + 'Z'
             })
             
         except Exception as e:
@@ -692,7 +695,7 @@ def read_datapoints():
                 'opcNodeId': dp['opcNodeId'],
                 'value': None,
                 'quality': 'Bad',
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
             })
     
     return data
@@ -807,7 +810,7 @@ def _send_heartbeat_request(status):
     payload = {
         'raspberryId': RASPBERRY_ID,
         'status': status,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.utcnow().isoformat() + 'Z'
     }
     
     response = requests.post(HEARTBEAT_ENDPOINT, json=payload, headers=headers, timeout=5)
@@ -936,7 +939,7 @@ def _upload_discovered_nodes(nodes):
     payload = {
         'raspberryId': RASPBERRY_ID,
         'nodes': nodes,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.utcnow().isoformat() + 'Z'
     }
     
     response = requests.post(DISCOVERED_NODES_ENDPOINT, json=payload, headers=headers, timeout=30)

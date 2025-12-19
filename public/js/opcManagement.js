@@ -339,20 +339,12 @@ function renderRealTimeData(data) {
         
         if (dp.timestamp) {
             // Parse the UTC timestamp
-            console.log('🕐 Timestamp Debug:', {
-                raw: dp.timestamp,
-                now: now.toISOString(),
-                variable: dp.name || dp.opcNodeId
-            });
             const timestamp = new Date(dp.timestamp);
-            console.log('  → Parsed timestamp:', timestamp.toISOString());
             // Display in user's local timezone
             timestampStr = timestamp.toLocaleString();
-            console.log('  → Display string:', timestampStr);
             
             // Calculate age based on UTC time
             ageSeconds = Math.floor((now - timestamp) / 1000);
-            console.log('  → Age in seconds:', ageSeconds);
             isStale = ageSeconds > 60; // Stale if older than 60 seconds
             
             if (isStale) {
@@ -979,15 +971,9 @@ function renderVariables() {
         // Calculate staleness
         let ageWarning = '';
         if (dataTimestamp) {
-            console.log('🕐 Variable Timestamp Debug:', {
-                variable: variable.variableName,
-                raw: dataTimestamp,
-                now: now.toISOString()
-            });
+            // Parse UTC timestamp and calculate age
             const timestamp = new Date(dataTimestamp);
-            console.log('  → Parsed:', timestamp.toISOString());
             const ageSeconds = Math.floor((now - timestamp) / 1000);
-            console.log('  → Age seconds:', ageSeconds);
             if (ageSeconds > 60) {
                 const ageMinutes = Math.floor(ageSeconds / 60);
                 if (ageMinutes < 60) {
