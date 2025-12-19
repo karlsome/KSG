@@ -1,3 +1,37 @@
+// Reset functions for each card
+function resetBasicSettings() {
+  if (confirm('基本設定をリセットしますか？')) {
+    document.getElementById('lhRh').value = 'LH';
+    document.getElementById('inspector').selectedIndex = 0;
+    document.getElementById('poster1').selectedIndex = 0;
+    document.getElementById('poster2').selectedIndex = 0;
+    document.getElementById('workTime').value = '00:00';
+    document.getElementById('manHours').value = '';
+    document.getElementById('startTime').value = '';
+    document.getElementById('stopTime').value = '00:00';
+    document.getElementById('endTime').value = '';
+    document.getElementById('inspectionCount').value = '0';
+    console.log('Basic settings reset');
+  }
+}
+
+function resetButtonData() {
+  if (confirm('ボタンデータをリセットしますか？')) {
+    // Reset any button-related data if needed
+    console.log('Button data reset');
+  }
+}
+
+function resetDefectCounters() {
+  if (confirm('不良カウンターをリセットしますか？')) {
+    document.querySelectorAll('.counter-number').forEach(counter => {
+      counter.textContent = '0';
+    });
+    document.getElementById('otherDetails').value = '';
+    console.log('Defect counters reset');
+  }
+}
+
 // Placeholder functions for buttons
 function sendData() {
   console.log('Send data clicked');

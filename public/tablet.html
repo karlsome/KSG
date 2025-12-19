@@ -31,13 +31,40 @@
       margin-bottom: 20px;
     }
 
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
     .card-title {
       font-size: 12px;
       font-weight: bold;
       color: #333;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
-      border-bottom: 2px solid #f0f0f0;
+    }
+
+    .reset-button {
+      background: #f44336;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+
+    .reset-button:hover {
+      background: #d32f2f;
+      transform: scale(1.05);
+    }
+
+    .reset-button:active {
+      transform: scale(0.95);
     }
 
     .header {
@@ -346,7 +373,10 @@
 
     <!-- Card 1: Basic Settings -->
     <div class="card">
-      <div class="card-title">基本設定（ログイン・木本）</div>
+      <div class="card-header">
+        <div class="card-title">基本設定（ログイン・木本）</div>
+        <button class="reset-button" onclick="resetBasicSettings()">リセット</button>
+      </div>
       <div class="info-section">
         <!-- Row 1 Headers -->
         <div class="info-header-row">
@@ -427,7 +457,10 @@
 
     <!-- Card 2: Action Buttons -->
     <div class="card">
-      <div class="card-title">ボタン</div>
+      <div class="card-header">
+        <div class="card-title">ボタン</div>
+        <button class="reset-button" onclick="resetButtonData()">リセット</button>
+      </div>
       <div class="button-section">
         <div class="button-header-row">
           <div class="button-header">作業開始時間</div>
@@ -452,7 +485,10 @@
 
     <!-- Card 3: Defect Counter -->
     <div class="card">
-      <div class="card-title">不良カウンター</div>
+      <div class="card-header">
+        <div class="card-title">不良カウンター</div>
+        <button class="reset-button" onclick="resetDefectCounters()">リセット</button>
+      </div>
       <div class="counter-grid">
         <!-- Row 1 -->
         <div class="counter-item">
