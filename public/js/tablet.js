@@ -1,3 +1,53 @@
+// WebSocket connection to ksgServer
+const socket = io('http://localhost:3000');
+
+let currentCompany = 'KSG'; // Default company
+
+// Connection status
+socket.on('connect', () => {
+  console.log('✅ Connected to ksgServer');
+  // Subscribe to real-time variable updates for this company
+  socket.emit('subscribe_variables', { company: currentCompany });
+});
+
+socket.on('disconnect', () => {
+  console.log('❌ Disconnected from ksgServer');
+});
+
+socket.on('connect_error', (error) => {
+  console.error('Connection error:', error);
+});
+
+// Listen for real-time variable updates (pushed from server when data changes)
+socket.on('opcua_variables_update', (data) => {
+  console.log('📊 Received real-time variable updates:', data);
+  console.log('🔍 Available variables:', Object.keys(data.variables));
+  console.log('🔍 tesgt variable details:', data.variables.tesgt);
+  updateUIWithVariables(data.variables);
+});
+
+// Update UI with variable data
+function updateUIWithVariables(variables) {
+  console.log('🎯 Updating UI with variables:', variables);
+  
+  // Update 作業開始時間 with "tesgt" variable
+  if (variables.tesgt !== undefined) {
+    const workStartTimeInput = document.getElementById('workStartTimeValue');
+    if (workStartTimeInput) {
+      const value = variables.tesgt.value !== null ? variables.tesgt.value : 'No Data';
+      workStartTimeInput.value = value;
+      console.log('✨ Real-time update - 作業開始時間 with tesgt:', value, 'Quality:', variables.tesgt.quality, 'Stale:', variables.tesgt.isStale);
+    } else {
+      console.warn('❌ workStartTimeValue input not found in DOM');
+    }
+  } else {
+    console.warn('❌ tesgt variable not found in response');
+  }
+  
+  // You can add more variable mappings here
+  // Example: if (variables.otherVar) { document.getElementById('someField').value = variables.otherVar.value; }
+}
+
 // Reset functions for each card
 function resetBasicSettings() {
   if (confirm('基本設定をリセットしますか？')) {

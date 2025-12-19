@@ -1569,9 +1569,261 @@ async function updateDeviceStatus(deviceId, status) {
     }
 }
 
+// Helper function: Broadcast variables to a specific tablet
+async function broadcastVariablesToTablet(socket, company) {
+    try {
+        console.log(`🔍 Broadcasting variables to tablet for company: ${company}`);
+        const { ObjectId } = require('mongodb');
+        const db = mongoClient.db(company);
+        const conversions = await db.collection('opcua_conversions').find({}).toArray();
+        const devices = await db.collection('deviceInfo').find({}).toArray();
+        
+        console.log(`📋 Found ${conversions.length} variables and ${devices.length} devices`);
+        
+        const variables = {};
+        const now = new Date();
+        
+        for (const variable of conversions) {
+            console.log(`🔧 Processing variable: ${variable.variableName} (${variable.sourceType})`);
+            try {
+                let calculatedValue = null;
+                let quality = 'Unknown';
+                let dataTimestamp = null;
+                let dataAge = null;
+                let isStale = false;
+                
+                // Check if it's a simple conversion variable (not combined)
+                if (variable.sourceType !== 'combined' && variable.raspberryId) {
+                    // Get the device - try both _id (ObjectId) and device_id (string)
+                    const device = devices.find(d => 
+                        d._id.toString() === variable.raspberryId || 
+                        d.device_id === variable.raspberryId
+                    );
+                    console.log(`🔍 Looking for device ${variable.raspberryId}, found:`, !!device);
+                    
+                    if (device) {
+                        // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
+                        let datapoint = null;
+                        
+                        if (variable.opcNodeId) {
+                            datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                opcNodeId: variable.opcNodeId,
+                                raspberryId: variable.raspberryId
+                            });
+                        }
+                        
+                        // Fallback to datapointId
+                        if (!datapoint && variable.datapointId) {
+                            try {
+                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                    _id: new ObjectId(variable.datapointId),
+                                    raspberryId: variable.raspberryId
+                                });
+                            } catch (e) {
+                                // Invalid ObjectId
+                            }
+                        }
+                        
+                        if (datapoint && datapoint.value !== undefined) {
+                            let rawValue = datapoint.value;
+                            
+                            // Get actual data timestamp and quality from opcua_realtime if available
+                            const realtimeData = await db.collection('opcua_realtime').findOne({
+                                raspberryId: variable.raspberryId,
+                                opcNodeId: datapoint.opcNodeId
+                            });
+                            
+                            if (realtimeData) {
+                                quality = realtimeData.quality || 'Unknown';
+                                dataTimestamp = realtimeData.sourceTimestamp || realtimeData.updatedAt;
+                                
+                                // Calculate data age in seconds
+                                if (dataTimestamp) {
+                                    const timestampDate = new Date(dataTimestamp);
+                                    dataAge = Math.floor((now - timestampDate) / 1000);
+                                    // Mark as stale if older than 60 seconds
+                                    isStale = dataAge > 60;
+                                }
+                            } else {
+                                // Fallback to discovered node timestamp
+                                dataTimestamp = datapoint.discoveredAt || datapoint.updatedAt;
+                                quality = 'Unknown';
+                                if (dataTimestamp) {
+                                    const timestampDate = new Date(dataTimestamp);
+                                    dataAge = Math.floor((now - timestampDate) / 1000);
+                                    isStale = dataAge > 60;
+                                }
+                            }
+                            
+                            // Extract array value if needed
+                            if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
+                                rawValue = rawValue[variable.arrayIndex];
+                            }
+                            
+                            // Apply conversion
+                            calculatedValue = applyConversionOnServer(rawValue, variable.conversionFromType, variable.conversionToType);
+                            console.log(`✅ ${variable.variableName} = ${calculatedValue}`);
+                        }
+                    }
+                } else if (variable.sourceType === 'combined' && variable.sourceVariables && variable.operation) {
+                    console.log(`🔗 Processing combined variable with ${variable.sourceVariables?.length} sources`);
+                    // Get values of all source variables
+                    const sourceValues = [];
+                    const sourceQualities = [];
+                    const sourceTimestamps = [];
+                    
+                    for (const sourceVarName of variable.sourceVariables) {
+                        const sourceVar = conversions.find(v => v.variableName === sourceVarName);
+                        if (sourceVar && sourceVar.raspberryId) {
+                            // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
+                            let datapoint = null;
+                            
+                            if (sourceVar.opcNodeId) {
+                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                    opcNodeId: sourceVar.opcNodeId,
+                                    raspberryId: sourceVar.raspberryId
+                                });
+                            }
+                            
+                            // Fallback to datapointId
+                            if (!datapoint && sourceVar.datapointId) {
+                                try {
+                                    datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                        _id: new ObjectId(sourceVar.datapointId),
+                                        raspberryId: sourceVar.raspberryId
+                                    });
+                                } catch (e) {
+                                    // Invalid ObjectId
+                                }
+                            }
+                            
+                            if (datapoint && datapoint.value !== undefined) {
+                                let rawValue = datapoint.value;
+                                if (sourceVar.arrayIndex !== undefined && sourceVar.arrayIndex !== null && Array.isArray(rawValue)) {
+                                    rawValue = rawValue[sourceVar.arrayIndex];
+                                }
+                                const converted = applyConversionOnServer(rawValue, sourceVar.conversionFromType, sourceVar.conversionToType);
+                                sourceValues.push(converted);
+                                
+                                // Get quality for this source
+                                const realtimeData = await db.collection('opcua_realtime').findOne({
+                                    raspberryId: sourceVar.raspberryId,
+                                    opcNodeId: datapoint.opcNodeId
+                                });
+                                
+                                if (realtimeData) {
+                                    sourceQualities.push(realtimeData.quality || 'Unknown');
+                                    sourceTimestamps.push(realtimeData.sourceTimestamp || realtimeData.updatedAt);
+                                } else {
+                                    sourceQualities.push('Unknown');
+                                    sourceTimestamps.push(datapoint.discoveredAt || datapoint.updatedAt);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Apply operation
+                    if (sourceValues.length > 0) {
+                        calculatedValue = applyCombinedOperation(sourceValues, variable.operation);
+                        
+                        // Combined quality: Bad if any Bad, Uncertain if any Uncertain, else Good
+                        if (sourceQualities.includes('Bad')) {
+                            quality = 'Bad';
+                        } else if (sourceQualities.includes('Uncertain')) {
+                            quality = 'Uncertain';
+                        } else if (sourceQualities.every(q => q === 'Good')) {
+                            quality = 'Good';
+                        } else {
+                            quality = 'Unknown';
+                        }
+                        
+                        // Use oldest timestamp
+                        if (sourceTimestamps.length > 0) {
+                            dataTimestamp = sourceTimestamps.reduce((oldest, ts) => {
+                                return new Date(ts) < new Date(oldest) ? ts : oldest;
+                            });
+                            
+                            if (dataTimestamp) {
+                                const timestampDate = new Date(dataTimestamp);
+                                dataAge = Math.floor((now - timestampDate) / 1000);
+                                isStale = dataAge > 60;
+                            }
+                        }
+                        console.log(`✅ Combined ${variable.variableName} = ${calculatedValue}`);
+                    }
+                }
+
+                variables[variable.variableName] = {
+                    value: calculatedValue,
+                    quality: quality,
+                    timestamp: dataTimestamp,
+                    dataAge: dataAge,
+                    isStale: isStale
+                };
+            } catch (error) {
+                console.error(`❌ Error processing variable ${variable.variableName}:`, error);
+                variables[variable.variableName] = {
+                    value: null,
+                    quality: 'Bad',
+                    timestamp: null,
+                    dataAge: null,
+                    isStale: true
+                };
+            }
+        }
+        
+        console.log(`📤 Sending ${Object.keys(variables).length} variables to tablet:`, Object.keys(variables));
+        // Send to tablet
+        socket.emit('opcua_variables_update', { variables });
+        
+    } catch (error) {
+        console.error('❌ Error broadcasting variables to tablet:', error);
+    }
+}
+
+// Helper function: Broadcast variables to all tablets subscribed to a company
+async function broadcastVariablesToAllTablets(company) {
+    try {
+        // Get all connected sockets with tabletCompany set
+        const sockets = await io.fetchSockets();
+        const tabletsForCompany = sockets.filter(s => s.tabletCompany === company);
+        
+        if (tabletsForCompany.length === 0) {
+            return; // No tablets subscribed to this company
+        }
+        
+        console.log(`🔔 Broadcasting real-time updates to ${tabletsForCompany.length} tablets for ${company}`);
+        
+        // Broadcast to each tablet
+        for (const socket of tabletsForCompany) {
+            await broadcastVariablesToTablet(socket, company);
+        }
+        
+    } catch (error) {
+        console.error('Error broadcasting to all tablets:', error);
+    }
+}
+
 // � Socket.IO Connection Handler
 io.on('connection', (socket) => {
     console.log('📱 ESP32 device connected:', socket.id);
+    
+    // Handle tablet subscription to real-time variable updates
+    socket.on('subscribe_variables', async (data) => {
+        try {
+            const company = data.company || 'KSG';
+            console.log(`📊 Tablet ${socket.id} subscribed to variables for ${company}`);
+            
+            // Store company in socket for broadcasting
+            socket.tabletCompany = company;
+            
+            // Send initial values immediately
+            await broadcastVariablesToTablet(socket, company);
+            
+        } catch (error) {
+            console.error('Error subscribing to variables:', error);
+        }
+    });
     
     // Start a heartbeat interval for this socket to ensure regular last_seen updates
     const heartbeatInterval = setInterval(() => {
@@ -2531,6 +2783,9 @@ app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
                 timestamp: item.timestamp
             }))
         });
+        
+        // Broadcast real-time updates to all subscribed tablets
+        await broadcastVariablesToAllTablets(dbName);
         
         res.json({ success: true, received: data.length });
         
