@@ -1,21 +1,31 @@
 // WebSocket connection to ksgServer
-const socket = io('http://localhost:3000');
+//const socket = io('http://localhost:3000');
+const socket = io('http://192.168.0.34:3000');
 
 let currentCompany = 'KSG'; // Default company
+
+// Update connection status indicator
+function updateConnectionStatus(status) {
+  const statusElement = document.getElementById('connectionStatus');
+  statusElement.className = 'connection-status ' + status;
+}
 
 // Connection status
 socket.on('connect', () => {
   console.log('✅ Connected to ksgServer');
+  updateConnectionStatus('connected');
   // Subscribe to real-time variable updates for this company
   socket.emit('subscribe_variables', { company: currentCompany });
 });
 
 socket.on('disconnect', () => {
   console.log('❌ Disconnected from ksgServer');
+  updateConnectionStatus('disconnected');
 });
 
 socket.on('connect_error', (error) => {
   console.error('Connection error:', error);
+  updateConnectionStatus('disconnected');
 });
 
 // Listen for real-time variable updates (pushed from server when data changes)
