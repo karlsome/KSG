@@ -72,6 +72,37 @@
       margin-bottom: 20px;
     }
 
+    .info-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .info-header-row {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+    }
+
+    .info-header {
+      background: #2196F3;
+      color: white;
+      padding: 8px;
+      font-size: 13px;
+      font-weight: bold;
+      text-align: center;
+      border-radius: 4px;
+    }
+
+    .info-input-row {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+    }
+
+    .info-cell {
+      min-height: 40px;
+    }
+
     .info-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
@@ -98,12 +129,12 @@
     }
 
     .field-input {
-      border: 2px solid #2196F3;
-      border-top: none;
+      border: 2px solid #ddd;
       padding: 10px;
       font-size: 14px;
-      border-radius: 0 0 4px 4px;
+      border-radius: 4px;
       background: white;
+      width: 100%;
     }
 
     select.field-input {
@@ -316,75 +347,80 @@
     <!-- Card 1: Basic Settings -->
     <div class="card">
       <div class="card-title">基本設定（ログイン・木本）</div>
-      <div class="info-grid">
-        <div class="info-field">
-          <div class="field-label">LH/RH</div>
-          <select class="field-input" id="lhRh">
-            <option value="LH">LH</option>
-            <option value="RH">RH</option>
-          </select>
+      <div class="info-section">
+        <!-- Row 1 Headers -->
+        <div class="info-header-row">
+          <div class="info-header">LH/RH</div>
+          <div class="info-header">検査員</div>
+          <div class="info-header">投稿員_1</div>
+          <div class="info-header">投稿員_2</div>
+          <div class="info-header">作業時間</div>
+          <div class="info-header">工数</div>
+        </div>
+        <!-- Row 1 Inputs -->
+        <div class="info-input-row">
+          <div class="info-cell">
+            <select class="field-input" id="lhRh">
+              <option value="LH">LH</option>
+              <option value="RH">RH</option>
+            </select>
+          </div>
+          <div class="info-cell">
+            <select class="field-input" id="inspector">
+              <option value="木本">木本</option>
+              <option value="田中">田中</option>
+              <option value="佐藤">佐藤</option>
+            </select>
+          </div>
+          <div class="info-cell">
+            <select class="field-input" id="poster1">
+              <option value="奥村康">奥村康</option>
+              <option value="山田">山田</option>
+              <option value="鈴木">鈴木</option>
+            </select>
+          </div>
+          <div class="info-cell">
+            <select class="field-input" id="poster2">
+              <option value="笹澤">笹澤</option>
+              <option value="小林">小林</option>
+              <option value="高橋">高橋</option>
+            </select>
+          </div>
+          <div class="info-cell">
+            <input type="text" class="field-input" id="workTime" value="00:00" readonly>
+          </div>
+          <div class="info-cell">
+            <input type="text" class="field-input" id="manHours" value="">
+          </div>
         </div>
 
-        <div class="info-field">
-          <div class="field-label">検査員</div>
-          <select class="field-input" id="inspector">
-            <option value="木本">木本</option>
-            <option value="田中">田中</option>
-            <option value="佐藤">佐藤</option>
-          </select>
+        <!-- Row 2 Headers -->
+        <div class="info-header-row">
+          <div class="info-header">開始時間</div>
+          <div class="info-header">停止時間</div>
+          <div class="info-header">終了時間</div>
+          <div class="info-header">検査数</div>
+          <div class="info-header">設定更新</div>
+          <div class="info-header" style="visibility: hidden;">Placeholder</div>
         </div>
-
-        <div class="info-field">
-          <div class="field-label">投稿員_1</div>
-          <select class="field-input" id="poster1">
-            <option value="奥村康">奥村康</option>
-            <option value="山田">山田</option>
-            <option value="鈴木">鈴木</option>
-          </select>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">投稿員_2</div>
-          <select class="field-input" id="poster2">
-            <option value="笹澤">笹澤</option>
-            <option value="小林">小林</option>
-            <option value="高橋">高橋</option>
-          </select>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">作業時間</div>
-          <input type="text" class="field-input" id="workTime" value="00:00" readonly>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">工数</div>
-          <input type="text" class="field-input" id="manHours" value="">
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">開始時間</div>
-          <input type="text" class="field-input" id="startTime" value="12/16 15:05" readonly>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">停止時間</div>
-          <input type="text" class="field-input" id="stopTime" value="00:00" readonly>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">終了時間</div>
-          <input type="text" class="field-input" id="endTime" value="" readonly>
-        </div>
-
-        <div class="info-field">
-          <div class="field-label">検査数</div>
-          <input type="number" class="field-input" id="inspectionCount" value="0">
-        </div>
-
-        <div class="info-field span-2">
-          <div class="field-label">設定更新</div>
-          <button class="send-button" onclick="sendData()">データ送信</button>
+        <!-- Row 2 Inputs -->
+        <div class="info-input-row">
+          <div class="info-cell">
+            <input type="text" class="field-input" id="startTime" value="12/16 15:05" readonly>
+          </div>
+          <div class="info-cell">
+            <input type="text" class="field-input" id="stopTime" value="00:00" readonly>
+          </div>
+          <div class="info-cell">
+            <input type="text" class="field-input" id="endTime" value="" readonly>
+          </div>
+          <div class="info-cell">
+            <input type="number" class="field-input" id="inspectionCount" value="0">
+          </div>
+          <div class="info-cell">
+            <div class="action-button" onclick="sendData()">データ送信</div>
+          </div>
+          <div class="info-cell"></div>
         </div>
       </div>
     </div>
