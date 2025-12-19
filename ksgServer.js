@@ -3315,7 +3315,7 @@ app.get('/api/opcua/realtime-data/:raspberryId', async (req, res) => {
 // POST /api/opcua/conversions - Create a new data conversion/variable
 app.post('/api/opcua/conversions', async (req, res) => {
     try {
-        const { company, variableName, sourceType, datapointId, raspberryId, arrayIndex, conversionType, conversionFromType, conversionToType, sourceVariables, operation, createdBy } = req.body;
+        const { company, variableName, sourceType, datapointId, opcNodeId, raspberryId, arrayIndex, conversionType, conversionFromType, conversionToType, sourceVariables, operation, createdBy } = req.body;
         
         if (!company || !variableName) {
             return res.status(400).json({ error: 'Company and variableName are required' });
@@ -3333,7 +3333,8 @@ app.post('/api/opcua/conversions', async (req, res) => {
             company,
             variableName,
             sourceType, // 'array', 'single', or 'combined'
-            datapointId: datapointId || null,
+            datapointId: datapointId || null, // Legacy: MongoDB ObjectId (changes on restart)
+            opcNodeId: opcNodeId || null, // Stable: OPC UA Node ID (e.g., ns=4;s=example5)
             raspberryId: raspberryId || null, // Source device ID
             arrayIndex: arrayIndex !== undefined ? arrayIndex : null,
             conversionType: conversionType || null,
@@ -3348,7 +3349,7 @@ app.post('/api/opcua/conversions', async (req, res) => {
         
         const result = await db.collection('opcua_conversions').insertOne(conversion);
         
-        console.log(`✅ Created variable: ${variableName} (${sourceType}) from device ${raspberryId || 'unknown'}`);
+        console.log(`✅ Created variable: ${variableName} (${sourceType}) from device ${raspberryId || 'unknown'}, opcNodeId: ${opcNodeId || 'N/A'}`);
         res.json({ success: true, conversionId: result.insertedId, conversion });
         
     } catch (error) {
@@ -3371,10 +3372,31 @@ app.get('/api/opcua/conversions', async (req, res) => {
         
         // Enrich with datapoint names
         for (const conv of conversions) {
-            if (conv.datapointId) {
-                const datapoint = await db.collection('opcua_datapoints').findOne({ _id: new ObjectId(conv.datapointId) });
-                if (datapoint) {
-                    conv.datapointName = datapoint.name || datapoint.opcNodeId;
+            // Try to find datapoint by opcNodeId first (more stable), then fall back to datapointId
+            let datapoint = null;
+            
+            if (conv.opcNodeId && conv.raspberryId) {
+                // Find by opcNodeId (stable across restarts)
+                datapoint = await db.collection('opcua_datapoints').findOne({ 
+                    raspberryId: conv.raspberryId,
+                    opcNodeId: conv.opcNodeId 
+                });
+            }
+            
+            // Fallback to datapointId if opcNodeId lookup failed
+            if (!datapoint && conv.datapointId) {
+                try {
+                    datapoint = await db.collection('opcua_datapoints').findOne({ _id: new ObjectId(conv.datapointId) });
+                } catch (e) {
+                    // Invalid ObjectId, skip
+                }
+            }
+            
+            if (datapoint) {
+                conv.datapointName = datapoint.name || datapoint.opcNodeId;
+                // Update datapointId to current one if found by opcNodeId
+                if (conv.opcNodeId && datapoint._id.toString() !== conv.datapointId) {
+                    conv.datapointId = datapoint._id.toString();
                 }
             }
         }
@@ -3413,7 +3435,7 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                 let isStale = false;
                 
                 // Check if it's a simple conversion variable (not combined)
-                if (variable.sourceType !== 'combined' && variable.datapointId && variable.raspberryId) {
+                if (variable.sourceType !== 'combined' && variable.raspberryId) {
                     // Get the device - try both _id (ObjectId) and device_id (string)
                     const device = devices.find(d => 
                         d._id.toString() === variable.raspberryId || 
@@ -3421,11 +3443,27 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                     );
                     
                     if (device) {
-                        // Get the datapoint with current value from opcua_discovered_nodes
-                        const datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                            _id: new ObjectId(variable.datapointId),
-                            raspberryId: variable.raspberryId
-                        });
+                        // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
+                        let datapoint = null;
+                        
+                        if (variable.opcNodeId) {
+                            datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                opcNodeId: variable.opcNodeId,
+                                raspberryId: variable.raspberryId
+                            });
+                        }
+                        
+                        // Fallback to datapointId
+                        if (!datapoint && variable.datapointId) {
+                            try {
+                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                    _id: new ObjectId(variable.datapointId),
+                                    raspberryId: variable.raspberryId
+                                });
+                            } catch (e) {
+                                // Invalid ObjectId
+                            }
+                        }
                         
                         if (datapoint && datapoint.value !== undefined) {
                             let rawValue = datapoint.value;
@@ -3482,11 +3520,28 @@ app.get('/api/opcua/variables/values', async (req, res) => {
                     
                     for (const sourceVarName of variable.sourceVariables) {
                         const sourceVar = conversions.find(v => v.variableName === sourceVarName);
-                        if (sourceVar && sourceVar.datapointId && sourceVar.raspberryId) {
-                            const datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                                _id: new ObjectId(sourceVar.datapointId),
-                                raspberryId: sourceVar.raspberryId
-                            });
+                        if (sourceVar && sourceVar.raspberryId) {
+                            // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
+                            let datapoint = null;
+                            
+                            if (sourceVar.opcNodeId) {
+                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                    opcNodeId: sourceVar.opcNodeId,
+                                    raspberryId: sourceVar.raspberryId
+                                });
+                            }
+                            
+                            // Fallback to datapointId
+                            if (!datapoint && sourceVar.datapointId) {
+                                try {
+                                    datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                        _id: new ObjectId(sourceVar.datapointId),
+                                        raspberryId: sourceVar.raspberryId
+                                    });
+                                } catch (e) {
+                                    // Invalid ObjectId
+                                }
+                            }
                             
                             if (datapoint && datapoint.value !== undefined) {
                                 let rawValue = datapoint.value;

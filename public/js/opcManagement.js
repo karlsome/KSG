@@ -923,7 +923,7 @@ function renderVariables() {
         
         // Get device name and variable name from allDevicesDataCache
         let deviceDisplay = '';
-        let sourceVariableName = variable.datapointName || variable.datapointId;
+        let sourceVariableName = variable.datapointName || variable.opcNodeId || variable.datapointId;
         let quality = variable.quality || 'Unknown';
         let dataTimestamp = variable.timestamp || null;
         
@@ -933,11 +933,26 @@ function renderVariables() {
             deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
             
             // Find the actual variable name from datapoints
-            if (deviceCache.datapoints && variable.datapointId) {
-                const datapoint = deviceCache.datapoints.find(dp => 
-                    dp._id && dp._id.toString() === variable.datapointId.toString()
-                );
+            // Try to match by opcNodeId first (stable), then fall back to datapointId
+            if (deviceCache.datapoints) {
+                let datapoint = null;
+                
+                // Try opcNodeId first (stable across restarts)
+                if (variable.opcNodeId) {
+                    datapoint = deviceCache.datapoints.find(dp => 
+                        dp.opcNodeId === variable.opcNodeId
+                    );
+                }
+                
+                // Fall back to datapointId
+                if (!datapoint && variable.datapointId) {
+                    datapoint = deviceCache.datapoints.find(dp => 
+                        dp._id && dp._id.toString() === variable.datapointId.toString()
+                    );
+                }
+                
                 if (datapoint) {
+                    // Use the actual variable name (e.g., "example5"), not the OPC Node ID
                     sourceVariableName = datapoint.name || datapoint.opcNodeId;
                     quality = datapoint.quality || quality;
                     dataTimestamp = datapoint.timestamp || dataTimestamp;
