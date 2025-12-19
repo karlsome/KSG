@@ -277,19 +277,19 @@
 
         <!-- Quick Create Modal -->
         <div id="quickCreateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full">
+            <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
                 <div class="p-6 border-b">
                     <h3 class="text-xl font-semibold text-green-600">
                         <i class="ri-add-line mr-2"></i>新規登録
                     </h3>
                 </div>
-                <div class="p-6">
+                <div class="p-6 overflow-y-auto" style="max-height: calc(90vh - 180px);">
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
+                        <div class="col-span-2">
                             <label class="block text-sm font-medium mb-1">品番 *</label>
                             <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
                         </div>
-                        <div>
+                        <div class="col-span-2">
                             <label class="block text-sm font-medium mb-1">製品名 *</label>
                             <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
                         </div>
@@ -318,9 +318,13 @@
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-1">cycleTime</label>
-                            <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg">
+                            <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="サイクル時間を入力">
                         </div>
-                        <div>
+                        <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
+                            <label class="block text-sm font-medium mb-1 text-blue-800">検査メンバー数 *</label>
+                            <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="例: 2" value="2" required>
+                        </div>
+                        <div class="col-span-2">
                             <label class="block text-sm font-medium mb-1">画像</label>
                             <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
                         </div>

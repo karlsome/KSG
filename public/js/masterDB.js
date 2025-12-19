@@ -185,7 +185,7 @@ function renderMasterTable(data) {
   const role = currentUser.role || "member";
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
-  const headers = ["品番", "製品名", "LH/RH", "kanbanID", "設備", "工場", "cycleTime"];
+  const headers = ["品番", "製品名", "LH/RH", "kanbanID", "設備", "工場", "cycleTime", "検査メンバー数"];
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
@@ -209,7 +209,17 @@ function renderMasterTable(data) {
           ${data.map(record => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
               <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
-              ${headers.map(h => `<td class="px-4 py-3">${record[h] || ""}</td>`).join("")}
+              ${headers.map(h => {
+                let value = record[h] || "";
+                // Handle kensaMembers specifically to show default value if missing
+                if (h === "検査メンバー数" && !value && record.kensaMembers !== undefined) {
+                  value = record.kensaMembers;
+                }
+                if (h === "検査メンバー数" && !value) {
+                  value = "2"; // Default value
+                }
+                return `<td class="px-4 py-3">${value}</td>`;
+              }).join("")}
               <td class="px-4 py-3">
                 ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">No image</span>`}
               </td>
@@ -346,6 +356,7 @@ function renderModalDetails(type, data) {
             <select id="modalFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
           </div>
           <div><label class="block text-sm font-medium mb-1">cycleTime</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
+          <div><label class="block text-sm font-medium mb-1">検査メンバー数</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
         </div>
       `;
       break;
@@ -1789,6 +1800,10 @@ async function showQuickCreateModal() {
           <label class="block text-sm font-medium mb-1">画像</label>
           <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
         </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">kensaMembers</label>
+          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border rounded-lg" placeholder="検査メンバー数を入力">
+        </div>
       `;
       break;
       
@@ -1897,6 +1912,7 @@ async function submitQuickCreate() {
           設備: document.getElementById("quick設備").value.trim(),
           工場: document.getElementById("quick工場").value.trim(),
           cycleTime: document.getElementById("quickCycleTime").value,
+          kensaMembers: parseInt(document.getElementById("quickKensaMembers").value) || 2,
           dbName,
           username
         };
