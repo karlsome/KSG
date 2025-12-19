@@ -88,10 +88,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
-      background: #f5f5f5;
+      background: white;
+      border: 2px solid #ddd;
+      margin-left: 5px;
     }
 
     .status-dot {
@@ -103,31 +105,34 @@
 
     .connection-status.connected .status-dot {
       background: #4caf50;
+      animation: gentle-glow 3s ease-in-out infinite;
     }
 
     .connection-status.disconnected .status-dot {
       background: #f44336;
-      animation: blink 1s infinite;
+      animation: urgent-blink 0.8s infinite;
     }
 
-    @keyframes blink {
+    @keyframes gentle-glow {
+      0%, 100% { 
+        opacity: 1; 
+        box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+      }
+      50% { 
+        opacity: 0.7; 
+        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+      }
+    }
+
+    @keyframes urgent-blink {
       0%, 50% { opacity: 1; }
-      51%, 100% { opacity: 0.3; }
+      51%, 100% { opacity: 0.2; }
     }
 
     .logo {
       display: flex;
       align-items: center;
       gap: 10px;
-    }
-
-    .update-message {
-      background: #e8f5e9;
-      color: #2e7d32;
-      padding: 8px 15px;
-      border-radius: 6px;
-      font-size: 14px;
-      margin-bottom: 20px;
     }
 
     .info-section {
@@ -425,16 +430,13 @@
     <!-- Header -->
     <div class="header">
       <div class="title">検査カウンター（440Dセンターピラー）</div>
-      <div class="connection-status" id="connectionStatus">
-        <span class="status-dot"></span>
-      </div>
       <div class="logo">
         <img src="../old_data/src/logo.png" alt="Kasugai Kakou Logo" style="height: 80px;">
       </div>
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-dot"></span>
+      </div>
     </div>
-
-    <!-- Update Message -->
-    <div class="update-message">検査データが更新されました</div>
 
     <!-- Card 1: Basic Settings -->
     <div class="card">
