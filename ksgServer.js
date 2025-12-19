@@ -3263,6 +3263,238 @@ app.get('/api/opcua/conversions', async (req, res) => {
     }
 });
 
+// GET /api/opcua/variables/values - Get all variables with calculated current values (for external apps)
+app.get('/api/opcua/variables/values', async (req, res) => {
+    try {
+        const { ObjectId } = require('mongodb');
+        const { company } = req.query;
+        if (!company) {
+            return res.status(400).json({ error: 'Company parameter required' });
+        }
+        
+        const db = mongoClient.db(company);
+        const conversions = await db.collection('opcua_conversions').find({}).toArray();
+        const devices = await db.collection('deviceInfo').find({}).toArray();
+        
+        const result = {};
+        
+        for (const variable of conversions) {
+            try {
+                let calculatedValue = null;
+                let sourceInfo = '';
+                
+                // Check if it's a simple conversion variable (not combined)
+                if (variable.sourceType !== 'combined' && variable.datapointId && variable.raspberryId) {
+                    // Get the device - try both _id (ObjectId) and device_id (string)
+                    const device = devices.find(d => 
+                        d._id.toString() === variable.raspberryId || 
+                        d.device_id === variable.raspberryId
+                    );
+                    
+                    if (device) {
+                        // Get the datapoint with current value
+                        const datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                            _id: new ObjectId(variable.datapointId),
+                            raspberryId: variable.raspberryId
+                        });
+                        
+                        if (datapoint && datapoint.value !== undefined) {
+                            let rawValue = datapoint.value;
+                            
+                            // Extract array value if needed
+                            if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
+                                rawValue = rawValue[variable.arrayIndex];
+                            }
+                            
+                            // Apply conversion
+                            calculatedValue = applyConversionOnServer(rawValue, variable.conversionFromType, variable.conversionToType);
+                            
+                            // Build source info
+                            const datapointName = datapoint.name || datapoint.opcNodeId || variable.datapointId;
+                            sourceInfo = `${device.device_name}.${datapointName}`;
+                            if (variable.arrayIndex !== undefined && variable.arrayIndex !== null) {
+                                sourceInfo += `[${variable.arrayIndex}]`;
+                            }
+                        }
+                    }
+                } else if (variable.sourceType === 'combined' && variable.sourceVariables && variable.operation) {
+                    // Get values of all source variables
+                    const sourceValues = [];
+                    for (const sourceVarName of variable.sourceVariables) {
+                        const sourceVar = conversions.find(v => v.variableName === sourceVarName);
+                        if (sourceVar && sourceVar.datapointId && sourceVar.raspberryId) {
+                            const datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
+                                _id: new ObjectId(sourceVar.datapointId),
+                                raspberryId: sourceVar.raspberryId
+                            });
+                            
+                            if (datapoint && datapoint.value !== undefined) {
+                                let rawValue = datapoint.value;
+                                if (sourceVar.arrayIndex !== undefined && sourceVar.arrayIndex !== null && Array.isArray(rawValue)) {
+                                    rawValue = rawValue[sourceVar.arrayIndex];
+                                }
+                                const converted = applyConversionOnServer(rawValue, sourceVar.conversionFromType, sourceVar.conversionToType);
+                                sourceValues.push(converted);
+                            }
+                        }
+                    }
+                    
+                    // Apply operation
+                    if (sourceValues.length > 0) {
+                        calculatedValue = applyCombinedOperation(sourceValues, variable.operation);
+                        sourceInfo = `Combined: ${variable.sourceVariables.join(', ')}`;
+                    }
+                }
+                
+                result[variable.variableName] = {
+                    value: calculatedValue,
+                    source: sourceInfo,
+                    type: variable.sourceType,
+                    conversionType: variable.conversionToType || null,
+                    operation: variable.operation || null,
+                    timestamp: new Date().toISOString()
+                };
+            } catch (error) {
+                console.error(`Error calculating variable ${variable.variableName}:`, error);
+                result[variable.variableName] = {
+                    value: null,
+                    error: 'Calculation failed',
+                    timestamp: new Date().toISOString()
+                };
+            }
+        }
+        
+        res.json({ success: true, variables: result, count: Object.keys(result).length });
+        
+    } catch (error) {
+        console.error('❌ Error getting variable values:', error);
+        res.status(500).json({ error: 'Failed to get variable values' });
+    }
+});
+
+// Helper function: Apply conversion (same logic as frontend)
+function applyConversionOnServer(value, fromType, toType) {
+    // Step 1: Parse value based on fromType
+    let numValue;
+    
+    switch (fromType) {
+        case 'uint16':
+        case 'uint8':
+        case 'uint32':
+        case 'int16':
+        case 'int8':
+        case 'int32':
+            numValue = parseInt(value);
+            break;
+        case 'hex16':
+        case 'hex8':
+            numValue = parseInt(value, 16);
+            break;
+        case 'binary16':
+        case 'binary8':
+        case 'binary4':
+            numValue = parseInt(value, 2);
+            break;
+        case 'float32':
+        case 'double64':
+            numValue = parseFloat(value);
+            break;
+        case 'string':
+            numValue = parseInt(value);
+            break;
+        case 'boolean':
+            numValue = value ? 1 : 0;
+            break;
+        default:
+            numValue = parseInt(value);
+    }
+    
+    // Step 2: Convert to target format
+    switch (toType) {
+        case 'uint16':
+            return (numValue & 0xFFFF).toString();
+        case 'uint8':
+            return (numValue & 0xFF).toString();
+        case 'uint32':
+            return (numValue >>> 0).toString();
+        case 'int16':
+            return (numValue << 16 >> 16).toString();
+        case 'int8':
+            return (numValue << 24 >> 24).toString();
+        case 'int32':
+            return (numValue | 0).toString();
+        case 'hex16':
+            return '0x' + (numValue & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+        case 'hex8':
+            return '0x' + (numValue & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+        case 'binary16':
+            return (numValue & 0xFFFF).toString(2).padStart(16, '0');
+        case 'binary8':
+            return (numValue & 0xFF).toString(2).padStart(8, '0');
+        case 'binary4':
+            return (numValue & 0xF).toString(2).padStart(4, '0');
+        case 'ascii2':
+            const high = (numValue >> 8) & 0xFF;
+            const low = numValue & 0xFF;
+            return String.fromCharCode(high) + String.fromCharCode(low);
+        case 'ascii1':
+            return String.fromCharCode(numValue & 0xFF);
+        case 'float32':
+            return parseFloat(numValue).toFixed(6);
+        case 'double64':
+            return parseFloat(numValue).toFixed(12);
+        case 'string':
+            return numValue.toString();
+        case 'boolean':
+            return numValue !== 0 ? 'true' : 'false';
+        case 'none':
+        default:
+            return value.toString();
+    }
+}
+
+// Helper function: Apply combined operation
+function applyCombinedOperation(values, operation) {
+    if (!values || values.length === 0) return null;
+    
+    switch (operation) {
+        case 'concatenate':
+            return values.join('');
+        case 'add':
+            return values.reduce((sum, val) => {
+                const num = parseFloat(val);
+                return sum + (isNaN(num) ? 0 : num);
+            }, 0).toString();
+        case 'subtract':
+            if (values.length < 2) return values[0];
+            const first = parseFloat(values[0]);
+            return values.slice(1).reduce((result, val) => {
+                const num = parseFloat(val);
+                return result - (isNaN(num) ? 0 : num);
+            }, first).toString();
+        case 'multiply':
+            return values.reduce((product, val) => {
+                const num = parseFloat(val);
+                return product * (isNaN(num) ? 1 : num);
+            }, 1).toString();
+        case 'divide':
+            if (values.length < 2) return values[0];
+            const dividend = parseFloat(values[0]);
+            return values.slice(1).reduce((result, val) => {
+                const num = parseFloat(val);
+                return num !== 0 ? result / num : result;
+            }, dividend).toString();
+        case 'average':
+            const sum = values.reduce((acc, val) => {
+                const num = parseFloat(val);
+                return acc + (isNaN(num) ? 0 : num);
+            }, 0);
+            return (sum / values.length).toString();
+        default:
+            return values.join('');
+    }
+}
+
 // PUT /api/opcua/conversions/:id - Update a conversion/variable
 app.put('/api/opcua/conversions/:id', async (req, res) => {
     try {

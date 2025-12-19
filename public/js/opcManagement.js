@@ -1391,7 +1391,7 @@ async function handleEditVariableSubmit(e) {
     const convType = document.getElementById('edit-conv-type').value;
     
     try {
-        const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}`, {
+        const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1422,19 +1422,118 @@ async function deleteVariable(variableId) {
     }
     
     try {
-        const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}`, {
+        const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
             method: 'DELETE'
         });
+        
+        const data = await response.json();
         
         if (response.ok) {
             showNotification('Variable deleted successfully', 'success');
             await loadVariables();
+        } else if (response.status === 400 && data.usedIn) {
+            // Variable is used in combined variables - show modal
+            showDeleteDependenciesModal(variableId, data.usedIn);
         } else {
-            showNotification('Failed to delete variable', 'error');
+            showNotification(data.message || data.error || 'Failed to delete variable', 'error');
         }
     } catch (error) {
         console.error('Error deleting variable:', error);
         showNotification('Failed to delete variable', 'error');
+    }
+}
+
+// Show modal for deleting variables with dependencies
+function showDeleteDependenciesModal(variableId, usedInVariables) {
+    const modalHtml = `
+        <div id="deleteDependenciesModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full">
+                <div class="flex items-center justify-between p-6 border-b bg-yellow-50">
+                    <div class="flex items-center">
+                        <i class="ri-alert-line text-3xl text-yellow-600 mr-3"></i>
+                        <h2 class="text-xl font-semibold text-gray-800">Variable In Use</h2>
+                    </div>
+                    <button onclick="closeDeleteDependenciesModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="ri-close-line text-2xl"></i>
+                    </button>
+                </div>
+                
+                <div class="p-6">
+                    <p class="text-gray-700 mb-4">
+                        This variable is currently used in the following combined variables:
+                    </p>
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                        <ul class="list-disc list-inside space-y-2">
+                            ${usedInVariables.map(name => `<li class="text-red-700 font-medium">${name}</li>`).join('')}
+                        </ul>
+                    </div>
+                    <p class="text-gray-600 text-sm">
+                        Would you like to delete this variable along with all combined variables that use it?
+                    </p>
+                </div>
+                
+                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                    <button onclick="closeDeleteDependenciesModal()" 
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                        <i class="ri-close-line mr-2"></i>Cancel
+                    </button>
+                    <button onclick="deleteVariableWithDependencies('${variableId}', ${JSON.stringify(usedInVariables).replace(/"/g, '&quot;')})" 
+                        class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
+                        <i class="ri-delete-bin-line mr-2"></i>Delete All
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeDeleteDependenciesModal() {
+    const modal = document.getElementById('deleteDependenciesModal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Delete variable and all combined variables that depend on it
+async function deleteVariableWithDependencies(variableId, usedInVariableNames) {
+    try {
+        // First, find and delete all combined variables that use this variable
+        const combinedVarIds = [];
+        for (const name of usedInVariableNames) {
+            const combinedVar = variablesCache.find(v => v.variableName === name);
+            if (combinedVar) {
+                combinedVarIds.push(combinedVar._id);
+            }
+        }
+        
+        // Delete combined variables first
+        for (const id of combinedVarIds) {
+            const response = await fetch(`${API_URL}/api/opcua/conversions/${id}?company=${COMPANY}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) {
+                console.error(`Failed to delete combined variable: ${id}`);
+            }
+        }
+        
+        // Now delete the original variable
+        const response = await fetch(`${API_URL}/api/opcua/conversions/${variableId}?company=${COMPANY}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showNotification(`Successfully deleted variable and ${combinedVarIds.length} dependent combined variable(s)`, 'success');
+            closeDeleteDependenciesModal();
+            await loadVariables();
+        } else {
+            const data = await response.json();
+            showNotification(data.message || data.error || 'Failed to delete variable', 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting variables:', error);
+        showNotification('Failed to delete variables', 'error');
     }
 }
 
