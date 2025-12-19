@@ -39,12 +39,23 @@ function viewInspectionList() {
   console.log('View inspection list clicked');
 }
 
-// Add click handlers for counter buttons
+// Add click handlers for counter buttons (increment)
 document.querySelectorAll('.counter-button').forEach((button, index) => {
   button.addEventListener('click', function() {
     const counterDisplay = this.previousElementSibling;
     const counterNumber = counterDisplay.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
     counterNumber.textContent = currentCount + 1;
+  });
+});
+
+// Add click handlers for counter displays (decrement)
+document.querySelectorAll('.counter-display').forEach((display, index) => {
+  display.addEventListener('click', function() {
+    const counterNumber = this.querySelector('.counter-number');
+    const currentCount = parseInt(counterNumber.textContent);
+    if (currentCount > 0) {
+      counterNumber.textContent = currentCount - 1;
+    }
   });
 });

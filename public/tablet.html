@@ -202,25 +202,28 @@
     .counter-display {
       background: #212121;
       color: white;
-      padding: 12px;
+      padding: 8px 12px;
       border-radius: 6px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: center;
       font-size: 24px;
       font-weight: bold;
       font-family: 'Courier New', monospace;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .counter-display:hover {
+      background: #424242;
+    }
+
+    .counter-display:active {
+      transform: scale(0.95);
     }
 
     .counter-number {
-      flex: 1;
       text-align: center;
-    }
-
-    .counter-checkbox {
-      width: 20px;
-      height: 20px;
-      cursor: pointer;
     }
 
     .counter-button {
@@ -419,7 +422,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">品違い</div>
         </div>
@@ -427,7 +429,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">誤組付け</div>
         </div>
@@ -435,7 +436,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">欠品</div>
         </div>
@@ -443,7 +443,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">異物混入不足</div>
         </div>
@@ -451,7 +450,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">欠肉(SS)</div>
         </div>
@@ -459,7 +457,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">キズ</div>
         </div>
@@ -468,7 +465,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">異物巻き込み</div>
         </div>
@@ -476,7 +472,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">浮き</div>
         </div>
@@ -484,7 +479,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">ハガレ</div>
         </div>
@@ -492,7 +486,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">ダブり</div>
         </div>
@@ -500,7 +493,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">グリス付着</div>
         </div>
@@ -508,7 +500,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">ビス不締り</div>
         </div>
@@ -517,7 +508,6 @@
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
-            <input type="checkbox" class="counter-checkbox">
           </div>
           <div class="counter-button">その他</div>
         </div>
