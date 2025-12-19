@@ -34,6 +34,9 @@ const io = new Server(server, {
     allowEIO3: true
 });
 
+// Make Socket.IO instance available to routes
+app.set('socketio', io);
+
 app.use(express.json());
 
 // Serve static files
@@ -1817,11 +1820,30 @@ io.on('connection', (socket) => {
             // Store company in socket for broadcasting
             socket.tabletCompany = company;
             
+            // 🔧 JOIN THE ROOM - This was missing!
+            const room = `opcua_${company}`;
+            socket.join(room);
+            console.log(`🏠 Tablet ${socket.id} joined room: ${room}`);
+            
             // Send initial values immediately
             await broadcastVariablesToTablet(socket, company);
             
         } catch (error) {
             console.error('Error subscribing to variables:', error);
+        }
+    });
+    
+    // Handle immediate variable data request (triggered by variable config updates)
+    socket.on('requestVariables', async (data) => {
+        try {
+            const company = data.company || 'KSG';
+            console.log(`🔄 Tablet ${socket.id} requesting fresh variables for ${company}`);
+            
+            // Send fresh variable data immediately
+            await broadcastVariablesToTablet(socket, company);
+            
+        } catch (error) {
+            console.error('Error sending requested variables:', error);
         }
     });
     
@@ -4052,6 +4074,33 @@ app.put('/api/opcua/conversions/:id', async (req, res) => {
         }
         
         console.log(`✅ Updated variable: ${id}`);
+        
+        // Broadcast updated variables to all connected tablets in real-time
+        try {
+            console.log(`📡 Broadcasting variable update to tablets for company: ${company}`);
+            // Use the global io instance directly
+            if (io) {
+                const room = `opcua_${company}`;
+                console.log(`📡 Broadcasting to room: ${room}`);
+                
+                // Simple approach: just emit to the entire room
+                // This will trigger all tablets to request fresh data
+                io.to(room).emit('variable-updated', {
+                    variableId: id,
+                    company: company,
+                    message: 'Variable configuration updated',
+                    timestamp: new Date()
+                });
+                
+                console.log(`✅ Variable update event sent to room: ${room}`);
+            } else {
+                console.log(`⚠️ Socket.IO instance not available`);
+            }
+        } catch (broadcastError) {
+            console.error('❌ Error broadcasting variable update:', broadcastError);
+            // Don't fail the request if broadcasting fails
+        }
+        
         res.json({ success: true, message: 'Variable updated successfully' });
         
     } catch (error) {

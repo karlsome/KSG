@@ -36,6 +36,14 @@ socket.on('opcua_variables_update', (data) => {
   updateUIWithVariables(data.variables);
 });
 
+// Listen for immediate variable configuration updates
+socket.on('variable-updated', (data) => {
+  console.log('🔄 Variable configuration updated:', data);
+  console.log('🔄 Requesting fresh variable data...');
+  // Request fresh variable data immediately
+  socket.emit('requestVariables', { company: 'KSG' });
+});
+
 // Update UI with variable data
 function updateUIWithVariables(variables) {
   console.log('🎯 Updating UI with variables:', variables);
