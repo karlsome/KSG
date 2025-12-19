@@ -87,9 +87,174 @@ pending_discovered_nodes = None
 pending_data_queue = []
 device_info_uploaded = False  # Track if device info has been uploaded
 
+# Event logging configuration
+EVENT_BUFFER_MAX = 1000  # Maximum events in buffer
+EVENT_FLUSH_INTERVAL = 10  # Flush every 10 seconds
+EVENT_FLUSH_COUNT = 100  # Or when 100 events accumulated
+EVENT_LOG_ENDPOINT = f"{API_BASE_URL}/api/opcua/event-log"
+
+# Event logging state
+event_buffer = []  # Buffer for event logs
+last_values = {}  # Track previous values for change detection
+last_event_flush = 0
+opcua_connection_status = 'Unknown'  # Unknown, Connected, Disconnected
+last_connection_check = 0
+CONNECTION_CHECK_INTERVAL = 30  # Check connection health every 30 seconds
+
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
+
+def log_event(event_type, opc_node_id=None, variable_name=None, old_value=None, new_value=None, quality='Good', message='', metadata=None):
+    """
+    Add an event to the event buffer for batch upload.
+    
+    Event types: value_change, node_discovered, connection_lost, connection_restored, quality_degraded
+    """
+    global event_buffer
+    
+    try:
+        event = {
+            'device_id': RASPBERRY_ID,
+            'company': COMPANY_NAME,
+            'eventType': event_type,
+            'opcNodeId': opc_node_id,
+            'variableName': variable_name,
+            'oldValue': old_value,
+            'newValue': new_value,
+            'quality': quality,
+            'message': message,
+            'timestamp': datetime.utcnow().isoformat(),
+            'metadata': metadata or {}
+        }
+        
+        # Add to buffer
+        if len(event_buffer) >= EVENT_BUFFER_MAX:
+            # Buffer full, remove oldest event
+            logger.warning(f"⚠️  Event buffer full ({EVENT_BUFFER_MAX}), dropping oldest event")
+            event_buffer.pop(0)
+        
+        event_buffer.append(event)
+        
+        # Immediate flush for critical events
+        if event_type in ['connection_lost', 'connection_restored']:
+            flush_event_buffer(force=True)
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to log event: {e}")
+
+def flush_event_buffer(force=False):
+    """
+    Flush event buffer to backend API.
+    Called every 10 seconds or when 100 events accumulated, or immediately for critical events.
+    """
+    global event_buffer, last_event_flush
+    
+    current_time = time.time()
+    
+    # Check if we should flush
+    should_flush = force or \
+                   len(event_buffer) >= EVENT_FLUSH_COUNT or \
+                   (len(event_buffer) > 0 and (current_time - last_event_flush) >= EVENT_FLUSH_INTERVAL)
+    
+    if not should_flush or len(event_buffer) == 0:
+        return
+    
+    try:
+        # Get events to flush
+        events_to_flush = event_buffer.copy()
+        event_buffer.clear()
+        last_event_flush = current_time
+        
+        # Send to backend
+        headers = {
+            'X-Raspberry-ID': RASPBERRY_ID,
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'raspberryId': RASPBERRY_ID,
+            'events': events_to_flush
+        }
+        
+        response = requests.post(EVENT_LOG_ENDPOINT, json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                logger.info(f"📝 Flushed {len(events_to_flush)} events to log")
+            else:
+                # Put events back if upload failed
+                logger.warning(f"⚠️  Event log upload failed: {result.get('error')}")
+                event_buffer = events_to_flush + event_buffer
+        else:
+            logger.warning(f"⚠️  Event log HTTP {response.status_code}, re-buffering events")
+            event_buffer = events_to_flush + event_buffer
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to flush events: {e}")
+        # Put events back on error
+        event_buffer = events_to_flush + event_buffer
+
+def check_connection_health():
+    """
+    Check OPC UA connection health and update status.
+    Runs every 30 seconds in main loop.
+    """
+    global opcua_connection_status
+    
+    try:
+        if not opcua_client:
+            if opcua_connection_status != 'Disconnected':
+                old_status = opcua_connection_status
+                opcua_connection_status = 'Disconnected'
+                log_event(
+                    event_type='connection_lost',
+                    quality='Bad',
+                    message=f'OPC UA client not initialized (was {old_status})',
+                    metadata={'previous_status': old_status}
+                )
+                logger.warning("⚠️  Connection health check: OPC UA client not initialized")
+            return False
+        
+        # Try to read server state
+        try:
+            # Attempt to get server state node
+            server_state_node = opcua_client.get_node("ns=0;i=2259")  # ServerState node
+            state_value = server_state_node.get_value()
+            
+            # Connection is healthy
+            if opcua_connection_status != 'Connected':
+                old_status = opcua_connection_status
+                opcua_connection_status = 'Connected'
+                log_event(
+                    event_type='connection_restored',
+                    quality='Good',
+                    message=f'OPC UA connection restored (was {old_status})',
+                    metadata={'server_state': str(state_value), 'previous_status': old_status}
+                )
+                logger.info("✅ Connection health check: Connection restored")
+            
+            return True
+            
+        except Exception as e:
+            # Connection is down
+            if opcua_connection_status != 'Disconnected':
+                old_status = opcua_connection_status
+                opcua_connection_status = 'Disconnected'
+                log_event(
+                    event_type='connection_lost',
+                    quality='Bad',
+                    message=f'OPC UA server not responding: {str(e)}',
+                    metadata={'error': str(e), 'previous_status': old_status}
+                )
+                logger.error(f"❌ Connection health check: Server not responding - {e}")
+            
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Connection health check failed: {e}")
+        return False
 
 def retry_with_backoff(func, *args, **kwargs):
     """
@@ -264,32 +429,64 @@ class DataChangeHandler:
     """
     Handler for OPC UA subscription data changes.
     Only triggers when values actually change.
+    Tracks previous values and logs all changes to event log.
     """
     def __init__(self):
         self.datapoint_map = {}  # Maps monitored item handle to datapoint info
     
     def datachange_notification(self, node, val, data):
         """Called when subscribed node value changes"""
+        global last_values
+        
         try:
             # Find which datapoint this belongs to
             node_id = node.nodeid.to_string()
             
+            # Determine quality status
+            status_code = data.monitored_item.Value.StatusCode
+            quality = 'Good' if status_code.is_good() else ('Uncertain' if status_code.is_uncertain() else 'Bad')
+            
             # Find the matching datapoint
             for dp in datapoints:
                 if dp['opcNodeId'] == node_id:
+                    variable_name = dp.get('label', node_id)
+                    
+                    # Get previous value for logging
+                    old_value = last_values.get(node_id)
+                    
+                    # Prepare data for WebSocket push
                     changed_data = {
                         'datapointId': str(dp['id']),
                         'equipmentId': dp['equipmentId'],
                         'opcNodeId': dp['opcNodeId'],
                         'value': val,
-                        'quality': 'Good' if data.monitored_item.Value.StatusCode.is_good() else 'Bad',
+                        'quality': quality,
                         'timestamp': datetime.utcnow().isoformat()
                     }
                     
                     # Add to buffer for batch upload
                     changed_data_buffer.append(changed_data)
                     
-                    logger.info(f"📊 Value changed: {dp.get('label', node_id)} = {val}")
+                    # Log the value change event
+                    log_event(
+                        event_type='value_change' if quality == 'Good' else 'quality_degraded',
+                        opc_node_id=node_id,
+                        variable_name=variable_name,
+                        old_value=old_value,
+                        new_value=val,
+                        quality=quality,
+                        message=f"Value changed from {old_value} to {val}" if old_value is not None else f"Initial value: {val}",
+                        metadata={
+                            'dataType': type(val).__name__,
+                            'equipmentId': dp['equipmentId'],
+                            'datapointId': str(dp['id'])
+                        }
+                    )
+                    
+                    # Update last known value
+                    last_values[node_id] = val
+                    
+                    logger.info(f"📊 Value changed: {variable_name} = {val} (quality: {quality})")
                     break
                     
         except Exception as e:
@@ -343,7 +540,7 @@ def fetch_config():
 
 def connect_opcua():
     """Connect to OPC UA server"""
-    global opcua_client
+    global opcua_client, opcua_connection_status
     
     try:
         if not config:
@@ -361,11 +558,33 @@ def connect_opcua():
         
         opcua_client.connect()
         
+        # Log successful connection
+        old_status = opcua_connection_status
+        opcua_connection_status = 'Connected'
+        log_event(
+            event_type='connection_restored',
+            quality='Good',
+            message=f"Connected to OPC UA server {config['opcua_server_ip']}:{config['opcua_server_port']}",
+            metadata={
+                'opcua_server_ip': config['opcua_server_ip'],
+                'opcua_server_port': config['opcua_server_port'],
+                'previous_status': old_status
+            }
+        )
+        
         logger.info(f"✅ Connected to OPC UA server: {config['opcua_server_ip']}")
         return True
         
     except Exception as e:
         logger.error(f"❌ Failed to connect to OPC UA server: {e}")
+        old_status = opcua_connection_status
+        opcua_connection_status = 'Disconnected'
+        log_event(
+            event_type='connection_lost',
+            quality='Bad',
+            message=f"Failed to connect to OPC UA server: {str(e)}",
+            metadata={'error': str(e), 'previous_status': old_status}
+        )
         opcua_client = None
         return False
 
@@ -847,6 +1066,15 @@ def main_loop():
             if pending_discovered_nodes and (current_time - last_config_fetch) > 60:
                 logger.info("🔄 Retrying pending discovered nodes upload...")
                 save_discovered_nodes()
+            
+            # Periodic connection health check
+            global last_connection_check
+            if (current_time - last_connection_check) >= CONNECTION_CHECK_INTERVAL:
+                check_connection_health()
+                last_connection_check = current_time
+            
+            # Periodic event buffer flush
+            flush_event_buffer()
             
             # Short sleep to prevent tight loop (subscriptions handle timing)
             time.sleep(1)

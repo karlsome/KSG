@@ -130,9 +130,66 @@ async function connectToMongoDB() {
         await mongoClient.db(DB_NAME).admin().ping();
         console.log('✅ Connected to MongoDB Atlas successfully');
         
+        // Setup TTL index for event log collection (2-year retention)
+        await setupEventLogTTLIndex();
+        
         return true;
     } catch (error) {
         console.error('❌ MongoDB connection failed:', error.message);
+        return false;
+    }
+}
+
+// Setup TTL index for opcua_event_log collection (2-year retention)
+async function setupEventLogTTLIndex() {
+    try {
+        if (!mongoClient) {
+            console.log('⚠️  MongoDB not connected, skipping TTL index setup');
+            return false;
+        }
+        
+        console.log('🔧 Setting up TTL index for opcua_event_log...');
+        
+        const db = mongoClient.db(DB_NAME);
+        const masterUsers = await db.collection(COLLECTION_NAME).find({ 
+            role: "masterUser" 
+        }).toArray();
+        
+        let indexCount = 0;
+        
+        for (const user of masterUsers) {
+            try {
+                const userDb = mongoClient.db(user.dbName);
+                const eventLogCollection = userDb.collection('opcua_event_log');
+                
+                // Create TTL index: documents expire after 2 years (63072000 seconds)
+                await eventLogCollection.createIndex(
+                    { timestamp: 1 }, 
+                    { 
+                        expireAfterSeconds: 63072000,  // 2 years
+                        name: 'event_log_ttl_idx',
+                        background: true
+                    }
+                );
+                
+                indexCount++;
+                console.log(`  ✓ TTL index created for ${user.dbName}`);
+                
+            } catch (error) {
+                // Index might already exist, that's okay
+                if (error.code === 85 || error.codeName === 'IndexOptionsConflict') {
+                    console.log(`  ℹ️  TTL index already exists for ${user.dbName}`);
+                } else {
+                    console.error(`  ❌ Failed to create index for ${user.dbName}:`, error.message);
+                }
+            }
+        }
+        
+        console.log(`✅ Event log TTL index setup complete (${indexCount} databases)`);
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Failed to setup event log TTL index:', error.message);
         return false;
     }
 }
@@ -2480,6 +2537,43 @@ app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
     } catch (error) {
         console.error('❌ Error saving OPC UA data:', error);
         res.status(500).json({ error: 'Failed to save data' });
+    }
+});
+
+// POST /api/opcua/event-log - Batch insert event logs from Raspberry Pi
+app.post('/api/opcua/event-log', validateRaspberryPi, async (req, res) => {
+    try {
+        const { raspberryId, dbName } = req;
+        const { events } = req.body; // Array of event objects
+        const db = mongoClient.db(dbName);
+        
+        if (!Array.isArray(events) || events.length === 0) {
+            return res.status(400).json({ error: 'Invalid events format' });
+        }
+        
+        // Add timestamps for when events were received by server
+        const eventsToInsert = events.map(event => ({
+            ...event,
+            receivedAt: new Date(),
+            timestamp: new Date(event.timestamp) // Convert ISO string to Date
+        }));
+        
+        // Batch insert all events
+        const result = await db.collection('opcua_event_log').insertMany(eventsToInsert);
+        
+        console.log(`📝 Logged ${result.insertedCount} events from Raspberry Pi ${raspberryId}`);
+        
+        res.json({ 
+            success: true, 
+            inserted: result.insertedCount 
+        });
+        
+    } catch (error) {
+        console.error('❌ Error saving event log:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to save event log' 
+        });
     }
 });
 
