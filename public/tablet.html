@@ -130,6 +130,19 @@
       min-height: 40px;
     }
 
+    .info-cell .field-input {
+      height: 44px;
+      box-sizing: border-box;
+    }
+
+    .info-cell .action-button {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+    }
+
     .info-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
@@ -215,16 +228,34 @@
       min-height: 60px;
     }
 
+    .button-cell .field-input {
+      height: 44px;
+      box-sizing: border-box;
+      padding: 10px;
+    }
+
+    .button-cell .action-button {
+      height: 44px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
     .action-button {
       background: #e3f2fd;
       border: 2px solid #90caf9;
-      padding: 15px 10px;
       border-radius: 6px;
       cursor: pointer;
       font-size: 13px;
       font-weight: bold;
       text-align: center;
       transition: all 0.3s;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
     }
 
     .action-button:hover {
@@ -470,15 +501,21 @@
           <div class="button-header">検査データ送信</div>
         </div>
         <div class="button-action-row">
-          <div class="button-cell"></div>
+          <div class="button-cell">
+            <input type="text" class="field-input" id="workStartTimeValue" value="">
+          </div>
           <div class="button-cell">
             <div class="action-button" onclick="pauseWork()">作業中断</div>
           </div>
           <div class="button-cell">
             <div class="action-button" onclick="setWorkEndTime()">作業終了</div>
           </div>
-          <div class="button-cell"></div>
-          <div class="button-cell"></div>
+          <div class="button-cell">
+            <input type="text" class="field-input" id="inspectionAddValue" value="">
+          </div>
+          <div class="button-cell">
+            <input type="text" class="field-input" id="inspectionDataValue" value="">
+          </div>
         </div>
       </div>
     </div>
