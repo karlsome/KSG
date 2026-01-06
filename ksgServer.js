@@ -815,6 +815,108 @@ app.get('/api/users/:company', authenticateDevice, async (req, res) => {
     }
 });
 
+// ============================================================
+// 🔹 TABLET API ENDPOINTS (Public - No Authentication Required)
+// ============================================================
+
+// Get users for tablet (filtered by factory and enabled status)
+app.get('/api/tablet/users/:factory', async (req, res) => {
+    const factory = decodeURIComponent(req.params.factory);
+    
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not connected' 
+            });
+        }
+        
+        // Use KSG database
+        const db = mongoClient.db('KSG');
+        const collection = db.collection('users');
+        
+        // Query users where enabled and factory matches (supports comma-separated values)
+        // This will match if factory appears anywhere in the comma-separated list
+        const users = await collection.find({
+            enable: 'enabled',
+            factory: { $regex: factory, $options: 'i' }
+        }).toArray();
+        
+        // Return user info needed for dropdowns
+        const filteredUsers = users.map(user => ({
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            fullName: `${user.lastName || ''} ${user.firstName || ''}`.trim()
+        }));
+        
+        console.log(`👥 [TABLET] Served ${filteredUsers.length} users for factory: ${factory}`);
+        res.json({
+            success: true,
+            users: filteredUsers,
+            count: filteredUsers.length,
+            factory: factory
+        });
+        
+    } catch (error) {
+        console.error('❌ [TABLET] Error fetching users:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch users' 
+        });
+    }
+});
+
+// Get product info from masterDB (for kensaMembers)
+app.get('/api/tablet/product/:productId', async (req, res) => {
+    const productId = decodeURIComponent(req.params.productId);
+    
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not connected' 
+            });
+        }
+        
+        // Use KSG database
+        const db = mongoClient.db('KSG');
+        const collection = db.collection('masterDB');
+        
+        // Query product by 品番
+        const product = await collection.findOne({ 品番: productId });
+        
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Product not found'
+            });
+        }
+        
+        console.log(`📦 [TABLET] Served product info for: ${productId}, kensaMembers: ${product.kensaMembers || 2}`);
+        res.json({
+            success: true,
+            product: {
+                品番: product.品番,
+                製品名: product.製品名,
+                'LH/RH': product['LH/RH'],
+                kensaMembers: product.kensaMembers || 2,
+                工場: product.工場,
+                設備: product.設備
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ [TABLET] Error fetching product:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch product' 
+        });
+    }
+});
+
+// ============================================================
+
 // Submit production data to both MongoDB and Google Sheets
 app.post('/api/submit-production-data', authenticateDevice, async (req, res) => {
     const deviceId = req.deviceId;

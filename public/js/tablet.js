@@ -1,8 +1,168 @@
 // WebSocket connection to ksgServer
-//const socket = io('http://localhost:3000');
-const socket = io('http://192.168.0.34:3000');
+//const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'http://192.168.24.32:3000';
+const socket = io(SERVER_URL);
 
 let currentCompany = 'KSG'; // Default company
+let currentFactory = ''; // Will be set from URL parameter
+let currentProductId = ''; // Will be set from URL parameter or selection
+let availableUsers = []; // Store available users
+
+// ============================================================
+// 🔹 INITIALIZATION - Parse URL Parameters & Load Data
+// ============================================================
+
+// Parse URL parameters
+function getURLParameter(name) {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get(name);
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  // Get factory from URL parameter
+  currentFactory = getURLParameter('factory') || 'KSG加工';
+  console.log('🏭 Factory from URL:', currentFactory);
+  
+  // Get product ID from URL (optional)
+  currentProductId = getURLParameter('product') || 'aaa'; // Default to 'aaa' for testing
+  console.log('📦 Product ID:', currentProductId);
+  
+  // Load users for this factory
+  await loadUsers();
+  
+  // Load product info to determine kensaMembers
+  await loadProductInfo();
+});
+
+// ============================================================
+// 🔹 FETCH USERS FROM API
+// ============================================================
+
+async function loadUsers() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/tablet/users/${encodeURIComponent(currentFactory)}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      availableUsers = data.users;
+      console.log(`✅ Loaded ${data.count} users for factory: ${currentFactory}`, availableUsers);
+      
+      // Populate dropdowns
+      populateUserDropdowns();
+    } else {
+      console.error('❌ Failed to load users:', data.error);
+    }
+  } catch (error) {
+    console.error('❌ Error loading users:', error);
+  }
+}
+
+// Populate all user dropdowns with fetched users
+function populateUserDropdowns() {
+  const dropdownIds = ['inspector', 'poster1', 'poster2', 'poster3'];
+  
+  dropdownIds.forEach(id => {
+    const dropdown = document.getElementById(id);
+    if (dropdown) {
+      // Clear existing options except the first placeholder
+      dropdown.innerHTML = '<option value="">選択してください</option>';
+      
+      // Add users as options
+      availableUsers.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.username;
+        // Display format: "lastName firstName" or username if names not available
+        option.textContent = user.fullName || user.username;
+        dropdown.appendChild(option);
+      });
+      
+      console.log(`✅ Populated ${id} with ${availableUsers.length} users`);
+    }
+  });
+}
+
+// ============================================================
+// 🔹 FETCH PRODUCT INFO & SET KENSA MEMBERS
+// ============================================================
+
+async function loadProductInfo() {
+  if (!currentProductId) {
+    console.warn('⚠️ No product ID specified');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${SERVER_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      const product = data.product;
+      console.log('✅ Loaded product info:', product);
+      
+      // Set LH/RH dropdown based on product data
+      if (product['LH/RH']) {
+        const lhRhDropdown = document.getElementById('lhRh');
+        if (lhRhDropdown) {
+          lhRhDropdown.value = product['LH/RH'];
+          console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
+        }
+      }
+      
+      // Set kensaMembers (default to 2 if not specified)
+      const kensaMembers = product.kensaMembers || 2;
+      console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+      // Show/hide columns based on kensaMembers
+      updateKensaMembersDisplay(kensaMembers);
+    } else {
+      console.error('❌ Failed to load product:', data.error);
+      // Default to 2 members if product not found
+      updateKensaMembersDisplay(2);
+    }
+  } catch (error) {
+    console.error('❌ Error loading product info:', error);
+    // Default to 2 members on error
+    updateKensaMembersDisplay(2);
+  }
+}
+
+// Show/hide columns based on kensaMembers count
+function updateKensaMembersDisplay(kensaMembers) {
+  // Elements to control:
+  // - inspector: always visible
+  // - poster1: visible if kensaMembers >= 2
+  // - poster2: visible if kensaMembers >= 3
+  // - poster3: visible if kensaMembers >= 4
+  
+  const elementsToControl = [
+    { id: 'inspector', minMembers: 1, header: 'header-inspector', cell: 'cell-inspector' },
+    { id: 'poster1', minMembers: 2, header: 'header-poster1', cell: 'cell-poster1' },
+    { id: 'poster2', minMembers: 3, header: 'header-poster2', cell: 'cell-poster2' },
+    { id: 'poster3', minMembers: 4, header: 'header-poster3', cell: 'cell-poster3' }
+  ];
+  
+  elementsToControl.forEach(element => {
+    const headerEl = document.getElementById(element.header);
+    const cellEl = document.getElementById(element.cell);
+    
+    if (headerEl && cellEl) {
+      if (kensaMembers >= element.minMembers) {
+        headerEl.style.display = '';
+        cellEl.style.display = '';
+        console.log(`✅ Showing ${element.id} (kensaMembers: ${kensaMembers} >= ${element.minMembers})`);
+      } else {
+        headerEl.style.display = 'none';
+        cellEl.style.display = 'none';
+        console.log(`❌ Hiding ${element.id} (kensaMembers: ${kensaMembers} < ${element.minMembers})`);
+      }
+    }
+  });
+}
+
+// ============================================================
+// 🔹 CONNECTION STATUS & WEBSOCKET
+// ============================================================
 
 // Update connection status indicator
 function updateConnectionStatus(status) {
@@ -70,9 +230,16 @@ function updateUIWithVariables(variables) {
 function resetBasicSettings() {
   if (confirm('基本設定をリセットしますか？')) {
     document.getElementById('lhRh').value = 'LH';
-    document.getElementById('inspector').selectedIndex = 0;
-    document.getElementById('poster1').selectedIndex = 0;
-    document.getElementById('poster2').selectedIndex = 0;
+    
+    // Reset all user dropdowns to first option (placeholder)
+    const dropdownIds = ['inspector', 'poster1', 'poster2', 'poster3'];
+    dropdownIds.forEach(id => {
+      const dropdown = document.getElementById(id);
+      if (dropdown) {
+        dropdown.selectedIndex = 0;
+      }
+    });
+    
     document.getElementById('workTime').value = '00:00';
     document.getElementById('manHours').value = '';
     document.getElementById('startTime').value = '';
