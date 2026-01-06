@@ -307,6 +307,14 @@
       animation: pulse 2s infinite;
     }
 
+    .action-button.disabled {
+      background: #e0e0e0;
+      border-color: #bdbdbd;
+      color: #9e9e9e;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
     @keyframes pulse {
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.05); }
@@ -503,7 +511,7 @@
         <!-- Row 2 Inputs -->
         <div class="info-input-row">
           <div class="info-cell">
-            <input type="text" class="field-input" id="startTime" value="12/16 15:05" readonly>
+            <input type="text" class="field-input" id="startTime" value="" readonly>
           </div>
           <div class="info-cell">
             <input type="text" class="field-input" id="stopTime" value="00:00" readonly>
@@ -532,7 +540,7 @@
       </div>
       <div class="button-section">
         <div class="button-header-row">
-          <div class="button-header">作業開始時間</div>
+          <div class="button-header">作業スタート</div>
           <div class="button-header">作業停止時間</div>
           <div class="button-header">作業停止時間</div>
           <div class="button-header">合格数追加</div>
@@ -540,7 +548,7 @@
         </div>
         <div class="button-action-row">
           <div class="button-cell">
-            <input type="text" class="field-input" id="workStartTimeValue" value="">
+            <div class="action-button disabled" id="startWorkButton" onclick="startWork()">作業開始</div>
           </div>
           <div class="button-cell">
             <div class="action-button" onclick="pauseWork()">作業中断</div>

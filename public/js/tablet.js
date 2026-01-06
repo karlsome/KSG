@@ -7,6 +7,7 @@ let currentCompany = 'KSG'; // Default company
 let currentFactory = ''; // Will be set from URL parameter
 let currentProductId = ''; // Will be set from URL parameter or selection
 let availableUsers = []; // Store available users
+let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
 
 // ============================================================
 // 🔹 INITIALIZATION - Parse URL Parameters & Load Data
@@ -33,6 +34,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Load product info to determine kensaMembers
   await loadProductInfo();
+  
+  // Add event listener for poster1 dropdown changes
+  const poster1Select = document.getElementById('poster1');
+  if (poster1Select) {
+    poster1Select.addEventListener('change', () => {
+      console.log('👤 Poster1 changed to:', poster1Select.value);
+      checkStartButtonState();
+    });
+  }
 });
 
 // ============================================================
@@ -217,18 +227,16 @@ socket.on('variable-updated', (data) => {
 function updateUIWithVariables(variables) {
   console.log('🎯 Updating UI with variables:', variables);
   
-  // Update 作業開始時間 with "tesgt" variable
-  if (variables.tesgt !== undefined) {
-    const workStartTimeInput = document.getElementById('workStartTimeValue');
-    if (workStartTimeInput) {
-      const value = variables.tesgt.value !== null ? variables.tesgt.value : 'No Data';
-      workStartTimeInput.value = value;
-      console.log('✨ Real-time update - 作業開始時間 with tesgt:', value, 'Quality:', variables.tesgt.quality, 'Stale:', variables.tesgt.isStale);
-    } else {
-      console.warn('❌ workStartTimeValue input not found in DOM');
-    }
+  // Check kenyokiRHKanban variable for start button validation
+  if (variables.kenyokiRHKanban !== undefined) {
+    const value = variables.kenyokiRHKanban.value;
+    kenyokiRHKanbanValue = (value !== null && value !== undefined && value !== '') ? value : null;
+    console.log('📊 kenyokiRHKanban value updated:', kenyokiRHKanbanValue);
+    checkStartButtonState();
   } else {
-    console.warn('❌ tesgt variable not found in response');
+    kenyokiRHKanbanValue = null;
+    console.warn('⚠️ kenyokiRHKanban variable not found');
+    checkStartButtonState();
   }
   
   // You can add more variable mappings here
@@ -254,8 +262,11 @@ function resetBasicSettings() {
     document.getElementById('startTime').value = '';
     document.getElementById('stopTime').value = '00:00';
     document.getElementById('endTime').value = '';
-    document.getElementById('inspectionCount').value = '0';
+    document.getElementById('passCount').value = '0';
     console.log('Basic settings reset');
+    
+    // Re-check start button state after reset
+    checkStartButtonState();
   }
 }
 
@@ -276,9 +287,91 @@ function resetDefectCounters() {
   }
 }
 
+// Check if start button should be enabled
+function checkStartButtonState() {
+  const startButton = document.getElementById('startWorkButton');
+  const poster1Select = document.getElementById('poster1');
+  const startTimeInput = document.getElementById('startTime');
+  
+  if (!startButton || !poster1Select || !startTimeInput) {
+    return;
+  }
+  
+  // Helper function to check if value is valid (not null, empty, or only null bytes)
+  function isValidValue(value) {
+    if (!value || value === null || value === '') return false;
+    
+    // Check if value only contains null bytes (\x00)
+    const stringValue = String(value);
+    const hasOnlyNullBytes = /^[\x00]+$/.test(stringValue);
+    if (hasOnlyNullBytes) return false;
+    
+    // Check if trimmed value is empty
+    if (stringValue.trim() === '') return false;
+    
+    return true;
+  }
+  
+  // Button is enabled ONLY when:
+  // 1. kenyokiRHKanban has a valid value (not null, empty, or null bytes)
+  // 2. poster1 is selected
+  // 3. startTime is empty (no value yet)
+  const hasKanbanValue = isValidValue(kenyokiRHKanbanValue);
+  const hasPoster1 = poster1Select.value !== '';
+  const startTimeEmpty = startTimeInput.value === '';
+  
+  console.log('🔍 Start button conditions:', {
+    hasKanbanValue,
+    hasPoster1,
+    startTimeEmpty,
+    kanbanValue: kenyokiRHKanbanValue,
+    poster1Value: poster1Select.value
+  });
+  
+  if (hasKanbanValue && hasPoster1 && startTimeEmpty) {
+    // Enable button
+    startButton.classList.remove('disabled');
+    console.log('✅ Start button ENABLED');
+  } else {
+    // Disable button
+    startButton.classList.add('disabled');
+    console.log('🔒 Start button DISABLED');
+  }
+}
+
+// Start work button clicked
+function startWork() {
+  const startTimeInput = document.getElementById('startTime');
+  const startButton = document.getElementById('startWorkButton');
+  
+  // Double check conditions
+  if (startButton.classList.contains('disabled')) {
+    console.warn('⚠️ Start button is disabled');
+    return;
+  }
+  
+  // Record current time in HH:mm format
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const timeString = `${hours}:${minutes}`;
+  
+  startTimeInput.value = timeString;
+  console.log('⏰ Work started at:', timeString);
+  
+  // Grey out button after recording time
+  checkStartButtonState();
+}
+
 // Placeholder functions for buttons
 function sendData() {
   console.log('Send data clicked');
+  // After sending data, check if we should re-enable start button
+  const startTimeInput = document.getElementById('startTime');
+  if (startTimeInput) {
+    startTimeInput.value = ''; // Clear start time
+    checkStartButtonState(); // Re-check button state
+  }
 }
 
 function setWorkStartTime() {
