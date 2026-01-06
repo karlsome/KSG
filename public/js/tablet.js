@@ -29,19 +29,24 @@ try {
 // ============================================================
 
 // Start the work timer
-function startWorkTimer() {
+function startWorkTimer(existingStartTime = null) {
   // Stop any existing timer
   stopWorkTimer();
   
-  // Set work start time
-  workStartTime = new Date();
-  console.log('⏱️ Work timer started at:', workStartTime.toLocaleTimeString());
+  // Set work start time (use existing if provided, otherwise use current time)
+  if (existingStartTime) {
+    workStartTime = existingStartTime;
+    console.log('⏱️ Work timer resumed from:', workStartTime.toLocaleTimeString());
+  } else {
+    workStartTime = new Date();
+    console.log('⏱️ Work timer started at:', workStartTime.toLocaleTimeString());
+  }
   
   // Update immediately
   updateWorkDuration();
   
-  // Update every minute
-  workTimerInterval = setInterval(updateWorkDuration, 60000);
+  // Update every 10 seconds
+  workTimerInterval = setInterval(updateWorkDuration, 10000);
 }
 
 // Stop the work timer
@@ -140,8 +145,8 @@ function restoreAllFields() {
     const savedWorkStartTime = localStorage.getItem('workStartTime');
     if (savedStartTime && savedWorkStartTime) {
       try {
-        workStartTime = new Date(parseInt(savedWorkStartTime));
-        startWorkTimer();
+        const restoredTime = new Date(parseInt(savedWorkStartTime));
+        startWorkTimer(restoredTime);
         console.log('⏱️ Restored work timer from:', savedStartTime);
       } catch (e) {
         console.error('Failed to restore work timer:', e);
