@@ -360,22 +360,31 @@
     }
 
     .counter-button {
-      background: #F48FB1;
-      border: 2px solid #F06292;
+      background: #2196F3;
+      border: 2px solid #1976D2;
       padding: 12px;
       border-radius: 6px;
       cursor: pointer;
       font-size: 13px;
       font-weight: bold;
       text-align: center;
-      color: #333;
+      color: white;
       transition: all 0.3s;
     }
 
     .counter-button:hover {
-      background: #F06292;
-      color: white;
+      background: #1976D2;
       transform: translateY(-2px);
+    }
+
+    .counter-button.shoulder {
+      background: #FF9800;
+      border: 2px solid #F57C00;
+      color: white;
+    }
+
+    .counter-button.shoulder:hover {
+      background: #F57C00;
     }
 
     .bottom-section {
@@ -573,98 +582,93 @@
         <button class="reset-button" onclick="resetDefectCounters()">リセット</button>
       </div>
       <div class="counter-grid">
-        <!-- Row 1 -->
+        <!-- Row 1: Shoulder defects (Orange) -->
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">品違い</div>
+          <div class="counter-button shoulder" data-defect="ショルダー　シルバー">シルバー</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">誤組付け</div>
+          <div class="counter-button shoulder" data-defect="ショルダー　キズ">キズ</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">欠品</div>
+          <div class="counter-button shoulder" data-defect="ショルダー　その他">その他</div>
+        </div>
+
+        <!-- Row 2: Regular defects (Blue) -->
+        <div class="counter-item">
+          <div class="counter-display">
+            <span class="counter-number">0</span>
+          </div>
+          <div class="counter-button" data-defect="素材不良">素材不良</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">異物混入不足</div>
+          <div class="counter-button" data-defect="ダブり">ダブり</div>
+        </div>
+
+        <!-- Row 3: More defects -->
+        <div class="counter-item">
+          <div class="counter-display">
+            <span class="counter-number">0</span>
+          </div>
+          <div class="counter-button" data-defect="ハガレ">ハガレ</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">欠肉(SS)</div>
+          <div class="counter-button" data-defect="イブツ">イブツ</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">キズ</div>
+          <div class="counter-button" data-defect="シワ">シワ</div>
         </div>
 
-        <!-- Row 2 -->
+        <!-- Row 4: Final defects -->
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">異物巻き込み</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button">浮き</div>
+          <div class="counter-button" data-defect="ヘンケイ">ヘンケイ</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">ハガレ</div>
+          <div class="counter-button" data-defect="グリス付着">グリス付着</div>
         </div>
 
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">ダブり</div>
+          <div class="counter-button" data-defect="ビス不締まり">ビス不締まり</div>
         </div>
 
+        <!-- Row 5: Other -->
         <div class="counter-item">
           <div class="counter-display">
             <span class="counter-number">0</span>
           </div>
-          <div class="counter-button">グリス付着</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button">ビス不締り</div>
-        </div>
-
-        <!-- Row 3 - Other -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button">その他</div>
+          <div class="counter-button" data-defect="その他">その他</div>
         </div>
       </div>
 

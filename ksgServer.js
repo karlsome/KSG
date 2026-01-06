@@ -915,6 +915,84 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
     }
 });
 
+// Submit tablet production data to Google Sheets
+app.post('/api/tablet/submit', async (req, res) => {
+    const submissionData = req.body;
+    
+    try {
+        console.log('📱 [TABLET] Received submission:', submissionData);
+        
+        // Add submission metadata
+        const now = new Date();
+        const finalData = {
+            timestamp: now.toISOString(),
+            date_year: now.getFullYear(),
+            date_month: now.getMonth() + 1,
+            date_day: now.getDate(),
+            hinban: submissionData.品番 || '',
+            product_name: submissionData.製品名 || '',
+            kanban_id: submissionData.kanbanID || '',
+            lh_rh: submissionData['LH/RH'] || '',
+            operator1: submissionData['技能員①'] || '',
+            operator2: submissionData['技能員②'] || '',
+            good_count: submissionData.良品数 || 0,
+            man_hours: submissionData.工数 || 0,
+            shoulder_silver_defect: submissionData['ショルダー　シルバー'] || 0,
+            shoulder_scratch_defect: submissionData['ショルダー　キズ'] || 0,
+            shoulder_other_defect: submissionData['ショルダー　その他'] || 0,
+            material_defect: submissionData.素材不良 || 0,
+            double_defect: submissionData.ダブり || 0,
+            peeling_defect: submissionData.ハガレ || 0,
+            foreign_matter_defect: submissionData.イブツ || 0,
+            wrinkle_defect: submissionData.シワ || 0,
+            deformation_defect: submissionData.ヘンケイ || 0,
+            grease_defect: submissionData.グリス付着 || 0,
+            screw_loose_defect: submissionData.ビス不締まり || 0,
+            other_defect: submissionData.その他 || 0,
+            other_description: submissionData.その他詳細 || '',
+            start_time: submissionData.開始時間 || '',
+            end_time: submissionData.終了時間 || '',
+            break_time: submissionData.休憩時間 || '',
+            remarks: submissionData.備考 || '',
+            excluded_man_hours: submissionData['工数（除外工数）'] || 0,
+            submitted_from: 'tablet'
+        };
+        
+        // Submit to Google Sheets
+        const GOOGLE_SHEETS_URL = process.env.GOOGLE_SHEETS_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbycrj9KY5aJMYe0kJl7MLQZ-bGvRMxrNIDJ4HXZB7QYvNI3iy3MzC2d92lkKpHzMx1u/exec';
+        
+        const response = await fetch(GOOGLE_SHEETS_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(finalData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            console.log(`✅ [TABLET] Data submitted to Google Sheets: ${finalData.hinban}`);
+            res.json({
+                success: true,
+                message: 'Data submitted successfully',
+                rowNumber: result.rowNumber,
+                submitted_at: finalData.timestamp
+            });
+        } else {
+            throw new Error(result.error || 'Google Sheets submission failed');
+        }
+        
+    } catch (error) {
+        console.error('❌ [TABLET] Error submitting data:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to submit data',
+            details: error.message
+        });
+    }
+});
+
 // ============================================================
 
 // Submit production data to both MongoDB and Google Sheets

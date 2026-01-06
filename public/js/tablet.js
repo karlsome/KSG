@@ -631,9 +631,71 @@ function startWork() {
 }
 
 // Placeholder functions for buttons
-function sendData() {
-  console.log('Send data clicked');
-  // After sending data, check if we should re-enable start button
+async function sendData() {
+  console.log('📤 Send data clicked');
+  
+  try {
+    // Gather all defect data with proper names
+    const defectButtons = document.querySelectorAll('.counter-button');
+    const defectNumbers = document.querySelectorAll('.counter-number');
+    const defectData = {};
+    
+    defectButtons.forEach((button, index) => {
+      const defectName = button.getAttribute('data-defect');
+      const count = parseInt(defectNumbers[index].textContent) || 0;
+      defectData[defectName] = count;
+    });
+    
+    // Prepare submission data
+    const submissionData = {
+      品番: currentProductId || '',
+      製品名: document.getElementById('remarks')?.textContent || '',
+      kanbanID: kenyokiRHKanbanValue || '',
+      'LH/RH': document.getElementById('lhRh')?.value || '',
+      '技能員①': document.getElementById('poster1')?.value || '',
+      '技能員②': document.getElementById('poster2')?.value || '',
+      良品数: parseInt(document.getElementById('passCount')?.value) || 0,
+      工数: parseFloat(document.getElementById('manHours')?.value) || 0,
+      ...defectData,
+      その他詳細: document.getElementById('otherDetails')?.value || '',
+      開始時間: document.getElementById('startTime')?.value || '',
+      終了時間: document.getElementById('endTime')?.value || '',
+      休憩時間: '',
+      備考: document.getElementById('remarks')?.textContent || '',
+      '工数（除外工数）': 0
+    };
+    
+    console.log('📊 Submitting data:', submissionData);
+    
+    // Submit to server
+    const response = await fetch(`${SERVER_URL}/api/tablet/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(submissionData)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ Data submitted successfully:', result);
+      alert('データが正常に送信されました！');
+      
+      // Clear all fields after successful submission
+      clearAllFields();
+    } else {
+      throw new Error(result.error || 'Submission failed');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error submitting data:', error);
+    alert('データ送信エラー: ' + error.message);
+  }
+}
+
+// Helper function to clear all fields after submission
+function clearAllFields() {
   const startTimeInput = document.getElementById('startTime');
   if (startTimeInput) {
     startTimeInput.value = ''; // Clear start time
