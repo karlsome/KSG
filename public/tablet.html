@@ -496,9 +496,9 @@
           <div class="info-header">開始時間</div>
           <div class="info-header">停止時間</div>
           <div class="info-header">終了時間</div>
-          <div class="info-header">検査数</div>
+          <div class="info-header">作業数</div>
+          <div class="info-header">合格数</div>
           <div class="info-header">設定更新</div>
-          <div class="info-header" style="visibility: hidden;">Placeholder</div>
         </div>
         <!-- Row 2 Inputs -->
         <div class="info-input-row">
@@ -512,12 +512,14 @@
             <input type="text" class="field-input" id="endTime" value="" readonly>
           </div>
           <div class="info-cell">
-            <input type="number" class="field-input" id="inspectionCount" value="0">
+            <input type="number" class="field-input" id="workCount" value="0" readonly>
+          </div>
+          <div class="info-cell">
+            <input type="number" class="field-input" id="passCount" value="0">
           </div>
           <div class="info-cell">
             <div class="action-button" onclick="sendData()">データ送信</div>
           </div>
-          <div class="info-cell"></div>
         </div>
       </div>
     </div>
@@ -533,7 +535,7 @@
           <div class="button-header">作業開始時間</div>
           <div class="button-header">作業停止時間</div>
           <div class="button-header">作業停止時間</div>
-          <div class="button-header">検査数追加</div>
+          <div class="button-header">合格数追加</div>
           <div class="button-header">検査データ送信</div>
         </div>
         <div class="button-action-row">
