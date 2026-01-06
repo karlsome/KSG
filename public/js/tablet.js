@@ -10,6 +10,8 @@ let availableUsers = []; // Store available users
 let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
 let seisanSuStartValue = null; // Starting value of seisanSu when work started
 let currentSeisanSuValue = null; // Current seisanSu value
+let workTimerInterval = null; // Interval for updating work time
+let workStartTime = null; // Timestamp when work started
 
 // Restore seisanSuStartValue from localStorage on load
 try {
@@ -20,6 +22,62 @@ try {
   }
 } catch (e) {
   console.error('Failed to restore seisanSuStartValue:', e);
+}
+
+// ============================================================
+// ⏱️ REAL-TIME WORK DURATION TRACKING
+// ============================================================
+
+// Start the work timer
+function startWorkTimer() {
+  // Stop any existing timer
+  stopWorkTimer();
+  
+  // Set work start time
+  workStartTime = new Date();
+  console.log('⏱️ Work timer started at:', workStartTime.toLocaleTimeString());
+  
+  // Update immediately
+  updateWorkDuration();
+  
+  // Update every minute
+  workTimerInterval = setInterval(updateWorkDuration, 60000);
+}
+
+// Stop the work timer
+function stopWorkTimer() {
+  if (workTimerInterval) {
+    clearInterval(workTimerInterval);
+    workTimerInterval = null;
+    console.log('⏹️ Work timer stopped');
+  }
+}
+
+// Update work duration fields (作業時間 and 工数)
+function updateWorkDuration() {
+  if (!workStartTime) {
+    document.getElementById('workTime').value = '00:00';
+    document.getElementById('manHours').value = '0';
+    return;
+  }
+  
+  const now = new Date();
+  const elapsedMs = now - workStartTime;
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  
+  // Calculate hours and minutes
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  
+  // Format as HH:MM
+  const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  document.getElementById('workTime').value = timeString;
+  
+  // Calculate decimal hours (e.g., 1:30 = 1.5)
+  const decimalHours = (hours + minutes / 60).toFixed(2);
+  document.getElementById('manHours').value = decimalHours;
+  
+  console.log(`⏱️ Work duration: ${timeString} (${decimalHours}h)`);
 }
 
 // ============================================================
@@ -76,6 +134,19 @@ function restoreAllFields() {
     // Update calculated fields
     updateDefectSum();
     updateWorkCount();
+    
+    // Restart work timer if start time exists
+    const savedStartTime = localStorage.getItem('tablet_startTime');
+    const savedWorkStartTime = localStorage.getItem('workStartTime');
+    if (savedStartTime && savedWorkStartTime) {
+      try {
+        workStartTime = new Date(parseInt(savedWorkStartTime));
+        startWorkTimer();
+        console.log('⏱️ Restored work timer from:', savedStartTime);
+      } catch (e) {
+        console.error('Failed to restore work timer:', e);
+      }
+    }
     
     console.log('✅ All fields restored from localStorage');
   } catch (e) {
@@ -413,6 +484,14 @@ function resetBasicSettings() {
     document.getElementById('passCount').value = '0';
     console.log('Basic settings reset');
     
+    // Stop work timer
+    stopWorkTimer();
+    workStartTime = null;
+    localStorage.removeItem('workStartTime');
+    document.getElementById('workTime').value = '00:00';
+    document.getElementById('manHours').value = '0';
+    console.log('⏹️ Work timer cleared');
+    
     // Reset seisanSu starting value
     seisanSuStartValue = null;
     localStorage.removeItem('seisanSuStartValue');
@@ -528,6 +607,10 @@ function startWork() {
   // Save start time to localStorage
   saveFieldToLocalStorage('startTime', timeString);
   
+  // Start the work duration timer
+  startWorkTimer();
+  localStorage.setItem('workStartTime', workStartTime.getTime().toString());
+  
   // Capture current seisanSu value as starting point
   if (currentSeisanSuValue !== null) {
     seisanSuStartValue = currentSeisanSuValue;
@@ -549,6 +632,14 @@ function sendData() {
   const startTimeInput = document.getElementById('startTime');
   if (startTimeInput) {
     startTimeInput.value = ''; // Clear start time
+    
+    // Stop work timer
+    stopWorkTimer();
+    workStartTime = null;
+    localStorage.removeItem('workStartTime');
+    document.getElementById('workTime').value = '00:00';
+    document.getElementById('manHours').value = '0';
+    console.log('⏹️ Work timer cleared');
     
     // Reset seisanSu starting value
     seisanSuStartValue = null;
