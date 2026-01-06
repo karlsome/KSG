@@ -982,6 +982,7 @@ app.post('/api/tablet/submit', async (req, res) => {
             hinban: submissionData.品番 || '',
             product_name: submissionData.製品名 || '',
             kanban_id: submissionData.kanbanID || '',
+            hako_iresu: submissionData.hakoIresu || 0,
             lh_rh: submissionData['LH/RH'] || '',
             operator1: submissionData['技能員①'] || '',
             operator2: submissionData['技能員②'] || '',

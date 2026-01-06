@@ -446,7 +446,7 @@
   <div class="container">
     <!-- Header -->
     <div class="header">
-      <div class="title">検査カウンター（<span id="productNameDisplay">440Dセンターピラー</span>）</div>
+      <div class="title">検査カウンター（<span id="productNameDisplay">440Dセンターピラー</span><span id="kanbanIdDisplay"></span>）</div>
       <div class="logo">
         <img src="../old_data/src/logo.png" alt="Kasugai Kakou Logo" style="height: 80px;">
       </div>
@@ -465,9 +465,8 @@
         <!-- Row 1 Headers -->
         <div class="info-header-row" id="headerRow1">
           <div class="info-header">LH/RH</div>
-          <div class="info-header" id="header-inspector">検査員</div>
           <div class="info-header" id="header-poster1">投稿員_1</div>
-          <div class="info-header" id="header-poster2">投稿員_2</div>
+          <div class="info-header" id="header-poster2" style="display: none;">投稿員_2</div>
           <div class="info-header" id="header-poster3" style="display: none;">投稿員_3</div>
           <div class="info-header">作業時間</div>
           <div class="info-header">工数</div>
@@ -480,17 +479,12 @@
               <option value="RH">RH</option>
             </select>
           </div>
-          <div class="info-cell" id="cell-inspector">
-            <select class="field-input" id="inspector">
-              <option value="">選択してください</option>
-            </select>
-          </div>
           <div class="info-cell" id="cell-poster1">
             <select class="field-input" id="poster1">
               <option value="">選択してください</option>
             </select>
           </div>
-          <div class="info-cell" id="cell-poster2">
+          <div class="info-cell" id="cell-poster2" style="display: none;">
             <select class="field-input" id="poster2">
               <option value="">選択してください</option>
             </select>
@@ -566,7 +560,7 @@
             <div class="action-button" onclick="setWorkEndTime()">作業終了</div>
           </div>
           <div class="button-cell">
-            <input type="text" class="field-input" id="inspectionAddValue" value="">
+            <input type="text" class="field-input" id="inspectionAddValue" value="" readonly>
           </div>
           <div class="button-cell">
             <input type="text" class="field-input" id="inspectionDataValue" value="">

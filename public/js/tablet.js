@@ -6,10 +6,12 @@ const socket = io(SERVER_URL);
 let currentCompany = 'KSG'; // Default company
 let currentFactory = ''; // Will be set from URL parameter
 let currentProductId = ''; // Will be set from URL parameter or selection
+let currentProductName = ''; // Store product name from masterDB
 let availableUsers = []; // Store available users
 let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
 let seisanSuStartValue = null; // Starting value of seisanSu when work started
 let currentSeisanSuValue = null; // Current seisanSu value
+let hakoIresuValue = null; // Store hakoIresu variable value
 let workTimerInterval = null; // Interval for updating work time
 let workStartTime = null; // Timestamp when work started
 
@@ -115,7 +117,7 @@ function restoreAllFields() {
     });
     
     // Dropdowns
-    const dropdownFields = ['lhRh', 'inspector', 'poster1', 'poster2', 'poster3'];
+    const dropdownFields = ['lhRh', 'poster1', 'poster2', 'poster3'];
     dropdownFields.forEach(fieldId => {
       const saved = localStorage.getItem(`tablet_${fieldId}`);
       if (saved !== null) {
@@ -215,7 +217,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   
   // Add change listeners for all dropdowns
-  const dropdowns = ['lhRh', 'inspector', 'poster2', 'poster3'];
+  const dropdowns = ['lhRh', 'poster1', 'poster2', 'poster3'];
   dropdowns.forEach(fieldId => {
     const field = document.getElementById(fieldId);
     if (field) {
@@ -262,7 +264,7 @@ async function loadUsers() {
 
 // Populate all user dropdowns with fetched users
 function populateUserDropdowns() {
-  const dropdownIds = ['inspector', 'poster1', 'poster2', 'poster3'];
+  const dropdownIds = ['poster1', 'poster2', 'poster3'];
   
   dropdownIds.forEach(id => {
     const dropdown = document.getElementById(id);
@@ -310,8 +312,21 @@ async function loadProductByKanbanID(kanbanId) {
       const product = data.product;
       console.log('✅ Loaded product info:', product);
       
-      // Update current product ID
+      // Update current product ID and name
       currentProductId = product.品番;
+      currentProductName = product['製品名'] || '';
+      
+      // Set product name and kanbanID in header title
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (productNameDisplay && product['製品名']) {
+        productNameDisplay.textContent = product['製品名'];
+        console.log(`✅ Set product name in title to: ${product['製品名']}`);
+      }
+      if (kanbanIdDisplay && product.kanbanID) {
+        kanbanIdDisplay.textContent = ', ' + product.kanbanID;
+        console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
+      }
       
       // Set product name in remarks display
       const remarksDisplay = document.getElementById('remarks');
@@ -401,16 +416,14 @@ async function loadProductInfoOld() {
 // Show/hide columns based on kensaMembers count
 function updateKensaMembersDisplay(kensaMembers) {
   // Elements to control:
-  // - inspector: always visible
-  // - poster1: visible if kensaMembers >= 2
-  // - poster2: visible if kensaMembers >= 3
-  // - poster3: visible if kensaMembers >= 4
+  // - poster1: visible if kensaMembers >= 1
+  // - poster2: visible if kensaMembers >= 2
+  // - poster3: visible if kensaMembers >= 3
   
   const elementsToControl = [
-    { id: 'inspector', minMembers: 1, header: 'header-inspector', cell: 'cell-inspector' },
-    { id: 'poster1', minMembers: 2, header: 'header-poster1', cell: 'cell-poster1' },
-    { id: 'poster2', minMembers: 3, header: 'header-poster2', cell: 'cell-poster2' },
-    { id: 'poster3', minMembers: 4, header: 'header-poster3', cell: 'cell-poster3' }
+    { id: 'poster1', minMembers: 1, header: 'header-poster1', cell: 'cell-poster1' },
+    { id: 'poster2', minMembers: 2, header: 'header-poster2', cell: 'cell-poster2' },
+    { id: 'poster3', minMembers: 3, header: 'header-poster3', cell: 'cell-poster3' }
   ];
   
   elementsToControl.forEach(element => {
@@ -534,6 +547,22 @@ function updateUIWithVariables(variables) {
     console.warn('⚠️ seisanSu variable not found');
   }
   
+  // Track hakoIresu variable for 合格数追加 display
+  if (variables.hakoIresu !== undefined) {
+    const value = variables.hakoIresu.value;
+    hakoIresuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
+    console.log('📊 hakoIresu value updated:', hakoIresuValue);
+    
+    // Update the display field
+    const inspectionAddInput = document.getElementById('inspectionAddValue');
+    if (inspectionAddInput) {
+      inspectionAddInput.value = hakoIresuValue !== null ? hakoIresuValue : '';
+    }
+  } else {
+    hakoIresuValue = null;
+    console.warn('⚠️ hakoIresu variable not found');
+  }
+  
   // You can add more variable mappings here
   // Example: if (variables.otherVar) { document.getElementById('someField').value = variables.otherVar.value; }
 }
@@ -544,7 +573,7 @@ function resetBasicSettings() {
     document.getElementById('lhRh').value = 'LH';
     
     // Reset all user dropdowns to first option (placeholder)
-    const dropdownIds = ['inspector', 'poster1', 'poster2', 'poster3'];
+    const dropdownIds = ['poster1', 'poster2', 'poster3'];
     dropdownIds.forEach(id => {
       const dropdown = document.getElementById(id);
       if (dropdown) {
@@ -720,8 +749,9 @@ async function sendData() {
     // Prepare submission data
     const submissionData = {
       品番: currentProductId || '',
-      製品名: document.getElementById('remarks')?.textContent || '',
+      製品名: currentProductName || '',
       kanbanID: kenyokiRHKanbanValue || '',
+      hakoIresu: hakoIresuValue || 0,
       'LH/RH': document.getElementById('lhRh')?.value || '',
       '技能員①': document.getElementById('poster1')?.value || '',
       '技能員②': document.getElementById('poster2')?.value || '',

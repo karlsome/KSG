@@ -11,8 +11,9 @@ const COLUMN_MAPPING = {
   'E': 'hinban',                     // 品番
   'F': 'product_name',               // 製品名
   'G': 'kanban_id',                  // かんばんID
-  'H': 'lh_rh',                      // LH/RH
-  'I': 'operator1',                  // 技能員①
+  'H': 'hako_iresu',                 // 箱入数
+  'I': 'lh_rh',                      // LH/RH
+  'J': 'operator1',                  // 技能員①
   'J': 'operator2',                  // 技能員②
   'K': 'good_count',                 // 良品数
   'L': 'man_hours',                  // 工数
@@ -126,7 +127,7 @@ function getOrCreateSheet() {
  */
 function setupHeaders(sheet) {
   const headers = [
-    'タイムスタンプ', '年', '月', '日', '品番', '製品名', 'かんばんID', 'LH/RH',
+    'タイムスタンプ', '年', '月', '日', '品番', '製品名', 'かんばんID', '箱入数', 'LH/RH',
     '技能員①', '技能員②', '良品数', '工数',
     'ショルダー　シルバー', 'ショルダー　キズ', 'ショルダー　その他',
     '素材不良', 'ダブり', 'ハガレ', 'イブツ', 'シワ', 'ヘンケイ',
@@ -238,6 +239,7 @@ function testDataReceiver() {
     hinban: 'TEST123',
     product_name: 'テスト製品',
     kanban_id: 'KB001',
+    hako_iresu: 50,
     lh_rh: 'RH',
     operator1: 'kasugai2 kasugai2',
     operator2: '',
