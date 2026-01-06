@@ -1889,9 +1889,9 @@ async function broadcastVariablesToTablet(socket, company) {
 // Helper function: Broadcast variables to all tablets subscribed to a company
 async function broadcastVariablesToAllTablets(company) {
     try {
-        // Get all connected sockets with tabletCompany set
-        const sockets = await io.fetchSockets();
-        const tabletsForCompany = sockets.filter(s => s.tabletCompany === company);
+        // Get all connected sockets - io.sockets.sockets is a Map
+        const allSockets = Array.from(io.sockets.sockets.values());
+        const tabletsForCompany = allSockets.filter(s => s.tabletCompany === company);
         
         if (tabletsForCompany.length === 0) {
             return; // No tablets subscribed to this company
@@ -2227,22 +2227,28 @@ io.on('connection', (socket) => {
             });
             
             // Also update discovered nodes with current values
+            const discoveredNodesUpdates = [];
             datapoints.forEach(item => {
-                db.collection('opcua_discovered_nodes').updateOne(
-                    { 
-                        raspberryId: deviceId,
-                        opcNodeId: item.opcNodeId 
-                    },
-                    {
-                        $set: {
-                            value: item.value,
-                            currentValue: typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value),
-                            updatedAt: new Date().toISOString()
+                discoveredNodesUpdates.push(
+                    db.collection('opcua_discovered_nodes').updateOne(
+                        { 
+                            raspberryId: deviceId,
+                            opcNodeId: item.opcNodeId 
+                        },
+                        {
+                            $set: {
+                                value: item.value,
+                                currentValue: typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value),
+                                updatedAt: new Date().toISOString()
+                            }
                         }
-                    }
-                ).catch(err => {
-                    console.error('❌ Error updating discovered node:', err.message);
-                });
+                    )
+                );
+            });
+            
+            // Wait for all discovered nodes to be updated
+            await Promise.all(discoveredNodesUpdates).catch(err => {
+                console.error('❌ Error updating discovered nodes:', err.message);
             });
             
             // Broadcast to company room for OPC Management page
@@ -2259,11 +2265,26 @@ io.on('connection', (socket) => {
                 }))
             };
             
-            // Emit to company-specific room
+            // Emit to company-specific room for real-time data updates
             io.to(`opcua_${dbName}`).emit('opcua_data_update', broadcastData);
+            
+            // 🔥 NEW: Emit discovered nodes update event specifically for admin page
+            // This ensures the admin page's discovered nodes list updates in real-time
+            io.to(`opcua_${dbName}`).emit('opcua_discovered_nodes_update', {
+                raspberryId: deviceId,
+                updates: datapoints.map(item => ({
+                    opcNodeId: item.opcNodeId,
+                    value: item.value,
+                    updatedAt: new Date().toISOString()
+                }))
+            });
             
             // Also emit to general tablets (backward compatibility)
             io.emit('opcua_realtime_update', broadcastData);
+            
+            // 🔥 IMPORTANT: Broadcast updated variables to all tablets subscribed to this company
+            // This ensures tablets get real-time updates when OPC UA data changes
+            await broadcastVariablesToAllTablets(company || dbName);
             
             console.log(`📤 Broadcasted ${datapoints.length} datapoint(s) from ${deviceId} to company ${company}`);
             
@@ -2867,51 +2888,110 @@ app.post('/api/opcua/heartbeat', validateRaspberryPi, async (req, res) => {
 app.post('/api/opcua/data', validateRaspberryPi, async (req, res) => {
     try {
         const { raspberryId, dbName } = req;
-        const { data } = req.body; // Array of { datapointId, opcNodeId, value, quality, timestamp }
+        const { data } = req.body; // Array of mixed items: configured datapoints OR discovered nodes
         const db = mongoClient.db(dbName);
         
         if (!Array.isArray(data) || data.length === 0) {
             return res.status(400).json({ error: 'Invalid data format' });
         }
         
-        const bulkOps = data.map(item => ({
-            updateOne: {
-                filter: { datapointId: item.datapointId },
-                update: {
-                    $set: {
-                        raspberryId,
-                        equipmentId: item.equipmentId,
-                        opcNodeId: item.opcNodeId,
-                        value: item.value,
-                        valueString: String(item.value),
-                        quality: item.quality || 'Good',
-                        sourceTimestamp: item.timestamp,
-                        receivedAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString()
-                    }
-                },
-                upsert: true
+        // Separate configured datapoints from discovered nodes
+        const configuredDatapoints = [];
+        const discoveredNodes = [];
+        
+        for (const item of data) {
+            if (item.datapointId && item.equipmentId) {
+                // This is a configured datapoint
+                configuredDatapoints.push(item);
+            } else if (item.opcNodeId && !item.datapointId) {
+                // This is a discovered node
+                discoveredNodes.push(item);
             }
-        }));
+        }
         
-        await db.collection('opcua_realtime').bulkWrite(bulkOps);
+        // Handle configured datapoints (save to opcua_realtime)
+        if (configuredDatapoints.length > 0) {
+            const bulkOps = configuredDatapoints.map(item => ({
+                updateOne: {
+                    filter: { datapointId: item.datapointId },
+                    update: {
+                        $set: {
+                            raspberryId,
+                            equipmentId: item.equipmentId,
+                            opcNodeId: item.opcNodeId,
+                            value: item.value,
+                            valueString: String(item.value),
+                            quality: item.quality || 'Good',
+                            sourceTimestamp: item.timestamp,
+                            receivedAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
+                        }
+                    },
+                    upsert: true
+                }
+            }));
+            
+            await db.collection('opcua_realtime').bulkWrite(bulkOps);
+            console.log(`📊 Saved ${configuredDatapoints.length} configured datapoints to opcua_realtime`);
+        }
         
-        // Emit to WebSocket clients
-        io.to(`opcua_${dbName}`).emit('opcua_data_update', {
-            raspberryId,
-            data: data.map(item => ({
-                equipmentId: item.equipmentId,
-                datapointId: item.datapointId,
-                value: item.value,
-                quality: item.quality,
-                timestamp: item.timestamp
-            }))
-        });
+        // Handle discovered nodes (update opcua_discovered_nodes)
+        if (discoveredNodes.length > 0) {
+            const discoveredBulkOps = discoveredNodes.map(item => ({
+                updateOne: {
+                    filter: { 
+                        raspberryId,
+                        opcNodeId: item.opcNodeId 
+                    },
+                    update: {
+                        $set: {
+                            value: item.value,
+                            currentValue: Array.isArray(item.value) ? JSON.stringify(item.value) : String(item.value),
+                            quality: item.quality || 'Good',
+                            lastUpdated: new Date().toISOString()
+                        }
+                    }
+                }
+            }));
+            
+            const discoveredResult = await db.collection('opcua_discovered_nodes').bulkWrite(discoveredBulkOps);
+            console.log(`🔍 Updated ${discoveredNodes.length} discovered nodes (${discoveredResult.modifiedCount} modified)`);
+            
+            // Emit discovered nodes update to admin pages
+            io.to(`opcua_${dbName}`).emit('opcua_discovered_nodes_update', {
+                raspberryId,
+                nodes: discoveredNodes.map(item => ({
+                    opcNodeId: item.opcNodeId,
+                    value: item.value,
+                    quality: item.quality,
+                    timestamp: item.timestamp
+                }))
+            });
+        }
+        
+        // Emit configured datapoints to WebSocket clients
+        if (configuredDatapoints.length > 0) {
+            io.to(`opcua_${dbName}`).emit('opcua_data_update', {
+                raspberryId,
+                data: configuredDatapoints.map(item => ({
+                    equipmentId: item.equipmentId,
+                    datapointId: item.datapointId,
+                    value: item.value,
+                    quality: item.quality,
+                    timestamp: item.timestamp
+                }))
+            });
+        }
         
         // Broadcast real-time updates to all subscribed tablets
         await broadcastVariablesToAllTablets(dbName);
         
-        res.json({ success: true, received: data.length });
+        res.json({ 
+            success: true, 
+            received: data.length,
+            configured: configuredDatapoints.length,
+            discovered: discoveredNodes.length
+        });
         
     } catch (error) {
         console.error('❌ Error saving OPC UA data:', error);

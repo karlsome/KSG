@@ -32,7 +32,7 @@ import threading
 RASPBERRY_ID = "6C10F6"  # Example: Change to your device's uniqueId
 
 # API Configuration
-API_BASE_URL = "http://192.168.0.34:3000"  # Change if using different server
+API_BASE_URL = "http://192.168.24.39:3000"  # Change if using different server
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
@@ -77,6 +77,7 @@ CONFIG_REFRESH_INTERVAL = 300  # Refresh config every 5 minutes
 subscription = None
 subscription_handles = []
 changed_data_buffer = []  # Buffer for changed values
+discovered_nodes_cache = []  # Cache of all discovered nodes for subscription
 
 # WebSocket connection
 sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=5)
@@ -446,66 +447,89 @@ class DataChangeHandler:
             status_code = data.monitored_item.Value.StatusCode
             quality = 'Good' if status_code.is_good() else ('Uncertain' if status_code.is_uncertain() else 'Bad')
             
-            # Find the matching datapoint
+            # Check if this is a configured datapoint
+            matching_datapoint = None
             for dp in datapoints:
                 if dp['opcNodeId'] == node_id:
-                    variable_name = dp.get('label', node_id)
-                    
-                    # Get previous value for logging
-                    old_value = last_values.get(node_id)
-                    
-                    # Prepare data for WebSocket push
-                    changed_data = {
-                        'datapointId': str(dp['id']),
-                        'equipmentId': dp['equipmentId'],
-                        'opcNodeId': dp['opcNodeId'],
+                    matching_datapoint = dp
+                    break
+            
+            if matching_datapoint:
+                # This is a configured datapoint - send via normal data channel
+                variable_name = matching_datapoint.get('label', node_id)
+                
+                # Get previous value for logging
+                old_value = last_values.get(node_id)
+                
+                # Prepare data for WebSocket push
+                changed_data = {
+                    'datapointId': str(matching_datapoint['id']),
+                    'equipmentId': matching_datapoint['equipmentId'],
+                    'opcNodeId': matching_datapoint['opcNodeId'],
+                    'value': val,
+                    'quality': quality,
+                    'timestamp': datetime.utcnow().isoformat() + 'Z'
+                }
+                
+                # Add to buffer for batch upload
+                changed_data_buffer.append(changed_data)
+                
+                # Only log event if value actually changed (or if it's the first value)
+                if old_value is None or old_value != val:
+                    log_event(
+                        event_type='value_change' if quality == 'Good' else 'quality_degraded',
+                        opc_node_id=node_id,
+                        variable_name=variable_name,
+                        old_value=old_value,
+                        new_value=val,
+                        quality=quality,
+                        message=f"Value changed from {old_value} to {val}" if old_value is not None else f"Initial value: {val}",
+                        metadata={
+                            'dataType': type(val).__name__,
+                            'equipmentId': matching_datapoint['equipmentId'],
+                            'datapointId': str(matching_datapoint['id'])
+                        }
+                    )
+                else:
+                    # Value didn't change, only log if quality degraded
+                    if quality != 'Good':
+                        log_event(
+                            event_type='quality_degraded',
+                            opc_node_id=node_id,
+                            variable_name=variable_name,
+                            old_value=old_value,
+                            new_value=val,
+                            quality=quality,
+                            message=f"Quality degraded to {quality} (value unchanged: {val})",
+                            metadata={
+                                'dataType': type(val).__name__,
+                                'equipmentId': matching_datapoint['equipmentId'],
+                                'datapointId': str(matching_datapoint['id'])
+                            }
+                        )
+                
+                logger.info(f"📊 Value changed: {variable_name} = {val} (quality: {quality})")
+            else:
+                # This is a discovered node (not configured as datapoint) - update MongoDB directly
+                old_value = last_values.get(node_id)
+                
+                # Only process if value actually changed to avoid spam
+                if old_value is None or old_value != val:
+                    # Send discovered node update via WebSocket
+                    discovered_node_update = {
+                        'opcNodeId': node_id,
                         'value': val,
                         'quality': quality,
                         'timestamp': datetime.utcnow().isoformat() + 'Z'
                     }
                     
                     # Add to buffer for batch upload
-                    changed_data_buffer.append(changed_data)
+                    changed_data_buffer.append(discovered_node_update)
                     
-                    # Only log event if value actually changed (or if it's the first value)
-                    if old_value is None or old_value != val:
-                        log_event(
-                            event_type='value_change' if quality == 'Good' else 'quality_degraded',
-                            opc_node_id=node_id,
-                            variable_name=variable_name,
-                            old_value=old_value,
-                            new_value=val,
-                            quality=quality,
-                            message=f"Value changed from {old_value} to {val}" if old_value is not None else f"Initial value: {val}",
-                            metadata={
-                                'dataType': type(val).__name__,
-                                'equipmentId': dp['equipmentId'],
-                                'datapointId': str(dp['id'])
-                            }
-                        )
-                    else:
-                        # Value didn't change, only log if quality degraded
-                        if quality != 'Good':
-                            log_event(
-                                event_type='quality_degraded',
-                                opc_node_id=node_id,
-                                variable_name=variable_name,
-                                old_value=old_value,
-                                new_value=val,
-                                quality=quality,
-                                message=f"Quality degraded to {quality} (value unchanged: {val})",
-                                metadata={
-                                    'dataType': type(val).__name__,
-                                    'equipmentId': dp['equipmentId'],
-                                    'datapointId': str(dp['id'])
-                                }
-                            )
-                    
-                    # Update last known value
-                    last_values[node_id] = val
-                    
-                    logger.info(f"📊 Value changed: {variable_name} = {val} (quality: {quality})")
-                    break
+                    logger.info(f"🔍 Discovered node changed: {node_id} = {val} (quality: {quality})")
+            
+            # Update last known value
+            last_values[node_id] = val
                     
         except Exception as e:
             logger.error(f"❌ Error in datachange_notification: {e}")
@@ -632,12 +656,12 @@ def disconnect_opcua():
             opcua_client = None
 
 def setup_subscriptions():
-    """Setup OPC UA subscriptions for all configured datapoints"""
-    global subscription, subscription_handles
+    """Setup OPC UA subscriptions for all configured datapoints AND discovered nodes"""
+    global subscription, subscription_handles, discovered_nodes_cache
     
     try:
-        if not opcua_client or not datapoints:
-            logger.warning("⚠️  Cannot setup subscriptions: No client or datapoints")
+        if not opcua_client:
+            logger.warning("⚠️  Cannot setup subscriptions: No client")
             return False
         
         # Create subscription with handler
@@ -646,20 +670,43 @@ def setup_subscriptions():
         
         logger.info(f"📡 Creating subscription (interval: {SUBSCRIPTION_INTERVAL}ms)")
         
-        # Subscribe to each datapoint
+        # Subscribe to configured datapoints
         subscription_handles = []
-        for dp in datapoints:
-            try:
-                node = opcua_client.get_node(dp['opcNodeId'])
-                handle = subscription.subscribe_data_change(node)
-                subscription_handles.append(handle)
-                
-                logger.info(f"   ✓ Subscribed: {dp.get('label', dp['opcNodeId'])}")
-                
-            except Exception as e:
-                logger.error(f"   ✗ Failed to subscribe to {dp['opcNodeId']}: {e}")
+        subscribed_node_ids = set()  # Track subscribed nodes to avoid duplicates
         
-        logger.info(f"✅ Subscribed to {len(subscription_handles)}/{len(datapoints)} datapoints")
+        if datapoints:
+            logger.info(f"  📍 Subscribing to {len(datapoints)} configured datapoints...")
+            for dp in datapoints:
+                try:
+                    if dp['opcNodeId'] not in subscribed_node_ids:
+                        node = opcua_client.get_node(dp['opcNodeId'])
+                        handle = subscription.subscribe_data_change(node)
+                        subscription_handles.append(handle)
+                        subscribed_node_ids.add(dp['opcNodeId'])
+                        logger.info(f"     ✓ Datapoint: {dp.get('label', dp['opcNodeId'])}")
+                except Exception as e:
+                    logger.error(f"     ✗ Failed to subscribe to {dp['opcNodeId']}: {e}")
+        
+        # 🔥 NEW: Also subscribe to ALL discovered nodes for real-time monitoring
+        if discovered_nodes_cache:
+            logger.info(f"  🔍 Subscribing to {len(discovered_nodes_cache)} discovered nodes...")
+            discovered_count = 0
+            for node_data in discovered_nodes_cache:
+                try:
+                    node_id = node_data['opcNodeId']
+                    # Skip if already subscribed (via datapoints)
+                    if node_id not in subscribed_node_ids:
+                        node = opcua_client.get_node(node_id)
+                        handle = subscription.subscribe_data_change(node)
+                        subscription_handles.append(handle)
+                        subscribed_node_ids.add(node_id)
+                        discovered_count += 1
+                except Exception as e:
+                    logger.debug(f"     ✗ Could not subscribe to {node_data.get('variableName', node_id)}: {e}")
+            
+            logger.info(f"     ✓ Subscribed to {discovered_count} discovered nodes")
+        
+        logger.info(f"✅ Total subscriptions: {len(subscription_handles)} nodes")
         return True
         
     except Exception as e:
@@ -727,23 +774,43 @@ def push_data_websocket(data):
         if not websocket_connected or not sio.connected:
             return False
         
-        # Group data by equipmentId for efficient broadcasting
-        equipment_data = {}
-        for item in data:
-            eq_id = item['equipmentId']
-            if eq_id not in equipment_data:
-                equipment_data[eq_id] = []
-            equipment_data[eq_id].append(item)
+        # Separate configured datapoints from discovered nodes
+        configured_datapoints = []
+        discovered_nodes = []
         
-        # Emit for each equipment group
-        for equipment_id, items in equipment_data.items():
+        for item in data:
+            if 'equipmentId' in item and 'datapointId' in item:
+                # This is a configured datapoint
+                configured_datapoints.append(item)
+            else:
+                # This is a discovered node (only has opcNodeId, value, quality, timestamp)
+                discovered_nodes.append(item)
+        
+        # Handle configured datapoints (group by equipmentId)
+        if configured_datapoints:
+            equipment_data = {}
+            for item in configured_datapoints:
+                eq_id = item['equipmentId']
+                if eq_id not in equipment_data:
+                    equipment_data[eq_id] = []
+                equipment_data[eq_id].append(item)
+            
+            # Emit for each equipment group
+            for equipment_id, items in equipment_data.items():
+                sio.emit('opcua_data_change', {
+                    'raspberryId': RASPBERRY_ID,
+                    'equipmentId': equipment_id,
+                    'data': items
+                })
+        
+        # Handle discovered nodes (send as batch with node updates)
+        if discovered_nodes:
             sio.emit('opcua_data_change', {
                 'raspberryId': RASPBERRY_ID,
-                'equipmentId': equipment_id,
-                'data': items
+                'discovered_nodes': discovered_nodes
             })
         
-        logger.info(f"📤 Pushed {len(data)} datapoints via WebSocket")
+        logger.info(f"📤 Pushed {len(data)} datapoints via WebSocket ({len(configured_datapoints)} configured, {len(discovered_nodes)} discovered)")
         return True
         
     except Exception as e:
@@ -964,12 +1031,12 @@ def _upload_discovered_nodes(nodes):
 
 def save_discovered_nodes():
     """Discover nodes and save to cloud with retry"""
-    global pending_discovered_nodes
+    global pending_discovered_nodes, discovered_nodes_cache
     
     try:
         # Try to upload pending nodes first if any
         if pending_discovered_nodes:
-            logger.info("� Attempting to upload pending discovered nodes...")
+            logger.info("🔄 Attempting to upload pending discovered nodes...")
             success, _ = retry_with_backoff(_upload_discovered_nodes, pending_discovered_nodes)
             if success:
                 logger.info(f"✅ Successfully uploaded {len(pending_discovered_nodes)} pending nodes")
@@ -984,11 +1051,23 @@ def save_discovered_nodes():
             logger.warning("⚠️  No nodes discovered")
             return False
         
+        # 🔥 NEW: Cache discovered nodes for subscription
+        discovered_nodes_cache = nodes
+        logger.info(f"💾 Cached {len(nodes)} discovered nodes for monitoring")
+        
         # Try to upload with retry
         success, result = retry_with_backoff(_upload_discovered_nodes, nodes)
         
         if success:
             logger.info(f"📤 Saved {len(nodes)} discovered nodes to cloud")
+            
+            # 🔥 NEW: Re-setup subscriptions to include newly discovered nodes
+            if subscription:
+                logger.info("🔄 Re-subscribing with new discovered nodes...")
+                disconnect_opcua()  # This will clear old subscription
+                connect_opcua()     # Reconnect
+                setup_subscriptions()  # Re-setup with new nodes
+            
             return True
         else:
             # Save to pending for later retry
