@@ -915,6 +915,56 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
     }
 });
 
+// Get product info by kanbanID
+app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
+    const kanbanId = decodeURIComponent(req.params.kanbanId);
+    
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not connected' 
+            });
+        }
+        
+        // Use KSG database
+        const db = mongoClient.db('KSG');
+        const collection = db.collection('masterDB');
+        
+        // Query product by kanbanID
+        const product = await collection.findOne({ kanbanID: kanbanId });
+        
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Product not found',
+                kanbanId: kanbanId
+            });
+        }
+        
+        console.log(`📦 [TABLET] Served product info for kanbanID: ${kanbanId} → ${product.品番}, kensaMembers: ${product.kensaMembers || 2}`);
+        res.json({
+            success: true,
+            product: {
+                品番: product.品番,
+                製品名: product.製品名,
+                'LH/RH': product['LH/RH'],
+                kensaMembers: product.kensaMembers || 2,
+                工場: product.工場,
+                設備: product.設備,
+                kanbanID: product.kanbanID
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ [TABLET] Error fetching product by kanbanID:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch product' 
+        });
+    }
+});
+
 // Submit tablet production data to Google Sheets
 app.post('/api/tablet/submit', async (req, res) => {
     const submissionData = req.body;

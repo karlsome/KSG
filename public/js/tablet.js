@@ -289,6 +289,66 @@ function populateUserDropdowns() {
 // ============================================================
 
 async function loadProductInfo() {
+  // Don't load from URL parameter anymore
+  // Product will be loaded when kenyokiRHKanban value comes in
+  console.log('👁️ Waiting for kenyokiRHKanban value to load product info...');
+}
+
+// Load product info by kanbanID (called when kenyokiRHKanban value updates)
+async function loadProductByKanbanID(kanbanId) {
+  if (!kanbanId || kanbanId === '') {
+    console.warn('⚠️ No kanbanID provided');
+    return;
+  }
+  
+  try {
+    console.log(`📦 Fetching product for kanbanID: ${kanbanId}`);
+    const response = await fetch(`${SERVER_URL}/api/tablet/product-by-kanban/${encodeURIComponent(kanbanId)}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      const product = data.product;
+      console.log('✅ Loaded product info:', product);
+      
+      // Update current product ID
+      currentProductId = product.品番;
+      
+      // Set product name in remarks display
+      const remarksDisplay = document.getElementById('remarks');
+      if (remarksDisplay && product['製品名']) {
+        remarksDisplay.textContent = product['製品名'];
+        console.log(`✅ Set product name to: ${product['製品名']}`);
+      }
+      
+      // Set LH/RH dropdown based on product data
+      if (product['LH/RH']) {
+        const lhRhDropdown = document.getElementById('lhRh');
+        if (lhRhDropdown) {
+          lhRhDropdown.value = product['LH/RH'];
+          saveFieldToLocalStorage('lhRh', product['LH/RH']);
+          console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
+        }
+      }
+      
+      // Set kensaMembers (default to 2 if not specified)
+      const kensaMembers = product.kensaMembers || 2;
+      console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+      // Show/hide columns based on kensaMembers
+      updateKensaMembersDisplay(kensaMembers);
+    } else {
+      console.error('❌ Failed to load product:', data.error);
+      // Default to 2 members if product not found
+      updateKensaMembersDisplay(2);
+    }
+  } catch (error) {
+    console.error('❌ Error loading product info:', error);
+    // Default to 2 members on error
+    updateKensaMembersDisplay(2);
+  }
+}
+
+async function loadProductInfoOld() {
   if (!currentProductId) {
     console.warn('⚠️ No product ID specified');
     return;
@@ -440,11 +500,22 @@ socket.on('variable-updated', (data) => {
 function updateUIWithVariables(variables) {
   console.log('🎯 Updating UI with variables:', variables);
   
-  // Check kenyokiRHKanban variable for start button validation
+  // Check kenyokiRHKanban variable for start button validation AND product loading
   if (variables.kenyokiRHKanban !== undefined) {
     const value = variables.kenyokiRHKanban.value;
-    kenyokiRHKanbanValue = (value !== null && value !== undefined && value !== '') ? value : null;
-    console.log('📊 kenyokiRHKanban value updated:', kenyokiRHKanbanValue);
+    const newKanbanValue = (value !== null && value !== undefined && value !== '') ? value : null;
+    
+    // Check if value changed
+    if (newKanbanValue !== kenyokiRHKanbanValue) {
+      kenyokiRHKanbanValue = newKanbanValue;
+      console.log('📊 kenyokiRHKanban value updated:', kenyokiRHKanbanValue);
+      
+      // Load product info when kanban ID changes
+      if (kenyokiRHKanbanValue) {
+        loadProductByKanbanID(kenyokiRHKanbanValue);
+      }
+    }
+    
     checkStartButtonState();
   } else {
     kenyokiRHKanbanValue = null;
