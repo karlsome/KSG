@@ -958,29 +958,68 @@ app.post('/api/tablet/submit', async (req, res) => {
             submitted_from: 'tablet'
         };
         
-        // Submit to Google Sheets
+        let mongoResult = null;
+        let googleSheetsResult = null;
+        
+        // 1. Submit to MongoDB
+        try {
+            if (!mongoClient) {
+                console.log('⚠️  [TABLET] MongoDB not connected, skipping database save');
+            } else {
+                const db = mongoClient.db('KSG');
+                const collection = db.collection('submittedDB');
+                mongoResult = await collection.insertOne(finalData);
+                console.log(`📊 [TABLET] Data submitted to MongoDB: ${finalData.hinban}`);
+            }
+        } catch (mongoError) {
+            console.error('❌ [TABLET] MongoDB submission error:', mongoError);
+            // Continue with Google Sheets even if MongoDB fails
+        }
+        
+        // 2. Submit to Google Sheets
         const GOOGLE_SHEETS_URL = process.env.GOOGLE_SHEETS_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbycrj9KY5aJMYe0kJl7MLQZ-bGvRMxrNIDJ4HXZB7QYvNI3iy3MzC2d92lkKpHzMx1u/exec';
         
-        const response = await fetch(GOOGLE_SHEETS_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(finalData)
-        });
+        try {
+            const response = await fetch(GOOGLE_SHEETS_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(finalData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                googleSheetsResult = result;
+                console.log(`📊 [TABLET] Data submitted to Google Sheets: ${finalData.hinban}`);
+            } else {
+                throw new Error(result.error || 'Google Sheets submission failed');
+            }
+        } catch (googleError) {
+            console.error('❌ [TABLET] Google Sheets submission error:', googleError);
+            // Continue even if Google Sheets fails (MongoDB might have succeeded)
+        }
         
-        const result = await response.json();
+        // Return success if at least one submission worked
+        const success = mongoResult || googleSheetsResult;
         
-        if (result.success) {
-            console.log(`✅ [TABLET] Data submitted to Google Sheets: ${finalData.hinban}`);
+        if (success) {
             res.json({
                 success: true,
                 message: 'Data submitted successfully',
-                rowNumber: result.rowNumber,
+                mongodb: {
+                    success: !!mongoResult,
+                    insertedId: mongoResult?.insertedId || null
+                },
+                googleSheets: {
+                    success: !!googleSheetsResult,
+                    rowNumber: googleSheetsResult?.rowNumber || null
+                },
                 submitted_at: finalData.timestamp
             });
         } else {
-            throw new Error(result.error || 'Google Sheets submission failed');
+            throw new Error('Both MongoDB and Google Sheets submissions failed');
         }
         
     } catch (error) {
