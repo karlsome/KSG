@@ -8,6 +8,96 @@ let currentFactory = ''; // Will be set from URL parameter
 let currentProductId = ''; // Will be set from URL parameter or selection
 let availableUsers = []; // Store available users
 let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
+let seisanSuStartValue = null; // Starting value of seisanSu when work started
+let currentSeisanSuValue = null; // Current seisanSu value
+
+// Restore seisanSuStartValue from localStorage on load
+try {
+  const saved = localStorage.getItem('seisanSuStartValue');
+  if (saved !== null && saved !== 'null') {
+    seisanSuStartValue = parseFloat(saved);
+    console.log('📦 Restored seisanSuStartValue from localStorage:', seisanSuStartValue);
+  }
+} catch (e) {
+  console.error('Failed to restore seisanSuStartValue:', e);
+}
+
+// ============================================================
+// 🔹 LOCALSTORAGE PERSISTENCE
+// ============================================================
+
+// Save field value to localStorage
+function saveFieldToLocalStorage(fieldId, value) {
+  try {
+    localStorage.setItem(`tablet_${fieldId}`, value);
+  } catch (e) {
+    console.error(`Failed to save ${fieldId}:`, e);
+  }
+}
+
+// Restore all fields from localStorage
+function restoreAllFields() {
+  try {
+    // Text inputs
+    const textFields = ['startTime', 'stopTime', 'endTime', 'workTime', 'manHours', 'workCount', 'passCount', 'otherDetails'];
+    textFields.forEach(fieldId => {
+      const saved = localStorage.getItem(`tablet_${fieldId}`);
+      if (saved !== null) {
+        const field = document.getElementById(fieldId);
+        if (field) {
+          field.value = saved;
+          console.log(`📦 Restored ${fieldId}:`, saved);
+        }
+      }
+    });
+    
+    // Dropdowns
+    const dropdownFields = ['lhRh', 'inspector', 'poster1', 'poster2', 'poster3'];
+    dropdownFields.forEach(fieldId => {
+      const saved = localStorage.getItem(`tablet_${fieldId}`);
+      if (saved !== null) {
+        const field = document.getElementById(fieldId);
+        if (field) {
+          field.value = saved;
+          console.log(`📦 Restored ${fieldId}:`, saved);
+        }
+      }
+    });
+    
+    // Defect counters
+    const counterNumbers = document.querySelectorAll('.counter-number');
+    counterNumbers.forEach((counter, index) => {
+      const saved = localStorage.getItem(`tablet_defect_${index}`);
+      if (saved !== null) {
+        counter.textContent = saved;
+      }
+    });
+    
+    // Update calculated fields
+    updateDefectSum();
+    updateWorkCount();
+    
+    console.log('✅ All fields restored from localStorage');
+  } catch (e) {
+    console.error('Failed to restore fields:', e);
+  }
+}
+
+// Clear all localStorage data
+function clearAllLocalStorage() {
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('tablet_')) {
+        localStorage.removeItem(key);
+      }
+    });
+    localStorage.removeItem('seisanSuStartValue');
+    console.log('🗑️ Cleared all tablet localStorage data');
+  } catch (e) {
+    console.error('Failed to clear localStorage:', e);
+  }
+}
 
 // ============================================================
 // 🔹 INITIALIZATION - Parse URL Parameters & Load Data
@@ -35,14 +125,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load product info to determine kensaMembers
   await loadProductInfo();
   
+  // Restore all fields from localStorage
+  restoreAllFields();
+  
   // Add event listener for poster1 dropdown changes
   const poster1Select = document.getElementById('poster1');
   if (poster1Select) {
     poster1Select.addEventListener('change', () => {
       console.log('👤 Poster1 changed to:', poster1Select.value);
+      saveFieldToLocalStorage('poster1', poster1Select.value);
       checkStartButtonState();
     });
   }
+  
+  // Add change listeners for all dropdowns
+  const dropdowns = ['lhRh', 'inspector', 'poster2', 'poster3'];
+  dropdowns.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('change', () => {
+        saveFieldToLocalStorage(fieldId, field.value);
+      });
+    }
+  });
+  
+  // Add change listeners for text inputs
+  const textInputs = ['workTime', 'manHours', 'otherDetails'];
+  textInputs.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('input', () => {
+        saveFieldToLocalStorage(fieldId, field.value);
+      });
+    }
+  });
 });
 
 // ============================================================
@@ -207,6 +323,27 @@ socket.on('connect_error', (error) => {
   updateConnectionStatus('disconnected');
 });
 
+// Calculate and update work count display
+function updateWorkCount() {
+  const workCountInput = document.getElementById('workCount');
+  if (!workCountInput) return;
+  
+  // Only calculate if we have a starting value and current value
+  if (seisanSuStartValue !== null && currentSeisanSuValue !== null) {
+    const workCount = currentSeisanSuValue - seisanSuStartValue;
+    workCountInput.value = Math.max(0, workCount); // Don't allow negative values
+    saveFieldToLocalStorage('workCount', workCountInput.value);
+    console.log(`🔢 Work count: ${currentSeisanSuValue} - ${seisanSuStartValue} = ${workCount}`);
+  } else {
+    workCountInput.value = 0;
+    saveFieldToLocalStorage('workCount', '0');
+    console.log('🔢 Work count: 0 (no starting value set)');
+  }
+  
+  // Update pass count whenever work count changes
+  updatePassCount();
+}
+
 // Listen for real-time variable updates (pushed from server when data changes)
 socket.on('opcua_variables_update', (data) => {
   console.log('📊 Received real-time variable updates:', data);
@@ -239,6 +376,17 @@ function updateUIWithVariables(variables) {
     checkStartButtonState();
   }
   
+  // Track seisanSu variable for work count calculation
+  if (variables.seisanSu !== undefined) {
+    const value = variables.seisanSu.value;
+    currentSeisanSuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
+    console.log('📊 seisanSu value updated:', currentSeisanSuValue);
+    updateWorkCount();
+  } else {
+    currentSeisanSuValue = null;
+    console.warn('⚠️ seisanSu variable not found');
+  }
+  
   // You can add more variable mappings here
   // Example: if (variables.otherVar) { document.getElementById('someField').value = variables.otherVar.value; }
 }
@@ -265,6 +413,23 @@ function resetBasicSettings() {
     document.getElementById('passCount').value = '0';
     console.log('Basic settings reset');
     
+    // Reset seisanSu starting value
+    seisanSuStartValue = null;
+    localStorage.removeItem('seisanSuStartValue');
+    console.log('🔄 Reset seisanSu starting value');
+    updateWorkCount(); // Update to show 0
+    
+    // Reset defect counters
+    document.querySelectorAll('.counter-number').forEach(counter => {
+      counter.textContent = '0';
+    });
+    document.getElementById('otherDetails').value = '';
+    updateDefectSum(); // Update sum after reset
+    console.log('🔄 Reset defect counters');
+    
+    // Clear all localStorage
+    clearAllLocalStorage();
+    
     // Re-check start button state after reset
     checkStartButtonState();
   }
@@ -284,6 +449,7 @@ function resetDefectCounters() {
     });
     document.getElementById('otherDetails').value = '';
     console.log('Defect counters reset');
+    updateDefectSum(); // Update sum after reset
   }
 }
 
@@ -359,6 +525,19 @@ function startWork() {
   startTimeInput.value = timeString;
   console.log('⏰ Work started at:', timeString);
   
+  // Save start time to localStorage
+  saveFieldToLocalStorage('startTime', timeString);
+  
+  // Capture current seisanSu value as starting point
+  if (currentSeisanSuValue !== null) {
+    seisanSuStartValue = currentSeisanSuValue;
+    localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+    console.log('📍 Starting seisanSu value captured:', seisanSuStartValue);
+    updateWorkCount(); // Initial update to show 0
+  } else {
+    console.warn('⚠️ No seisanSu value available to set as starting point');
+  }
+  
   // Grey out button after recording time
   checkStartButtonState();
 }
@@ -370,6 +549,24 @@ function sendData() {
   const startTimeInput = document.getElementById('startTime');
   if (startTimeInput) {
     startTimeInput.value = ''; // Clear start time
+    
+    // Reset seisanSu starting value
+    seisanSuStartValue = null;
+    localStorage.removeItem('seisanSuStartValue');
+    console.log('🔄 Reset seisanSu starting value');
+    updateWorkCount(); // Update to show 0
+    
+    // Reset defect counters
+    document.querySelectorAll('.counter-number').forEach(counter => {
+      counter.textContent = '0';
+    });
+    document.getElementById('otherDetails').value = '';
+    updateDefectSum(); // Update sum after reset
+    console.log('🔄 Reset defect counters');
+    
+    // Clear all localStorage
+    clearAllLocalStorage();
+    
     checkStartButtonState(); // Re-check button state
   }
 }
@@ -410,6 +607,42 @@ function viewInspectionList() {
   console.log('View inspection list clicked');
 }
 
+// Calculate total defects and update display
+function updateDefectSum() {
+  const counterNumbers = document.querySelectorAll('.counter-number');
+  let total = 0;
+  counterNumbers.forEach(counter => {
+    total += parseInt(counter.textContent) || 0;
+  });
+  
+  const defectSumDisplay = document.getElementById('defectSum');
+  if (defectSumDisplay) {
+    defectSumDisplay.textContent = total;
+  }
+  
+  console.log('🔴 Total defects:', total);
+  
+  // Update pass count whenever defects change
+  updatePassCount();
+}
+
+// Calculate and update pass count: workCount - defects
+function updatePassCount() {
+  const workCountInput = document.getElementById('workCount');
+  const passCountInput = document.getElementById('passCount');
+  const defectSumDisplay = document.getElementById('defectSum');
+  
+  if (!workCountInput || !passCountInput || !defectSumDisplay) return;
+  
+  const workCount = parseInt(workCountInput.value) || 0;
+  const defects = parseInt(defectSumDisplay.textContent) || 0;
+  const passCount = Math.max(0, workCount - defects); // Don't allow negative
+  
+  passCountInput.value = passCount;
+  saveFieldToLocalStorage('passCount', passCount);
+  console.log(`✅ Pass count: ${workCount} - ${defects} = ${passCount}`);
+}
+
 // Add click handlers for counter buttons (increment)
 document.querySelectorAll('.counter-button').forEach((button, index) => {
   button.addEventListener('click', function() {
@@ -417,6 +650,8 @@ document.querySelectorAll('.counter-button').forEach((button, index) => {
     const counterNumber = counterDisplay.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
     counterNumber.textContent = currentCount + 1;
+    saveFieldToLocalStorage(`defect_${index}`, currentCount + 1);
+    updateDefectSum(); // Update sum after increment
   });
 });
 
@@ -427,6 +662,8 @@ document.querySelectorAll('.counter-display').forEach((display, index) => {
     const currentCount = parseInt(counterNumber.textContent);
     if (currentCount > 0) {
       counterNumber.textContent = currentCount - 1;
+      saveFieldToLocalStorage(`defect_${index}`, currentCount - 1);
+      updateDefectSum(); // Update sum after decrement
     }
   });
 });
