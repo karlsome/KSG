@@ -1,6 +1,6 @@
 // WebSocket connection to ksgServer
 //const SERVER_URL = 'http://localhost:3000';
-const SERVER_URL = 'http://192.168.24.32:3000';
+const SERVER_URL = 'http://192.168.24.39:3000';
 const socket = io(SERVER_URL);
 
 let currentCompany = 'KSG'; // Default company
@@ -99,6 +99,15 @@ async function loadProductInfo() {
     if (data.success) {
       const product = data.product;
       console.log('✅ Loaded product info:', product);
+      
+      // Set product name in header
+      if (product['製品名']) {
+        const productNameDisplay = document.getElementById('productNameDisplay');
+        if (productNameDisplay) {
+          productNameDisplay.textContent = product['製品名'];
+          console.log(`✅ Set product name to: ${product['製品名']}`);
+        }
+      }
       
       // Set LH/RH dropdown based on product data
       if (product['LH/RH']) {
