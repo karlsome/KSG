@@ -436,6 +436,79 @@ function restoreAllFields() {
   } catch (e) {
     console.error('Failed to restore fields:', e);
   }
+  
+  // Restore collapsed state of basic settings card
+  restoreBasicSettingsState();
+}
+
+// ============================================================
+// 📋 BASIC SETTINGS COLLAPSE/EXPAND
+// ============================================================
+
+// Toggle basic settings card collapse/expand
+function toggleBasicSettings() {
+  const card = document.getElementById('basicSettingsCard');
+  if (!card) return;
+  
+  const isCollapsed = card.classList.contains('collapsed');
+  
+  if (isCollapsed) {
+    // Expand
+    card.classList.remove('collapsed');
+    localStorage.setItem('basicSettingsCollapsed', 'false');
+    console.log('📋 Basic settings expanded');
+  } else {
+    // Collapse
+    card.classList.add('collapsed');
+    localStorage.setItem('basicSettingsCollapsed', 'true');
+    console.log('📋 Basic settings collapsed');
+    
+    // Check if attention is needed
+    checkBasicSettingsAttention();
+  }
+}
+
+// Check if basic settings needs attention (missing poster1 or startTime)
+function checkBasicSettingsAttention() {
+  const card = document.getElementById('basicSettingsCard');
+  if (!card) return;
+  
+  // Only check if card is collapsed
+  if (!card.classList.contains('collapsed')) {
+    card.classList.remove('needs-attention');
+    return;
+  }
+  
+  const poster1 = document.getElementById('poster1');
+  const startTime = document.getElementById('startTime');
+  
+  const poster1Empty = !poster1 || poster1.value === '';
+  const startTimeEmpty = !startTime || startTime.value === '';
+  
+  if (poster1Empty || startTimeEmpty) {
+    card.classList.add('needs-attention');
+    console.log('⚠️ Basic settings needs attention:', { poster1Empty, startTimeEmpty });
+  } else {
+    card.classList.remove('needs-attention');
+    console.log('✅ Basic settings complete');
+  }
+}
+
+// Restore collapsed state from localStorage
+function restoreBasicSettingsState() {
+  const card = document.getElementById('basicSettingsCard');
+  if (!card) return;
+  
+  const isCollapsed = localStorage.getItem('basicSettingsCollapsed') === 'true';
+  
+  if (isCollapsed) {
+    card.classList.add('collapsed');
+    console.log('📋 Restored basic settings as collapsed');
+    checkBasicSettingsAttention();
+  } else {
+    card.classList.remove('collapsed');
+    console.log('📋 Restored basic settings as expanded');
+  }
 }
 
 // Clear all localStorage data
@@ -450,6 +523,7 @@ function clearAllLocalStorage() {
     localStorage.removeItem('seisanSuStartValue');
     localStorage.removeItem('breakStartTime');
     localStorage.removeItem('troubleStartTime');
+    localStorage.removeItem('basicSettingsCollapsed');
     console.log('🗑️ Cleared all tablet localStorage data');
   } catch (e) {
     console.error('Failed to clear localStorage:', e);
@@ -492,6 +566,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log('👤 Poster1 changed to:', poster1Select.value);
       saveFieldToLocalStorage('poster1', poster1Select.value);
       checkStartButtonState();
+      checkBasicSettingsAttention(); // Check attention state
     });
   }
   
@@ -502,6 +577,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (field) {
       field.addEventListener('change', () => {
         saveFieldToLocalStorage(fieldId, field.value);
+        if (fieldId === 'poster1') {
+          checkBasicSettingsAttention(); // Check attention state when poster1 changes
+        }
       });
     }
   });
@@ -895,6 +973,9 @@ function resetBasicSettings() {
     
     // Re-check start button state after reset
     checkStartButtonState();
+    
+    // Check basic settings attention state after reset
+    checkBasicSettingsAttention();
   }
 }
 
@@ -1007,6 +1088,9 @@ function startWork() {
   
   // Grey out button after recording time
   checkStartButtonState();
+  
+  // Check basic settings attention state (startTime is now filled)
+  checkBasicSettingsAttention();
 }
 
 // Placeholder functions for buttons
@@ -1106,6 +1190,7 @@ function clearAllFields() {
     clearAllLocalStorage();
     
     checkStartButtonState(); // Re-check button state
+    checkBasicSettingsAttention(); // Check attention state after clearing
   }
 }
 
