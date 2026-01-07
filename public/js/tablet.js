@@ -455,6 +455,8 @@ function toggleBasicSettings() {
   if (isCollapsed) {
     // Expand
     card.classList.remove('collapsed');
+    card.classList.remove('needs-attention');
+    removeWaveAnimation(); // Stop wave animation when expanded
     localStorage.setItem('basicSettingsCollapsed', 'false');
     console.log('📋 Basic settings expanded');
   } else {
@@ -476,6 +478,7 @@ function checkBasicSettingsAttention() {
   // Only check if card is collapsed
   if (!card.classList.contains('collapsed')) {
     card.classList.remove('needs-attention');
+    removeWaveAnimation();
     return;
   }
   
@@ -487,11 +490,43 @@ function checkBasicSettingsAttention() {
   
   if (poster1Empty || startTimeEmpty) {
     card.classList.add('needs-attention');
+    addWaveAnimation();
     console.log('⚠️ Basic settings needs attention:', { poster1Empty, startTimeEmpty });
   } else {
     card.classList.remove('needs-attention');
+    removeWaveAnimation();
     console.log('✅ Basic settings complete');
   }
+}
+
+// Add wave animation to button and defect cards
+function addWaveAnimation() {
+  const buttonCard = document.getElementById('buttonCard');
+  const defectCard = document.getElementById('defectCard');
+  
+  if (buttonCard) {
+    buttonCard.classList.add('attention-wave', 'wave-delay');
+  }
+  if (defectCard) {
+    defectCard.classList.add('attention-wave');
+  }
+  
+  console.log('🌊 Wave animation added to cards');
+}
+
+// Remove wave animation from button and defect cards
+function removeWaveAnimation() {
+  const buttonCard = document.getElementById('buttonCard');
+  const defectCard = document.getElementById('defectCard');
+  
+  if (buttonCard) {
+    buttonCard.classList.remove('attention-wave', 'wave-delay');
+  }
+  if (defectCard) {
+    defectCard.classList.remove('attention-wave');
+  }
+  
+  console.log('🌊 Wave animation removed from cards');
 }
 
 // Restore collapsed state from localStorage

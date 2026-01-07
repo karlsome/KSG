@@ -546,6 +546,78 @@
         border-color: #d32f2f;
       }
     }
+
+    /* Red wave animation for button and defect cards */
+    .card.attention-wave {
+      position: relative;
+      overflow: hidden;
+      background: white;
+    }
+
+    .card.attention-wave::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(to top,
+        #ff1744 0%,
+        #f44336 10%,
+        #e57373 20%,
+        #ffcdd2 30%,
+        transparent 40%,
+        transparent 100%
+      );
+      transform: translateY(100%);
+      animation: wave-cycle 8s ease-in-out infinite;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .card.attention-wave > * {
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Defect card animation - starts immediately */
+    @keyframes wave-cycle {
+      0% {
+        transform: translateY(100%);
+      }
+      12.5% {
+        transform: translateY(0%);
+      }
+      25% {
+        transform: translateY(-100%);
+      }
+      100% {
+        transform: translateY(-100%);
+      }
+    }
+
+    /* Button card animation - starts at 18.75% (overlaps with defect clear) */
+    .card.attention-wave.wave-delay::before {
+      animation: wave-cycle-delayed 8s ease-in-out infinite;
+    }
+
+    @keyframes wave-cycle-delayed {
+      0% {
+        transform: translateY(100%);
+      }
+      10% {
+        transform: translateY(100%);
+      }
+      31.25% {
+        transform: translateY(0%);
+      }
+      43.75% {
+        transform: translateY(-100%);
+      }
+      100% {
+        transform: translateY(-100%);
+      }
+    }
   </style>
 </head>
 <body>
@@ -642,7 +714,7 @@
     </div>
 
     <!-- Card 2: Action Buttons -->
-    <div class="card">
+    <div class="card" id="buttonCard">
       <div class="card-header">
         <div class="card-title">ボタン</div>
       </div>
@@ -675,7 +747,7 @@
     </div>
 
     <!-- Card 3: Defect Counter -->
-    <div class="card">
+    <div class="card" id="defectCard">
       <div class="card-header">
         <div class="card-title">不良カウンター : <span id="defectSum" style="font-weight: bold; color: #f44336;">0</span></div>
         <button class="reset-button" onclick="resetDefectCounters()">リセット</button>
