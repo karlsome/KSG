@@ -440,6 +440,70 @@
     .bottom-button:hover {
       background: #616161;
     }
+
+    /* Break Modal Styles */
+    .break-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .break-modal-overlay.active {
+      display: flex;
+    }
+
+    .break-modal {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      text-align: center;
+      min-width: 400px;
+    }
+
+    .break-modal-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 30px;
+    }
+
+    .break-timer {
+      font-size: 72px;
+      font-weight: bold;
+      color: #2196F3;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 40px;
+      letter-spacing: 4px;
+    }
+
+    .break-complete-button {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 16px 48px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: bold;
+      transition: all 0.3s;
+    }
+
+    .break-complete-button:hover {
+      background: #45a049;
+      transform: scale(1.05);
+    }
+
+    .break-complete-button:active {
+      transform: scale(0.95);
+    }
   </style>
 </head>
 <body>
@@ -557,7 +621,7 @@
             <div class="action-button" onclick="pauseWork()">作業中断</div>
           </div>
           <div class="button-cell">
-            <div class="action-button" onclick="setWorkEndTime()">作業終了</div>
+            <div class="action-button" onclick="setWorkEndTime()">機械トラブル</div>
           </div>
           <div class="button-cell">
             <input type="text" class="field-input" id="inspectionAddValue" value="" readonly>
@@ -681,6 +745,24 @@
         <button class="bottom-button" onclick="editRemarks()">編集</button>
         <button class="bottom-button" onclick="viewInspectionList()">検査データ一覧</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Break Modal -->
+  <div class="break-modal-overlay" id="breakModalOverlay">
+    <div class="break-modal">
+      <div class="break-modal-title">休憩中</div>
+      <div class="break-timer" id="breakTimer">00:00</div>
+      <button class="break-complete-button" onclick="completeBreak()">完了</button>
+    </div>
+  </div>
+
+  <!-- Machine Trouble Modal -->
+  <div class="break-modal-overlay" id="troubleModalOverlay">
+    <div class="break-modal">
+      <div class="break-modal-title">機械トラブル</div>
+      <div class="break-timer" id="troubleTimer">00:00</div>
+      <button class="break-complete-button" onclick="completeTrouble()">完了</button>
     </div>
   </div>
 

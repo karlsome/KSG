@@ -1,6 +1,7 @@
 // WebSocket connection to ksgServer
 //const SERVER_URL = 'http://localhost:3000';
-const SERVER_URL = 'http://192.168.24.39:3000';
+//const SERVER_URL = 'http://192.168.24.39:3000';
+const SERVER_URL = 'https://ksg.freyaaccess.com';
 const socket = io(SERVER_URL);
 
 let currentCompany = 'KSG'; // Default company
@@ -14,6 +15,10 @@ let currentSeisanSuValue = null; // Current seisanSu value
 let hakoIresuValue = null; // Store hakoIresu variable value
 let workTimerInterval = null; // Interval for updating work time
 let workStartTime = null; // Timestamp when work started
+let breakTimerInterval = null; // Interval for break timer
+let breakStartTime = null; // Timestamp when break started
+let troubleTimerInterval = null; // Interval for machine trouble timer
+let troubleStartTime = null; // Timestamp when machine trouble started
 
 // Restore seisanSuStartValue from localStorage on load
 try {
@@ -88,7 +93,227 @@ function updateWorkDuration() {
 }
 
 // ============================================================
-// 🔹 LOCALSTORAGE PERSISTENCE
+// ⏸️ BREAK TIMER FUNCTIONALITY
+// ============================================================
+
+// Start break timer and show modal
+function startBreakTimer() {
+  // Stop any existing break timer
+  stopBreakTimer();
+  
+  // Set break start time
+  breakStartTime = new Date();
+  localStorage.setItem('breakStartTime', breakStartTime.getTime().toString());
+  console.log('⏸️ Break timer started at:', breakStartTime.toLocaleTimeString());
+  
+  // Show modal
+  const modalOverlay = document.getElementById('breakModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.add('active');
+  }
+  
+  // Update immediately
+  updateBreakTimer();
+  
+  // Update every second
+  breakTimerInterval = setInterval(updateBreakTimer, 1000);
+}
+
+// Stop break timer
+function stopBreakTimer() {
+  if (breakTimerInterval) {
+    clearInterval(breakTimerInterval);
+    breakTimerInterval = null;
+    console.log('⏹️ Break timer stopped');
+  }
+}
+
+// Update break timer display
+function updateBreakTimer() {
+  if (!breakStartTime) {
+    const timerDisplay = document.getElementById('breakTimer');
+    if (timerDisplay) {
+      timerDisplay.textContent = '00:00';
+    }
+    return;
+  }
+  
+  const now = new Date();
+  const elapsedMs = now - breakStartTime;
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  
+  // Calculate minutes and seconds
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  
+  // Format as MM:SS
+  const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  
+  const timerDisplay = document.getElementById('breakTimer');
+  if (timerDisplay) {
+    timerDisplay.textContent = timeString;
+  }
+}
+
+// Complete break - close modal and update stopTime
+function completeBreak() {
+  if (!breakStartTime) {
+    console.warn('⚠️ No break start time found');
+    return;
+  }
+  
+  // Calculate elapsed time
+  const now = new Date();
+  const elapsedMs = now - breakStartTime;
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000);
+  
+  // Calculate decimal hours (more precise with seconds)
+  const decimalHours = ((elapsedMinutes * 60 + elapsedSeconds) / 3600).toFixed(2);
+  
+  console.log(`⏸️ Break completed: ${elapsedMinutes}m ${elapsedSeconds}s = ${decimalHours}h`);
+  
+  // Get current stopTime value and add new break time
+  const stopTimeInput = document.getElementById('stopTime');
+  if (stopTimeInput) {
+    const currentStopTime = parseFloat(stopTimeInput.value) || 0;
+    const newStopTime = (currentStopTime + parseFloat(decimalHours)).toFixed(2);
+    stopTimeInput.value = newStopTime;
+    saveFieldToLocalStorage('stopTime', newStopTime);
+    console.log(`✅ Updated stopTime: ${currentStopTime} + ${decimalHours} = ${newStopTime}h`);
+  }
+  
+  // Stop timer and close modal
+  stopBreakTimer();
+  breakStartTime = null;
+  localStorage.removeItem('breakStartTime');
+  
+  const modalOverlay = document.getElementById('breakModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.remove('active');
+  }
+  
+  // Reset timer display
+  const timerDisplay = document.getElementById('breakTimer');
+  if (timerDisplay) {
+    timerDisplay.textContent = '00:00';
+  }
+  
+  console.log('✅ Break modal closed');
+}
+
+// ============================================================
+// � MACHINE TROUBLE TIMER FUNCTIONALITY
+// ============================================================
+
+// Start machine trouble timer and show modal
+function startTroubleTimer() {
+  // Stop any existing trouble timer
+  stopTroubleTimer();
+  
+  // Set trouble start time
+  troubleStartTime = new Date();
+  localStorage.setItem('troubleStartTime', troubleStartTime.getTime().toString());
+  console.log('🔧 Machine trouble timer started at:', troubleStartTime.toLocaleTimeString());
+  
+  // Show modal
+  const modalOverlay = document.getElementById('troubleModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.add('active');
+  }
+  
+  // Update immediately
+  updateTroubleTimer();
+  
+  // Update every second
+  troubleTimerInterval = setInterval(updateTroubleTimer, 1000);
+}
+
+// Stop machine trouble timer
+function stopTroubleTimer() {
+  if (troubleTimerInterval) {
+    clearInterval(troubleTimerInterval);
+    troubleTimerInterval = null;
+    console.log('⏹️ Machine trouble timer stopped');
+  }
+}
+
+// Update machine trouble timer display
+function updateTroubleTimer() {
+  if (!troubleStartTime) {
+    const timerDisplay = document.getElementById('troubleTimer');
+    if (timerDisplay) {
+      timerDisplay.textContent = '00:00';
+    }
+    return;
+  }
+  
+  const now = new Date();
+  const elapsedMs = now - troubleStartTime;
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  
+  // Calculate minutes and seconds
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  
+  // Format as MM:SS
+  const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  
+  const timerDisplay = document.getElementById('troubleTimer');
+  if (timerDisplay) {
+    timerDisplay.textContent = timeString;
+  }
+}
+
+// Complete machine trouble - close modal and update stopTime
+function completeTrouble() {
+  if (!troubleStartTime) {
+    console.warn('⚠️ No machine trouble start time found');
+    return;
+  }
+  
+  // Calculate elapsed time
+  const now = new Date();
+  const elapsedMs = now - troubleStartTime;
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000);
+  
+  // Calculate decimal hours (more precise with seconds)
+  const decimalHours = ((elapsedMinutes * 60 + elapsedSeconds) / 3600).toFixed(2);
+  
+  console.log(`🔧 Machine trouble completed: ${elapsedMinutes}m ${elapsedSeconds}s = ${decimalHours}h`);
+  
+  // Get current stopTime value and add new trouble time
+  const stopTimeInput = document.getElementById('stopTime');
+  if (stopTimeInput) {
+    const currentStopTime = parseFloat(stopTimeInput.value) || 0;
+    const newStopTime = (currentStopTime + parseFloat(decimalHours)).toFixed(2);
+    stopTimeInput.value = newStopTime;
+    saveFieldToLocalStorage('stopTime', newStopTime);
+    console.log(`✅ Updated stopTime: ${currentStopTime} + ${decimalHours} = ${newStopTime}h`);
+  }
+  
+  // Stop timer and close modal
+  stopTroubleTimer();
+  troubleStartTime = null;
+  localStorage.removeItem('troubleStartTime');
+  
+  const modalOverlay = document.getElementById('troubleModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.remove('active');
+  }
+  
+  // Reset timer display
+  const timerDisplay = document.getElementById('troubleTimer');
+  if (timerDisplay) {
+    timerDisplay.textContent = '00:00';
+  }
+  
+  console.log('✅ Machine trouble modal closed');
+}
+
+// ============================================================
+// �🔹 LOCALSTORAGE PERSISTENCE
 // ============================================================
 
 // Save field value to localStorage
@@ -155,6 +380,58 @@ function restoreAllFields() {
       }
     }
     
+    // Restart break timer if active break exists
+    const savedBreakStartTime = localStorage.getItem('breakStartTime');
+    if (savedBreakStartTime) {
+      try {
+        breakStartTime = new Date(parseInt(savedBreakStartTime));
+        console.log('⏸️ Restoring active break from:', breakStartTime.toLocaleTimeString());
+        
+        // Show modal
+        const modalOverlay = document.getElementById('breakModalOverlay');
+        if (modalOverlay) {
+          modalOverlay.classList.add('active');
+        }
+        
+        // Update immediately
+        updateBreakTimer();
+        
+        // Update every second
+        breakTimerInterval = setInterval(updateBreakTimer, 1000);
+        
+        console.log('✅ Break timer restored and modal reopened');
+      } catch (e) {
+        console.error('Failed to restore break timer:', e);
+        localStorage.removeItem('breakStartTime');
+      }
+    }
+    
+    // Restart machine trouble timer if active trouble exists
+    const savedTroubleStartTime = localStorage.getItem('troubleStartTime');
+    if (savedTroubleStartTime) {
+      try {
+        troubleStartTime = new Date(parseInt(savedTroubleStartTime));
+        console.log('🔧 Restoring active machine trouble from:', troubleStartTime.toLocaleTimeString());
+        
+        // Show modal
+        const modalOverlay = document.getElementById('troubleModalOverlay');
+        if (modalOverlay) {
+          modalOverlay.classList.add('active');
+        }
+        
+        // Update immediately
+        updateTroubleTimer();
+        
+        // Update every second
+        troubleTimerInterval = setInterval(updateTroubleTimer, 1000);
+        
+        console.log('✅ Machine trouble timer restored and modal reopened');
+      } catch (e) {
+        console.error('Failed to restore machine trouble timer:', e);
+        localStorage.removeItem('troubleStartTime');
+      }
+    }
+    
     console.log('✅ All fields restored from localStorage');
   } catch (e) {
     console.error('Failed to restore fields:', e);
@@ -171,6 +448,8 @@ function clearAllLocalStorage() {
       }
     });
     localStorage.removeItem('seisanSuStartValue');
+    localStorage.removeItem('breakStartTime');
+    localStorage.removeItem('troubleStartTime');
     console.log('🗑️ Cleared all tablet localStorage data');
   } catch (e) {
     console.error('Failed to clear localStorage:', e);
@@ -835,7 +1114,8 @@ function setWorkStartTime() {
 }
 
 function pauseWork() {
-  console.log('Pause work clicked');
+  console.log('⏸️ Pause work clicked - starting break timer');
+  startBreakTimer();
 }
 
 function setWorkStopTime() {
@@ -843,7 +1123,8 @@ function setWorkStopTime() {
 }
 
 function setWorkEndTime() {
-  console.log('Work end time clicked');
+  console.log('🔧 Machine trouble clicked - starting trouble timer');
+  startTroubleTimer();
 }
 
 function addInspectionCount() {
