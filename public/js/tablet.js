@@ -74,10 +74,8 @@ function logoutTablet() {
 // ============================================================
 
 // WebSocket connection to ksgServer
-const SERVER_URL = 'http://localhost:3000';
-//const SERVER_URL = 'http://192.168.24.39:3000';
-//const SERVER_URL = 'https://ksg.freyaaccess.com';
-const socket = io(SERVER_URL);
+// SERVER_URL is now loaded from config.js as API_URL
+const socket = io(API_URL);
 
 let currentCompany = 'KSG'; // Default company
 let currentFactory = ''; // Will be set from URL parameter
@@ -726,7 +724,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadUsers() {
   try {
-    const response = await fetch(`${SERVER_URL}/api/tablet/users/${encodeURIComponent(currentFactory)}`);
+    const response = await fetch(`${API_URL}/api/tablet/users/${encodeURIComponent(currentFactory)}`);
     const data = await response.json();
     
     if (data.success) {
@@ -786,7 +784,7 @@ async function loadProductByKanbanID(kanbanId) {
   
   try {
     console.log(`📦 Fetching product for kanbanID: ${kanbanId}`);
-    const response = await fetch(`${SERVER_URL}/api/tablet/product-by-kanban/${encodeURIComponent(kanbanId)}`);
+    const response = await fetch(`${API_URL}/api/tablet/product-by-kanban/${encodeURIComponent(kanbanId)}`);
     const data = await response.json();
     
     if (data.success) {
@@ -851,7 +849,7 @@ async function loadProductInfoOld() {
   }
   
   try {
-    const response = await fetch(`${SERVER_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
     const data = await response.json();
     
     if (data.success) {
@@ -1256,7 +1254,7 @@ async function sendData() {
     console.log('📊 Submitting data:', submissionData);
     
     // Submit to server
-    const response = await fetch(`${SERVER_URL}/api/tablet/submit`, {
+    const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
