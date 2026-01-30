@@ -5476,6 +5476,196 @@ app.post("/deleteRole", async (req, res) => {
 });
 
 // ====================
+// Tablet Routes
+// ====================
+
+// Get tablets
+app.post("/getTablets", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const tablets = db.collection("tabletDB");
+
+    const records = await tablets.find({}).toArray();
+    res.json(records);
+  } catch (err) {
+    console.error("Error fetching tablets:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create tablet
+app.post("/createTablet", async (req, res) => {
+  const { dbName, username, tabletData } = req.body;
+
+  if (!dbName || !username || !tabletData) {
+    return res.status(400).json({ error: "dbName, username, and tabletData required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const tablets = db.collection("tabletDB");
+    const activityLogs = db.collection("activityLogs");
+
+    const newTablet = {
+      ...tabletData,
+      registeredAt: new Date(),
+      registeredBy: username,
+      createdAt: new Date(),
+      createdBy: username
+    };
+
+    const result = await tablets.insertOne(newTablet);
+
+    // Log activity
+    await activityLogs.insertOne({
+      collection: "tabletDB",
+      action: "create",
+      timestamp: new Date(),
+      user: username,
+      details: `タブレット「${tabletData.tabletName}」を登録しました`
+    });
+
+    res.json({ message: "Tablet created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating tablet:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update tablet
+app.post("/updateTablet", async (req, res) => {
+  const { tabletId, updateData, dbName, username } = req.body;
+
+  if (!tabletId || !dbName || !username) {
+    return res.status(400).json({ error: "tabletId, dbName, username required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const tablets = db.collection("tabletDB");
+    const activityLogs = db.collection("activityLogs");
+
+    const result = await tablets.updateOne(
+      { _id: new ObjectId(tabletId) },
+      { 
+        $set: {
+          ...updateData,
+          updatedAt: new Date(),
+          updatedBy: username
+        }
+      }
+    );
+
+    // Log activity
+    await activityLogs.insertOne({
+      collection: "tabletDB",
+      action: "update",
+      timestamp: new Date(),
+      user: username,
+      details: `タブレット「${updateData.tabletName || tabletId}」を更新しました`
+    });
+
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating tablet:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete tablet
+app.post("/deleteTablet", async (req, res) => {
+  const { tabletId, dbName, username } = req.body;
+
+  if (!tabletId || !dbName || !username) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const tablets = db.collection("tabletDB");
+    const activityLogs = db.collection("activityLogs");
+
+    const tablet = await tablets.findOne({ _id: new ObjectId(tabletId) });
+    const result = await tablets.deleteOne({ _id: new ObjectId(tabletId) });
+
+    // Log activity
+    await activityLogs.insertOne({
+      collection: "tabletDB",
+      action: "delete",
+      timestamp: new Date(),
+      user: username,
+      details: `タブレット「${tablet?.tabletName || tabletId}」を削除しました`
+    });
+
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting tablet:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete multiple tablets
+app.post("/deleteMultipleTablets", async (req, res) => {
+  const { tabletIds, dbName, username } = req.body;
+
+  if (!tabletIds || !Array.isArray(tabletIds) || !dbName || !username) {
+    return res.status(400).json({ error: "Invalid request" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const tablets = db.collection("tabletDB");
+    const activityLogs = db.collection("activityLogs");
+
+    const objectIds = tabletIds.map(id => new ObjectId(id));
+    const result = await tablets.deleteMany({ _id: { $in: objectIds } });
+
+    // Log activity
+    await activityLogs.insertOne({
+      collection: "tabletDB",
+      action: "delete",
+      timestamp: new Date(),
+      user: username,
+      details: `${tabletIds.length}件のタブレットを削除しました`
+    });
+
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting multiple tablets:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====================
 // Activity Logs Routes
 // ====================
 

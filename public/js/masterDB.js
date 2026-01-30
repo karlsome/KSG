@@ -7,6 +7,7 @@ let allMasterData = [];
 let allFactories = [];
 let allEquipment = [];
 let allRoles = [];
+let allTablets = [];
 let selectedItems = [];
 let currentModalData = null;
 let currentModalType = null;
@@ -22,6 +23,7 @@ function switchMainTab(tabName) {
   document.getElementById('contentEquipment').classList.add('hidden');
   document.getElementById('contentRoles').classList.add('hidden');
   document.getElementById('contentRpiServer').classList.add('hidden');
+  document.getElementById('contentTablet').classList.add('hidden');
 
   // Remove active class from all tabs
   document.getElementById('tabMaster').classList.remove('tab-active');
@@ -29,6 +31,7 @@ function switchMainTab(tabName) {
   document.getElementById('tabEquipment').classList.remove('tab-active');
   document.getElementById('tabRoles').classList.remove('tab-active');
   document.getElementById('tabRpiServer').classList.remove('tab-active');
+  document.getElementById('tabTablet').classList.remove('tab-active');
 
   // Show selected content and activate tab
   currentTab = tabName;
@@ -83,6 +86,9 @@ function loadTabData(tabName) {
     case 'rpiServer':
       loadRpiServers();
       break;
+    case 'tablet':
+      loadTablets();
+      break;
   }
 }
 
@@ -101,7 +107,8 @@ async function loadActivityHistory(tabName) {
     'master': 'masterDB',
     'factory': 'factory',
     'equipment': 'equipment',
-    'roles': 'roles'
+    'roles': 'roles',
+    'tablet': 'tabletDB'
   };
   
   const collection = collectionMap[tabName];
@@ -288,6 +295,9 @@ async function openDetailModal(type, id) {
     case 'roles':
       data = allRoles.find(item => item._id === id);
       break;
+    case 'tablet':
+      data = allTablets.find(item => item._id === id);
+      break;
   }
   
   if (!data) {
@@ -302,7 +312,8 @@ async function openDetailModal(type, id) {
     'master': '製品詳細',
     'factory': '工場詳細',
     'equipment': '設備詳細',
-    'roles': 'ロール詳細'
+    'roles': 'ロール詳細',
+    'tablet': 'タブレット詳細'
   };
   document.getElementById('modalTitle').textContent = titleMap[type];
   
@@ -386,6 +397,46 @@ function renderModalDetails(type, data) {
         <div class="grid grid-cols-1 gap-4">
           <div><label class="block text-sm font-medium mb-1">Role Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
           <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        </div>
+      `;
+      break;
+      
+    case 'tablet':
+      // Generate factory dropdown options from already loaded data
+      const factoryOptions = allFactories.map(f => 
+        `<option value="${f.name || ''}" ${f.name === data.factoryLocation ? 'selected' : ''}>${f.name || ''}</option>`
+      ).join('');
+      
+      // Filter equipment based on the current factory
+      const filteredEquipment = data.factoryLocation 
+        ? allEquipment.filter(eq => eq.工場 && Array.isArray(eq.工場) && eq.工場.includes(data.factoryLocation))
+        : [];
+      
+      // Generate equipment dropdown options from filtered data
+      const equipmentOptions = filteredEquipment.map(eq => 
+        `<option value="${eq.設備名 || ''}" ${eq.設備名 === data.設備名 ? 'selected' : ''}>${eq.設備名 || ''}</option>`
+      ).join('');
+      
+      detailsHTML = `
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium mb-1">タブレット名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
+          <div><label class="block text-sm font-medium mb-1">ブランド</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletBrand || ''}" disabled data-field="tabletBrand" /></div>
+          <div>
+            <label class="block text-sm font-medium mb-1">工場名</label>
+            <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="factoryLocation" id="tabletFactorySelect" onchange="updateTabletEquipmentDropdownModal()">
+              <option value="">-- 工場を選択 --</option>
+              ${factoryOptions}
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">設備名</label>
+            <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="設備名" id="tabletEquipmentSelect">
+              <option value="">-- 設備を選択 --</option>
+              ${equipmentOptions}
+            </select>
+          </div>
+          <div><label class="block text-sm font-medium mb-1">登録日</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
+          <div><label class="block text-sm font-medium mb-1">登録者</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredBy || ''}" disabled /></div>
         </div>
       `;
       break;
@@ -653,7 +704,22 @@ async function saveModalChanges() {
     }
   }
   
-  // Get other fields
+  // Handle special fields for tablet
+  if (currentModalType === 'tablet') {
+    // Get factory from dropdown
+    const factorySelect = document.getElementById('tabletFactorySelect');
+    if (factorySelect && !factorySelect.disabled) {
+      updateData['factoryLocation'] = factorySelect.value;
+    }
+    
+    // Get equipment from dropdown
+    const equipmentSelect = document.getElementById('tabletEquipmentSelect');
+    if (equipmentSelect && !equipmentSelect.disabled) {
+      updateData['設備名'] = equipmentSelect.value;
+    }
+  }
+  
+  // Get other fields (excluding selects which are handled above)
   document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
     if (!el.disabled) {
       updateData[el.dataset.field] = el.value;
@@ -672,12 +738,14 @@ async function saveModalChanges() {
       'master': 'updateMasterRecord',
       'factory': 'updateFactory',
       'equipment': 'updateEquipment',
-      'roles': 'updateRole'
+      'roles': 'updateRole',
+      'tablet': 'updateTablet'
     };
     
     const idField = currentModalType === 'master' ? 'recordId' : 
                     currentModalType === 'factory' ? 'factoryId' :
-                    currentModalType === 'equipment' ? 'equipmentId' : 'roleId';
+                    currentModalType === 'equipment' ? 'equipmentId' : 
+                    currentModalType === 'tablet' ? 'tabletId' : 'roleId';
     
     const res = await fetch(BASE_URL + endpoints[currentModalType], {
       method: "POST",
@@ -738,10 +806,13 @@ function showDeleteConfirmation(type) {
     case 'roles':
       items = allRoles.filter(item => selectedIds.includes(item._id));
       break;
+    case 'tablet':
+      items = allTablets.filter(item => selectedIds.includes(item._id));
+      break;
   }
   
   const itemsListHTML = items.map(item => {
-    const displayName = item.品番 || item.name || item.設備名 || item.roleName || item._id;
+    const displayName = item.品番 || item.name || item.設備名 || item.roleName || item.tabletName || item._id;
     return `<div class="py-1">• ${displayName}</div>`;
   }).join('');
   
@@ -770,13 +841,18 @@ async function confirmDelete() {
       'master': 'deleteMultipleMasterRecords',
       'factory': 'deleteMultipleFactories',
       'equipment': 'deleteMultipleEquipment',
-      'roles': 'deleteMultipleRoles'
+      'roles': 'deleteMultipleRoles',
+      'tablet': 'deleteMultipleTablets'
     };
     
     const res = await fetch(BASE_URL + endpoints[type], {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, dbName, username })
+      body: JSON.stringify({ 
+        [type === 'tablet' ? 'tabletIds' : 'ids']: ids, 
+        dbName, 
+        username 
+      })
     });
     
     if (!res.ok) throw new Error("Delete failed");
@@ -2302,5 +2378,249 @@ async function saveRpiServer() {
   } catch (error) {
     console.error('Error updating device:', error);
     showToast('Failed to update device', 'error');
+  }
+}
+
+// ====================
+// Tablet Functions
+// ====================
+
+async function loadTablets() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getTablets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    allTablets = await res.json();
+    renderTabletsTable(allTablets);
+  } catch (err) {
+    console.error("Failed to load tablets:", err);
+    document.getElementById("tabletTableContainer").innerHTML = `<p class="text-red-600">Failed: ${err.message}</p>`;
+  }
+}
+
+function renderTabletsTable(tablets) {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+
+  const tableHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-3">
+        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateTabletForm()">
+          <i class="ri-add-line mr-2"></i>タブレット登録
+        </button>
+        <button id="deleteTabletsBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('tablet')">
+          <i class="ri-delete-bin-line mr-2"></i>選択削除 (<span id="tabletSelectedCount">0</span>)
+        </button>
+      </div>
+      <div class="text-sm text-gray-600">Total: ${tablets.length} tablets</div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border border-gray-200 rounded-lg">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllTablets" onchange="toggleSelectAll('tablet')" class="rounded"></th>
+            <th class="px-4 py-3 text-left">タブレット名</th>
+            <th class="px-4 py-3 text-left">ブランド</th>
+            <th class="px-4 py-3 text-left">工場名</th>
+            <th class="px-4 py-3 text-left">設備名</th>
+            <th class="px-4 py-3 text-left">登録日</th>
+            <th class="px-4 py-3 text-left">登録者</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y">
+          ${tablets.map(t => `
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('tablet', '${t._id}')">
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="tabletCheckbox rounded" value="${t._id}" onchange="updateSelectedCount('tablet')"></td>
+              <td class="px-4 py-3"><i class="ri-tablet-line text-blue-600 mr-2"></i>${t.tabletName || ""}</td>
+              <td class="px-4 py-3">${t.tabletBrand || ""}</td>
+              <td class="px-4 py-3">${t.factoryLocation || ""}</td>
+              <td class="px-4 py-3">${t.設備名 || ""}</td>
+              <td class="px-4 py-3">${t.registeredAt ? new Date(t.registeredAt).toLocaleDateString('ja-JP') : ""}</td>
+              <td class="px-4 py-3">${t.registeredBy || ""}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("tabletTableContainer").innerHTML = tableHTML;
+  selectedItems = [];
+  updateSelectedCount('tablet');
+}
+
+async function showCreateTabletForm() {
+  const container = document.getElementById("tabletTableContainer");
+  
+  // Load equipment list if not already loaded
+  if (allEquipment.length === 0) {
+    await loadEquipment();
+  }
+  
+  // Load factory list if not already loaded
+  if (allFactories.length === 0) {
+    await loadFactories();
+  }
+  
+  // Generate factory dropdown options
+  const factoryOptions = allFactories.map(f => 
+    `<option value="${f.name || ''}">${f.name || ''}</option>`
+  ).join('');
+  
+  const formHTML = `
+    <div class="bg-white border p-6 rounded-xl mb-6">
+      <h3 class="text-xl font-semibold mb-4">タブレット登録</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">タブレット名 *</label>
+          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet-001" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">ブランド *</label>
+          <input type="text" id="newTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="例: iPad, Samsung" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">工場名 *</label>
+          <select id="newFactoryLocation" class="w-full px-3 py-2 border rounded-lg bg-white" onchange="updateTabletEquipmentDropdown()">
+            <option value="">-- 工場を選択 --</option>
+            ${factoryOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <select id="new設備名" class="w-full px-3 py-2 border rounded-lg bg-white" disabled>
+            <option value="">-- まず工場を選択 --</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
+          <i class="ri-save-line mr-2"></i>登録
+        </button>
+        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" onclick="loadTablets()">
+          <i class="ri-close-line mr-2"></i>キャンセル
+        </button>
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = formHTML + container.innerHTML;
+}
+
+// Function to update equipment dropdown based on selected factory
+function updateTabletEquipmentDropdown() {
+  const factorySelect = document.getElementById('newFactoryLocation');
+  const equipmentSelect = document.getElementById('new設備名');
+  
+  const selectedFactory = factorySelect.value;
+  
+  if (!selectedFactory) {
+    // No factory selected, disable and reset equipment dropdown
+    equipmentSelect.disabled = true;
+    equipmentSelect.innerHTML = '<option value="">-- まず工場を選択 --</option>';
+    return;
+  }
+  
+  // Filter equipment by selected factory
+  const filteredEquipment = allEquipment.filter(eq => {
+    // Check if equipment's 工場 array includes the selected factory
+    return eq.工場 && Array.isArray(eq.工場) && eq.工場.includes(selectedFactory);
+  });
+  
+  // Generate options for filtered equipment
+  const equipmentOptions = filteredEquipment.map(eq => 
+    `<option value="${eq.設備名 || ''}">${eq.設備名 || ''}</option>`
+  ).join('');
+  
+  // Update dropdown
+  equipmentSelect.disabled = false;
+  equipmentSelect.innerHTML = `<option value="">-- 設備を選択 --</option>${equipmentOptions}`;
+}
+
+// Function to update equipment dropdown in modal (for editing)
+function updateTabletEquipmentDropdownModal() {
+  const factorySelect = document.getElementById('tabletFactorySelect');
+  const equipmentSelect = document.getElementById('tabletEquipmentSelect');
+  
+  const selectedFactory = factorySelect.value;
+  const currentEquipment = equipmentSelect.value; // Preserve current selection if possible
+  
+  if (!selectedFactory) {
+    // No factory selected, disable and reset equipment dropdown
+    equipmentSelect.disabled = true;
+    equipmentSelect.innerHTML = '<option value="">-- まず工場を選択 --</option>';
+    return;
+  }
+  
+  // Filter equipment by selected factory
+  const filteredEquipment = allEquipment.filter(eq => {
+    return eq.工場 && Array.isArray(eq.工場) && eq.工場.includes(selectedFactory);
+  });
+  
+  // Generate options for filtered equipment
+  const equipmentOptions = filteredEquipment.map(eq => 
+    `<option value="${eq.設備名 || ''}" ${eq.設備名 === currentEquipment ? 'selected' : ''}>${eq.設備名 || ''}</option>`
+  ).join('');
+  
+  // Update dropdown
+  equipmentSelect.disabled = false;
+  equipmentSelect.innerHTML = `<option value="">-- 設備を選択 --</option>${equipmentOptions}`;
+}
+
+async function submitNewTablet() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  const tabletData = {
+    tabletName: document.getElementById("newTabletName").value.trim(),
+    tabletBrand: document.getElementById("newTabletBrand").value.trim(),
+    factoryLocation: document.getElementById("newFactoryLocation").value.trim(),
+    設備名: document.getElementById("new設備名").value.trim()
+  };
+
+  if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
+    return alert("すべての必須項目を入力してください");
+  }
+
+  try {
+    const res = await fetch(BASE_URL + "createTablet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName, username, tabletData })
+    });
+
+    if (!res.ok) throw new Error("Failed");
+    showToast("タブレットを登録しました", "success");
+    loadTablets();
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+
+async function deleteTablet(tabletId) {
+  if (!confirm("このタブレットを削除しますか？")) return;
+
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  try {
+    const res = await fetch(BASE_URL + "deleteTablet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tabletId, dbName, username })
+    });
+
+    if (!res.ok) throw new Error("Failed");
+    showToast("タブレットを削除しました", "success");
+    loadTablets();
+  } catch (err) {
+    alert("Error: " + err.message);
   }
 }
