@@ -1,7 +1,82 @@
+// ============================================================
+// 🔐 AUTHENTICATION CHECK
+// ============================================================
+
+// Check if user is authenticated
+(function checkAuthentication() {
+  const authData = localStorage.getItem('tabletAuth');
+  
+  if (!authData) {
+    // Not authenticated, redirect to login
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabletName = urlParams.get('tabletName');
+    
+    if (tabletName) {
+      window.location.href = `tablet-login.html?tabletName=${tabletName}`;
+    } else {
+      alert('タブレット名が指定されていません / Tablet name not specified');
+    }
+    return;
+  }
+
+  try {
+    const auth = JSON.parse(authData);
+    
+    // Check if token is expired (12 hours)
+    const loginTime = new Date(auth.loginTime);
+    const now = new Date();
+    const hoursSinceLogin = (now - loginTime) / (1000 * 60 * 60);
+    
+    if (hoursSinceLogin > 12) {
+      // Token expired, clear and redirect
+      localStorage.removeItem('tabletAuth');
+      const tabletName = auth.tabletName || auth.tablet?.tabletName;
+      if (tabletName) {
+        window.location.href = `tablet-login.html?tabletName=${tabletName}`;
+      } else {
+        window.location.href = 'tablet-login.html';
+      }
+      return;
+    }
+    
+    // Authentication valid, update UI with user info
+    console.log('✅ Authenticated as:', auth.user.username);
+    console.log('📱 Tablet:', auth.tablet.tabletName);
+    
+  } catch (err) {
+    console.error('Error checking authentication:', err);
+    localStorage.removeItem('tabletAuth');
+    window.location.href = 'tablet-login.html';
+  }
+})();
+
+// Logout function
+function logoutTablet() {
+  if (confirm('ログアウトしますか？ / Logout?')) {
+    const authData = localStorage.getItem('tabletAuth');
+    let tabletName = null;
+    if (authData) {
+      const auth = JSON.parse(authData);
+      tabletName = auth.tabletName || auth.tablet?.tabletName;
+    }
+    localStorage.removeItem('tabletAuth');
+    
+    if (tabletName) {
+      window.location.href = `tablet-login.html?tabletName=${tabletName}`;
+    } else {
+      window.location.href = 'tablet-login.html';
+    }
+  }
+}
+
+// ============================================================
+// 🌐 WEBSOCKET CONNECTION
+// ============================================================
+
 // WebSocket connection to ksgServer
-//const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'http://localhost:3000';
 //const SERVER_URL = 'http://192.168.24.39:3000';
-const SERVER_URL = 'https://ksg.freyaaccess.com';
+//const SERVER_URL = 'https://ksg.freyaaccess.com';
 const socket = io(SERVER_URL);
 
 let currentCompany = 'KSG'; // Default company
@@ -577,6 +652,20 @@ function getURLParameter(name) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+  // Display current user info
+  try {
+    const authData = localStorage.getItem('tabletAuth');
+    if (authData) {
+      const auth = JSON.parse(authData);
+      const usernameDisplay = document.getElementById('currentUsername');
+      if (usernameDisplay) {
+        usernameDisplay.textContent = `${auth.user.firstName || ''} ${auth.user.lastName || ''}`.trim() || auth.user.username;
+      }
+    }
+  } catch (err) {
+    console.error('Error displaying user info:', err);
+  }
+  
   // Get factory from URL parameter
   currentFactory = getURLParameter('factory') || 'KSG加工';
   console.log('🏭 Factory from URL:', currentFactory);

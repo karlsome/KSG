@@ -4778,15 +4778,27 @@ app.post("/customerCreateUser", async (req, res) => {
 
     // 4. Insert user in customer DB
     const hashedPassword = await bcrypt.hash(password, 10);
-    await users.insertOne({
+    const newUser = {
       firstName,
       lastName,
       email,
       username: normalizedUsername,
       password: hashedPassword,
       role,
+      factories: [],
+      equipment: [],
       createdAt: new Date()
-    });
+    };
+    
+    // Add optional fields if provided
+    if (req.body.factories && Array.isArray(req.body.factories)) {
+      newUser.factories = req.body.factories;
+    }
+    if (req.body.equipment && Array.isArray(req.body.equipment)) {
+      newUser.equipment = req.body.equipment;
+    }
+    
+    await users.insertOne(newUser);
 
     // 5. Track sub-user in masterUsers
     await masterUsers.updateOne(
@@ -5525,7 +5537,8 @@ app.post("/createTablet", async (req, res) => {
       registeredAt: new Date(),
       registeredBy: username,
       createdAt: new Date(),
-      createdBy: username
+      createdBy: username,
+      authorizedUsers: tabletData.authorizedUsers || [] // Default to empty array
     };
 
     const result = await tablets.insertOne(newTablet);
@@ -5661,6 +5674,147 @@ app.post("/deleteMultipleTablets", async (req, res) => {
     res.json({ deletedCount: result.deletedCount });
   } catch (err) {
     console.error("Error deleting multiple tablets:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Tablet Login with hybrid access control
+app.post("/tabletLogin", async (req, res) => {
+  const { dbName, username, password, tabletName, tabletId } = req.body;
+
+  if (!dbName || !username || !password || (!tabletName && !tabletId)) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const users = db.collection("users");
+    const tablets = db.collection("tabletDB");
+
+    // 1. Authenticate user
+    const user = await users.findOne({ username: username.trim().toLowerCase() });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    // 2. Get tablet information (by name or ID)
+    let tablet;
+    if (tabletName) {
+      tablet = await tablets.findOne({ tabletName });
+    } else if (tabletId) {
+      tablet = await tablets.findOne({ _id: new ObjectId(tabletId) });
+    }
+    
+    if (!tablet) {
+      return res.status(404).json({ error: "Tablet not found" });
+    }
+
+    // 3. Check access permissions (Hybrid approach)
+    let hasAccess = false;
+
+    console.log('🔍 Access Check Debug:');
+    console.log('  User:', username);
+    console.log('  User factories:', user.factories);
+    console.log('  User equipment:', user.equipment);
+    console.log('  Tablet:', tablet.tabletName);
+    console.log('  Tablet factory:', tablet.factoryLocation);
+    console.log('  Tablet equipment:', tablet.設備名);
+    console.log('  Tablet authorizedUsers:', tablet.authorizedUsers);
+
+    // Check if tablet has explicit authorized users list (and it's not empty)
+    if (tablet.authorizedUsers && Array.isArray(tablet.authorizedUsers) && tablet.authorizedUsers.length > 0) {
+      // Tablet-level restriction: Only authorized users can access
+      hasAccess = tablet.authorizedUsers.includes(user._id.toString()) || 
+                  tablet.authorizedUsers.includes(username.trim().toLowerCase());
+    } else {
+      // Factory/Equipment-based access: Check if user's assignments match tablet
+      // Handle both old format (factory string) and new format (factories/equipment arrays)
+      let userFactories = user.factories || [];
+      let userEquipment = user.equipment || [];
+      
+      // Backward compatibility: parse old 'factory' field (comma-separated string)
+      if (!userFactories.length && user.factory) {
+        userFactories = user.factory.split(',').map(f => f.trim()).filter(f => f);
+      }
+      
+      console.log('  Parsed factories:', userFactories);
+      console.log('  Parsed equipment:', userEquipment);
+      
+      // Grant access if:
+      // 1. User has the factory assigned, OR
+      // 2. User has the equipment assigned, OR
+      // 3. User has both factory AND equipment (most restrictive)
+      // This allows flexible assignment - admins can assign by factory, equipment, or both
+      
+      const factoryMatch = userFactories.length > 0 && userFactories.includes(tablet.factoryLocation);
+      const equipmentMatch = userEquipment.length > 0 && userEquipment.includes(tablet.設備名);
+      
+      console.log('  Factory match:', factoryMatch);
+      console.log('  Equipment match:', equipmentMatch);
+      
+      // Grant access if user has at least factory OR equipment match
+      // If user has both arrays populated, they must match at least one
+      if (userFactories.length > 0 && userEquipment.length > 0) {
+        // User has both assigned - require both to match for stricter control
+        hasAccess = factoryMatch && equipmentMatch;
+      } else if (userFactories.length > 0) {
+        // User only has factories assigned - match by factory
+        hasAccess = factoryMatch;
+      } else if (userEquipment.length > 0) {
+        // User only has equipment assigned - match by equipment
+        hasAccess = equipmentMatch;
+      } else {
+        // User has neither assigned - no access
+        hasAccess = false;
+      }
+    }
+
+    console.log('  ✅ hasAccess:', hasAccess);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Access denied: You are not authorized to use this tablet" });
+    }
+
+    // 4. Generate JWT token
+    const token = jwt.sign(
+      { 
+        username: user.username, 
+        role: user.role, 
+        dbName,
+        tabletId,
+        userId: user._id.toString()
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      },
+      tablet: {
+        tabletName: tablet.tabletName,
+        factoryLocation: tablet.factoryLocation,
+        設備名: tablet.設備名
+      }
+    });
+  } catch (err) {
+    console.error("Error in tablet login:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

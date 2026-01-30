@@ -628,8 +628,17 @@
       <div class="logo">
         <img src="../old_data/src/logo.png" alt="Kasugai Kakou Logo" style="height: 80px;">
       </div>
-      <div class="connection-status" id="connectionStatus">
-        <span class="status-dot"></span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div id="userInfo" style="text-align: right; margin-right: 10px;">
+          <div style="font-size: 12px; color: #666;">ユーザー</div>
+          <div style="font-size: 14px; font-weight: bold;" id="currentUsername">-</div>
+        </div>
+        <button onclick="logoutTablet()" style="background: #f44336; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          ログアウト
+        </button>
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-dot"></span>
+        </div>
       </div>
     </div>
 

@@ -2525,6 +2525,11 @@ async function showCreateTabletForm() {
             <option value="">-- まず工場を選択 --</option>
           </select>
         </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium mb-1">アクセス制限 (オプション)</label>
+          <p class="text-xs text-gray-500 mb-2">空欄の場合、工場・設備が一致する全ユーザーがアクセス可能です。特定のユーザーのみに制限する場合は、ユーザー名をカンマ区切りで入力してください。</p>
+          <input type="text" id="newAuthorizedUsers" class="w-full px-3 py-2 border rounded-lg" placeholder="例: user1, user2, user3 (空欄=制限なし)" />
+        </div>
       </div>
       <div class="flex gap-3">
         <button id="submitTabletBtn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
@@ -2647,6 +2652,14 @@ async function submitNewTablet() {
     factoryLocation: document.getElementById("newFactoryLocation").value.trim(),
     設備名: document.getElementById("new設備名").value.trim()
   };
+  
+  // Parse authorized users (optional, comma-separated)
+  const authorizedUsersInput = document.getElementById("newAuthorizedUsers").value.trim();
+  if (authorizedUsersInput) {
+    tabletData.authorizedUsers = authorizedUsersInput.split(',').map(u => u.trim()).filter(u => u);
+  } else {
+    tabletData.authorizedUsers = []; // Empty array means no restriction
+  }
 
   if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
     return alert("すべての必須項目を入力してください");

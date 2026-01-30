@@ -6,7 +6,9 @@
 let allUsers = [];
 let availableRoles = ["admin", "member", "operator", "viewer"]; // Default roles
 let availableFactories = []; // Factories from 工場 tab
+let availableEquipment = []; // Equipment from 設備 tab
 let selectedUserFactories = []; // For create/edit factory tags
+let selectedUserEquipment = []; // For create/edit equipment tags
 
 // Load roles from the database
 async function loadAvailableRoles() {
@@ -55,15 +57,40 @@ async function loadAvailableFactories() {
   }
 }
 
+// Load equipment from the database
+async function loadAvailableEquipment() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getEquipment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    if (res.ok) {
+      const equipment = await res.json();
+      if (equipment.length > 0) {
+        availableEquipment = equipment.map(e => e.設備名);
+      }
+    }
+  } catch (err) {
+    console.log("Couldn't fetch equipment from database:", err);
+    availableEquipment = [];
+  }
+}
+
 async function loadUsers() {
   // Get current user info (should be set when user logs in)
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const role = currentUser.role || "admin";
 
-  // Load available roles and factories first
+  // Load available roles, factories, and equipment first
   await loadAvailableRoles();
   await loadAvailableFactories();
+  await loadAvailableEquipment();
 
   try {
     const res = await fetch(BASE_URL + "customerGetUsers", {
@@ -143,6 +170,14 @@ function showCreateUserForm() {
           </select>
         </div>
         <div class="space-y-1">
+          <label class="block text-sm font-medium text-gray-700">設備 (複数選択可能)</label>
+          <div id="userEquipmentTags" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white min-h-[42px] mb-2"></div>
+          <select id="newEquipment" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableEquipment.length === 0 ? 'border-red-500' : ''}">
+            <option value="">${availableEquipment.length > 0 ? '+ 設備を追加' : '⚠️ 設備データがありません'}</option>
+            ${availableEquipment.map(e => `<option value="${e}">${e}</option>`).join("")}
+          </select>
+        </div>
+        <div class="space-y-1">
           <label class="block text-sm font-medium text-gray-700">User ID</label>
           <input type="text" id="newUserID" placeholder="User ID" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
@@ -172,6 +207,21 @@ function showCreateUserForm() {
       if (e.target.value && !selectedUserFactories.includes(e.target.value)) {
         selectedUserFactories.push(e.target.value);
         renderUserFactoryTags();
+      }
+      e.target.value = '';
+    };
+  }
+  
+  // Initialize equipment tagging system
+  selectedUserEquipment = [];
+  renderUserEquipmentTags();
+  
+  const equipmentSelect = document.getElementById('newEquipment');
+  if (equipmentSelect) {
+    equipmentSelect.onchange = (e) => {
+      if (e.target.value && !selectedUserEquipment.includes(e.target.value)) {
+        selectedUserEquipment.push(e.target.value);
+        renderUserEquipmentTags();
       }
       e.target.value = '';
     };
@@ -271,6 +321,8 @@ async function saveUser(userId) {
   
   // Add factory from selectedUserFactories
   updated.factory = selectedUserFactories.join(',');
+  updated.factories = selectedUserFactories; // Array for tablet access control
+  updated.equipment = selectedUserEquipment; // Array for tablet access control
 
   try {
     const res = await fetch(BASE_URL + "customerUpdateRecord", {
@@ -402,6 +454,8 @@ async function submitNewUser() {
     division: document.getElementById("newDivision").value.trim(),
     enable: document.getElementById("newEnable").value.trim(),
     factory: selectedUserFactories.join(','), // Convert array to comma-delimited
+    factories: selectedUserFactories, // Array for tablet access control
+    equipment: selectedUserEquipment, // Array for tablet access control
     userID: document.getElementById("newUserID").value.trim(),
     dbName,
     creatorRole
@@ -469,6 +523,26 @@ function removeUserFactoryTag(factory) {
   renderUserFactoryTags();
 }
 
+function renderUserEquipmentTags() {
+  const tagsDiv = document.getElementById('userEquipmentTags');
+  if (!tagsDiv) return;
+  
+  tagsDiv.innerHTML = selectedUserEquipment.length > 0 ? 
+    selectedUserEquipment.map(e => `
+      <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 bg-green-100 text-green-800 rounded">
+        ${e}
+        <button type="button" onclick="removeUserEquipmentTag('${e}')" class="ml-2 text-green-600 hover:text-green-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-sm">設備を選択してください</span>';
+}
+
+function removeUserEquipmentTag(equipment) {
+  selectedUserEquipment = selectedUserEquipment.filter(e => e !== equipment);
+  renderUserEquipmentTags();
+}
+
 // Initialize when page loads
 if (typeof window !== 'undefined') {
   window.loadUsers = loadUsers;
@@ -480,6 +554,8 @@ if (typeof window !== 'undefined') {
   window.submitNewUser = submitNewUser;
   window.renderUserFactoryTags = renderUserFactoryTags;
   window.removeUserFactoryTag = removeUserFactoryTag;
+  window.renderUserEquipmentTags = renderUserEquipmentTags;
+  window.removeUserEquipmentTag = removeUserEquipmentTag;
   window.renderEditUserFactoryTags = renderEditUserFactoryTags;
   window.removeEditUserFactoryTag = removeEditUserFactoryTag;
 }

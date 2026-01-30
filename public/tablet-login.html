@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タブレットログイン - Kasugai Kakou</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .login-container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 400px;
+      width: 100%;
+    }
+
+    .logo-section {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .logo-section img {
+      height: 80px;
+      margin-bottom: 20px;
+    }
+
+    .logo-section h1 {
+      font-size: 24px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .logo-section p {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: all 0.3s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .error-message {
+      display: none;
+      background: #fee;
+      color: #c33;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 20px;
+      border: 1px solid #fcc;
+    }
+
+    .error-message.show {
+      display: block;
+    }
+
+    .login-button {
+      width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .login-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .login-button:active {
+      transform: translateY(0);
+    }
+
+    .login-button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .tablet-info {
+      margin-top: 20px;
+      padding: 12px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #666;
+      text-align: center;
+    }
+
+    .tablet-info strong {
+      color: #333;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 8px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="logo-section">
+      <img src="../old_data/src/logo.png" alt="Kasugai Kakou Logo">
+      <h1>タブレットログイン</h1>
+      <p>Tablet Authentication</p>
+    </div>
+
+    <div id="errorMessage" class="error-message"></div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username">ユーザー名 / Username</label>
+        <input type="text" id="username" name="username" required autocomplete="username" autofocus>
+      </div>
+
+      <div class="form-group">
+        <label for="password">パスワード / Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="login-button" id="loginButton">
+        ログイン / Login
+      </button>
+    </form>
+
+    <div class="tablet-info" id="tabletInfo">
+      <div>タブレット: <strong id="tabletName">読込中...</strong></div>
+      <div>工場: <strong id="factoryName">-</strong></div>
+      <div>設備: <strong id="equipmentName">-</strong></div>
+    </div>
+  </div>
+
+  <script>
+    // Get tablet name from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabletName = urlParams.get('tabletName');
+    
+    // Base URL configuration
+    const BASE_URL = 'http://localhost:3000/';
+    //const BASE_URL = 'https://ksg.freyaaccess.com/';
+    const DB_NAME = 'KSG'; // This could also come from URL param if needed
+
+    // Load tablet information
+    async function loadTabletInfo() {
+      if (!tabletName) {
+        showError('タブレット名が指定されていません / Tablet name not specified');
+        return;
+      }
+
+      try {
+        const res = await fetch(BASE_URL + 'getTablets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dbName: DB_NAME })
+        });
+
+        if (!res.ok) throw new Error('Failed to fetch tablets');
+
+        const tablets = await res.json();
+        const tablet = tablets.find(t => t.tabletName === tabletName);
+
+        if (tablet) {
+          // Store tablet ID for later use
+          window.tabletId = tablet._id;
+          document.getElementById('tabletName').textContent = tablet.tabletName;
+          document.getElementById('factoryName').textContent = tablet.factoryLocation;
+          document.getElementById('equipmentName').textContent = tablet.設備名;
+        } else {
+          document.getElementById('tabletName').textContent = '不明 / Unknown';
+          showError(`タブレット「${tabletName}」が見つかりません / Tablet not found`);
+        }
+      } catch (err) {
+        console.error('Error loading tablet info:', err);
+        document.getElementById('tabletName').textContent = '読込失敗 / Load failed';
+      }
+    }
+
+    // Handle login form submission
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const loginButton = document.getElementById('loginButton');
+      const errorDiv = document.getElementById('errorMessage');
+
+      if (!tabletName) {
+        showError('タブレット名が指定されていません / Tablet name not specified');
+        return;
+      }
+
+      if (!window.tabletId) {
+        showError('タブレット情報の読み込みに失敗しました / Failed to load tablet info');
+        return;
+      }
+
+      // Disable button and show loading
+      loginButton.disabled = true;
+      loginButton.innerHTML = '<span class="spinner"></span>ログイン中...';
+      errorDiv.classList.remove('show');
+
+      try {
+        const res = await fetch(BASE_URL + 'tabletLogin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dbName: DB_NAME,
+            username,
+            password,
+            tabletName
+          })
+        });
+
+        const result = await res.json();
+
+        if (!res.ok) {
+          throw new Error(result.error || 'Login failed');
+        }
+
+        // Store authentication data
+        localStorage.setItem('tabletAuth', JSON.stringify({
+          token: result.token,
+          user: result.user,
+          tablet: result.tablet,
+          tabletId: window.tabletId,
+          tabletName: tabletName,
+          loginTime: new Date().toISOString()
+        }));
+
+        // Redirect to tablet interface
+        window.location.href = 'tablet.html';
+
+      } catch (err) {
+        console.error('Login error:', err);
+        showError(err.message || 'ログインに失敗しました / Login failed');
+        loginButton.disabled = false;
+        loginButton.innerHTML = 'ログイン / Login';
+      }
+    });
+
+    function showError(message) {
+      const errorDiv = document.getElementById('errorMessage');
+      errorDiv.textContent = message;
+      errorDiv.classList.add('show');
+    }
+
+    // Load tablet info on page load
+    loadTabletInfo();
+  </script>
+</body>
+</html>
