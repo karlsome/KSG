@@ -121,7 +121,7 @@
   </div>
 
   <!-- JS Scripts -->
-  <script src="public/js/userManagement.js"></script>
+  <script src="/js/userManagement.js"></script>
   <script>
     // Toggle dropdown
     function toggleDropdown() {
@@ -190,7 +190,7 @@
           break;
           
         case 'master-db':
-          fetch('public/masterDB.html')
+          fetch('/masterDB.html')
             .then(response => response.text())
             .then(html => {
               // Extract the content part only (not the full HTML structure)
@@ -201,7 +201,7 @@
               
               // Load the masterDB.js script
               const script = document.createElement('script');
-              script.src = 'public/js/masterDB.js';
+              script.src = '/js/masterDB.js';
               script.onload = () => {
                 // Initialize the master DB page
                 if (typeof loadMasterData === 'function') {
@@ -221,7 +221,7 @@
           break;
           
         case 'opc-management':
-          fetch('public/opcManagement.html')
+          fetch('/opcManagement.html')
             .then(response => response.text())
             .then(html => {
               // Extract the content part only (not the full HTML structure)
@@ -255,7 +255,7 @@
               
               function loadOPCManagementScript() {
                 // Check if script is already loaded
-                const existingScript = document.querySelector('script[src="public/js/opcManagement.js"]');
+                const existingScript = document.querySelector('script[src="/js/opcManagement.js"]');
                 if (existingScript) {
                   // Script already loaded, just reinitialize
                   if (typeof initializeOPCManagement === 'function') {
@@ -266,7 +266,7 @@
                 
                 // Load script for first time
                 const script = document.createElement('script');
-                script.src = 'public/js/opcManagement.js';
+                script.src = '/js/opcManagement.js';
                 script.onload = () => {
                   // Initialize the OPC Management page
                   if (typeof initializeOPCManagement === 'function') {
