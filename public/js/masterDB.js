@@ -260,7 +260,14 @@ function updateSelectedCount(type) {
   const checkboxes = document.querySelectorAll(`.${type}Checkbox:checked`);
   const count = checkboxes.length;
   const countSpan = document.getElementById(`${type}SelectedCount`);
-  const deleteBtn = document.getElementById(`delete${capitalizeFirst(type)}Btn`);
+  
+  // Handle the button ID - some are plural (deleteTabletsBtn) vs singular pattern
+  let deleteBtn;
+  if (type === 'tablet') {
+    deleteBtn = document.getElementById('deleteTabletsBtn');
+  } else {
+    deleteBtn = document.getElementById(`delete${capitalizeFirst(type)}Btn`);
+  }
   
   if (countSpan) countSpan.textContent = count;
   if (deleteBtn) {
@@ -812,7 +819,27 @@ function showDeleteConfirmation(type) {
   }
   
   const itemsListHTML = items.map(item => {
-    const displayName = item.品番 || item.name || item.設備名 || item.roleName || item.tabletName || item._id;
+    let displayName;
+    // Determine display name based on type
+    switch(type) {
+      case 'master':
+        displayName = item.品番 || item._id;
+        break;
+      case 'factory':
+        displayName = item.name || item._id;
+        break;
+      case 'equipment':
+        displayName = item.設備名 || item._id;
+        break;
+      case 'roles':
+        displayName = item.roleName || item._id;
+        break;
+      case 'tablet':
+        displayName = item.tabletName || item._id;
+        break;
+      default:
+        displayName = item._id;
+    }
     return `<div class="py-1">• ${displayName}</div>`;
   }).join('');
   
@@ -2478,7 +2505,8 @@ async function showCreateTabletForm() {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
           <label class="block text-sm font-medium mb-1">タブレット名 *</label>
-          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet-001" />
+          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet-001" oninput="checkTabletNameUnique()" />
+          <p id="tabletNameError" class="text-red-600 text-sm mt-1 hidden">この名前は既に使用されています</p>
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">ブランド *</label>
@@ -2499,7 +2527,7 @@ async function showCreateTabletForm() {
         </div>
       </div>
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
+        <button id="submitTabletBtn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
           <i class="ri-save-line mr-2"></i>登録
         </button>
         <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" onclick="loadTablets()">
@@ -2510,6 +2538,42 @@ async function showCreateTabletForm() {
   `;
   
   container.innerHTML = formHTML + container.innerHTML;
+}
+
+// Check if tablet name is unique
+function checkTabletNameUnique() {
+  const nameInput = document.getElementById('newTabletName');
+  const errorMsg = document.getElementById('tabletNameError');
+  const submitBtn = document.getElementById('submitTabletBtn');
+  
+  if (!nameInput || !errorMsg || !submitBtn) return;
+  
+  const inputName = nameInput.value.trim();
+  
+  if (!inputName) {
+    errorMsg.classList.add('hidden');
+    nameInput.classList.remove('border-red-500');
+    submitBtn.disabled = false;
+    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    return;
+  }
+  
+  // Check if name exists in allTablets
+  const nameExists = allTablets.some(tablet => 
+    tablet.tabletName && tablet.tabletName.toLowerCase() === inputName.toLowerCase()
+  );
+  
+  if (nameExists) {
+    errorMsg.classList.remove('hidden');
+    nameInput.classList.add('border-red-500');
+    submitBtn.disabled = true;
+    submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+  } else {
+    errorMsg.classList.add('hidden');
+    nameInput.classList.remove('border-red-500');
+    submitBtn.disabled = false;
+    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+  }
 }
 
 // Function to update equipment dropdown based on selected factory
@@ -2587,6 +2651,15 @@ async function submitNewTablet() {
   if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
     return alert("すべての必須項目を入力してください");
   }
+  
+  // Check for duplicate tablet name
+  const nameExists = allTablets.some(tablet => 
+    tablet.tabletName && tablet.tabletName.toLowerCase() === tabletData.tabletName.toLowerCase()
+  );
+  
+  if (nameExists) {
+    return alert("このタブレット名は既に使用されています。別の名前を入力してください。");
+  }
 
   try {
     const res = await fetch(BASE_URL + "createTablet", {
@@ -2596,7 +2669,7 @@ async function submitNewTablet() {
     });
 
     if (!res.ok) throw new Error("Failed");
-    showToast("タブレットを登録しました", "success");
+    alert("タブレットを登録しました");
     loadTablets();
   } catch (err) {
     alert("Error: " + err.message);
@@ -2618,7 +2691,7 @@ async function deleteTablet(tabletId) {
     });
 
     if (!res.ok) throw new Error("Failed");
-    showToast("タブレットを削除しました", "success");
+    alert("タブレットを削除しました");
     loadTablets();
   } catch (err) {
     alert("Error: " + err.message);
