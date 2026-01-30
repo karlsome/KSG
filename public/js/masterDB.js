@@ -424,6 +424,9 @@ function renderModalDetails(type, data) {
         `<option value="${eq.設備名 || ''}" ${eq.設備名 === data.設備名 ? 'selected' : ''}>${eq.設備名 || ''}</option>`
       ).join('');
       
+      const tabletUrl = `https://ksg.freyaaccess.com/tablet.html?tabletName=${encodeURIComponent(data.tabletName || '')}`;
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(tabletUrl)}`;
+      
       detailsHTML = `
         <div class="grid grid-cols-2 gap-4">
           <div><label class="block text-sm font-medium mb-1">タブレット名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
@@ -444,6 +447,44 @@ function renderModalDetails(type, data) {
           </div>
           <div><label class="block text-sm font-medium mb-1">登録日</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
           <div><label class="block text-sm font-medium mb-1">登録者</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredBy || ''}" disabled /></div>
+        </div>
+        
+        <!-- Quick Access Section -->
+        <div class="mt-6 p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-blue-900 flex items-center">
+              <i class="ri-qr-code-line mr-2"></i>クイックアクセス
+            </h3>
+            <button onclick="toggleTabletQR()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+              <i class="ri-eye-line mr-1"></i>QRコードを表示
+            </button>
+          </div>
+          <div id="tabletQRSection" class="hidden mt-4">
+            <div class="bg-white p-4 rounded-lg shadow-sm">
+              <div class="text-center mb-4">
+                <img src="${qrCodeUrl}" alt="QR Code" class="mx-auto rounded-lg shadow-md" style="width: 300px; height: 300px;" />
+              </div>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">タブレットアクセスURL</label>
+                  <div class="flex gap-2">
+                    <input type="text" id="tabletUrlInput" value="${tabletUrl}" readonly class="flex-1 px-3 py-2 border rounded-lg bg-gray-50 text-sm" />
+                    <button onclick="copyTabletUrl()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap">
+                      <i class="ri-file-copy-line mr-1"></i>コピー
+                    </button>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <button onclick="downloadTabletQR()" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium">
+                    <i class="ri-download-line mr-1"></i>QRコードをダウンロード
+                  </button>
+                  <button onclick="openTabletUrl()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium">
+                    <i class="ri-external-link-line mr-1"></i>タブレットを開く
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       `;
       break;
@@ -2709,4 +2750,86 @@ async function deleteTablet(tabletId) {
   } catch (err) {
     alert("Error: " + err.message);
   }
+}
+
+// ====================
+// Tablet QR Code Functions
+// ====================
+function toggleTabletQR() {
+  const qrSection = document.getElementById('tabletQRSection');
+  const button = event.target.closest('button');
+  
+  if (qrSection.classList.contains('hidden')) {
+    qrSection.classList.remove('hidden');
+    button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>QRコードを非表示';
+  } else {
+    qrSection.classList.add('hidden');
+    button.innerHTML = '<i class="ri-eye-line mr-1"></i>QRコードを表示';
+  }
+}
+
+function copyTabletUrl() {
+  const urlInput = document.getElementById('tabletUrlInput');
+  urlInput.select();
+  urlInput.setSelectionRange(0, 99999); // For mobile devices
+  
+  navigator.clipboard.writeText(urlInput.value).then(() => {
+    // Change button text temporarily
+    const button = event.target.closest('button');
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<i class="ri-check-line mr-1"></i>コピーしました！';
+    button.classList.remove('bg-green-600', 'hover:bg-green-700');
+    button.classList.add('bg-emerald-600');
+    
+    setTimeout(() => {
+      button.innerHTML = originalHTML;
+      button.classList.remove('bg-emerald-600');
+      button.classList.add('bg-green-600', 'hover:bg-green-700');
+    }, 2000);
+  }).catch(err => {
+    alert('URLのコピーに失敗しました');
+    console.error('Copy failed:', err);
+  });
+}
+
+function downloadTabletQR() {
+  const qrImg = document.querySelector('#tabletQRSection img');
+  const tabletName = currentModalData.tabletName || 'tablet';
+  
+  // Create a temporary link to download the QR code
+  fetch(qrImg.src)
+    .then(response => response.blob())
+    .then(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `QR_${tabletName}.png`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      // Show success feedback
+      const button = event.target.closest('button');
+      const originalHTML = button.innerHTML;
+      button.innerHTML = '<i class="ri-check-line mr-1"></i>ダウンロード完了！';
+      button.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+      button.classList.add('bg-emerald-600');
+      
+      setTimeout(() => {
+        button.innerHTML = originalHTML;
+        button.classList.remove('bg-emerald-600');
+        button.classList.add('bg-purple-600', 'hover:bg-purple-700');
+      }, 2000);
+    })
+    .catch(err => {
+      alert('QRコードのダウンロードに失敗しました');
+      console.error('Download failed:', err);
+    });
+}
+
+function openTabletUrl() {
+  const url = document.getElementById('tabletUrlInput').value;
+  window.open(url, '_blank');
 }
