@@ -192,7 +192,7 @@ function renderMasterTable(data) {
   const role = currentUser.role || "member";
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
-  const headers = ["品番", "製品名", "LH/RH", "kanbanID", "設備", "工場", "cycleTime", "検査メンバー数"];
+  const headers = ["品番", "製品名", "LH/RH", "kanbanID", "設備", "工場", "cycleTime", "検査メンバー数", "収容数"];
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
@@ -375,6 +375,7 @@ function renderModalDetails(type, data) {
           </div>
           <div><label class="block text-sm font-medium mb-1">cycleTime</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
           <div><label class="block text-sm font-medium mb-1">検査メンバー数</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
+          <div><label class="block text-sm font-medium mb-1">収容数</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
         </div>
       `;
       break;
@@ -1497,9 +1498,6 @@ function renderEquipmentTable(equipment) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateEquipmentForm()">
-          <i class="ri-add-line mr-2"></i>Create Equipment
-        </button>
         <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
           <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="equipmentSelectedCount">0</span>)
         </button>
@@ -1903,13 +1901,25 @@ async function showQuickCreateModal() {
   
   switch(currentTab) {
     case 'master':
+      // Load equipment and factory data first
+      await loadEquipment();
+      await loadFactories();
+      
+      const equipmentOptions = allEquipment.length > 0 ? 
+        allEquipment.map(e => `<option value="${e.設備名}">${e.設備名}</option>`).join('') :
+        '<option value="" class="text-red-600">⚠️ 設備データがありません</option>';
+      
+      const factoryOptions = allFactories.length > 0 ? 
+        allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
+        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+      
       modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Master)';
       modalBody.innerHTML = `
-        <div>
+        <div class="col-span-2">
           <label class="block text-sm font-medium mb-1">品番 *</label>
           <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
         </div>
-        <div>
+        <div class="col-span-2">
           <label class="block text-sm font-medium mb-1">製品名 *</label>
           <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
         </div>
@@ -1930,28 +1940,38 @@ async function showQuickCreateModal() {
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">設備</label>
-          <input type="text" id="quick設備" class="w-full px-3 py-2 border rounded-lg">
+          <select id="quick設備" class="w-full px-3 py-2 border rounded-lg ${allEquipment.length === 0 ? 'border-red-500' : ''}">
+            <option value="">選択してください</option>
+            ${equipmentOptions}
+          </select>
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">工場</label>
-          <input type="text" id="quick工場" class="w-full px-3 py-2 border rounded-lg">
+          <select id="quick工場" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
+            <option value="">選択してください</option>
+            ${factoryOptions}
+          </select>
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">cycleTime</label>
-          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg">
+          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="サイクル時間を入力">
+        </div>
+        <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
+          <label class="block text-sm font-medium mb-1 text-blue-800">検査メンバー数 *</label>
+          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="例: 2" value="2" required>
         </div>
         <div>
+          <label class="block text-sm font-medium mb-1">収容数</label>
+          <input type="number" id="quick収容数" class="w-full px-3 py-2 border rounded-lg" placeholder="収容数を入力">
+        </div>
+        <div class="col-span-2">
           <label class="block text-sm font-medium mb-1">画像</label>
           <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">kensaMembers</label>
-          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border rounded-lg" placeholder="検査メンバー数を入力">
         </div>
       `;
       break;
       
-    case 'factory':
+    case 'factory': {
       modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (工場)';
       modalBody.innerHTML = `
         <div>
@@ -1968,8 +1988,9 @@ async function showQuickCreateModal() {
         </div>
       `;
       break;
+    }
       
-    case 'equipment':
+    case 'equipment': {
       // Load factories for dropdown
       await loadFactoriesForEquipmentCreate();
       
@@ -2013,8 +2034,9 @@ async function showQuickCreateModal() {
         };
       }
       break;
+    }
       
-    case 'roles':
+    case 'roles': {
       modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Role)';
       modalBody.innerHTML = `
         <div>
@@ -2026,6 +2048,7 @@ async function showQuickCreateModal() {
           <textarea id="quickRoleDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
       `;
+    }
       break;
   }
   
@@ -2057,6 +2080,7 @@ async function submitQuickCreate() {
           工場: document.getElementById("quick工場").value.trim(),
           cycleTime: document.getElementById("quickCycleTime").value,
           kensaMembers: parseInt(document.getElementById("quickKensaMembers").value) || 2,
+          収容数: document.getElementById("quick収容数").value ? parseInt(document.getElementById("quick収容数").value) : null,
           dbName,
           username
         };
