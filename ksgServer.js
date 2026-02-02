@@ -427,6 +427,52 @@ if config.get('qr_confirming', False):
     }
 };
 
+// 🔐 Tablet Authentication Middleware
+async function authenticateTablet(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+        
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // Get user from database to check current enable status
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+        
+        const db = mongoClient.db(decoded.dbName || 'KSG');
+        const user = await db.collection('users').findOne({ username: decoded.username });
+        
+        if (!user) {
+            return res.status(401).json({ error: 'User not found' });
+        }
+        
+        if (user.enable !== 'enabled') {
+            return res.status(403).json({ error: 'Account is disabled', forceLogout: true });
+        }
+        
+        // Attach user info to request
+        req.user = {
+            username: user.username,
+            role: user.role,
+            dbName: decoded.dbName,
+            userId: user._id.toString()
+        };
+        
+        next();
+    } catch (error) {
+        console.error('Tablet authentication error:', error);
+        if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token', forceLogout: true });
+        }
+        res.status(500).json({ error: 'Authentication error' });
+    }
+}
+
 // � Device Authentication Middleware
 async function authenticateDevice(req, res, next) {
     const deviceId = req.headers['x-device-id'];
@@ -966,7 +1012,7 @@ app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
 });
 
 // Submit tablet production data to Google Sheets
-app.post('/api/tablet/submit', async (req, res) => {
+app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
     const submissionData = req.body;
     
     try {
@@ -2084,7 +2130,31 @@ io.on('connection', (socket) => {
     // Handle tablet subscription to real-time variable updates
     socket.on('subscribe_variables', async (data) => {
         try {
+            const token = data.token;
             const company = data.company || 'KSG';
+            
+            // Validate token and check user enable status
+            if (token) {
+                try {
+                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    const db = mongoClient.db(decoded.dbName || 'KSG');
+                    const user = await db.collection('users').findOne({ username: decoded.username });
+                    
+                    if (!user || user.enable !== 'enabled') {
+                        console.log(`❌ Tablet ${socket.id} authentication failed: user disabled or not found`);
+                        socket.emit('auth_error', { error: 'Account is disabled', forceLogout: true });
+                        return;
+                    }
+                    
+                    socket.authenticatedUser = decoded.username;
+                    console.log(`✅ Tablet ${socket.id} authenticated as ${decoded.username}`);
+                } catch (err) {
+                    console.log(`❌ Tablet ${socket.id} token validation failed:`, err.message);
+                    socket.emit('auth_error', { error: 'Invalid or expired token', forceLogout: true });
+                    return;
+                }
+            }
+            
             console.log(`📊 Tablet ${socket.id} subscribed to variables for ${company}`);
             
             // Store company in socket for broadcasting

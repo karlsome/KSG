@@ -639,7 +639,69 @@ function clearAllLocalStorage() {
 }
 
 // ============================================================
-// 🔹 INITIALIZATION - Parse URL Parameters & Load Data
+// � TOKEN VALIDATION
+// ============================================================
+
+let tokenValidationInterval = null;
+
+// Start periodic token validation
+function startTokenValidation() {
+  // Validate immediately
+  validateToken();
+  
+  // Then validate every 5 minutes
+  tokenValidationInterval = setInterval(validateToken, 5 * 60 * 1000);
+  console.log('🔐 Started periodic token validation (every 5 minutes)');
+}
+
+// Stop token validation interval
+function stopTokenValidation() {
+  if (tokenValidationInterval) {
+    clearInterval(tokenValidationInterval);
+    tokenValidationInterval = null;
+  }
+}
+
+// Validate token with server
+async function validateToken() {
+  try {
+    const authData = localStorage.getItem('tabletAuth');
+    if (!authData) {
+      console.log('⚠️ No auth data found');
+      return;
+    }
+    
+    const auth = JSON.parse(authData);
+    const token = auth.token;
+    
+    const response = await fetch(`${API_URL}/validateToken`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('❌ Token validation failed:', error);
+      
+      if (error.forceLogout || response.status === 401 || response.status === 403) {
+        alert('セッションが無効です。再ログインしてください / Session invalid. Please log in again.');
+        stopTokenValidation();
+        logoutTablet();
+      }
+      return;
+    }
+    
+    console.log('✅ Token validated successfully');
+  } catch (error) {
+    console.error('❌ Token validation error:', error);
+  }
+}
+
+// ============================================================
+// �🔹 INITIALIZATION - Parse URL Parameters & Load Data
 // ============================================================
 
 // Parse URL parameters
@@ -691,6 +753,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkBasicSettingsAttention(); // Check attention state
     });
   }
+  
+  // Start periodic token validation (every 5 minutes)
+  startTokenValidation();
   
   // Add change listeners for all dropdowns
   const dropdowns = ['lhRh', 'poster1', 'poster2', 'poster3'];
@@ -937,8 +1002,10 @@ function updateConnectionStatus(status) {
 socket.on('connect', () => {
   console.log('✅ Connected to ksgServer');
   updateConnectionStatus('connected');
-  // Subscribe to real-time variable updates for this company
-  socket.emit('subscribe_variables', { company: currentCompany });
+  // Subscribe to real-time variable updates for this company with token
+  const authData = localStorage.getItem('tabletAuth');
+  const token = authData ? JSON.parse(authData).token : null;
+  socket.emit('subscribe_variables', { company: currentCompany, token });
 });
 
 socket.on('disconnect', () => {
@@ -949,6 +1016,15 @@ socket.on('disconnect', () => {
 socket.on('connect_error', (error) => {
   console.error('Connection error:', error);
   updateConnectionStatus('disconnected');
+});
+
+// Listen for authentication errors from server
+socket.on('auth_error', (data) => {
+  console.error('🚫 Authentication error:', data.error);
+  if (data.forceLogout) {
+    alert('アカウントが無効化されました / Account has been disabled');
+    logoutTablet();
+  }
 });
 
 // Calculate and update work count display
@@ -1253,16 +1329,37 @@ async function sendData() {
     
     console.log('📊 Submitting data:', submissionData);
     
-    // Submit to server
+    // Get auth token
+    const authData = localStorage.getItem('tabletAuth');
+    if (!authData) {
+      alert('認証エラー / Authentication error');
+      logoutTablet();
+      return;
+    }
+    const auth = JSON.parse(authData);
+    const token = auth.token;
+    
+    // Submit to server with Authorization header
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify(submissionData)
     });
     
     const result = await response.json();
+    
+    if (!response.ok) {
+      // Handle authentication errors
+      if (result.forceLogout || response.status === 401 || response.status === 403) {
+        alert('セッションが無効です。再ログインしてください / Session invalid. Please log in again.');
+        logoutTablet();
+        return;
+      }
+      throw new Error(result.error || 'Submission failed');
+    }
     
     if (result.success) {
       console.log('✅ Data submitted successfully:', result);
