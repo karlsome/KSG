@@ -44,6 +44,20 @@ function switchMainTab(tabName) {
     switchSubTab(tabName, 'data');
   }
 
+  // Disable/enable 新規登録 button based on tab
+  const quickCreateBtn = document.querySelector('button[onclick="showQuickCreateModal()"]');
+  if (quickCreateBtn) {
+    if (tabName === 'rpiServer') {
+      quickCreateBtn.disabled = true;
+      quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      quickCreateBtn.classList.remove('hover:bg-green-700');
+    } else {
+      quickCreateBtn.disabled = false;
+      quickCreateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      quickCreateBtn.classList.add('hover:bg-green-700');
+    }
+  }
+
   // Load data for the tab
   loadTabData(tabName);
 }
@@ -1142,9 +1156,6 @@ function renderFactoryTable(factories) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateFactoryForm()">
-          <i class="ri-add-line mr-2"></i>Create New Factory
-        </button>
         <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
           <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="factorySelectedCount">0</span>)
         </button>
@@ -1684,9 +1695,6 @@ function renderRolesTable(roles) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateRoleForm()">
-          <i class="ri-add-line mr-2"></i>Create Role
-        </button>
         <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
           <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="rolesSelectedCount">0</span>)
         </button>
@@ -2050,6 +2058,42 @@ async function showQuickCreateModal() {
       `;
     }
       break;
+      
+    case 'tablet': {
+      // Load equipment and factory data first
+      await loadEquipment();
+      await loadFactories();
+      
+      const factoryOptions = allFactories.length > 0 ? 
+        allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
+        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+      
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (タブレット)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">タブレット名 *</label>
+          <input type="text" id="quickTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet1">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">ブランド *</label>
+          <input type="text" id="quickTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="例: samsung">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">工場名 *</label>
+          <select id="quickTabletFactory" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}" onchange="updateQuickTabletEquipmentDropdown()">
+            <option value="">選択してください</option>
+            ${factoryOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <select id="quickTablet設備" class="w-full px-3 py-2 border rounded-lg">
+            <option value="">まず工場を選択してください</option>
+          </select>
+        </div>
+      `;
+    }
+      break;
   }
   
   document.getElementById('quickCreateModal').classList.remove('hidden');
@@ -2143,6 +2187,24 @@ async function submitQuickCreate() {
         
         endpoint = "createRole";
         break;
+        
+      case 'tablet':
+        data = {
+          tabletName: document.getElementById("quickTabletName").value.trim(),
+          tabletBrand: document.getElementById("quickTabletBrand").value.trim(),
+          factoryLocation: document.getElementById("quickTabletFactory").value.trim(),
+          設備名: document.getElementById("quickTablet設備").value.trim(),
+          registeredBy: username,
+          createdBy: username,
+          dbName
+        };
+        
+        if (!data.tabletName || !data.tabletBrand || !data.factoryLocation || !data.設備名) {
+          return alert("タブレット名、ブランド、工場名、設備名は必須です");
+        }
+        
+        endpoint = "createTablet";
+        break;
     }
 
     const res = await fetch(BASE_URL + endpoint, {
@@ -2166,6 +2228,34 @@ async function submitQuickCreate() {
 // ====================
 // Utility Functions
 // ====================
+
+// Helper function to update equipment dropdown in Quick Create modal for tablets
+function updateQuickTabletEquipmentDropdown() {
+  const factorySelect = document.getElementById('quickTabletFactory');
+  const equipmentSelect = document.getElementById('quickTablet設備');
+  
+  if (!factorySelect || !equipmentSelect) return;
+  
+  const selectedFactory = factorySelect.value;
+  
+  if (!selectedFactory) {
+    equipmentSelect.innerHTML = '<option value="">まず工場を選択してください</option>';
+    return;
+  }
+  
+  // Filter equipment by selected factory
+  const filteredEquipment = allEquipment.filter(eq => 
+    eq.工場 && eq.工場.includes(selectedFactory)
+  );
+  
+  if (filteredEquipment.length === 0) {
+    equipmentSelect.innerHTML = '<option value="">この工場に設備がありません</option>';
+  } else {
+    equipmentSelect.innerHTML = '<option value="">選択してください</option>' + 
+      filteredEquipment.map(eq => `<option value="${eq.設備名}">${eq.設備名}</option>`).join('');
+  }
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2200,6 +2290,7 @@ if (typeof window !== 'undefined') {
   window.submitQuickCreate = submitQuickCreate;
   window.removeModalFactoryTag = removeModalFactoryTag;
   window.removeQuickEquipmentFactoryTag = removeQuickEquipmentFactoryTag;
+  window.updateQuickTabletEquipmentDropdown = updateQuickTabletEquipmentDropdown;
   window.loadMasterData = loadMasterData;
   window.showCreateMasterForm = showCreateMasterForm;
   window.submitNewMaster = submitNewMaster;
@@ -2502,9 +2593,6 @@ function renderTabletsTable(tablets) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onclick="showCreateTabletForm()">
-          <i class="ri-add-line mr-2"></i>タブレット登録
-        </button>
         <button id="deleteTabletsBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('tablet')">
           <i class="ri-delete-bin-line mr-2"></i>選択削除 (<span id="tabletSelectedCount">0</span>)
         </button>
