@@ -5707,6 +5707,11 @@ app.post("/tabletLogin", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    // Check if user is enabled
+    if (user.enable !== "enabled") {
+      return res.status(403).json({ error: "Account is disabled. Contact administrator." });
+    }
+
     // 2. Get tablet information (by name or ID)
     let tablet;
     if (tabletName) {
