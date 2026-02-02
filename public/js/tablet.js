@@ -1376,6 +1376,12 @@ async function sendData() {
     
     console.log('📊 Submitting data:', submissionData);
     
+    // Show uploading modal
+    const uploadingModal = document.getElementById('uploadingModalOverlay');
+    if (uploadingModal) {
+      uploadingModal.classList.add('active');
+    }
+    
     // Get auth token
     const authData = localStorage.getItem('tabletAuth');
     if (!authData) {
@@ -1409,6 +1415,11 @@ async function sendData() {
     }
     
     if (result.success) {
+      // Hide uploading modal
+      if (uploadingModal) {
+        uploadingModal.classList.remove('active');
+      }
+      
       console.log('✅ Data submitted successfully:', result);
       alert('データが正常に送信されました！');
       
@@ -1419,6 +1430,12 @@ async function sendData() {
     }
     
   } catch (error) {
+    // Hide uploading modal
+    const uploadingModal = document.getElementById('uploadingModalOverlay');
+    if (uploadingModal) {
+      uploadingModal.classList.remove('active');
+    }
+    
     console.error('❌ Error submitting data:', error);
     alert('データ送信エラー: ' + error.message);
   }

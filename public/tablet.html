@@ -505,6 +505,61 @@
       transform: scale(0.95);
     }
 
+    /* Uploading Modal Styles */
+    .uploading-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .uploading-modal-overlay.active {
+      display: flex;
+    }
+
+    .uploading-modal {
+      background: white;
+      border-radius: 16px;
+      padding: 50px 60px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      text-align: center;
+      min-width: 450px;
+    }
+
+    .uploading-spinner {
+      width: 80px;
+      height: 80px;
+      border: 8px solid #f3f3f3;
+      border-top: 8px solid #2196F3;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 30px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .uploading-modal-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 15px;
+    }
+
+    .uploading-modal-subtitle {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.5;
+    }
+
     /* Collapsible Card Styles */
     .card.collapsible .card-header {
       cursor: pointer;
@@ -885,6 +940,15 @@
       <div class="break-modal-title">機械トラブル</div>
       <div class="break-timer" id="troubleTimer">00:00</div>
       <button class="break-complete-button" onclick="completeTrouble()">完了</button>
+    </div>
+  </div>
+
+  <!-- Uploading Modal -->
+  <div class="uploading-modal-overlay" id="uploadingModalOverlay">
+    <div class="uploading-modal">
+      <div class="uploading-spinner"></div>
+      <div class="uploading-modal-title">データ送信中...</div>
+      <div class="uploading-modal-subtitle">Uploading data...<br>しばらくお待ちください</div>
     </div>
   </div>
 
