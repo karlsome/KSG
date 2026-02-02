@@ -402,13 +402,26 @@ function saveFieldToLocalStorage(fieldId, value) {
 function restoreAllFields() {
   try {
     // Text inputs
-    const textFields = ['startTime', 'stopTime', 'endTime', 'workTime', 'manHours', 'workCount', 'passCount', 'otherDetails'];
+    const textFields = ['startTime', 'stopTime', 'endTime', 'workTime', 'manHours', 'workCount', 'passCount'];
     textFields.forEach(fieldId => {
       const saved = localStorage.getItem(`tablet_${fieldId}`);
       if (saved !== null) {
         const field = document.getElementById(fieldId);
         if (field) {
           field.value = saved;
+          console.log(`📦 Restored ${fieldId}:`, saved);
+        }
+      }
+    });
+    
+    // Text content fields (using textContent instead of value)
+    const textContentFields = ['otherDetails', 'remarks'];
+    textContentFields.forEach(fieldId => {
+      const saved = localStorage.getItem(`tablet_${fieldId}`);
+      if (saved !== null) {
+        const field = document.getElementById(fieldId);
+        if (field) {
+          field.textContent = saved;
           console.log(`📦 Restored ${fieldId}:`, saved);
         }
       }
@@ -872,11 +885,20 @@ async function loadProductByKanbanID(kanbanId) {
         console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
       }
       
-      // Set product name in remarks display
+      // Set product name in remarks display (only if never set before)
       const remarksDisplay = document.getElementById('remarks');
       if (remarksDisplay && product['製品名']) {
-        remarksDisplay.textContent = product['製品名'];
-        console.log(`✅ Set product name to: ${product['製品名']}`);
+        // Check if user has ever interacted with this field (localStorage exists)
+        const hasRemarksInStorage = localStorage.getItem('tablet_remarks') !== null;
+        
+        if (!hasRemarksInStorage) {
+          // First time loading - set product name
+          remarksDisplay.textContent = product['製品名'];
+          console.log(`✅ Set product name to: ${product['製品名']}`);
+        } else {
+          // User has interacted with field before - respect their saved value (even if empty)
+          console.log(`ℹ️ Remarks field has been set by user, not overwriting`);
+        }
       }
       
       // Set LH/RH dropdown based on product data
@@ -1189,7 +1211,19 @@ function resetDefectCounters() {
     document.querySelectorAll('.counter-number').forEach(counter => {
       counter.textContent = '0';
     });
-    document.getElementById('otherDetails').value = '';
+    
+    // Clear both text fields
+    const otherDetails = document.getElementById('otherDetails');
+    const remarks = document.getElementById('remarks');
+    if (otherDetails) {
+      otherDetails.textContent = '';
+      localStorage.setItem('tablet_otherDetails', '');
+    }
+    if (remarks) {
+      remarks.textContent = '';
+      localStorage.setItem('tablet_remarks', '');
+    }
+    
     console.log('Defect counters reset');
     updateDefectSum(); // Update sum after reset
   }
@@ -1465,7 +1499,19 @@ function clearAllFields() {
     document.querySelectorAll('.counter-number').forEach(counter => {
       counter.textContent = '0';
     });
-    document.getElementById('otherDetails').value = '';
+    
+    // Clear both text fields
+    const otherDetails = document.getElementById('otherDetails');
+    const remarks = document.getElementById('remarks');
+    if (otherDetails) {
+      otherDetails.textContent = '';
+      localStorage.setItem('tablet_otherDetails', '');
+    }
+    if (remarks) {
+      remarks.textContent = '';
+      localStorage.setItem('tablet_remarks', '');
+    }
+    
     updateDefectSum(); // Update sum after reset
     console.log('🔄 Reset defect counters');
     
@@ -1508,7 +1554,43 @@ function sendInspectionData() {
 }
 
 function editRemarks() {
-  console.log('Edit remarks clicked');
+  const remarksDisplay = document.getElementById('remarks');
+  const otherDetails = document.getElementById('otherDetails');
+  
+  if (!remarksDisplay || !otherDetails) return;
+  
+  // Toggle contentEditable for both fields
+  if (remarksDisplay.contentEditable === 'true') {
+    // Currently editing - save and disable edit mode
+    remarksDisplay.contentEditable = 'false';
+    remarksDisplay.style.background = '#f9f9f9';
+    remarksDisplay.style.cursor = 'default';
+    
+    otherDetails.contentEditable = 'false';
+    otherDetails.style.background = '#f9f9f9';
+    otherDetails.style.cursor = 'default';
+    
+    // Save to localStorage
+    localStorage.setItem('tablet_remarks', remarksDisplay.textContent);
+    localStorage.setItem('tablet_otherDetails', otherDetails.textContent);
+    
+    console.log('✅ Remarks saved:', {
+      remarks: remarksDisplay.textContent,
+      otherDetails: otherDetails.textContent
+    });
+  } else {
+    // Enable edit mode for both fields
+    remarksDisplay.contentEditable = 'true';
+    remarksDisplay.style.background = '#fff';
+    remarksDisplay.style.cursor = 'text';
+    
+    otherDetails.contentEditable = 'true';
+    otherDetails.style.background = '#fff';
+    otherDetails.style.cursor = 'text';
+    
+    otherDetails.focus();
+    console.log('✏️ Remarks edit mode enabled');
+  }
 }
 
 function viewInspectionList() {
