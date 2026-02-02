@@ -1296,6 +1296,53 @@ async function sendData() {
   console.log('📤 Send data clicked');
   
   try {
+    // ✅ VALIDATION: Check required fields
+    const startTimeInput = document.getElementById('startTime');
+    const poster1Select = document.getElementById('poster1');
+    
+    const startTimeValue = startTimeInput?.value || '';
+    const poster1Value = poster1Select?.value || '';
+    
+    const missingFields = [];
+    
+    // Check 開始時間 (Start Time)
+    if (!startTimeValue) {
+      missingFields.push('開始時間 / Start Time');
+      if (startTimeInput) {
+        startTimeInput.style.border = '3px solid red';
+        startTimeInput.style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.5)';
+      }
+    } else {
+      // Remove red border if value exists
+      if (startTimeInput) {
+        startTimeInput.style.border = '';
+        startTimeInput.style.boxShadow = '';
+      }
+    }
+    
+    // Check 技能員① (Poster 1)
+    if (!poster1Value) {
+      missingFields.push('技能員① / Inspector 1');
+      if (poster1Select) {
+        poster1Select.style.border = '3px solid red';
+        poster1Select.style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.5)';
+      }
+    } else {
+      // Remove red border if value exists
+      if (poster1Select) {
+        poster1Select.style.border = '';
+        poster1Select.style.boxShadow = '';
+      }
+    }
+    
+    // If there are missing fields, show alert and stop submission
+    if (missingFields.length > 0) {
+      const message = `以下の項目を入力してください:\n\nPlease fill in the following fields:\n\n${missingFields.map(f => `• ${f}`).join('\n')}`;
+      alert(message);
+      console.warn('⚠️ Validation failed - missing required fields:', missingFields);
+      return; // Stop submission
+    }
+    
     // Gather all defect data with proper names
     const defectButtons = document.querySelectorAll('.counter-button');
     const defectNumbers = document.querySelectorAll('.counter-number');
@@ -1314,13 +1361,13 @@ async function sendData() {
       kanbanID: kenyokiRHKanbanValue || '',
       hakoIresu: hakoIresuValue || 0,
       'LH/RH': document.getElementById('lhRh')?.value || '',
-      '技能員①': document.getElementById('poster1')?.value || '',
+      '技能員①': poster1Value,
       '技能員②': document.getElementById('poster2')?.value || '',
       良品数: parseInt(document.getElementById('passCount')?.value) || 0,
       工数: parseFloat(document.getElementById('manHours')?.value) || 0,
       ...defectData,
       その他詳細: document.getElementById('otherDetails')?.value || '',
-      開始時間: document.getElementById('startTime')?.value || '',
+      開始時間: startTimeValue,
       終了時間: document.getElementById('endTime')?.value || '',
       休憩時間: '',
       備考: document.getElementById('remarks')?.textContent || '',
