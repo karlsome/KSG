@@ -1,6 +1,30 @@
 // OPC Management JavaScript
 // Handles real-time data display, variable creation, and data conversion
 
+// Language change listener - reload UI when language changes
+window.addEventListener('languageChanged', () => {
+    // Update page title
+    const titleEl = document.getElementById('opcManagementTitle');
+    if (titleEl) titleEl.textContent = `🔧${t('opcManagement.title')}`;
+    
+    // Reload data displays if they exist
+    if (window.opcManagementState && window.opcManagementState.rawDataCache && Object.keys(window.opcManagementState.rawDataCache).length > 0) {
+        renderRealTimeData(window.opcManagementState.rawDataCache);
+    }
+    
+    // Reload variables display
+    if (window.opcManagementState && window.opcManagementState.variablesCache && window.opcManagementState.variablesCache.length > 0) {
+        renderVariables(window.opcManagementState.variablesCache);
+    }
+    
+    // Update connection status
+    if (window.opcSocket && window.opcSocket.connected) {
+        updateConnectionStatus(true);
+    } else {
+        updateConnectionStatus(false);
+    }
+});
+
 // Use window scope to avoid redeclaration errors on page reload
 if (typeof window.opcManagementState === 'undefined') {
     window.opcManagementState = {
@@ -64,7 +88,7 @@ async function initializeOPCManagement() {
         
     } catch (error) {
         console.error('Failed to initialize OPC Management:', error);
-        showNotification('Failed to initialize', 'error');
+        showNotification(t('opcManagement.failedToInitialize'), 'error');
     }
 }
 
@@ -80,7 +104,7 @@ async function loadRaspberryPis() {
             return;
         }
         
-        select.innerHTML = '<option value="">Select Raspberry Pi...</option>';
+        select.innerHTML = `<option value="">${t('opcManagement.selectRaspberryPi')}</option>`;
         
         if (data.success && data.devices) {
             data.devices.forEach(device => {
@@ -171,13 +195,13 @@ function updateConnectionStatus(connected) {
     if (connected) {
         statusEl.innerHTML = `
             <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            <span class="text-sm font-medium text-green-700">Connected</span>
+            <span class="text-sm font-medium text-green-700">${t('opcManagement.connected')}</span>
         `;
         statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50';
     } else {
         statusEl.innerHTML = `
             <span class="w-2 h-2 rounded-full bg-red-500"></span>
-            <span class="text-sm font-medium text-red-700">Disconnected</span>
+            <span class="text-sm font-medium text-red-700">${t('opcManagement.disconnected')}</span>
         `;
         statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50';
     }
@@ -246,12 +270,12 @@ async function loadRealTimeData(deviceId) {
             rawDataCache = data;
             renderRealTimeData(data);
         } else {
-            showNotification('Failed to load data: ' + (data.error || 'Unknown error'), 'error');
+            showNotification(t('opcManagement.failedToLoadData') + ': ' + (data.error || t('opcManagement.unknown')), 'error');
         }
         
     } catch (error) {
         console.error('Error loading real-time data:', error);
-        showNotification('Failed to load data', 'error');
+        showNotification(t('opcManagement.failedToLoadData'), 'error');
     }
 }
 
@@ -910,7 +934,7 @@ async function handleConversionSubmit(e) {
         const data = await response.json();
         
         if (response.ok) {
-            showNotification('Variable created successfully', 'success');
+            showNotification(t('opcManagement.variableCreatedSuccess'), 'success');
             closeOPCModal('opc-conversion-modal');
             await loadVariables();
             
@@ -919,11 +943,11 @@ async function handleConversionSubmit(e) {
                 setTimeout(() => showDataDetailModal(lastViewedDatapoint), 100);
             }
         } else {
-            showNotification(data.message || 'Failed to create variable', 'error');
+            showNotification(data.message || t('opcManagement.variableCreatedFail'), 'error');
         }
     } catch (error) {
         console.error('Error creating variable:', error);
-        showNotification('Failed to create variable', 'error');
+        showNotification(t('opcManagement.variableCreatedFail'), 'error');
     }
 }
 
@@ -1411,17 +1435,17 @@ async function saveCombinedVariable() {
     const operation = document.getElementById('combinedOperation').value;
     
     if (!variableName) {
-        showNotification('Please enter a variable name', 'error');
+        showNotification(t('opcManagement.enterVariableName'), 'error');
         return;
     }
     
     if (selectedSourceVariables.length < 2) {
-        showNotification('Please select at least 2 variables', 'error');
+        showNotification(t('opcManagement.selectAtLeast2Variables'), 'error');
         return;
     }
     
     if (!operation) {
-        showNotification('Please select an operation', 'error');
+        showNotification(t('opcManagement.selectOperation'), 'error');
         return;
     }
     
@@ -1444,7 +1468,7 @@ async function saveCombinedVariable() {
         const data = await response.json();
         
         if (response.ok) {
-            showNotification('Combined variable created successfully', 'success');
+            showNotification(t('opcManagement.combinedVariableCreatedSuccess'), 'success');
             await loadVariables();
             
             // Reset column 2 for next combination
@@ -1458,11 +1482,11 @@ async function saveCombinedVariable() {
             // Keep modal open for creating more combinations
             // User can close manually or continue creating
         } else {
-            showNotification(data.message || 'Failed to create combined variable', 'error');
+            showNotification(data.message || t('opcManagement.combinedVariableCreatedFail'), 'error');
         }
     } catch (error) {
         console.error('Error creating combined variable:', error);
-        showNotification('Failed to create combined variable', 'error');
+        showNotification(t('opcManagement.combinedVariableCreatedFail'), 'error');
     }
 }
 
@@ -1770,11 +1794,11 @@ async function handleEditVariableSubmit(e) {
         // For combined variables, update operation and source variables
         const operation = document.getElementById('edit-operation').value;
         if (!operation) {
-            showNotification('Please select an operation', 'error');
+            showNotification(t('opcManagement.selectOperation'), 'error');
             return;
         }
         if (editingSourceVariables.length < 2) {
-            showNotification('Please select at least 2 source variables', 'error');
+            showNotification(t('opcManagement.selectAtLeast2SourceVariables'), 'error');
             return;
         }
         payload.operation = operation;
@@ -1788,7 +1812,7 @@ async function handleEditVariableSubmit(e) {
         const convToType = document.getElementById('edit-conv-to-type').value;
         
         if (!convFromType || !convToType) {
-            showNotification('Please select both conversion types', 'error');
+            showNotification(t('opcManagement.selectBothConversionTypes'), 'error');
             return;
         }
         
@@ -1821,7 +1845,7 @@ async function handleEditVariableSubmit(e) {
                 console.log('🔍 Do they match?', JSON.stringify(data.sourceVariables) === JSON.stringify(editingSourceVariables));
             }
             
-            showNotification('Variable updated successfully', 'success');
+            showNotification(t('opcManagement.variableUpdatedSuccess'), 'success');
             closeOPCModal('opc-edit-variable-modal');
             await loadVariables();
             
@@ -1844,11 +1868,11 @@ async function handleEditVariableSubmit(e) {
             }
         } else {
             console.error('❌ Update failed:', data);
-            showNotification(data.message || 'Failed to update variable', 'error');
+            showNotification(data.message || t('opcManagement.variableUpdatedFail'), 'error');
         }
     } catch (error) {
         console.error('💥 Error updating variable:', error);
-        showNotification('Failed to update variable', 'error');
+        showNotification(t('opcManagement.variableUpdatedFail'), 'error');
     }
 }
 
