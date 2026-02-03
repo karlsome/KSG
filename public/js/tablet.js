@@ -978,11 +978,33 @@ async function loadProductByKanbanID(kanbanId) {
       updateKensaMembersDisplay(kensaMembers);
     } else {
       console.error('❌ Failed to load product:', data.error);
+      // Clear product info if not found
+      currentProductId = '';
+      currentProductName = '';
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (productNameDisplay) {
+        productNameDisplay.textContent = '看板なし';
+      }
+      if (kanbanIdDisplay) {
+        kanbanIdDisplay.textContent = '';
+      }
       // Default to 2 members if product not found
       updateKensaMembersDisplay(2);
     }
   } catch (error) {
     console.error('❌ Error loading product info:', error);
+    // Clear product info on error
+    currentProductId = '';
+    currentProductName = '';
+    const productNameDisplay = document.getElementById('productNameDisplay');
+    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+    if (productNameDisplay) {
+      productNameDisplay.textContent = '看板なし';
+    }
+    if (kanbanIdDisplay) {
+      kanbanIdDisplay.textContent = '';
+    }
     // Default to 2 members on error
     updateKensaMembersDisplay(2);
   }
@@ -1157,16 +1179,31 @@ function updateUIWithVariables(variables) {
   // Check kanban variable for start button validation AND product loading
   if (variables[kanbanVarName] !== undefined) {
     const value = variables[kanbanVarName].value;
-    const newKanbanValue = (value !== null && value !== undefined && value !== '') ? value : null;
+    // Treat null bytes, empty strings, null, and undefined as "no value"
+    const isBlankValue = !value || value === '' || value === '\x00' || value.match(/^[\x00]+$/);
+    const newKanbanValue = isBlankValue ? null : value;
     
     // Check if value changed
     if (newKanbanValue !== kenyokiRHKanbanValue) {
       kenyokiRHKanbanValue = newKanbanValue;
       console.log(`📊 ${kanbanVarName} value updated:`, kenyokiRHKanbanValue);
       
-      // Load product info when kanban ID changes
+      // Load product info when kanban ID changes (and has a value)
       if (kenyokiRHKanbanValue) {
         loadProductByKanbanID(kenyokiRHKanbanValue);
+      } else {
+        // Clear product info when kanban becomes blank
+        console.log('🧹 Clearing product info (kanban is blank)');
+        currentProductId = '';
+        currentProductName = '';
+        const productNameDisplay = document.getElementById('productNameDisplay');
+        const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+        if (productNameDisplay) {
+          productNameDisplay.textContent = '看板なし';
+        }
+        if (kanbanIdDisplay) {
+          kanbanIdDisplay.textContent = '';
+        }
       }
     }
     
