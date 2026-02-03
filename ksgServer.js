@@ -5558,6 +5558,184 @@ app.post("/deleteRole", async (req, res) => {
 });
 
 // ====================
+// Department Routes
+// ====================
+
+// Get all departments
+app.post("/getDepartments", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const departments = db.collection("department");
+
+    const result = await departments.find({}).toArray();
+    res.json({ departments: result });
+  } catch (err) {
+    console.error("Error fetching departments:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create department
+app.post("/createDepartment", async (req, res) => {
+  const { dbName, ...departmentData } = req.body;
+
+  if (!dbName || !departmentData.name) {
+    return res.status(400).json({ error: "dbName and name required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const departments = db.collection("department");
+
+    // Check if department already exists
+    const existing = await departments.findOne({ name: departmentData.name });
+    if (existing) {
+      return res.status(400).json({ error: "Department already exists" });
+    }
+
+    const result = await departments.insertOne({
+      ...departmentData,
+      createdAt: new Date()
+    });
+
+    res.json({ message: "Department created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating department:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete department
+app.post("/deleteDepartment", async (req, res) => {
+  const { ids, dbName } = req.body;
+
+  if (!ids || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const departments = db.collection("department");
+
+    const objectIds = ids.map(id => new ObjectId(id));
+    const result = await departments.deleteMany({ _id: { $in: objectIds } });
+    
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting department:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====================
+// Section Routes
+// ====================
+
+// Get all sections
+app.post("/getSections", async (req, res) => {
+  const { dbName } = req.body;
+
+  if (!dbName) {
+    return res.status(400).json({ error: "dbName is required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const sections = db.collection("section");
+
+    const result = await sections.find({}).toArray();
+    res.json({ sections: result });
+  } catch (err) {
+    console.error("Error fetching sections:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create section
+app.post("/createSection", async (req, res) => {
+  const { dbName, ...sectionData } = req.body;
+
+  if (!dbName || !sectionData.name) {
+    return res.status(400).json({ error: "dbName and name required" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const db = mongoClient.db(dbName);
+    const sections = db.collection("section");
+
+    // Check if section already exists
+    const existing = await sections.findOne({ name: sectionData.name });
+    if (existing) {
+      return res.status(400).json({ error: "Section already exists" });
+    }
+
+    const result = await sections.insertOne({
+      ...sectionData,
+      createdAt: new Date()
+    });
+
+    res.json({ message: "Section created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating section:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete section
+app.post("/deleteSection", async (req, res) => {
+  const { ids, dbName } = req.body;
+
+  if (!ids || !dbName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    if (!mongoClient) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const sections = db.collection("section");
+
+    const objectIds = ids.map(id => new ObjectId(id));
+    const result = await sections.deleteMany({ _id: { $in: objectIds } });
+    
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting section:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====================
 // Tablet Routes
 // ====================
 

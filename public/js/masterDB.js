@@ -7,6 +7,8 @@ let allMasterData = [];
 let allFactories = [];
 let allEquipment = [];
 let allRoles = [];
+let allDepartments = [];
+let allSections = [];
 let allTablets = [];
 let selectedItems = [];
 let currentModalData = null;
@@ -22,6 +24,8 @@ function switchMainTab(tabName) {
   document.getElementById('contentFactory').classList.add('hidden');
   document.getElementById('contentEquipment').classList.add('hidden');
   document.getElementById('contentRoles').classList.add('hidden');
+  document.getElementById('contentDepartment').classList.add('hidden');
+  document.getElementById('contentSection').classList.add('hidden');
   document.getElementById('contentRpiServer').classList.add('hidden');
   document.getElementById('contentTablet').classList.add('hidden');
 
@@ -30,6 +34,8 @@ function switchMainTab(tabName) {
   document.getElementById('tabFactory').classList.remove('tab-active');
   document.getElementById('tabEquipment').classList.remove('tab-active');
   document.getElementById('tabRoles').classList.remove('tab-active');
+  document.getElementById('tabDepartment').classList.remove('tab-active');
+  document.getElementById('tabSection').classList.remove('tab-active');
   document.getElementById('tabRpiServer').classList.remove('tab-active');
   document.getElementById('tabTablet').classList.remove('tab-active');
 
@@ -97,6 +103,12 @@ function loadTabData(tabName) {
     case 'roles':
       loadRoles();
       break;
+    case 'department':
+      loadDepartments();
+      break;
+    case 'section':
+      loadSections();
+      break;
     case 'rpiServer':
       loadRpiServers();
       break;
@@ -122,6 +134,8 @@ async function loadActivityHistory(tabName) {
     'factory': 'factory',
     'equipment': 'equipment',
     'roles': 'roles',
+    'department': 'department',
+    'section': 'section',
     'tablet': 'tabletDB'
   };
   
@@ -316,6 +330,12 @@ async function openDetailModal(type, id) {
     case 'roles':
       data = allRoles.find(item => item._id === id);
       break;
+    case 'department':
+      data = allDepartments.find(item => item._id === id);
+      break;
+    case 'section':
+      data = allSections.find(item => item._id === id);
+      break;
     case 'tablet':
       data = allTablets.find(item => item._id === id);
       break;
@@ -334,6 +354,8 @@ async function openDetailModal(type, id) {
     'factory': '工場詳細',
     'equipment': '設備詳細',
     'roles': 'ロール詳細',
+    'department': '所属部署詳細',
+    'section': '所属係詳細',
     'tablet': 'タブレット詳細'
   };
   document.getElementById('modalTitle').textContent = titleMap[type];
@@ -419,6 +441,24 @@ function renderModalDetails(type, data) {
         <div class="grid grid-cols-1 gap-4">
           <div><label class="block text-sm font-medium mb-1">Role Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
           <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        </div>
+      `;
+      break;
+      
+    case 'department':
+      detailsHTML = `
+        <div class="grid grid-cols-1 gap-4">
+          <div><label class="block text-sm font-medium mb-1">部署名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-sm font-medium mb-1">説明</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        </div>
+      `;
+      break;
+      
+    case 'section':
+      detailsHTML = `
+        <div class="grid grid-cols-1 gap-4">
+          <div><label class="block text-sm font-medium mb-1">係名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-sm font-medium mb-1">説明</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
@@ -869,6 +909,12 @@ function showDeleteConfirmation(type) {
     case 'roles':
       items = allRoles.filter(item => selectedIds.includes(item._id));
       break;
+    case 'department':
+      items = allDepartments.filter(item => selectedIds.includes(item._id));
+      break;
+    case 'section':
+      items = allSections.filter(item => selectedIds.includes(item._id));
+      break;
     case 'tablet':
       items = allTablets.filter(item => selectedIds.includes(item._id));
       break;
@@ -889,6 +935,12 @@ function showDeleteConfirmation(type) {
         break;
       case 'roles':
         displayName = item.roleName || item._id;
+        break;
+      case 'department':
+        displayName = item.name || item._id;
+        break;
+      case 'section':
+        displayName = item.name || item._id;
         break;
       case 'tablet':
         displayName = item.tabletName || item._id;
@@ -1803,6 +1855,132 @@ async function deleteRole(roleId) {
 }
 
 // ====================
+// Department Tab Functions
+// ====================
+async function loadDepartments() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getDepartments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    const result = await res.json();
+    allDepartments = result.departments || [];
+    renderDepartmentsTable(allDepartments);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load departments");
+  }
+}
+
+function renderDepartmentsTable(departments) {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const role = currentUser.role || "member";
+
+  const tableHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-3">
+        <button id="deleteDepartmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('department')">
+          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="departmentSelectedCount">0</span>)
+        </button>
+      </div>
+      <div class="text-sm text-gray-600">Total: ${departments.length} departments</div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border border-gray-200 rounded-lg">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllDepartment" onchange="toggleSelectAll('department')" class="rounded"></th>
+            <th class="px-4 py-3 text-left">部署名</th>
+            <th class="px-4 py-3 text-left">説明</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y">
+          ${departments.map(d => `
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('department', '${d._id}')">
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="departmentCheckbox rounded" value="${d._id}" onchange="updateSelectedCount('department')"></td>
+              <td class="px-4 py-3">${d.name || ""}</td>
+              <td class="px-4 py-3">${d.description || ""}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("departmentTableContainer").innerHTML = tableHTML;
+  selectedItems = [];
+  updateSelectedCount('department');
+}
+
+// ====================
+// Section Tab Functions
+// ====================
+async function loadSections() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getSections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    const result = await res.json();
+    allSections = result.sections || [];
+    renderSectionsTable(allSections);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load sections");
+  }
+}
+
+function renderSectionsTable(sections) {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const role = currentUser.role || "member";
+
+  const tableHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-3">
+        <button id="deleteSectionBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('section')">
+          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="sectionSelectedCount">0</span>)
+        </button>
+      </div>
+      <div class="text-sm text-gray-600">Total: ${sections.length} sections</div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border border-gray-200 rounded-lg">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllSection" onchange="toggleSelectAll('section')" class="rounded"></th>
+            <th class="px-4 py-3 text-left">係名</th>
+            <th class="px-4 py-3 text-left">説明</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y">
+          ${sections.map(s => `
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('section', '${s._id}')">
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="sectionCheckbox rounded" value="${s._id}" onchange="updateSelectedCount('section')"></td>
+              <td class="px-4 py-3">${s.name || ""}</td>
+              <td class="px-4 py-3">${s.description || ""}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("sectionTableContainer").innerHTML = tableHTML;
+  selectedItems = [];
+  updateSelectedCount('section');
+}
+
+// ====================
 // CSV Upload Functions
 // ====================
 let csvData = [];
@@ -2059,6 +2237,36 @@ async function showQuickCreateModal() {
     }
       break;
       
+    case 'department': {
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (所属部署)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">部署名 *</label>
+          <input type="text" id="quickDepartmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 製造部">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium mb-1">説明</label>
+          <textarea id="quickDepartmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+        </div>
+      `;
+    }
+      break;
+      
+    case 'section': {
+      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (所属係)';
+      modalBody.innerHTML = `
+        <div>
+          <label class="block text-sm font-medium mb-1">係名 *</label>
+          <input type="text" id="quickSectionName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 品質管理係">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-medium mb-1">説明</label>
+          <textarea id="quickSectionDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+        </div>
+      `;
+    }
+      break;
+      
     case 'tablet': {
       // Load equipment and factory data first
       await loadEquipment();
@@ -2186,6 +2394,34 @@ async function submitQuickCreate() {
         }
         
         endpoint = "createRole";
+        break;
+        
+      case 'department':
+        data = {
+          name: document.getElementById("quickDepartmentName").value.trim(),
+          description: document.getElementById("quickDepartmentDesc").value.trim(),
+          dbName
+        };
+        
+        if (!data.name) {
+          return alert("部署名は必須です");
+        }
+        
+        endpoint = "createDepartment";
+        break;
+        
+      case 'section':
+        data = {
+          name: document.getElementById("quickSectionName").value.trim(),
+          description: document.getElementById("quickSectionDesc").value.trim(),
+          dbName
+        };
+        
+        if (!data.name) {
+          return alert("係名は必須です");
+        }
+        
+        endpoint = "createSection";
         break;
         
       case 'tablet':
@@ -2318,6 +2554,8 @@ if (typeof window !== 'undefined') {
   window.showCreateRoleForm = showCreateRoleForm;
   window.submitNewRole = submitNewRole;
   window.deleteRole = deleteRole;
+  window.loadDepartments = loadDepartments;
+  window.loadSections = loadSections;
 
   // Load master data by default
   loadMasterData();

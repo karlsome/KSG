@@ -57,6 +57,12 @@
                 <button id="tabRoles" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('roles')">
                     <i class="ri-shield-user-line mr-2"></i>Role
                 </button>
+                <button id="tabDepartment" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('department')">
+                    <i class="ri-building-2-line mr-2"></i>所属部署
+                </button>
+                <button id="tabSection" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('section')">
+                    <i class="ri-group-line mr-2"></i>所属係
+                </button>
                 <button id="tabRpiServer" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('rpiServer')">
                     <i class="ri-server-line mr-2"></i>Rpi Server
                 </button>
@@ -149,6 +155,50 @@
                 </div>
                 <div id="rolesHistoryContent" class="hidden">
                     <div id="rolesHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Department Tab Content -->
+            <div id="contentDepartment" class="p-6 hidden">
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="departmentSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('department', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="departmentSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('department', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
+                </div>
+                <div id="departmentDataContent">
+                    <div id="departmentTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div id="departmentHistoryContent" class="hidden">
+                    <div id="departmentHistoryContainer">
+                        <p class="text-gray-500">Loading history...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section Tab Content -->
+            <div id="contentSection" class="p-6 hidden">
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="sectionSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('section', 'data')">
+                        <i class="ri-table-line mr-2"></i>データ一覧
+                    </button>
+                    <button id="sectionSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('section', 'history')">
+                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                    </button>
+                </div>
+                <div id="sectionDataContent">
+                    <div id="sectionTableContainer">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div id="sectionHistoryContent" class="hidden">
+                    <div id="sectionHistoryContainer">
                         <p class="text-gray-500">Loading history...</p>
                     </div>
                 </div>

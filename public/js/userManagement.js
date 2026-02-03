@@ -7,6 +7,8 @@ let allUsers = [];
 let availableRoles = ["admin", "member", "operator", "viewer"]; // Default roles
 let availableFactories = []; // Factories from 工場 tab
 let availableEquipment = []; // Equipment from 設備 tab
+let availableDepartments = []; // Departments from 所属部署 tab
+let availableSections = []; // Sections from 所属係 tab
 let selectedUserFactories = []; // For create/edit factory tags
 let selectedUserEquipment = []; // For create/edit equipment tags
 
@@ -81,6 +83,56 @@ async function loadAvailableEquipment() {
   }
 }
 
+// Load departments from the database
+async function loadAvailableDepartments() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getDepartments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    if (res.ok) {
+      const result = await res.json();
+      const departments = result.departments || result;
+      if (departments.length > 0) {
+        availableDepartments = departments.map(d => d.name);
+      }
+    }
+  } catch (err) {
+    console.log("Couldn't fetch departments from database:", err);
+    availableDepartments = [];
+  }
+}
+
+// Load sections from the database
+async function loadAvailableSections() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getSections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    if (res.ok) {
+      const result = await res.json();
+      const sections = result.sections || result;
+      if (sections.length > 0) {
+        availableSections = sections.map(s => s.name);
+      }
+    }
+  } catch (err) {
+    console.log("Couldn't fetch sections from database:", err);
+    availableSections = [];
+  }
+}
+
 async function loadUsers() {
   // Get current user info (should be set when user logs in)
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
@@ -91,6 +143,8 @@ async function loadUsers() {
   await loadAvailableRoles();
   await loadAvailableFactories();
   await loadAvailableEquipment();
+  await loadAvailableDepartments();
+  await loadAvailableSections();
 
   try {
     const res = await fetch(BASE_URL + "customerGetUsers", {
@@ -151,8 +205,18 @@ function showCreateUserForm() {
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Division</label>
-          <input type="text" id="newDivision" placeholder="Division" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">所属部署</label>
+          <select id="newDivision" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableDepartments.length === 0 ? 'border-red-500' : ''}">
+            <option value="">${availableDepartments.length > 0 ? '選択してください' : '⚠️ 部署データがありません'}</option>
+            ${availableDepartments.map(d => `<option value="${d}">${d}</option>`).join("")}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label class="block text-sm font-medium text-gray-700">所属係</label>
+          <select id="newSection" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableSections.length === 0 ? 'border-red-500' : ''}">
+            <option value="">${availableSections.length > 0 ? '選択してください' : '⚠️ 係データがありません'}</option>
+            ${availableSections.map(s => `<option value="${s}">${s}</option>`).join("")}
+          </select>
         </div>
         <div class="space-y-1">
           <label class="block text-sm font-medium text-gray-700">Enable</label>
@@ -381,7 +445,7 @@ async function deleteUser(userId) {
 }
 
 function renderUserTable(users) {
-  const headers = ["firstName", "lastName", "email", "username", "role", "division", "enable", "factory", "userID"];
+  const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "userID"];
   
   const tableHTML = `
     <div class="mb-4">
@@ -452,6 +516,7 @@ async function submitNewUser() {
     password: document.getElementById("newPassword").value.trim(),
     role: document.getElementById("newRole").value.trim(),
     division: document.getElementById("newDivision").value.trim(),
+    section: document.getElementById("newSection").value.trim(),
     enable: document.getElementById("newEnable").value.trim(),
     factory: selectedUserFactories.join(','), // Convert array to comma-delimited
     factories: selectedUserFactories, // Array for tablet access control
