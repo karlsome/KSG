@@ -32,8 +32,8 @@ import threading
 RASPBERRY_ID = "6C10F6"  # Example: Change to your device's uniqueId
 
 # API Configuration
-#API_BASE_URL = "http://192.168.24.39:3000"  # Change if using different server
-API_BASE_URL = "https://ksg.freyaaccess.com"
+API_BASE_URL = "http://192.168.24.46:3000"  # Change if using different server
+#API_BASE_URL = "https://ksg.freyaaccess.com"
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"

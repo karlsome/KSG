@@ -2371,11 +2371,14 @@ io.on('connection', (socket) => {
         console.log('📊 OPC UA data change from Raspberry Pi:', socket.raspberryId || socket.id);
         
         try {
-            const { raspberryId, equipmentId, data: datapoints } = data;
+            const { raspberryId, equipmentId, data: datapoints, discovered_nodes } = data;
             const deviceId = raspberryId; // device_id from Raspberry Pi
             
-            if (!deviceId || !datapoints || datapoints.length === 0) {
-                console.error('❌ Invalid opcua_data_change payload');
+            // Handle discovered nodes (from discovered_nodes key)
+            const nodesToProcess = datapoints || discovered_nodes || [];
+            
+            if (!deviceId || nodesToProcess.length === 0) {
+                console.error('❌ Invalid opcua_data_change payload - no deviceId or data');
                 return;
             }
             
@@ -2421,36 +2424,42 @@ io.on('connection', (socket) => {
             
             const db = mongoClient.db(dbName);
             
-            // Save to MongoDB (async, non-blocking)
-            const bulkOps = datapoints.map(item => ({
-                updateOne: {
-                    filter: { 
-                        datapointId: item.datapointId,
-                        device_id: deviceId 
-                    },
-                    update: {
-                        $set: {
-                            device_id: deviceId,
-                            raspberryId: deviceId, // Keep for backward compatibility
-                            equipmentId: item.equipmentId || equipmentId,
-                            datapointId: item.datapointId,
-                            opcNodeId: item.opcNodeId,
-                            value: item.value,
-                            valueString: String(item.value),
-                            quality: item.quality || 'Good',
-                            sourceTimestamp: item.timestamp,
-                            receivedAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString()
-                        }
-                    },
-                    upsert: true
-                }
-            }));
+            // Separate configured datapoints from discovered nodes
+            const configuredDatapoints = nodesToProcess.filter(item => item.datapointId && item.equipmentId);
+            const discoveredNodesData = nodesToProcess.filter(item => !item.datapointId || !item.equipmentId);
             
-            // Save to MongoDB in background (don't await - non-blocking)
-            db.collection('opcua_realtime').bulkWrite(bulkOps).catch(err => {
-                console.error('❌ Error saving OPC UA data to MongoDB:', err.message);
-            });
+            // Save configured datapoints to MongoDB (async, non-blocking)
+            if (configuredDatapoints.length > 0) {
+                const bulkOps = configuredDatapoints.map(item => ({
+                    updateOne: {
+                        filter: { 
+                            datapointId: item.datapointId,
+                            device_id: deviceId 
+                        },
+                        update: {
+                            $set: {
+                                device_id: deviceId,
+                                raspberryId: deviceId, // Keep for backward compatibility
+                                equipmentId: item.equipmentId || equipmentId,
+                                datapointId: item.datapointId,
+                                opcNodeId: item.opcNodeId,
+                                value: item.value,
+                                valueString: String(item.value),
+                                quality: item.quality || 'Good',
+                                sourceTimestamp: item.timestamp,
+                                receivedAt: new Date().toISOString(),
+                                updatedAt: new Date().toISOString()
+                            }
+                        },
+                        upsert: true
+                    }
+                }));
+                
+                // Save to MongoDB in background (don't await - non-blocking)
+                db.collection('opcua_realtime').bulkWrite(bulkOps).catch(err => {
+                    console.error('❌ Error saving OPC UA data to MongoDB:', err.message);
+                });
+            }
             
             // Update device last_seen in deviceInfo
             db.collection('deviceInfo').updateOne(
@@ -2464,10 +2473,10 @@ io.on('connection', (socket) => {
                 console.error('❌ Error updating device timestamp:', err.message);
             });
             
-            // Also update discovered nodes with current values
-            const discoveredNodesUpdates = [];
-            datapoints.forEach(item => {
-                discoveredNodesUpdates.push(
+            // Update all nodes (both configured and discovered) in opcua_discovered_nodes
+            const allNodesUpdates = [];
+            nodesToProcess.forEach(item => {
+                allNodesUpdates.push(
                     db.collection('opcua_discovered_nodes').updateOne(
                         { 
                             raspberryId: deviceId,
@@ -2484,8 +2493,8 @@ io.on('connection', (socket) => {
                 );
             });
             
-            // Wait for all discovered nodes to be updated
-            await Promise.all(discoveredNodesUpdates).catch(err => {
+            // Wait for all nodes to be updated
+            await Promise.all(allNodesUpdates).catch(err => {
                 console.error('❌ Error updating discovered nodes:', err.message);
             });
             
@@ -2494,7 +2503,7 @@ io.on('connection', (socket) => {
                 device_id: deviceId,
                 raspberryId: deviceId, // backward compatibility
                 equipmentId,
-                data: datapoints.map(item => ({
+                data: nodesToProcess.map(item => ({
                     datapointId: item.datapointId,
                     opcNodeId: item.opcNodeId,
                     value: item.value,
@@ -2506,11 +2515,11 @@ io.on('connection', (socket) => {
             // Emit to company-specific room for real-time data updates
             io.to(`opcua_${dbName}`).emit('opcua_data_update', broadcastData);
             
-            // 🔥 NEW: Emit discovered nodes update event specifically for admin page
-            // This ensures the admin page's discovered nodes list updates in real-time
+            // 🔥 Emit discovered nodes update event for OPC Management page
+            // This ensures the Real-Time Data table updates in real-time
             io.to(`opcua_${dbName}`).emit('opcua_discovered_nodes_update', {
                 raspberryId: deviceId,
-                updates: datapoints.map(item => ({
+                updates: nodesToProcess.map(item => ({
                     opcNodeId: item.opcNodeId,
                     value: item.value,
                     updatedAt: new Date().toISOString()
@@ -2524,7 +2533,7 @@ io.on('connection', (socket) => {
             // This ensures tablets get real-time updates when OPC UA data changes
             await broadcastVariablesToAllTablets(company || dbName);
             
-            console.log(`📤 Broadcasted ${datapoints.length} datapoint(s) from ${deviceId} to company ${company}`);
+            console.log(`📤 Broadcasted ${nodesToProcess.length} node(s) from ${deviceId} to company ${company} (${configuredDatapoints.length} configured, ${discoveredNodesData.length} discovered)`);
             
         } catch (error) {
             console.error('❌ Error handling OPC UA data change:', error.message);

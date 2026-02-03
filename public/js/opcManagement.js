@@ -340,27 +340,7 @@ function handleDiscoveredNodesUpdate(data) {
     if (raspberryId && window.opcManagementState.allDevicesDataCache[raspberryId]) {
         const deviceCache = window.opcManagementState.allDevicesDataCache[raspberryId];
         
-        // Update discovered_nodes cache (this is the critical part!)
-        if (deviceCache.discovered_nodes && Array.isArray(updates)) {
-            updates.forEach(update => {
-                const nodeIndex = deviceCache.discovered_nodes.findIndex(node => 
-                    node.opcNodeId === update.opcNodeId
-                );
-                if (nodeIndex !== -1) {
-                    deviceCache.discovered_nodes[nodeIndex].value = update.value;
-                    deviceCache.discovered_nodes[nodeIndex].currentValue = 
-                        Array.isArray(update.value) ? JSON.stringify(update.value) : String(update.value);
-                    deviceCache.discovered_nodes[nodeIndex].lastUpdated = update.timestamp || new Date().toISOString();
-                    console.log(`  ✅ Updated ${update.opcNodeId}:`, update.value);
-                } else {
-                    console.warn(`  ⚠️  Node not found in cache: ${update.opcNodeId}`);
-                }
-            });
-        } else {
-            console.warn('⚠️  No discovered_nodes cache found for device', raspberryId);
-        }
-        
-        // Also update datapoints cache if the node is configured as a datapoint
+        // Update datapoints cache (HTTP response stores data under 'datapoints')
         if (deviceCache.datapoints && Array.isArray(updates)) {
             updates.forEach(update => {
                 const dpIndex = deviceCache.datapoints.findIndex(dp => 
@@ -368,13 +348,34 @@ function handleDiscoveredNodesUpdate(data) {
                 );
                 if (dpIndex !== -1) {
                     deviceCache.datapoints[dpIndex].value = update.value;
-                    deviceCache.datapoints[dpIndex].updatedAt = update.timestamp || new Date().toISOString();
+                    deviceCache.datapoints[dpIndex].timestamp = update.updatedAt || new Date().toISOString();
                     console.log(`  ✅ Updated datapoint ${update.opcNodeId}:`, update.value);
+                } else {
+                    console.warn(`  ⚠️  Node not found in cache: ${update.opcNodeId}`);
                 }
             });
+        } else {
+            console.warn('⚠️  No datapoints cache found for device', raspberryId);
         }
     } else {
         console.warn('⚠️  Device cache not found for', raspberryId);
+    }
+    
+    // Also update rawDataCache if this is the currently selected device (for Real-Time Data table)
+    if (raspberryId === window.opcManagementState.currentRaspberryId) {
+        if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
+            updates.forEach(update => {
+                const dpIndex = window.opcManagementState.rawDataCache.datapoints.findIndex(dp => 
+                    dp.opcNodeId === update.opcNodeId
+                );
+                if (dpIndex !== -1) {
+                    window.opcManagementState.rawDataCache.datapoints[dpIndex].value = update.value;
+                    window.opcManagementState.rawDataCache.datapoints[dpIndex].timestamp = update.updatedAt || new Date().toISOString();
+                }
+            });
+            // Re-render the Real-Time Data table
+            renderRealTimeData(window.opcManagementState.rawDataCache);
+        }
     }
     
     // Recalculate all variable conversions with the new values
