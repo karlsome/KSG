@@ -2637,19 +2637,22 @@ async function submitQuickCreate() {
         break;
         
       case 'tablet':
-        data = {
+        const tabletData = {
           tabletName: document.getElementById("quickTabletName").value.trim(),
           tabletBrand: document.getElementById("quickTabletBrand").value.trim(),
           factoryLocation: document.getElementById("quickTabletFactory").value.trim(),
-          設備名: document.getElementById("quickTablet設備").value.trim(),
-          registeredBy: username,
-          createdBy: username,
-          dbName
+          設備名: document.getElementById("quickTablet設備").value.trim()
         };
         
-        if (!data.tabletName || !data.tabletBrand || !data.factoryLocation || !data.設備名) {
+        if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
           return alert("タブレット名、ブランド、工場名、設備名は必須です");
         }
+        
+        data = {
+          dbName,
+          username,
+          tabletData
+        };
         
         endpoint = "createTablet";
         break;
