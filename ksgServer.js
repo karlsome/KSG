@@ -4855,18 +4855,14 @@ app.post("/customerCreateUser", async (req, res) => {
       username: normalizedUsername,
       password: hashedPassword,
       role,
-      factories: [],
-      equipment: [],
+      division: req.body.division || '',
+      section: req.body.section || '',
+      enable: req.body.enable || 'enabled',
+      factory: req.body.factory || '',  // CSV string
+      equipment: req.body.equipment || '',  // CSV string
+      userID: req.body.userID || '',
       createdAt: new Date()
     };
-    
-    // Add optional fields if provided
-    if (req.body.factories && Array.isArray(req.body.factories)) {
-      newUser.factories = req.body.factories;
-    }
-    if (req.body.equipment && Array.isArray(req.body.equipment)) {
-      newUser.equipment = req.body.equipment;
-    }
     
     await users.insertOne(newUser);
 

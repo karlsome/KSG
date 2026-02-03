@@ -297,18 +297,20 @@ function startEditingUser(userId) {
   const user = allUsers.find(u => u._id === userId);
   if (!user) return;
   
-  // Enable all input fields except factory
+  // Enable all input fields except factory and equipment
   document.querySelectorAll(`[user-id='${userId}']`).forEach(el => {
-    if (el.dataset.field !== 'factory') {
+    if (el.dataset.field !== 'factory' && el.dataset.field !== 'equipment') {
       el.disabled = false;
     }
   });
   
   // Replace factory display div with tagging system
-  const factoryCell = document.querySelector(`#userRow-${userId} td:nth-child(8)`);
+  const factoryCell = document.querySelector(`#userRow-${userId} td:nth-child(9)`);
   if (factoryCell) {
-    // Initialize selected factories from user data
-    selectedUserFactories = user.factory ? user.factory.split(',').map(f => f.trim()).filter(f => f) : [];
+    // Initialize selected factories from user data (handle both array and CSV string formats)
+    selectedUserFactories = user.factory 
+      ? (Array.isArray(user.factory) ? user.factory.filter(f => f) : user.factory.split(',').map(f => f.trim()).filter(f => f))
+      : [];
     
     factoryCell.innerHTML = `
       <div>
@@ -330,6 +332,40 @@ function startEditingUser(userId) {
         if (e.target.value && !selectedUserFactories.includes(e.target.value)) {
           selectedUserFactories.push(e.target.value);
           renderEditUserFactoryTags(userId);
+        }
+        e.target.value = '';
+      };
+    }
+  }
+  
+  // Replace equipment display div with tagging system
+  const equipmentCell = document.querySelector(`#userRow-${userId} td:nth-child(10)`);
+  if (equipmentCell) {
+    // Initialize selected equipment from user data (handle both array and CSV string formats)
+    selectedUserEquipment = user.equipment 
+      ? (Array.isArray(user.equipment) ? user.equipment.filter(e => e) : user.equipment.split(',').map(e => e.trim()).filter(e => e))
+      : [];
+    
+    equipmentCell.innerHTML = `
+      <div>
+        <div id="editUserEquipmentTags-${userId}" class="flex gap-1 flex-wrap mb-2 min-h-[32px] p-1 border rounded"></div>
+        <select id="editUserEquipmentSelect-${userId}" class="w-full p-1 border rounded text-xs" data-field="equipment" user-id="${userId}">
+          <option value="">+ Add Equipment</option>
+          ${availableEquipment.map(e => `<option value="${e}">${e}</option>`).join("")}
+        </select>
+      </div>
+    `;
+    
+    // Render initial tags
+    renderEditUserEquipmentTags(userId);
+    
+    // Setup select handler
+    const equipmentSelect = document.getElementById(`editUserEquipmentSelect-${userId}`);
+    if (equipmentSelect) {
+      equipmentSelect.onchange = (e) => {
+        if (e.target.value && !selectedUserEquipment.includes(e.target.value)) {
+          selectedUserEquipment.push(e.target.value);
+          renderEditUserEquipmentTags(userId);
         }
         e.target.value = '';
       };
@@ -363,6 +399,26 @@ function removeEditUserFactoryTag(factory, userId) {
   renderEditUserFactoryTags(userId);
 }
 
+function renderEditUserEquipmentTags(userId) {
+  const tagsDiv = document.getElementById(`editUserEquipmentTags-${userId}`);
+  if (!tagsDiv) return;
+  
+  tagsDiv.innerHTML = selectedUserEquipment.length > 0 ? 
+    selectedUserEquipment.map(e => `
+      <span class="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+        ${e}
+        <button type="button" onclick="removeEditUserEquipmentTag('${e}', '${userId}')" class="ml-1 text-green-600 hover:text-green-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : '<span class="text-gray-400 text-xs">No equipment selected</span>';
+}
+
+function removeEditUserEquipmentTag(equipment, userId) {
+  selectedUserEquipment = selectedUserEquipment.filter(e => e !== equipment);
+  renderEditUserEquipmentTags(userId);
+}
+
 function cancelEditUser(userId) {
   loadUsers();
 }
@@ -375,7 +431,7 @@ async function saveUser(userId) {
 
   const updated = {};
   document.querySelectorAll(`[user-id='${userId}']`).forEach(el => {
-    if (el.dataset.field && el.dataset.field !== 'factory') {
+    if (el.dataset.field && el.dataset.field !== 'factory' && el.dataset.field !== 'equipment') {
       updated[el.dataset.field] = el.value;
     }
     if (el.hasAttribute('data-role')) {
@@ -383,10 +439,9 @@ async function saveUser(userId) {
     }
   });
   
-  // Add factory from selectedUserFactories
+  // Add factory and equipment from selected arrays
   updated.factory = selectedUserFactories.join(',');
-  updated.factories = selectedUserFactories; // Array for tablet access control
-  updated.equipment = selectedUserEquipment; // Array for tablet access control
+  updated.equipment = selectedUserEquipment.join(',');
 
   try {
     const res = await fetch(BASE_URL + "customerUpdateRecord", {
@@ -445,7 +500,7 @@ async function deleteUser(userId) {
 }
 
 function renderUserTable(users) {
-  const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "userID"];
+  const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "equipment", "userID"];
   
   const tableHTML = `
     <div class="mb-4">
@@ -474,6 +529,20 @@ function renderUserTable(users) {
                             <option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>
                           `).join("")}
                         </select>`
+                      : h === "division"
+                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
+                          <option value="">選択してください</option>
+                          ${availableDepartments.map(d => `
+                            <option value="${d}" ${u[h] === d ? "selected" : ""}>${d}</option>
+                          `).join("")}
+                        </select>`
+                      : h === "section"
+                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
+                          <option value="">選択してください</option>
+                          ${availableSections.map(s => `
+                            <option value="${s}" ${u[h] === s ? "selected" : ""}>${s}</option>
+                          `).join("")}
+                        </select>`
                       : h === "enable"
                       ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
                           <option value="enabled" ${(u[h] || "enabled") === "enabled" ? "selected" : ""}>enabled</option>
@@ -481,9 +550,35 @@ function renderUserTable(users) {
                         </select>`
                       : h === "factory"
                       ? `<div class="flex gap-1 flex-wrap">
-                          ${(u[h] ? u[h].split(',').map(f => f.trim()).filter(f => f) : []).map(f => 
-                            `<span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${f}</span>`
-                          ).join('') || '<span class="text-gray-400">-</span>'}
+                          ${(() => {
+                            let factoryList = [];
+                            if (u[h]) {
+                              if (Array.isArray(u[h])) {
+                                factoryList = u[h].filter(f => f);
+                              } else if (typeof u[h] === 'string') {
+                                factoryList = u[h].split(',').map(f => f.trim()).filter(f => f);
+                              }
+                            }
+                            return factoryList.length > 0 
+                              ? factoryList.map(f => `<span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${f}</span>`).join('')
+                              : '<span class="text-gray-400">-</span>';
+                          })()}
+                        </div>`
+                      : h === "equipment"
+                      ? `<div class="flex gap-1 flex-wrap">
+                          ${(() => {
+                            let equipmentList = [];
+                            if (u[h]) {
+                              if (Array.isArray(u[h])) {
+                                equipmentList = u[h].filter(e => e);
+                              } else if (typeof u[h] === 'string') {
+                                equipmentList = u[h].split(',').map(e => e.trim()).filter(e => e);
+                              }
+                            }
+                            return equipmentList.length > 0
+                              ? equipmentList.map(e => `<span class="inline-block px-2 py-1 bg-green-100 text-green-800 rounded text-xs">${e}</span>`).join('')
+                              : '<span class="text-gray-400">-</span>';
+                          })()}
                         </div>`
                       : `<input class="border border-gray-300 p-1 rounded w-full" value="${u[h] || ""}" disabled data-field="${h}" user-id="${u._id}" />`
                   }
@@ -518,9 +613,8 @@ async function submitNewUser() {
     division: document.getElementById("newDivision").value.trim(),
     section: document.getElementById("newSection").value.trim(),
     enable: document.getElementById("newEnable").value.trim(),
-    factory: selectedUserFactories.join(','), // Convert array to comma-delimited
-    factories: selectedUserFactories, // Array for tablet access control
-    equipment: selectedUserEquipment, // Array for tablet access control
+    factory: selectedUserFactories.join(','),
+    equipment: selectedUserEquipment.join(','),
     userID: document.getElementById("newUserID").value.trim(),
     dbName,
     creatorRole
@@ -623,4 +717,6 @@ if (typeof window !== 'undefined') {
   window.removeUserEquipmentTag = removeUserEquipmentTag;
   window.renderEditUserFactoryTags = renderEditUserFactoryTags;
   window.removeEditUserFactoryTag = removeEditUserFactoryTag;
+  window.renderEditUserEquipmentTags = renderEditUserEquipmentTags;
+  window.removeEditUserEquipmentTag = removeEditUserEquipmentTag;
 }
