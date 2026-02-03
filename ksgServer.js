@@ -4900,6 +4900,41 @@ app.post("/customerUpdateRecord", async (req, res) => {
     const db = mongoClient.db(dbName);
     const collection = db.collection(collectionName);
 
+    // Special handling for username changes in users collection
+    if (collectionName === "users" && updateData.username) {
+      // Get the old username before updating
+      const oldUser = await collection.findOne({ _id: new ObjectId(recordId) });
+      
+      if (oldUser && oldUser.username !== updateData.username) {
+        const oldUsername = oldUser.username;
+        const newUsername = updateData.username;
+        
+        // Normalize both usernames
+        const normalizedOldUsername = oldUsername.trim().toLowerCase();
+        const normalizedNewUsername = newUsername.trim().toLowerCase();
+        
+        // Update the username in subUsernames array in master database
+        const masterDB = mongoClient.db(DB_NAME);
+        const masterUsers = masterDB.collection(COLLECTION_NAME);
+        
+        await masterUsers.updateOne(
+          { dbName, subUsernames: normalizedOldUsername },
+          { 
+            $pull: { subUsernames: normalizedOldUsername },
+          }
+        );
+        
+        await masterUsers.updateOne(
+          { dbName },
+          { 
+            $addToSet: { subUsernames: normalizedNewUsername }
+          }
+        );
+        
+        console.log(`📝 Updated username in master database: ${normalizedOldUsername} → ${normalizedNewUsername}`);
+      }
+    }
+
     const result = await collection.updateOne(
       { _id: new ObjectId(recordId) },
       { $set: updateData }
