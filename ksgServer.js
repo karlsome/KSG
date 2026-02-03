@@ -1011,6 +1011,81 @@ app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
     }
 });
 
+// Get equipment configuration for tablet (including OPC variable mappings)
+app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
+    const tabletName = decodeURIComponent(req.params.tabletName);
+    
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Database not connected' 
+            });
+        }
+        
+        // Use KSG database
+        const db = mongoClient.db('KSG');
+        
+        // First, find the tablet to get its equipment
+        const tabletsCollection = db.collection('tabletDB');
+        const tablet = await tabletsCollection.findOne({ tabletName: tabletName });
+        
+        if (!tablet) {
+            return res.status(404).json({
+                success: false,
+                error: 'Tablet not found'
+            });
+        }
+        
+        const equipmentName = tablet.設備名;
+        
+        if (!equipmentName) {
+            return res.status(400).json({
+                success: false,
+                error: 'Tablet has no equipment assigned'
+            });
+        }
+        
+        // Find the equipment configuration
+        const equipmentCollection = db.collection('equipment');
+        const equipment = await equipmentCollection.findOne({ 設備名: equipmentName });
+        
+        if (!equipment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Equipment not found'
+            });
+        }
+        
+        // Return equipment config with default values if opcVariables not set
+        const opcVariables = equipment.opcVariables || {
+            kanbanVariable: 'kenyokiRHKanban',
+            productionCountVariable: 'seisanSu',
+            boxQuantityVariable: 'hakoIresu'
+        };
+        
+        console.log(`📱 [TABLET] Served equipment config for tablet: ${tabletName} → Equipment: ${equipmentName}`);
+        console.log(`   Variables: kanban=${opcVariables.kanbanVariable}, production=${opcVariables.productionCountVariable}, box=${opcVariables.boxQuantityVariable}`);
+        
+        res.json({
+            success: true,
+            equipment: {
+                設備名: equipment.設備名,
+                工場: equipment.工場,
+                description: equipment.description,
+                opcVariables: opcVariables
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ [TABLET] Error fetching equipment config:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch equipment configuration' 
+        });
+    }
+});
+
 // Submit tablet production data to Google Sheets
 app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
     const submissionData = req.body;
