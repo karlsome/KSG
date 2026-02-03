@@ -32,8 +32,8 @@ import threading
 RASPBERRY_ID = "6C10F6"  # Example: Change to your device's uniqueId
 
 # API Configuration
-API_BASE_URL = "http://192.168.24.46:3000"  # Change if using different server
-#API_BASE_URL = "https://ksg.freyaaccess.com"
+#API_BASE_URL = "http://192.168.24.46:3000"  # Change if using different server
+API_BASE_URL = "https://ksg.freyaaccess.com"
 CONFIG_ENDPOINT = f"{API_BASE_URL}/api/opcua/config/{RASPBERRY_ID}"
 DATA_ENDPOINT = f"{API_BASE_URL}/api/opcua/data"
 HEARTBEAT_ENDPOINT = f"{API_BASE_URL}/api/opcua/heartbeat"
@@ -44,7 +44,7 @@ DEVICE_INFO_ENDPOINT = f"{API_BASE_URL}/api/opcua/device-info"
 COMPANY_NAME = "KSG"
 DEVICE_OWNER = "kasugai"
 DEVICE_TYPE = "Raspberry Pi"
-DEVICE_BRAND = "Raspberry Pi"
+DEVICE_BRAND = "Raspberry Pi"sudo journalctl -u opcua-client -f
 
 # Timing Configuration
 HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
@@ -1218,15 +1218,15 @@ def main_loop():
 
 if __name__ == "__main__":
     # Validate configuration
-    if RASPBERRY_ID == "6C10F6":
-        logger.warning("⚠️  WARNING: Using default RASPBERRY_ID!")
-        logger.warning("   Please edit this file and set your unique Raspberry Pi ID")
-        logger.warning("   The ID must match the uniqueId in masterUsers.devices collection")
-        print("\n")
-        response = input("Continue anyway? (y/N): ")
-        if response.lower() != 'y':
-            logger.info("Exiting...")
-            sys.exit(0)
+    # if RASPBERRY_ID == "6C10F6":
+    #     logger.warning("⚠️  WARNING: Using default RASPBERRY_ID!")
+    #     logger.warning("   Please edit this file and set your unique Raspberry Pi ID")
+    #     logger.warning("   The ID must match the uniqueId in masterUsers.devices collection")
+    #     print("\n")
+    #     response = input("Continue anyway? (y/N): ")
+    #     if response.lower() != 'y':
+    #         logger.info("Exiting...")
+    #         sys.exit(0)
     
     try:
         main_loop()
