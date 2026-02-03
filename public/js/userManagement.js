@@ -12,6 +12,19 @@ let availableSections = []; // Sections from 所属係 tab
 let selectedUserFactories = []; // For create/edit factory tags
 let selectedUserEquipment = []; // For create/edit equipment tags
 
+// Listen for language changes
+window.addEventListener('languageChanged', () => {
+  // Reload the current view if users are loaded
+  if (allUsers.length > 0) {
+    renderUserTable(allUsers);
+  }
+  // Update page title if it exists
+  const titleEl = document.getElementById('userManagementTitle');
+  if (titleEl) {
+    titleEl.textContent = t('userManagement.title');
+  }
+});
+
 // Load roles from the database
 async function loadAvailableRoles() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
@@ -163,7 +176,7 @@ async function loadUsers() {
   } catch (err) {
     console.error("Failed to load users:", err);
     document.getElementById("userTableContainer").innerHTML =
-      `<p class="text-red-600">Failed to load users: ${err.message}</p>`;
+      `<p class="text-red-600">${t('userManagement.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -174,86 +187,86 @@ function showCreateUserForm() {
     <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
       <div class="flex items-center gap-2 mb-4">
         <i class="ri-user-add-line text-lg text-blue-600"></i>
-        <h3 class="text-xl font-semibold text-gray-900">Create New User</h3>
+        <h3 class="text-xl font-semibold text-gray-900">${t('userManagement.createNewUser')}</h3>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">First Name</label>
-          <input type="text" id="newFirstName" placeholder="First Name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.firstName')}</label>
+          <input type="text" id="newFirstName" placeholder="${t('userManagement.firstName')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Last Name</label>
-          <input type="text" id="newLastName" placeholder="Last Name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.lastName')}</label>
+          <input type="text" id="newLastName" placeholder="${t('userManagement.lastName')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Email</label>
-          <input type="email" id="newEmail" placeholder="Email" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.email')}</label>
+          <input type="email" id="newEmail" placeholder="${t('userManagement.email')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Username</label>
-          <input type="text" id="newUsername" placeholder="Username" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.username')}</label>
+          <input type="text" id="newUsername" placeholder="${t('userManagement.username')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Password</label>
-          <input type="password" id="newPassword" placeholder="Password" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.password')}</label>
+          <input type="password" id="newPassword" placeholder="${t('userManagement.password')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Role</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.role')}</label>
           <select id="newRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors">
-            <option value="">Select Role</option>
+            <option value="">${t('userManagement.selectRole')}</option>
             ${availableRoles.map(r => `<option value="${r}">${r}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">所属部署</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.division')}</label>
           <select id="newDivision" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableDepartments.length === 0 ? 'border-red-500' : ''}">
-            <option value="">${availableDepartments.length > 0 ? '選択してください' : '⚠️ 部署データがありません'}</option>
+            <option value="">${availableDepartments.length > 0 ? t('userManagement.selectDepartment') : t('userManagement.noDepartmentData')}</option>
             ${availableDepartments.map(d => `<option value="${d}">${d}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">所属係</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.section')}</label>
           <select id="newSection" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableSections.length === 0 ? 'border-red-500' : ''}">
-            <option value="">${availableSections.length > 0 ? '選択してください' : '⚠️ 係データがありません'}</option>
+            <option value="">${availableSections.length > 0 ? t('userManagement.selectSection') : t('userManagement.noSectionData')}</option>
             ${availableSections.map(s => `<option value="${s}">${s}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">Enable</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.enable')}</label>
           <select id="newEnable" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors">
-            <option value="enabled">enabled</option>
-            <option value="disabled">disabled</option>
+            <option value="enabled">${t('userManagement.enabled')}</option>
+            <option value="disabled">${t('userManagement.disabled')}</option>
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">工場 (複数選択可能)</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.factory')} ${t('userManagement.factoryMultiSelect')}</label>
           <div id="userFactoryTags" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white min-h-[42px] mb-2"></div>
           <select id="newFactory" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableFactories.length === 0 ? 'border-red-500' : ''}">
-            <option value="">${availableFactories.length > 0 ? '+ 工場を追加' : '⚠️ 工場データがありません'}</option>
+            <option value="">${availableFactories.length > 0 ? t('userManagement.addFactory') : t('userManagement.noFactoryData')}</option>
             ${availableFactories.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">設備 (複数選択可能)</label>
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.equipment')} ${t('userManagement.equipmentMultiSelect')}</label>
           <div id="userEquipmentTags" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white min-h-[42px] mb-2"></div>
           <select id="newEquipment" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white transition-colors ${availableEquipment.length === 0 ? 'border-red-500' : ''}">
-            <option value="">${availableEquipment.length > 0 ? '+ 設備を追加' : '⚠️ 設備データがありません'}</option>
+            <option value="">${availableEquipment.length > 0 ? t('userManagement.addEquipment') : t('userManagement.noEquipmentData')}</option>
             ${availableEquipment.map(e => `<option value="${e}">${e}</option>`).join("")}
           </select>
         </div>
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">User ID</label>
-          <input type="text" id="newUserID" placeholder="User ID" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
+          <label class="block text-sm font-medium text-gray-700">${t('userManagement.userID')}</label>
+          <input type="text" id="newUserID" placeholder="${t('userManagement.userID')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
       </div>
       <div class="flex gap-3">
         <button class="inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors" onclick="submitNewUser()">
           <i class="ri-check-line mr-2"></i>
-          Save
+          ${t('userManagement.save')}
         </button>
         <button class="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors" onclick="loadUsers()">
           <i class="ri-close-line mr-2"></i>
-          Cancel
+          ${t('userManagement.cancel')}
         </button>
       </div>
     </div>
@@ -374,8 +387,8 @@ function startEditingUser(userId) {
   
   const actions = document.getElementById(`actions-${userId}`);
   actions.innerHTML = `
-    <button class="text-green-600 hover:underline text-sm" onclick="saveUser('${userId}')">Save</button>
-    <button class="ml-2 text-gray-600 hover:underline text-sm" onclick="cancelEditUser('${userId}')">Cancel</button>
+    <button class="text-green-600 hover:underline text-sm" onclick="saveUser('${userId}')">${t('userManagement.save')}</button>
+    <button class="ml-2 text-gray-600 hover:underline text-sm" onclick="cancelEditUser('${userId}')">${t('userManagement.cancel')}</button>
   `;
 }
 
@@ -391,7 +404,7 @@ function renderEditUserFactoryTags(userId) {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-xs">No factories selected</span>';
+    `).join('') : `<span class="text-gray-400 text-xs">${t('userManagement.noFactoriesSelected')}</span>`;
 }
 
 function removeEditUserFactoryTag(factory, userId) {
@@ -411,7 +424,7 @@ function renderEditUserEquipmentTags(userId) {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-xs">No equipment selected</span>';
+    `).join('') : `<span class="text-gray-400 text-xs">${t('userManagement.noEquipmentSelected')}</span>`;
 }
 
 function removeEditUserEquipmentTag(equipment, userId) {
@@ -458,18 +471,18 @@ async function saveUser(userId) {
     });
 
     const result = await res.json();
-    if (!res.ok || !result.modifiedCount) throw new Error("Update failed");
+    if (!res.ok || !result.modifiedCount) throw new Error(t('userManagement.updateFailed'));
 
-    alert("User updated successfully");
+    alert(t('userManagement.userUpdatedSuccess'));
     loadUsers();
   } catch (err) {
     console.error("Update error:", err);
-    alert("Update failed: " + err.message);
+    alert(`${t('userManagement.updateFailed')}: ${err.message}`);
   }
 }
 
 async function deleteUser(userId) {
-  if (!confirm("Are you sure you want to delete this user?")) return;
+  if (!confirm(t('userManagement.confirmDelete'))) return;
   
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -489,32 +502,47 @@ async function deleteUser(userId) {
     });
 
     const result = await res.json();
-    if (!res.ok || !result.deletedCount) throw new Error("Delete failed");
+    if (!res.ok || !result.deletedCount) throw new Error(t('userManagement.deleteFailed'));
 
-    alert("User deleted successfully");
+    alert(t('userManagement.userDeletedSuccess'));
     loadUsers();
   } catch (err) {
     console.error("Delete error:", err);
-    alert("Delete failed: " + err.message);
+    alert(`${t('userManagement.deleteFailed')}: ${err.message}`);
   }
 }
 
 function renderUserTable(users) {
   const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "equipment", "userID"];
   
+  // Create header translations map
+  const headerTranslations = {
+    firstName: t('userManagement.firstName'),
+    lastName: t('userManagement.lastName'),
+    email: t('userManagement.email'),
+    username: t('userManagement.username'),
+    role: t('userManagement.role'),
+    division: t('userManagement.division'),
+    section: t('userManagement.section'),
+    enable: t('userManagement.enable'),
+    factory: t('userManagement.factory'),
+    equipment: t('userManagement.equipment'),
+    userID: t('userManagement.userID')
+  };
+  
   const tableHTML = `
     <div class="mb-4">
       <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" onclick="showCreateUserForm()">
         <i class="ri-user-add-line mr-2"></i>
-        Create New User
+        ${t('userManagement.createNewUser')}
       </button>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
         <thead class="bg-gray-100">
           <tr>
-            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${h}</th>`).join("")}
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">Actions</th>
+            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${headerTranslations[h]}</th>`).join("")}
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('userManagement.actions')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
@@ -531,22 +559,22 @@ function renderUserTable(users) {
                         </select>`
                       : h === "division"
                       ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
-                          <option value="">選択してください</option>
+                          <option value="">${t('userManagement.selectDepartment')}</option>
                           ${availableDepartments.map(d => `
                             <option value="${d}" ${u[h] === d ? "selected" : ""}>${d}</option>
                           `).join("")}
                         </select>`
                       : h === "section"
                       ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
-                          <option value="">選択してください</option>
+                          <option value="">${t('userManagement.selectSection')}</option>
                           ${availableSections.map(s => `
                             <option value="${s}" ${u[h] === s ? "selected" : ""}>${s}</option>
                           `).join("")}
                         </select>`
                       : h === "enable"
                       ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
-                          <option value="enabled" ${(u[h] || "enabled") === "enabled" ? "selected" : ""}>enabled</option>
-                          <option value="disabled" ${u[h] === "disabled" ? "selected" : ""}>disabled</option>
+                          <option value="enabled" ${(u[h] || "enabled") === "enabled" ? "selected" : ""}>${t('userManagement.enabled')}</option>
+                          <option value="disabled" ${u[h] === "disabled" ? "selected" : ""}>${t('userManagement.disabled')}</option>
                         </select>`
                       : h === "factory"
                       ? `<div class="flex gap-1 flex-wrap">
@@ -585,8 +613,8 @@ function renderUserTable(users) {
                 </td>
               `).join("")}
               <td class="px-4 py-3" id="actions-${u._id}">
-                <button class="text-blue-600 hover:underline text-sm" onclick="startEditingUser('${u._id}')">Edit</button>
-                <button class="ml-2 text-red-600 hover:underline text-sm" onclick="deleteUser('${u._id}')">Delete</button>
+                <button class="text-blue-600 hover:underline text-sm" onclick="startEditingUser('${u._id}')">${t('userManagement.edit')}</button>
+                <button class="ml-2 text-red-600 hover:underline text-sm" onclick="deleteUser('${u._id}')">${t('userManagement.delete')}</button>
               </td>
             </tr>
           `).join("")}
@@ -621,11 +649,11 @@ async function submitNewUser() {
   };
 
   if (!data.firstName || !data.lastName || !data.email || !data.username || !data.password || !data.role) {
-    return alert("Please fill in all required fields");
+    return alert(t('userManagement.fillRequiredFields'));
   }
 
   if (data.password.length < 6) {
-    return alert("Password must be at least 6 characters long");
+    return alert(t('userManagement.passwordMinLength'));
   }
 
   try {
@@ -637,28 +665,28 @@ async function submitNewUser() {
 
     const result = await res.json();
     if (!res.ok) {
-      let errorMessage = result.error || "Failed to create user";
+      let errorMessage = result.error || t('userManagement.createFailed');
       
       if (errorMessage.includes("Username already exists in this customer database")) {
-        errorMessage = "This username already exists in KSG database";
+        errorMessage = t('userManagement.usernameExistsKSG');
       } else if (errorMessage.includes("Username already exists in a master account")) {
-        errorMessage = "This username already exists in a master account";
+        errorMessage = t('userManagement.usernameExistsMaster');
       } else if (errorMessage.includes("Username already exists in another customer company")) {
-        errorMessage = "This username already exists in another company";
+        errorMessage = t('userManagement.usernameExistsOther');
       } else if (errorMessage.includes("Missing required fields")) {
-        errorMessage = "Please fill in all required fields";
+        errorMessage = t('userManagement.fillRequiredFields');
       } else if (errorMessage.includes("Access denied")) {
-        errorMessage = "Access denied";
+        errorMessage = t('userManagement.accessDenied');
       }
       
       throw new Error(errorMessage);
     }
 
-    alert("User created successfully");
+    alert(t('userManagement.userCreatedSuccess'));
     loadUsers();
   } catch (err) {
     console.error("Create error:", err);
-    alert("Create failed: " + err.message);
+    alert(`${t('userManagement.createFailed')}: ${err.message}`);
   }
 }
 
@@ -674,7 +702,7 @@ function renderUserFactoryTags() {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+    `).join('') : `<span class="text-gray-400 text-sm">${t('userManagement.selectFactory')}</span>`;
 }
 
 function removeUserFactoryTag(factory) {
@@ -694,7 +722,7 @@ function renderUserEquipmentTags() {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-sm">設備を選択してください</span>';
+    `).join('') : `<span class="text-gray-400 text-sm">${t('userManagement.selectEquipment')}</span>`;
 }
 
 function removeUserEquipmentTag(equipment) {

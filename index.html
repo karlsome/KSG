@@ -114,6 +114,7 @@
   </div>
 
   <!-- JS Scripts -->
+  <script src="/js/languages.js"></script>
   <script src="/js/userManagement.js"></script>
   <script>
     // Toggle dropdown
@@ -171,7 +172,7 @@
           
         case 'user-management':
           mainContent.innerHTML = `
-            <h2 class="text-2xl font-semibold mb-4">User Management</h2>
+            <h2 class="text-2xl font-semibold mb-4" id="userManagementTitle">${t('userManagement.title')}</h2>
             <div class="bg-white p-6 rounded-lg shadow">
               <div id="userTableContainer">
                 <p class="text-gray-600">Loading users...</p>
@@ -302,6 +303,16 @@
     // Load dashboard by default
     document.addEventListener('DOMContentLoaded', () => {
       loadPage('dashboard');
+      
+      // Initialize language selector
+      const languageSelector = document.getElementById('languageSelector');
+      const savedLanguage = localStorage.getItem('preferredLanguage') || 'en';
+      languageSelector.value = savedLanguage;
+      
+      // Language switcher event listener
+      languageSelector.addEventListener('change', (e) => {
+        changeLanguage(e.target.value);
+      });
     });
   </script>
 </body>
