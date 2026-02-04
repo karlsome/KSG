@@ -890,10 +890,16 @@ async function loadEquipmentConfig() {
           boxQuantity: equipment.opcVariables.boxQuantityVariable || 'hakoIresu'
         };
         
-        console.log('✅ Variable mappings configured:', variableMappings);
-        console.log(`   - Product Kanban: ${variableMappings.kanban}`);
-        console.log(`   - Production Count: ${variableMappings.productionCount}`);
-        console.log(`   - Box Quantity: ${variableMappings.boxQuantity}`);
+        console.log('');
+        console.log('📋 OPC VARIABLE MAPPINGS FOR THIS TABLET');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`設備名 (Equipment): ${equipment.設備名 || 'N/A'}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`📊 製品看板変数 (Kanban Variable): ${variableMappings.kanban}`);
+        console.log(`📈 生産数変数 (Production Count Variable): ${variableMappings.productionCount}`);
+        console.log(`📦 箱入数変数 (Box Quantity Variable): ${variableMappings.boxQuantity}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('');
       }
     } else {
       console.warn('⚠️ Failed to load equipment config:', data.error);
