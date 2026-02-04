@@ -427,13 +427,81 @@ function renderModalDetails(type, data) {
       break;
       
     case 'equipment':
+      const opcVars = data.opcVariables || {};
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
           <div><label class="block text-sm font-medium mb-1">設備名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
           <div><label class="block text-sm font-medium mb-1">工場</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" /></div>
           <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+          
+          <div class="border-t pt-4 mt-4">
+            <h4 class="text-sm font-semibold mb-3 flex items-center">
+              <i class="ri-line-chart-line mr-2"></i>
+              📊 OPC Variable Mappings (for Tablets)
+            </h4>
+            <div class="grid grid-cols-1 gap-3">
+              <div>
+                <label class="block text-xs font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+                <select id="modalEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.kanbanVariable">
+                  <option value="">-- Select Variable --</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">For product title/lookup in tablet</p>
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">生産数変数 (Production Count Variable)</label>
+                <select id="modalEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.productionCountVariable">
+                  <option value="">-- Select Variable --</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">For 作業数 calculation in tablet</p>
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">箱入数変数 (Box Quantity Variable)</label>
+                <select id="modalEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.boxQuantityVariable">
+                  <option value="">-- Select Variable --</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">For 合格数追加 display in tablet</p>
+              </div>
+            </div>
+          </div>
         </div>
       `;
+      
+      // Load OPC variables and populate dropdowns after rendering
+      setTimeout(async () => {
+        try {
+          const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+          const company = currentUser.dbName || "KSG";
+          const response = await fetch(`${API_URL}/api/opcua/conversions?company=${company}`);
+          const apiData = await response.json();
+          const conversions = Array.isArray(apiData) ? apiData : (apiData.conversions || []);
+          const opcVariables = conversions.map(v => v.variableName).filter(Boolean);
+          
+          // Populate all three dropdowns
+          const kanbanSelect = document.getElementById('modalEquipmentKanbanVar');
+          const productionSelect = document.getElementById('modalEquipmentProductionVar');
+          const boxQtySelect = document.getElementById('modalEquipmentBoxQtyVar');
+          
+          [kanbanSelect, productionSelect, boxQtySelect].forEach(select => {
+            if (select) {
+              opcVariables.forEach(v => {
+                const option = document.createElement('option');
+                option.value = v;
+                option.textContent = v;
+                select.appendChild(option);
+              });
+            }
+          });
+          
+          // Set current values
+          if (kanbanSelect) kanbanSelect.value = opcVars.kanbanVariable || '';
+          if (productionSelect) productionSelect.value = opcVars.productionCountVariable || '';
+          if (boxQtySelect) boxQtySelect.value = opcVars.boxQuantityVariable || '';
+          
+        } catch (error) {
+          console.error('Failed to load OPC variables for modal:', error);
+        }
+      }, 100);
+      
       break;
       
     case 'roles':
@@ -825,9 +893,34 @@ async function saveModalChanges() {
   // Get other fields (excluding selects which are handled above)
   document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
     if (!el.disabled) {
-      updateData[el.dataset.field] = el.value;
+      const field = el.dataset.field;
+      let value = el.value;
+      
+      // Special handling for equipment 工場 field - convert comma-separated string to array
+      if (currentModalType === 'equipment' && field === '工場') {
+        value = value.split(',').map(f => f.trim()).filter(f => f);
+      }
+      
+      updateData[field] = value;
     }
   });
+  
+  // Handle equipment OPC variable selects (with nested fields)
+  if (currentModalType === 'equipment') {
+    document.querySelectorAll('#modalDetailsBody select[data-field]').forEach(el => {
+      if (!el.disabled) {
+        const field = el.dataset.field;
+        // Handle nested fields like "opcVariables.kanbanVariable"
+        if (field.includes('.')) {
+          const [parent, child] = field.split('.');
+          if (!updateData[parent]) updateData[parent] = {};
+          updateData[parent][child] = el.value;
+        } else {
+          updateData[field] = el.value;
+        }
+      }
+    });
+  }
   
   // Handle image upload
   const imageFile = document.getElementById('modalImageUpload');
@@ -1575,19 +1668,32 @@ function renderEquipmentTable(equipment) {
             <th class="px-4 py-3 text-left">設備名</th>
             <th class="px-4 py-3 text-left">工場 (Factories)</th>
             <th class="px-4 py-3 text-left">Description</th>
+            <th class="px-4 py-3 text-left">📊 OPC Variables</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
-          ${equipment.map(eq => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>
-              <td class="px-4 py-3">${eq.設備名 || ""}</td>
-              <td class="px-4 py-3">
-                ${(eq.工場 || []).map(f => `<span class="tag">${f}</span>`).join(" ")}
-              </td>
-              <td class="px-4 py-3">${eq.description || ""}</td>
-            </tr>
-          `).join("")}
+          ${equipment.map(eq => {
+            const opcVars = eq.opcVariables || {};
+            const opcDisplay = `
+              <div class="text-xs space-y-1">
+                <div><strong>Kanban:</strong> ${opcVars.kanbanVariable || '-'}</div>
+                <div><strong>Production:</strong> ${opcVars.productionCountVariable || '-'}</div>
+                <div><strong>Box Qty:</strong> ${opcVars.boxQuantityVariable || '-'}</div>
+              </div>
+            `;
+            
+            return `
+              <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
+                <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>
+                <td class="px-4 py-3">${eq.設備名 || ""}</td>
+                <td class="px-4 py-3">
+                  ${(eq.工場 || []).map(f => `<span class="tag">${f}</span>`).join(" ")}
+                </td>
+                <td class="px-4 py-3">${eq.description || ""}</td>
+                <td class="px-4 py-3">${opcDisplay}</td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -1622,6 +1728,26 @@ function showCreateEquipmentForm() {
             <option value="">-- Select Factory --</option>
             ${factoryOptions.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
+        </div>
+        <div class="md:col-span-2 border-t pt-4 mt-4">
+          <h4 class="text-lg font-semibold mb-3">📊 OPC Variable Mappings (for Tablets)</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+              <input type="text" id="newEqKanbanVar" class="w-full px-3 py-2 border rounded-lg" placeholder="kenyokiRHKanban" value="kenyokiRHKanban" />
+              <p class="text-xs text-gray-500 mt-1">For product title/lookup</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">生産数変数 (Production Count)</label>
+              <input type="text" id="newEqProductionVar" class="w-full px-3 py-2 border rounded-lg" placeholder="seisanSu" value="seisanSu" />
+              <p class="text-xs text-gray-500 mt-1">For 作業数 calculation</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">箱入数変数 (Box Quantity)</label>
+              <input type="text" id="newEqBoxQtyVar" class="w-full px-3 py-2 border rounded-lg" placeholder="hakoIresu" value="hakoIresu" />
+              <p class="text-xs text-gray-500 mt-1">For 合格数追加 display</p>
+            </div>
+          </div>
         </div>
       </div>
       <div class="flex gap-3">
@@ -1672,6 +1798,11 @@ async function submitNewEquipment() {
     設備名: document.getElementById("newEq設備名").value.trim(),
     工場: selectedFactories,
     description: document.getElementById("newEqDescription").value.trim(),
+    opcVariables: {
+      kanbanVariable: document.getElementById("newEqKanbanVar")?.value.trim() || "kenyokiRHKanban",
+      productionCountVariable: document.getElementById("newEqProductionVar")?.value.trim() || "seisanSu",
+      boxQuantityVariable: document.getElementById("newEqBoxQtyVar")?.value.trim() || "hakoIresu"
+    },
     dbName
   };
 
@@ -2180,9 +2311,30 @@ async function showQuickCreateModal() {
       // Load factories for dropdown
       await loadFactoriesForEquipmentCreate();
       
+      // Load OPC variables for dropdown
+      let opcVariables = [];
+      try {
+        const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+        const company = currentUser.dbName || "KSG";
+        const response = await fetch(`${API_URL}/api/opcua/conversions?company=${company}`);
+        const data = await response.json();
+        console.log('📡 OPC API Response:', data);
+        
+        // Handle both array and object response formats
+        const conversions = Array.isArray(data) ? data : (data.conversions || []);
+        opcVariables = conversions.map(v => v.variableName).filter(Boolean);
+        console.log('📊 Loaded OPC variables:', opcVariables);
+      } catch (error) {
+        console.error('❌ Failed to load OPC variables:', error);
+      }
+      
       const factoryOptions = allFactories.length > 0 ? 
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
         '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+      
+      const variableOptions = opcVariables.length > 0 ?
+        opcVariables.map(v => `<option value="${v}">${v}</option>`).join('') :
+        '<option value="">No variables available</option>';
       
       modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (設備)';
       modalBody.innerHTML = `
@@ -2202,6 +2354,43 @@ async function showQuickCreateModal() {
           <label class="block text-sm font-medium mb-1">Description</label>
           <textarea id="quickEquipmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
+        
+        <!-- OPC Variable Mappings Section -->
+        <div class="col-span-2 border-t pt-4 mt-4">
+          <h4 class="text-sm font-semibold mb-3 flex items-center">
+            <i class="ri-line-chart-line mr-2"></i>
+            📊 OPC Variable Mappings (for Tablets)
+          </h4>
+          <div class="grid grid-cols-1 gap-3">
+            <div>
+              <label class="block text-xs font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+              <select id="quickEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="">-- Select Variable --</option>
+                ${variableOptions}
+              </select>
+              <p class="text-xs text-gray-500 mt-1">For product title/lookup in tablet</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">生産数変数 (Production Count Variable)</label>
+              <select id="quickEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="">-- Select Variable --</option>
+                ${variableOptions}
+              </select>
+              <p class="text-xs text-gray-500 mt-1">For 作業数 calculation in tablet</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">箱入数変数 (Box Quantity Variable)</label>
+              <select id="quickEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="">-- Select Variable --</option>
+                ${variableOptions}
+              </select>
+              <p class="text-xs text-gray-500 mt-1">For 合格数追加 display in tablet</p>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500 mt-3">
+            💡 Tip: Configure these variables from <strong>OPC Management</strong> page
+          </p>
+        </div>
       `;
       
       // Initialize factory selection
@@ -2219,6 +2408,24 @@ async function showQuickCreateModal() {
           e.target.value = '';
         };
       }
+      
+      // Set default values for OPC variable dropdowns
+      setTimeout(() => {
+        const kanbanSelect = document.getElementById('quickEquipmentKanbanVar');
+        const productionSelect = document.getElementById('quickEquipmentProductionVar');
+        const boxQtySelect = document.getElementById('quickEquipmentBoxQtyVar');
+        
+        if (kanbanSelect && opcVariables.includes('kenyokiRHKanban')) {
+          kanbanSelect.value = 'kenyokiRHKanban';
+        }
+        if (productionSelect && opcVariables.includes('seisanSu')) {
+          productionSelect.value = 'seisanSu';
+        }
+        if (boxQtySelect && opcVariables.includes('hakoIresu')) {
+          boxQtySelect.value = 'hakoIresu';
+        }
+      }, 100);
+      
       break;
     }
       
@@ -2372,6 +2579,11 @@ async function submitQuickCreate() {
           設備名: document.getElementById("quickEquipmentName").value.trim(),
           工場: selectedQuickEquipmentFactories,
           description: document.getElementById("quickEquipmentDesc").value.trim(),
+          opcVariables: {
+            kanbanVariable: document.getElementById("quickEquipmentKanbanVar")?.value.trim() || "kenyokiRHKanban",
+            productionCountVariable: document.getElementById("quickEquipmentProductionVar")?.value.trim() || "seisanSu",
+            boxQuantityVariable: document.getElementById("quickEquipmentBoxQtyVar")?.value.trim() || "hakoIresu"
+          },
           dbName
         };
         
@@ -2425,19 +2637,22 @@ async function submitQuickCreate() {
         break;
         
       case 'tablet':
-        data = {
+        const tabletData = {
           tabletName: document.getElementById("quickTabletName").value.trim(),
           tabletBrand: document.getElementById("quickTabletBrand").value.trim(),
           factoryLocation: document.getElementById("quickTabletFactory").value.trim(),
-          設備名: document.getElementById("quickTablet設備").value.trim(),
-          registeredBy: username,
-          createdBy: username,
-          dbName
+          設備名: document.getElementById("quickTablet設備").value.trim()
         };
         
-        if (!data.tabletName || !data.tabletBrand || !data.factoryLocation || !data.設備名) {
+        if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
           return alert("タブレット名、ブランド、工場名、設備名は必須です");
         }
+        
+        data = {
+          dbName,
+          username,
+          tabletData
+        };
         
         endpoint = "createTablet";
         break;

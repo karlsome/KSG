@@ -93,6 +93,13 @@ let breakStartTime = null; // Timestamp when break started
 let troubleTimerInterval = null; // Interval for machine trouble timer
 let troubleStartTime = null; // Timestamp when machine trouble started
 
+// 🆕 Equipment-specific OPC variable mappings (loaded dynamically)
+let variableMappings = {
+  kanban: 'kenyokiRHKanban',           // Default: For product title/lookup
+  productionCount: 'seisanSu',          // Default: For 作業数 calculation
+  boxQuantity: 'hakoIresu'              // Default: For 合格数追加 display
+};
+
 // Restore seisanSuStartValue from localStorage on load
 try {
   const saved = localStorage.getItem('seisanSuStartValue');
@@ -747,6 +754,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   currentProductId = getURLParameter('product') || 'aaa'; // Default to 'aaa' for testing
   console.log('📦 Product ID:', currentProductId);
   
+  // 🆕 Load equipment configuration FIRST (to get variable mappings)
+  await loadEquipmentConfig();
+  
   // Load users for this factory
   await loadUsers();
   
@@ -847,6 +857,61 @@ function populateUserDropdowns() {
 // 🔹 FETCH PRODUCT INFO & SET KENSA MEMBERS
 // ============================================================
 
+// Load equipment configuration (including OPC variable mappings)
+async function loadEquipmentConfig() {
+  const authData = localStorage.getItem('tabletAuth');
+  if (!authData) {
+    console.error('❌ No tablet auth data found');
+    return;
+  }
+  
+  try {
+    const auth = JSON.parse(authData);
+    const tabletName = auth.tablet?.tabletName || auth.tabletName;
+    
+    if (!tabletName) {
+      console.error('❌ No tablet name found in auth data');
+      return;
+    }
+    
+    console.log(`📡 Loading equipment config for tablet: ${tabletName}...`);
+    const response = await fetch(`${API_URL}/api/tablet/equipment-config/${encodeURIComponent(tabletName)}`);
+    const data = await response.json();
+    
+    if (data.success) {
+      const equipment = data.equipment;
+      console.log('✅ Equipment config loaded:', equipment);
+      
+      // Update variable mappings with equipment-specific values
+      if (equipment.opcVariables) {
+        variableMappings = {
+          kanban: equipment.opcVariables.kanbanVariable || 'kenyokiRHKanban',
+          productionCount: equipment.opcVariables.productionCountVariable || 'seisanSu',
+          boxQuantity: equipment.opcVariables.boxQuantityVariable || 'hakoIresu'
+        };
+        
+        console.log('');
+        console.log('📋 OPC VARIABLE MAPPINGS FOR THIS TABLET');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`設備名 (Equipment): ${equipment.設備名 || 'N/A'}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`📊 製品看板変数 (Kanban Variable): ${variableMappings.kanban}`);
+        console.log(`📈 生産数変数 (Production Count Variable): ${variableMappings.productionCount}`);
+        console.log(`📦 箱入数変数 (Box Quantity Variable): ${variableMappings.boxQuantity}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('');
+      }
+    } else {
+      console.warn('⚠️ Failed to load equipment config:', data.error);
+      console.log('ℹ️ Using default variable mappings');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error loading equipment config:', error);
+    console.log('ℹ️ Using default variable mappings');
+  }
+}
+
 async function loadProductInfo() {
   // Don't load from URL parameter anymore
   // Product will be loaded when kenyokiRHKanban value comes in
@@ -919,11 +984,33 @@ async function loadProductByKanbanID(kanbanId) {
       updateKensaMembersDisplay(kensaMembers);
     } else {
       console.error('❌ Failed to load product:', data.error);
+      // Clear product info if not found
+      currentProductId = '';
+      currentProductName = '';
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (productNameDisplay) {
+        productNameDisplay.textContent = '看板なし';
+      }
+      if (kanbanIdDisplay) {
+        kanbanIdDisplay.textContent = '';
+      }
       // Default to 2 members if product not found
       updateKensaMembersDisplay(2);
     }
   } catch (error) {
     console.error('❌ Error loading product info:', error);
+    // Clear product info on error
+    currentProductId = '';
+    currentProductName = '';
+    const productNameDisplay = document.getElementById('productNameDisplay');
+    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+    if (productNameDisplay) {
+      productNameDisplay.textContent = '看板なし';
+    }
+    if (kanbanIdDisplay) {
+      kanbanIdDisplay.textContent = '';
+    }
     // Default to 2 members on error
     updateKensaMembersDisplay(2);
   }
@@ -1090,45 +1177,65 @@ socket.on('variable-updated', (data) => {
 function updateUIWithVariables(variables) {
   console.log('🎯 Updating UI with variables:', variables);
   
-  // Check kenyokiRHKanban variable for start button validation AND product loading
-  if (variables.kenyokiRHKanban !== undefined) {
-    const value = variables.kenyokiRHKanban.value;
-    const newKanbanValue = (value !== null && value !== undefined && value !== '') ? value : null;
+  // 🆕 Use dynamic variable names from equipment config
+  const kanbanVarName = variableMappings.kanban;
+  const productionVarName = variableMappings.productionCount;
+  const boxQtyVarName = variableMappings.boxQuantity;
+  
+  // Check kanban variable for start button validation AND product loading
+  if (variables[kanbanVarName] !== undefined) {
+    const value = variables[kanbanVarName].value;
+    // Treat null bytes, empty strings, null, and undefined as "no value"
+    const isBlankValue = !value || value === '' || value === '\x00' || value.match(/^[\x00]+$/);
+    const newKanbanValue = isBlankValue ? null : value;
     
     // Check if value changed
     if (newKanbanValue !== kenyokiRHKanbanValue) {
       kenyokiRHKanbanValue = newKanbanValue;
-      console.log('📊 kenyokiRHKanban value updated:', kenyokiRHKanbanValue);
+      console.log(`📊 ${kanbanVarName} value updated:`, kenyokiRHKanbanValue);
       
-      // Load product info when kanban ID changes
+      // Load product info when kanban ID changes (and has a value)
       if (kenyokiRHKanbanValue) {
         loadProductByKanbanID(kenyokiRHKanbanValue);
+      } else {
+        // Clear product info when kanban becomes blank
+        console.log('🧹 Clearing product info (kanban is blank)');
+        currentProductId = '';
+        currentProductName = '';
+        const productNameDisplay = document.getElementById('productNameDisplay');
+        const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+        if (productNameDisplay) {
+          productNameDisplay.textContent = '看板なし';
+        }
+        if (kanbanIdDisplay) {
+          kanbanIdDisplay.textContent = '';
+        }
       }
     }
     
     checkStartButtonState();
   } else {
     kenyokiRHKanbanValue = null;
-    console.warn('⚠️ kenyokiRHKanban variable not found');
+    console.warn(`⚠️ ${kanbanVarName} variable not found`);
     checkStartButtonState();
   }
   
-  // Track seisanSu variable for work count calculation
-  if (variables.seisanSu !== undefined) {
-    const value = variables.seisanSu.value;
+  // Track production count variable for work count calculation
+  if (variables[productionVarName] !== undefined) {
+    const value = variables[productionVarName].value;
     currentSeisanSuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
-    console.log('📊 seisanSu value updated:', currentSeisanSuValue);
+    console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
     updateWorkCount();
   } else {
     currentSeisanSuValue = null;
-    console.warn('⚠️ seisanSu variable not found');
+    console.warn(`⚠️ ${productionVarName} variable not found`);
   }
   
-  // Track hakoIresu variable for 合格数追加 display
-  if (variables.hakoIresu !== undefined) {
-    const value = variables.hakoIresu.value;
+  // Track box quantity variable for 合格数追加 display
+  if (variables[boxQtyVarName] !== undefined) {
+    const value = variables[boxQtyVarName].value;
     hakoIresuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
-    console.log('📊 hakoIresu value updated:', hakoIresuValue);
+    console.log(`📊 ${boxQtyVarName} value updated:`, hakoIresuValue);
     
     // Update the display field
     const inspectionAddInput = document.getElementById('inspectionAddValue');
@@ -1137,7 +1244,7 @@ function updateUIWithVariables(variables) {
     }
   } else {
     hakoIresuValue = null;
-    console.warn('⚠️ hakoIresu variable not found');
+    console.warn(`⚠️ ${boxQtyVarName} variable not found`);
   }
   
   // You can add more variable mappings here
