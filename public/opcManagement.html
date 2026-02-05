@@ -12,11 +12,11 @@
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
-            <h1 id="opcManagementTitle" class="text-3xl font-bold text-gray-800">🔧OPC Management</h1>
+            <h1 id="opcManagementTitle" class="text-3xl font-bold text-gray-800"></h1>
             <div class="flex items-center gap-3">
                 <span id="opc-connection-status" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-600">
                     <span class="w-2 h-2 rounded-full bg-gray-400"></span>
-                    <span class="text-sm font-medium">Disconnected</span>
+                    <span class="text-sm font-medium" data-i18n="opcManagement.disconnected"></span>
                 </span>
             </div>
         </div>
@@ -24,9 +24,9 @@
         <!-- Raspberry Pi Filter -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
             <div class="flex items-center gap-4">
-                <label class="text-sm font-medium text-gray-700">Raspberry Pi:</label>
+                <label class="text-sm font-medium text-gray-700" data-i18n="opcManagement.raspberryPi"></label>
                 <select id="opc-raspberry-filter" class="flex-1 max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <option value="">Select Raspberry Pi...</option>
+                    <option value="" data-i18n="opcManagement.selectRaspberryPi"></option>
                 </select>
             </div>
         </div>
@@ -37,9 +37,9 @@
             <div class="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div class="border-b border-gray-200 px-6 py-4">
                     <div class="flex justify-between items-center">
-                        <h2 class="text-xl font-semibold text-gray-800">Real-time Data</h2>
+                        <h2 class="text-xl font-semibold text-gray-800" data-i18n="opcManagement.realTimeData"></h2>
                         <button id="refresh-data-btn" class="px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-                            <i class="ri-refresh-line"></i> Refresh
+                            <i class="ri-refresh-line"></i> <span data-i18n="opcManagement.refresh"></span>
                         </button>
                     </div>
                 </div>
@@ -47,7 +47,7 @@
                     <div id="opc-raw-data-container">
                         <div class="text-center py-12 text-gray-500">
                             <i class="ri-inbox-line text-5xl mb-4"></i>
-                            <p class="text-lg">Select a Raspberry Pi to view data</p>
+                            <p class="text-lg" data-i18n="opcManagement.selectDeviceToView"></p>
                         </div>
                     </div>
                 </div>
@@ -57,9 +57,9 @@
             <div class="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div class="border-b border-gray-200 px-6 py-4">
                     <div class="flex justify-between items-center">
-                        <h2 class="text-xl font-semibold text-gray-800">Variables</h2>
+                        <h2 class="text-xl font-semibold text-gray-800" data-i18n="opcManagement.variables"></h2>
                         <button onclick="openCombinedVariableModal()" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                            <i class="ri-add-line"></i> Combine
+                            <i class="ri-add-line"></i> <span data-i18n="opcManagement.combine"></span>
                         </button>
                     </div>
                 </div>
@@ -67,8 +67,8 @@
                     <div id="opc-variables-container">
                         <div class="text-center py-12 text-gray-500">
                             <i class="ri-price-tag-3-line text-5xl mb-4"></i>
-                            <p class="text-lg">No variables created yet</p>
-                            <p class="text-sm mt-2">Click on data values to create variables</p>
+                            <p class="text-lg" data-i18n="opcManagement.noVariablesCreated"></p>
+                            <p class="text-sm mt-2" data-i18n="opcManagement.clickDataToCreate"></p>
                         </div>
                     </div>
                 </div>
@@ -80,7 +80,7 @@
     <div id="opc-conversion-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div class="border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 bg-white">
-                <h3 class="text-2xl font-semibold text-gray-800">🔄 Create Variable</h3>
+                <h3 class="text-2xl font-semibold text-gray-800" data-i18n-prefix="opcManagement.createVariable" data-i18n-icon="1"></h3>
                 <button onclick="closeOPCModal('opc-conversion-modal')" class="text-gray-400 hover:text-gray-600 text-2xl">
                     <i class="ri-close-line"></i>
                 </button>
@@ -88,18 +88,18 @@
             <div class="p-6">
                 <!-- Source Info Panel -->
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                    <h4 class="font-semibold text-blue-900 mb-3">Source Data</h4>
+                    <h4 class="font-semibold text-blue-900 mb-3" data-i18n="opcManagement.sourceData"></h4>
                     <div class="space-y-2 text-sm">
                         <div class="flex justify-between">
-                            <span class="text-blue-700 font-medium">Datapoint:</span>
+                            <span class="text-blue-700 font-medium" data-i18n="opcManagement.datapoint"></span>
                             <span id="conv-datapoint-name" class="text-gray-900">-</span>
                         </div>
                         <div id="conv-array-index-row" class="flex justify-between" style="display: none;">
-                            <span class="text-blue-700 font-medium">Array Index:</span>
+                            <span class="text-blue-700 font-medium" data-i18n="opcManagement.arrayIndex"></span>
                             <span id="conv-array-index" class="text-gray-900">-</span>
                         </div>
                         <div class="flex justify-between">
-                            <span class="text-blue-700 font-medium">Raw Value:</span>
+                            <span class="text-blue-700 font-medium" data-i18n="opcManagement.rawValue"></span>
                             <span id="conv-raw-value" class="font-mono text-lg text-gray-900 font-bold">-</span>
                         </div>
                     </div>
@@ -108,80 +108,77 @@
                 <form id="opc-conversion-form" class="space-y-6">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Variable Name <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.variableNameLabel"></span> <span class="text-red-500">*</span>
                         </label>
-                        <input type="text" id="conv-variable-name" required 
-                            placeholder="e.g., data1, 生産数, 看板"
+                        <input type="text" id="conv-variable-name" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <p class="mt-1 text-sm text-gray-500">Unique name for this variable</p>
+                        <p class="mt-1 text-sm text-gray-500" data-i18n="opcManagement.variableNameHint"></p>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Convert From <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.convertFrom"></span> <span class="text-red-500">*</span>
                         </label>
                         <select id="conv-from-type" required onchange="updateConversionPreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">Select source format...</option>
-                            <option value="uint16">Unsigned Integer (16-bit)</option>
-                            <option value="uint8">Unsigned Integer (8-bit)</option>
-                            <option value="uint32">Unsigned Integer (32-bit)</option>
-                            <option value="int16">Signed Integer (16-bit)</option>
-                            <option value="int8">Signed Integer (8-bit)</option>
-                            <option value="int32">Signed Integer (32-bit)</option>
-                            <option value="hex16">Hexadecimal (16-bit)</option>
-                            <option value="hex8">Hexadecimal (8-bit)</option>
-                            <option value="binary16">Binary (16-bit)</option>
-                            <option value="binary8">Binary (8-bit)</option>
-                            <option value="binary4">Binary (4-bit)</option>
-                            <option value="float32">Float (32-bit)</option>
-                            <option value="double64">Double (64-bit)</option>
-                            <option value="string">String</option>
-                            <option value="boolean">Boolean</option>
+                            <option value="" data-i18n="opcManagement.selectSourceFormat"></option>
+                            <option value="uint16" data-i18n="opcManagement.uint16"></option>
+                            <option value="uint8" data-i18n="opcManagement.uint8"></option>
+                            <option value="uint32" data-i18n="opcManagement.uint32"></option>
+                            <option value="int16" data-i18n="opcManagement.int16"></option>
+                            <option value="int8" data-i18n="opcManagement.int8"></option>
+                            <option value="int32" data-i18n="opcManagement.int32"></option>
+                            <option value="hex16" data-i18n="opcManagement.hex16"></option>
+                            <option value="hex8" data-i18n="opcManagement.hex8"></option>
+                            <option value="binary16" data-i18n="opcManagement.binary16"></option>
+                            <option value="binary8" data-i18n="opcManagement.binary8"></option>
+                            <option value="binary4" data-i18n="opcManagement.binary4"></option>
+                            <option value="float32" data-i18n="opcManagement.float32"></option>
+                            <option value="double64" data-i18n="opcManagement.double64"></option>
+                            <option value="string" data-i18n="opcManagement.string"></option>
+                            <option value="boolean" data-i18n="opcManagement.boolean"></option>
                         </select>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Convert To <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.convertTo"></span> <span class="text-red-500">*</span>
                         </label>
                         <select id="conv-to-type" required onchange="updateConversionPreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">Select target format...</option>
-                            <option value="uint16">Unsigned Integer (16-bit)</option>
-                            <option value="uint8">Unsigned Integer (8-bit)</option>
-                            <option value="uint32">Unsigned Integer (32-bit)</option>
-                            <option value="int16">Signed Integer (16-bit)</option>
-                            <option value="int8">Signed Integer (8-bit)</option>
-                            <option value="int32">Signed Integer (32-bit)</option>
-                            <option value="hex16">Hexadecimal (16-bit)</option>
-                            <option value="hex8">Hexadecimal (8-bit)</option>
-                            <option value="binary16">Binary (16-bit)</option>
-                            <option value="binary8">Binary (8-bit)</option>
-                            <option value="binary4">Binary (4-bit)</option>
-                            <option value="ascii2">ASCII (2 chars from 16-bit)</option>
-                            <option value="ascii1">ASCII (1 char from 8-bit)</option>
-                            <option value="float32">Float (32-bit)</option>
-                            <option value="double64">Double (64-bit)</option>
-                            <option value="string">String</option>
-                            <option value="none">No Conversion (Keep Original)</option>
+                            <option value="" data-i18n="opcManagement.selectTargetFormat"></option>
+                            <option value="uint16" data-i18n="opcManagement.uint16"></option>
+                            <option value="uint8" data-i18n="opcManagement.uint8"></option>
+                            <option value="uint32" data-i18n="opcManagement.uint32"></option>
+                            <option value="int16" data-i18n="opcManagement.int16"></option>
+                            <option value="int8" data-i18n="opcManagement.int8"></option>
+                            <option value="int32" data-i18n="opcManagement.int32"></option>
+                            <option value="hex16" data-i18n="opcManagement.hex16"></option>
+                            <option value="hex8" data-i18n="opcManagement.hex8"></option>
+                            <option value="binary16" data-i18n="opcManagement.binary16"></option>
+                            <option value="binary8" data-i18n="opcManagement.binary8"></option>
+                            <option value="binary4" data-i18n="opcManagement.binary4"></option>
+                            <option value="ascii2" data-i18n="opcManagement.ascii2"></option>
+                            <option value="ascii1" data-i18n="opcManagement.ascii1"></option>
+                            <option value="float32" data-i18n="opcManagement.float32"></option>
+                            <option value="double64" data-i18n="opcManagement.double64"></option>
+                            <option value="string" data-i18n="opcManagement.string"></option>
+                            <option value="none" data-i18n="opcManagement.none"></option>
                         </select>
                     </div>
 
                     <div id="conv-preview" class="bg-green-50 border border-green-200 rounded-lg p-4" style="display: none;">
-                        <h4 class="font-semibold text-green-900 mb-2">Preview</h4>
+                        <h4 class="font-semibold text-green-900 mb-2" data-i18n="opcManagement.preview"></h4>
                         <div id="conv-preview-value" class="text-2xl font-mono font-bold text-green-700">-</div>
                     </div>
 
                     <div class="flex gap-3 pt-4">
-                        <button type="button" onclick="closeOPCModal('opc-conversion-modal')" 
-                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
-                            Cancel
-                        </button>
-                        <button type="submit" 
-                            class="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-                            Create Variable
-                        </button>
+                        <button type="button" onclick="closeOPCModal('opc-conversion-modal')"
+                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                            data-i18n="opcManagement.cancel"></button>
+                        <button type="submit"
+                            class="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                            data-i18n="opcManagement.createVariable"></button>
                     </div>
                 </form>
             </div>
@@ -192,7 +189,7 @@
     <div id="opc-combine-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div class="border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 bg-white">
-                <h3 class="text-2xl font-semibold text-gray-800">🔗 Combine Variables</h3>
+                <h3 class="text-2xl font-semibold text-gray-800" data-i18n-prefix="opcManagement.combineVariables" data-i18n-icon="2"></h3>
                 <button onclick="closeOPCModal('opc-combine-modal')" class="text-gray-400 hover:text-gray-600 text-2xl">
                     <i class="ri-close-line"></i>
                 </button>
@@ -201,55 +198,52 @@
                 <form id="opc-combine-form" class="space-y-6">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Combined Variable Name <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.combinedVariableName"></span> <span class="text-red-500">*</span>
                         </label>
-                        <input type="text" id="combine-variable-name" required 
-                            placeholder="e.g., 看板, full_data"
+                        <input type="text" id="combine-variable-name" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Select Variables to Combine <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.selectVariablesToCombine"></span> <span class="text-red-500">*</span>
                         </label>
                         <div id="combine-selected-vars" class="flex flex-wrap gap-2 p-3 border border-gray-300 rounded-lg mb-2 min-h-[60px]">
-                            <span class="text-gray-400 text-sm">No variables selected</span>
+                            <span class="text-gray-400 text-sm" data-i18n="opcManagement.noVariablesSelected"></span>
                         </div>
                         <select id="combine-variable-select" onchange="addVariableToCombine()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                            <option value="">+ Add variable...</option>
+                            <option value="" data-i18n="opcManagement.addVariable"></option>
                         </select>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Operation <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.operation"></span> <span class="text-red-500">*</span>
                         </label>
                         <select id="combine-operation" required onchange="updateCombinePreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">
-                            <option value="concatenate">Concatenate (String Join)</option>
-                            <option value="add">Add (+)</option>
-                            <option value="subtract">Subtract (-)</option>
-                            <option value="multiply">Multiply (×)</option>
-                            <option value="divide">Divide (÷)</option>
-                            <option value="average">Average</option>
+                            <option value="concatenate" data-i18n="opcManagement.concatenate"></option>
+                            <option value="add" data-i18n="opcManagement.add"></option>
+                            <option value="subtract" data-i18n="opcManagement.subtract"></option>
+                            <option value="multiply" data-i18n="opcManagement.multiply"></option>
+                            <option value="divide" data-i18n="opcManagement.divide"></option>
+                            <option value="average" data-i18n="opcManagement.average"></option>
                         </select>
                     </div>
 
                     <div id="combine-preview" class="bg-purple-50 border border-purple-200 rounded-lg p-4" style="display: none;">
-                        <h4 class="font-semibold text-purple-900 mb-2">Preview Result</h4>
+                        <h4 class="font-semibold text-purple-900 mb-2" data-i18n="opcManagement.previewResult"></h4>
                         <div id="combine-preview-value" class="text-2xl font-mono font-bold text-purple-700">-</div>
                     </div>
 
                     <div class="flex gap-3 pt-4">
-                        <button type="button" onclick="closeOPCModal('opc-combine-modal')" 
-                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
-                            Cancel
-                        </button>
-                        <button type="submit" 
-                            class="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium">
-                            Create Combined Variable
-                        </button>
+                        <button type="button" onclick="closeOPCModal('opc-combine-modal')"
+                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                            data-i18n="opcManagement.cancel"></button>
+                        <button type="submit"
+                            class="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                            data-i18n="opcManagement.createCombinedVariable"></button>
                     </div>
                 </form>
             </div>
@@ -260,7 +254,7 @@
     <div id="opc-edit-variable-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div class="border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 bg-white">
-                <h3 class="text-2xl font-semibold text-gray-800">✏️ Edit Variable</h3>
+                <h3 class="text-2xl font-semibold text-gray-800" data-i18n-prefix="opcManagement.editVariable" data-i18n-icon="3"></h3>
                 <button onclick="closeOPCModal('opc-edit-variable-modal')" class="text-gray-400 hover:text-gray-600 text-2xl">
                     <i class="ri-close-line"></i>
                 </button>
@@ -268,50 +262,49 @@
             <div class="p-6">
                 <form id="opc-edit-variable-form" class="space-y-6">
                     <input type="hidden" id="edit-variable-id">
-                    
+
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Variable Name <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.variableNameLabel"></span> <span class="text-red-500">*</span>
                         </label>
-                        <input type="text" id="edit-variable-name" required 
+                        <input type="text" id="edit-variable-name" required
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <p class="mt-1 text-sm text-gray-500">Unique name for this variable</p>
+                        <p class="mt-1 text-sm text-gray-500" data-i18n="opcManagement.variableNameHint"></p>
                     </div>
 
                     <!-- Source variables and operation fields (only for combined variables) -->
                     <div id="edit-operation-field" style="display: none;">
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Source Variables <span class="text-red-500">*</span>
+                                <span data-i18n="opcManagement.sourceVariables"></span> <span class="text-red-500">*</span>
                             </label>
                             <div id="edit-source-variables" class="border border-gray-300 rounded-lg p-3 bg-gray-50 min-h-[60px] mb-3">
                                 <!-- Source variables will be populated here -->
                             </div>
-                            <select id="edit-add-variable-select" onchange="addVariableToEdit()" 
+                            <select id="edit-add-variable-select" onchange="addVariableToEdit()"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                                <option value="">+ Add variable...</option>
+                                <option value="" data-i18n="opcManagement.addVariable"></option>
                             </select>
                         </div>
-                        
+
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Operation <span class="text-red-500">*</span>
+                                <span data-i18n="opcManagement.operation"></span> <span class="text-red-500">*</span>
                             </label>
-                            <select id="edit-operation" onchange="updateEditCombinedPreview()" 
+                            <select id="edit-operation" onchange="updateEditCombinedPreview()"
                                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
                                 <option value="">Select operation...</option>
-                                <option value="concatenate">Concatenate (Join values)</option>
-                                <option value="add">Add (+)</option>
-                                <option value="subtract">Subtract (-)</option>
-                                <option value="multiply">Multiply (×)</option>
-                                <option value="divide">Divide (÷)</option>
-                                <option value="average">Average</option>
+                                <option value="concatenate" data-i18n="opcManagement.concatenateJoin"></option>
+                                <option value="add" data-i18n="opcManagement.add"></option>
+                                <option value="subtract" data-i18n="opcManagement.subtract"></option>
+                                <option value="multiply" data-i18n="opcManagement.multiply"></option>
+                                <option value="divide" data-i18n="opcManagement.divide"></option>
+                                <option value="average" data-i18n="opcManagement.average"></option>
                             </select>
-                            <p class="mt-1 text-sm text-gray-500">How to combine source variables</p>
                         </div>
-                        
+
                         <div id="edit-combined-preview" class="bg-green-50 border border-green-200 rounded-lg p-4" style="display: none;">
-                            <h4 class="font-semibold text-green-900 mb-2">Preview</h4>
+                            <h4 class="font-semibold text-green-900 mb-2" data-i18n="opcManagement.preview"></h4>
                             <div id="edit-combined-preview-value" class="text-2xl font-mono font-bold text-green-700">-</div>
                         </div>
                     </div>
@@ -320,95 +313,93 @@
                         <!-- Source Information -->
                         <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                             <h4 class="font-semibold text-blue-900 mb-2 flex items-center">
-                                <i class="ri-information-line mr-2"></i>Source Data Information
+                                <i class="ri-information-line mr-2"></i><span data-i18n="opcManagement.sourceDataInfo"></span>
                             </h4>
                             <div class="grid grid-cols-2 gap-4 text-sm">
                                 <div>
-                                    <span class="font-medium text-gray-600">Node ID:</span>
+                                    <span class="font-medium text-gray-600" data-i18n="opcManagement.nodeId"></span>
                                     <div id="edit-source-node-id" class="font-mono text-gray-800 bg-white px-2 py-1 rounded border mt-1">-</div>
                                 </div>
                                 <div>
-                                    <span class="font-medium text-gray-600">Current Raw Value:</span>
+                                    <span class="font-medium text-gray-600" data-i18n="opcManagement.currentRawValue"></span>
                                     <div id="edit-source-raw-value" class="font-mono text-gray-800 bg-white px-2 py-1 rounded border mt-1">-</div>
                                 </div>
                                 <div>
-                                    <span class="font-medium text-gray-600">Source Type:</span>
+                                    <span class="font-medium text-gray-600" data-i18n="opcManagement.sourceType"></span>
                                     <div id="edit-source-type" class="text-gray-800 mt-1">-</div>
                                 </div>
                                 <div>
-                                    <span class="font-medium text-gray-600">Array Index:</span>
+                                    <span class="font-medium text-gray-600" data-i18n="opcManagement.arrayIndex"></span>
                                     <div id="edit-array-index" class="text-gray-800 mt-1">-</div>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Convert From <span class="text-red-500">*</span>
+                                <span data-i18n="opcManagement.convertFrom"></span> <span class="text-red-500">*</span>
                             </label>
                         <select id="edit-conv-from-type" required onchange="updateEditConversionPreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">Select source format...</option>
-                            <option value="uint16">Unsigned Integer (16-bit)</option>
-                            <option value="uint8">Unsigned Integer (8-bit)</option>
-                            <option value="uint32">Unsigned Integer (32-bit)</option>
-                            <option value="int16">Signed Integer (16-bit)</option>
-                            <option value="int8">Signed Integer (8-bit)</option>
-                            <option value="int32">Signed Integer (32-bit)</option>
-                            <option value="hex16">Hexadecimal (16-bit)</option>
-                            <option value="hex8">Hexadecimal (8-bit)</option>
-                            <option value="binary16">Binary (16-bit)</option>
-                            <option value="binary8">Binary (8-bit)</option>
-                            <option value="binary4">Binary (4-bit)</option>
-                            <option value="float32">Float (32-bit)</option>
-                            <option value="double64">Double (64-bit)</option>
-                            <option value="string">String</option>
-                            <option value="boolean">Boolean</option>
+                            <option value="" data-i18n="opcManagement.selectSourceFormat"></option>
+                            <option value="uint16" data-i18n="opcManagement.uint16"></option>
+                            <option value="uint8" data-i18n="opcManagement.uint8"></option>
+                            <option value="uint32" data-i18n="opcManagement.uint32"></option>
+                            <option value="int16" data-i18n="opcManagement.int16"></option>
+                            <option value="int8" data-i18n="opcManagement.int8"></option>
+                            <option value="int32" data-i18n="opcManagement.int32"></option>
+                            <option value="hex16" data-i18n="opcManagement.hex16"></option>
+                            <option value="hex8" data-i18n="opcManagement.hex8"></option>
+                            <option value="binary16" data-i18n="opcManagement.binary16"></option>
+                            <option value="binary8" data-i18n="opcManagement.binary8"></option>
+                            <option value="binary4" data-i18n="opcManagement.binary4"></option>
+                            <option value="float32" data-i18n="opcManagement.float32"></option>
+                            <option value="double64" data-i18n="opcManagement.double64"></option>
+                            <option value="string" data-i18n="opcManagement.string"></option>
+                            <option value="boolean" data-i18n="opcManagement.boolean"></option>
                         </select>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Convert To <span class="text-red-500">*</span>
+                            <span data-i18n="opcManagement.convertTo"></span> <span class="text-red-500">*</span>
                         </label>
                         <select id="edit-conv-to-type" required onchange="updateEditConversionPreview()"
                             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                            <option value="">Select target format...</option>
-                            <option value="uint16">Unsigned Integer (16-bit)</option>
-                            <option value="uint8">Unsigned Integer (8-bit)</option>
-                            <option value="uint32">Unsigned Integer (32-bit)</option>
-                            <option value="int16">Signed Integer (16-bit)</option>
-                            <option value="int8">Signed Integer (8-bit)</option>
-                            <option value="int32">Signed Integer (32-bit)</option>
-                            <option value="hex16">Hexadecimal (16-bit)</option>
-                            <option value="hex8">Hexadecimal (8-bit)</option>
-                            <option value="binary16">Binary (16-bit)</option>
-                            <option value="binary8">Binary (8-bit)</option>
-                            <option value="binary4">Binary (4-bit)</option>
-                            <option value="ascii2">ASCII (2 chars from 16-bit)</option>
-                            <option value="ascii1">ASCII (1 char from 8-bit)</option>
-                            <option value="float32">Float (32-bit)</option>
-                            <option value="double64">Double (64-bit)</option>
-                            <option value="string">String</option>
-                            <option value="none">No Conversion (Keep Original)</option>
+                            <option value="" data-i18n="opcManagement.selectTargetFormat"></option>
+                            <option value="uint16" data-i18n="opcManagement.uint16"></option>
+                            <option value="uint8" data-i18n="opcManagement.uint8"></option>
+                            <option value="uint32" data-i18n="opcManagement.uint32"></option>
+                            <option value="int16" data-i18n="opcManagement.int16"></option>
+                            <option value="int8" data-i18n="opcManagement.int8"></option>
+                            <option value="int32" data-i18n="opcManagement.int32"></option>
+                            <option value="hex16" data-i18n="opcManagement.hex16"></option>
+                            <option value="hex8" data-i18n="opcManagement.hex8"></option>
+                            <option value="binary16" data-i18n="opcManagement.binary16"></option>
+                            <option value="binary8" data-i18n="opcManagement.binary8"></option>
+                            <option value="binary4" data-i18n="opcManagement.binary4"></option>
+                            <option value="ascii2" data-i18n="opcManagement.ascii2"></option>
+                            <option value="ascii1" data-i18n="opcManagement.ascii1"></option>
+                            <option value="float32" data-i18n="opcManagement.float32"></option>
+                            <option value="double64" data-i18n="opcManagement.double64"></option>
+                            <option value="string" data-i18n="opcManagement.string"></option>
+                            <option value="none" data-i18n="opcManagement.none"></option>
                         </select>
                     </div>
 
                         <div id="edit-conv-preview" class="bg-green-50 border border-green-200 rounded-lg p-4" style="display: none;">
-                            <h4 class="font-semibold text-green-900 mb-2">Preview</h4>
+                            <h4 class="font-semibold text-green-900 mb-2" data-i18n="opcManagement.preview"></h4>
                             <div id="edit-conv-preview-value" class="text-2xl font-mono font-bold text-green-700">-</div>
                         </div>
                     </div>
 
                     <div class="flex gap-3 pt-4">
-                        <button type="button" onclick="closeOPCModal('opc-edit-variable-modal')" 
-                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
-                            Cancel
-                        </button>
-                        <button type="submit" 
-                            class="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-                            Save Changes
-                        </button>
+                        <button type="button" onclick="closeOPCModal('opc-edit-variable-modal')"
+                            class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                            data-i18n="opcManagement.cancel"></button>
+                        <button type="submit"
+                            class="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                            data-i18n="opcManagement.saveChanges"></button>
                     </div>
                 </form>
             </div>
@@ -416,6 +407,38 @@
     </div>
 
     <script src="js/languages.js"></script>
+    <script>
+        // Apply translations to all data-i18n elements
+        function applyOPCTranslations() {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (key && typeof t === 'function') {
+                    el.textContent = t(key);
+                }
+            });
+            // Special: title with icon prefix
+            const icons = { '1': '🔄 ', '2': '🔗 ', '3': '✏️ ' };
+            document.querySelectorAll('[data-i18n-prefix]').forEach(el => {
+                const key = el.getAttribute('data-i18n-prefix');
+                const iconType = el.getAttribute('data-i18n-icon');
+                if (key && typeof t === 'function') {
+                    el.textContent = (icons[iconType] || '') + t(key);
+                }
+            });
+            // Set placeholder for variable name input
+            const convVarName = document.getElementById('conv-variable-name');
+            if (convVarName) convVarName.placeholder = t('opcManagement.variableNamePlaceholder');
+            const combineVarName = document.getElementById('combine-variable-name');
+            if (combineVarName) combineVarName.placeholder = t('opcManagement.combinedVariablePlaceholder');
+            // Set title
+            const titleEl = document.getElementById('opcManagementTitle');
+            if (titleEl) titleEl.textContent = '🔧' + t('opcManagement.title');
+        }
+        // Apply on load
+        if (typeof t === 'function') applyOPCTranslations();
+        // Re-apply on language change
+        window.addEventListener('languageChanged', () => { applyOPCTranslations(); });
+    </script>
     <script src="js/opcManagement.js"></script>
 </body>
 </html>
