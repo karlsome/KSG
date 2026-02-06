@@ -449,7 +449,45 @@ const translations = {
       status: "Status",
       lastSeen: "Last Seen",
       online: "Online",
-      offline: "Offline"
+      offline: "Offline",
+      noDevicesRegistered: "No Raspberry Pi devices registered yet",
+      devicesAppearAutomatically: "Devices will appear here automatically when they connect",
+      deviceId: "Device ID",
+      localIp: "Local IP",
+      owner: "Owner",
+      active: "Active",
+      inactive: "Inactive",
+      validUntil: "Valid until",
+      editDevice: "Edit Raspberry Pi Device",
+      deviceIdReadOnly: "Device ID (Read-only)",
+      friendlyNameHint: "Friendly name for this device (e.g., KSG2, Factory Line 1)",
+      localIpReadOnly: "Local IP (Read-only)",
+      authorizedUntil: "Authorized Until",
+      deviceNameRequired: "Device name is required",
+      deviceUpdatedSuccess: "Raspberry Pi device updated successfully",
+      failedToUpdateDevice: "Failed to update device",
+      failedToLoadDeviceDetails: "Failed to load device details",
+      failedToLoadDevices: "Failed to load Raspberry Pi devices",
+
+      // Tablet extra
+      tabletNameExists: "This tablet name is already in use. Please enter a different name.",
+      tabletNameInUse: "This name is already in use",
+      tabletCreated: "Tablet registered successfully",
+      tabletDeleted: "Tablet deleted successfully",
+      deleteTabletConfirm: "Delete this tablet?",
+      accessRestriction: "Access Restriction (Optional)",
+      accessRestrictionDesc: "If left empty, all users matching the factory/equipment will have access. To restrict to specific users, enter usernames separated by commas.",
+      accessRestrictionPlaceholder: "e.g., user1, user2, user3 (empty=no restriction)",
+      tabletRegistration: "Tablet Registration",
+
+      // Misc
+      urlCopyFailed: "Failed to copy URL",
+      opcConfigTip: "Tip: Configure these variables from",
+      opcManagementPage: "OPC Management",
+      saveChanges: "Save Changes",
+      departmentNameRequired: "Department name is required",
+      sectionNameRequired: "Section name is required",
+      fillAllRequired: "Please fill in all required fields"
     }
   },
 
@@ -901,7 +939,45 @@ const translations = {
       status: "ステータス",
       lastSeen: "最終接続",
       online: "オンライン",
-      offline: "オフライン"
+      offline: "オフライン",
+      noDevicesRegistered: "Raspberry Piデバイスがまだ登録されていません",
+      devicesAppearAutomatically: "デバイスは接続時に自動的にここに表示されます",
+      deviceId: "デバイスID",
+      localIp: "ローカルIP",
+      owner: "オーナー",
+      active: "アクティブ",
+      inactive: "非アクティブ",
+      validUntil: "有効期限",
+      editDevice: "Raspberry Piデバイスを編集",
+      deviceIdReadOnly: "デバイスID（読み取り専用）",
+      friendlyNameHint: "このデバイスの表示名（例：KSG2、工場ライン1）",
+      localIpReadOnly: "ローカルIP（読み取り専用）",
+      authorizedUntil: "認証期限",
+      deviceNameRequired: "デバイス名は必須です",
+      deviceUpdatedSuccess: "Raspberry Piデバイスが正常に更新されました",
+      failedToUpdateDevice: "デバイスの更新に失敗しました",
+      failedToLoadDeviceDetails: "デバイス詳細の読み込みに失敗しました",
+      failedToLoadDevices: "Raspberry Piデバイスの読み込みに失敗しました",
+
+      // Tablet extra
+      tabletNameExists: "このタブレット名は既に使用されています。別の名前を入力してください。",
+      tabletNameInUse: "この名前は既に使用されています",
+      tabletCreated: "タブレットを登録しました",
+      tabletDeleted: "タブレットを削除しました",
+      deleteTabletConfirm: "このタブレットを削除しますか？",
+      accessRestriction: "アクセス制限（オプション）",
+      accessRestrictionDesc: "空欄の場合、工場・設備が一致する全ユーザーがアクセス可能です。特定のユーザーのみに制限する場合は、ユーザー名をカンマ区切りで入力してください。",
+      accessRestrictionPlaceholder: "例: user1, user2, user3 (空欄=制限なし)",
+      tabletRegistration: "タブレット登録",
+
+      // Misc
+      urlCopyFailed: "URLのコピーに失敗しました",
+      opcConfigTip: "ヒント：これらの変数は以下から設定できます：",
+      opcManagementPage: "OPC管理",
+      saveChanges: "変更を保存",
+      departmentNameRequired: "部署名は必須です",
+      sectionNameRequired: "係名は必須です",
+      fillAllRequired: "すべての必須項目を入力してください"
     }
   }
 };
