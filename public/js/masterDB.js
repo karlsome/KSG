@@ -16,6 +16,18 @@ let currentModalType = null;
 let isEditMode = false;
 
 // ====================
+// Language Change Listener
+// ====================
+window.addEventListener('languageChanged', () => {
+  // Reload the current tab data to refresh all rendered strings
+  loadTabData(currentTab);
+  // Also reload history if the history sub-tab is active
+  if (currentSubTab === 'history') {
+    loadActivityHistory(currentTab);
+  }
+});
+
+// ====================
 // Tab Switching Functions
 // ====================
 function switchMainTab(tabName) {
@@ -152,8 +164,8 @@ async function loadActivityHistory(tabName) {
     renderActivityHistory(tabName, logs);
   } catch (err) {
     console.error("Failed to load activity logs:", err);
-    document.getElementById(`${tabName}HistoryContainer`).innerHTML = 
-      `<p class="text-red-600">Failed to load history</p>`;
+    document.getElementById(`${tabName}HistoryContainer`).innerHTML =
+      `<p class="text-red-600">${t('masterDB.failedToLoadHistory')}</p>`;
   }
 }
 
@@ -163,10 +175,10 @@ function renderActivityHistory(tabName, logs) {
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            <th class="px-4 py-3 text-left">Date/Time</th>
-            <th class="px-4 py-3 text-left">Action</th>
-            <th class="px-4 py-3 text-left">User</th>
-            <th class="px-4 py-3 text-left">Records</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.dateTime')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.action')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.user')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.recordCount')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -175,11 +187,11 @@ function renderActivityHistory(tabName, logs) {
               <td class="px-4 py-3">${new Date(log.timestamp).toLocaleString('ja-JP')}</td>
               <td class="px-4 py-3">
                 <span class="px-2 py-1 rounded ${log.action.includes('create') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                  ${log.action.includes('create') ? '作成' : '削除'}
+                  ${log.action.includes('create') ? t('masterDB.created') : t('masterDB.deleted')}
                 </span>
               </td>
               <td class="px-4 py-3">${log.performedBy || 'Unknown'}</td>
-              <td class="px-4 py-3">${log.recordsAffected || 1} record(s)</td>
+              <td class="px-4 py-3">${log.recordsAffected || 1} ${t('common.records')}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -187,7 +199,7 @@ function renderActivityHistory(tabName, logs) {
     </div>
   `;
   
-  document.getElementById(`${tabName}HistoryContainer`).innerHTML = logs.length > 0 ? historyHTML : '<p class="text-gray-500">No history found</p>';
+  document.getElementById(`${tabName}HistoryContainer`).innerHTML = logs.length > 0 ? historyHTML : `<p class="text-gray-500">${t('masterDB.noHistoryFound')}</p>`;
 }
 
 // ====================
@@ -211,7 +223,7 @@ async function loadMasterData() {
     renderMasterTable(allMasterData);
   } catch (err) {
     console.error("Failed to load master data:", err);
-    document.getElementById("masterTableContainer").innerHTML = `<p class="text-red-600">Failed to load data: ${err.message}</p>`;
+    document.getElementById("masterTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -220,24 +232,34 @@ function renderMasterTable(data) {
   const role = currentUser.role || "member";
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
-  const headers = ["品番", "製品名", "LH/RH", "kanbanID", "設備", "工場", "cycleTime", "検査メンバー数", "収容数"];
+  const headers = [
+    { key: "品番", label: t('masterDB.productNumber') },
+    { key: "製品名", label: t('masterDB.productName') },
+    { key: "LH/RH", label: t('masterDB.lhrh') },
+    { key: "kanbanID", label: t('masterDB.kanbanId') },
+    { key: "設備", label: t('masterDB.equipment') },
+    { key: "工場", label: t('masterDB.factory') },
+    { key: "cycleTime", label: t('masterDB.cycleTime') },
+    { key: "検査メンバー数", label: t('masterDB.inspectionMembers') },
+    { key: "収容数", label: t('masterDB.capacity') }
+  ];
 
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteMasterBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('master')">
-          <i class="ri-delete-bin-line mr-2"></i>選択した項目を削除 (<span id="masterSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelectedItems')} (<span id="masterSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${data.length} records</div>
+      <div class="text-sm text-gray-600">Total: ${data.length} ${t('masterDB.recordCount')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded"></th>
-            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${h}</th>`).join("")}
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">Image</th>
+            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${h.label}</th>`).join("")}
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('common.image')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
@@ -245,18 +267,18 @@ function renderMasterTable(data) {
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
               <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
               ${headers.map(h => {
-                let value = record[h] || "";
+                let value = record[h.key] || "";
                 // Handle kensaMembers specifically to show default value if missing
-                if (h === "検査メンバー数" && !value && record.kensaMembers !== undefined) {
+                if (h.key === "検査メンバー数" && !value && record.kensaMembers !== undefined) {
                   value = record.kensaMembers;
                 }
-                if (h === "検査メンバー数" && !value) {
+                if (h.key === "検査メンバー数" && !value) {
                   value = "2"; // Default value
                 }
                 return `<td class="px-4 py-3">${value}</td>`;
               }).join("")}
               <td class="px-4 py-3">
-                ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">No image</span>`}
+                ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">${t('common.noImage')}</span>`}
               </td>
             </tr>
           `).join("")}
@@ -342,21 +364,21 @@ async function openDetailModal(type, id) {
   }
   
   if (!data) {
-    alert("Data not found");
+    alert(t('common.dataNotFound'));
     return;
   }
-  
+
   currentModalData = data;
-  
+
   // Set modal title
   const titleMap = {
-    'master': '製品詳細',
-    'factory': '工場詳細',
-    'equipment': '設備詳細',
-    'roles': 'ロール詳細',
-    'department': '所属部署詳細',
-    'section': '所属係詳細',
-    'tablet': 'タブレット詳細'
+    'master': t('masterDB.productDetails'),
+    'factory': t('masterDB.factoryDetails'),
+    'equipment': t('masterDB.equipmentDetails'),
+    'roles': t('masterDB.roleDetails'),
+    'department': t('masterDB.departmentDetails'),
+    'section': t('masterDB.sectionDetails'),
+    'tablet': t('masterDB.tabletDetails')
   };
   document.getElementById('modalTitle').textContent = titleMap[type];
   
@@ -382,36 +404,36 @@ function renderModalDetails(type, data) {
       detailsHTML = `
         ${data.imageURL ? `
           <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">製品画像</label>
+            <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
             <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-md w-full rounded-lg shadow" />
             <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
           </div>
         ` : `
           <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">製品画像</label>
-            <p class="text-gray-500 mb-2">No image</p>
+            <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
+            <p class="text-gray-500 mb-2">${t('common.noImage')}</p>
             <input type="file" id="modalImageUpload" accept="image/*" class="hidden w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
           </div>
         `}
         <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium mb-1">品番</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.品番 || ''}" disabled data-field="品番" /></div>
-          <div><label class="block text-sm font-medium mb-1">製品名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
-          <div><label class="block text-sm font-medium mb-1">LH/RH</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
-          <div><label class="block text-sm font-medium mb-1">kanbanID</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.productNumber')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.品番 || ''}" disabled data-field="品番" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.productName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.lhrh')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.kanbanId')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
           <div>
-            <label class="block text-sm font-medium mb-1">設備</label>
+            <label class="block text-sm font-medium mb-1">${t('masterDB.equipment')}</label>
             <input type="text" id="modalEquipmentDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備 || ''}" disabled data-field="設備" />
             <select id="modalEquipmentSelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white" data-field="設備"></select>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">工場</label>
+            <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
             <input type="text" id="modalFactoryDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.工場 || ''}" disabled data-field="工場" />
             <div id="modalFactoryTags" class="hidden w-full px-3 py-2 border rounded-lg bg-white min-h-[42px]" data-field="工場"></div>
             <select id="modalFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
           </div>
-          <div><label class="block text-sm font-medium mb-1">cycleTime</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
-          <div><label class="block text-sm font-medium mb-1">検査メンバー数</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
-          <div><label class="block text-sm font-medium mb-1">収容数</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
         </div>
       `;
       break;
@@ -419,9 +441,9 @@ function renderModalDetails(type, data) {
     case 'factory':
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">Factory Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">Address</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.address || ''}" disabled data-field="address" /></div>
-          <div><label class="block text-sm font-medium mb-1">Phone</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.phone || ''}" disabled data-field="phone" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.address || ''}" disabled data-field="address" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.phone || ''}" disabled data-field="phone" /></div>
         </div>
       `;
       break;
@@ -430,36 +452,36 @@ function renderModalDetails(type, data) {
       const opcVars = data.opcVariables || {};
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">設備名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
-          <div><label class="block text-sm font-medium mb-1">工場</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" /></div>
-          <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
-          
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+
           <div class="border-t pt-4 mt-4">
             <h4 class="text-sm font-semibold mb-3 flex items-center">
               <i class="ri-line-chart-line mr-2"></i>
-              📊 OPC Variable Mappings (for Tablets)
+              ${t('masterDB.opcVariableMappings')}
             </h4>
             <div class="grid grid-cols-1 gap-3">
               <div>
-                <label class="block text-xs font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+                <label class="block text-xs font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
                 <select id="modalEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.kanbanVariable">
-                  <option value="">-- Select Variable --</option>
+                  <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">For product title/lookup in tablet</p>
+                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
               </div>
               <div>
-                <label class="block text-xs font-medium mb-1">生産数変数 (Production Count Variable)</label>
+                <label class="block text-xs font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
                 <select id="modalEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.productionCountVariable">
-                  <option value="">-- Select Variable --</option>
+                  <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">For 作業数 calculation in tablet</p>
+                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
               </div>
               <div>
-                <label class="block text-xs font-medium mb-1">箱入数変数 (Box Quantity Variable)</label>
+                <label class="block text-xs font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
                 <select id="modalEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.boxQuantityVariable">
-                  <option value="">-- Select Variable --</option>
+                  <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">For 合格数追加 display in tablet</p>
+                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
               </div>
             </div>
           </div>
@@ -507,8 +529,8 @@ function renderModalDetails(type, data) {
     case 'roles':
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">Role Name</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
-          <div><label class="block text-sm font-medium mb-1">Description</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.roleName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
@@ -516,17 +538,17 @@ function renderModalDetails(type, data) {
     case 'department':
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">部署名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">説明</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.departmentName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
-      
+
     case 'section':
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">係名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">説明</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.sectionName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
@@ -552,34 +574,34 @@ function renderModalDetails(type, data) {
       
       detailsHTML = `
         <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium mb-1">タブレット名</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
-          <div><label class="block text-sm font-medium mb-1">ブランド</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletBrand || ''}" disabled data-field="tabletBrand" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.brand')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletBrand || ''}" disabled data-field="tabletBrand" /></div>
           <div>
-            <label class="block text-sm font-medium mb-1">工場名</label>
+            <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')}</label>
             <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="factoryLocation" id="tabletFactorySelect" onchange="updateTabletEquipmentDropdownModal()">
-              <option value="">-- 工場を選択 --</option>
+              <option value="">${t('common.selectFactory')}</option>
               ${factoryOptions}
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">設備名</label>
+            <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label>
             <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="設備名" id="tabletEquipmentSelect">
-              <option value="">-- 設備を選択 --</option>
+              <option value="">${t('common.selectEquipment')}</option>
               ${equipmentOptions}
             </select>
           </div>
-          <div><label class="block text-sm font-medium mb-1">登録日</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
-          <div><label class="block text-sm font-medium mb-1">登録者</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredBy || ''}" disabled /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.registeredDate')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.registeredBy')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredBy || ''}" disabled /></div>
         </div>
-        
+
         <!-- Quick Access Section -->
         <div class="mt-6 p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-lg font-semibold text-blue-900 flex items-center">
-              <i class="ri-qr-code-line mr-2"></i>クイックアクセス
+              <i class="ri-qr-code-line mr-2"></i>${t('masterDB.quickAccess')}
             </h3>
             <button onclick="toggleTabletQR()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
-              <i class="ri-eye-line mr-1"></i>QRコードを表示
+              <i class="ri-eye-line mr-1"></i>${t('masterDB.showQRCode')}
             </button>
           </div>
           <div id="tabletQRSection" class="hidden mt-4">
@@ -589,20 +611,20 @@ function renderModalDetails(type, data) {
               </div>
               <div class="space-y-3">
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">タブレットアクセスURL</label>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">${t('masterDB.tabletAccessUrl')}</label>
                   <div class="flex gap-2">
                     <input type="text" id="tabletUrlInput" value="${tabletUrl}" readonly class="flex-1 px-3 py-2 border rounded-lg bg-gray-50 text-sm" />
                     <button onclick="copyTabletUrl()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap">
-                      <i class="ri-file-copy-line mr-1"></i>コピー
+                      <i class="ri-file-copy-line mr-1"></i>${t('masterDB.copy')}
                     </button>
                   </div>
                 </div>
                 <div class="flex gap-2">
                   <button onclick="downloadTabletQR()" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium">
-                    <i class="ri-download-line mr-1"></i>QRコードをダウンロード
+                    <i class="ri-download-line mr-1"></i>${t('masterDB.downloadQRCode')}
                   </button>
                   <button onclick="openTabletUrl()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium">
-                    <i class="ri-external-link-line mr-1"></i>タブレットを開く
+                    <i class="ri-external-link-line mr-1"></i>${t('masterDB.openTablet')}
                   </button>
                 </div>
               </div>
@@ -626,7 +648,7 @@ function renderModalHistory(data) {
   const changeHistory = data.changeHistory || [];
   
   if (changeHistory.length === 0) {
-    document.getElementById('modalHistoryBody').innerHTML = '<p class="text-gray-500">No change history</p>';
+    document.getElementById('modalHistoryBody').innerHTML = `<p class="text-gray-500">${t('masterDB.noChangeHistory')}</p>`;
     return;
   }
   
@@ -637,7 +659,7 @@ function renderModalHistory(data) {
           <div class="flex justify-between items-start mb-2">
             <div>
               <p class="font-medium">${entry.action}</p>
-              <p class="text-sm text-gray-600">By: ${entry.changedBy}</p>
+              <p class="text-sm text-gray-600">${t('masterDB.by')}: ${entry.changedBy}</p>
             </div>
             <p class="text-sm text-gray-500">${new Date(entry.timestamp).toLocaleString('ja-JP')}</p>
           </div>
@@ -735,10 +757,10 @@ async function loadFactoriesAndEquipmentForModal() {
     
     if (equipmentSelect && equipmentDisplay) {
       if (equipment.length === 0) {
-        equipmentSelect.innerHTML = '<option value="" class="text-red-600">⚠️ 設備データがありません</option>';
+        equipmentSelect.innerHTML = `<option value="" class="text-red-600">${t('common.noEquipmentData')}</option>`;
         equipmentSelect.classList.add('border-red-500');
       } else {
-        equipmentSelect.innerHTML = '<option value="">選択してください</option>' + 
+        equipmentSelect.innerHTML = `<option value="">${t('common.pleaseSelect')}</option>` +
           equipment.map(eq => `<option value="${eq.設備名}" ${currentModalData.設備 === eq.設備名 ? 'selected' : ''}>${eq.設備名}</option>`).join('');
       }
       equipmentDisplay.classList.add('hidden');
@@ -752,10 +774,10 @@ async function loadFactoriesAndEquipmentForModal() {
     
     if (factoryDisplay && factoryTags && factorySelect) {
       if (factories.length === 0) {
-        factorySelect.innerHTML = '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
+        factorySelect.innerHTML = `<option value="" class="text-red-600">${t('common.noFactoryData')}</option>`;
         factorySelect.classList.add('border-red-500');
       } else {
-        factorySelect.innerHTML = '<option value="">+ 工場を追加</option>' + 
+        factorySelect.innerHTML = `<option value="">${t('common.addFactory')}</option>` +
           factories.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
         factorySelect.onchange = (e) => {
           if (e.target.value && !selectedModalFactories.includes(e.target.value)) {
@@ -793,7 +815,7 @@ function renderModalFactoryTags() {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+    `).join('') : `<span class="text-gray-400 text-sm">${t('common.selectFactoryFirst')}</span>`;
 }
 
 function removeModalFactoryTag(factory) {
@@ -832,7 +854,7 @@ function renderQuickEquipmentFactoryTags() {
           ×
         </button>
       </span>
-    `).join('') : '<span class="text-gray-400 text-sm">工場を選択してください</span>';
+    `).join('') : `<span class="text-gray-400 text-sm">${t('common.selectFactoryFirst')}</span>`;
 }
 
 function removeQuickEquipmentFactoryTag(factory) {
@@ -956,11 +978,11 @@ async function saveModalChanges() {
     
     if (!res.ok) throw new Error("Update failed");
     
-    alert("Updated successfully");
+    alert(t('common.updatedSuccessfully'));
     closeDetailModal();
     loadTabData(currentTab);
   } catch (err) {
-    alert("Update failed: " + err.message);
+    alert(t('common.updateFailed') + ": " + err.message);
   }
 }
 
@@ -983,7 +1005,7 @@ function showDeleteConfirmation(type) {
   const selectedIds = Array.from(checkboxes).map(cb => cb.value);
   
   if (selectedIds.length === 0) {
-    alert("No items selected");
+    alert(t('common.noItemsSelected'));
     return;
   }
   
@@ -1085,11 +1107,11 @@ async function confirmDelete() {
     
     if (!res.ok) throw new Error("Delete failed");
     
-    alert(`${ids.length} item(s) deleted successfully`);
+    alert(`${ids.length} ${t('masterDB.itemsDeletedSuccess')}`);
     closeDeleteConfirmModal();
     loadTabData(type);
   } catch (err) {
-    alert("Delete failed: " + err.message);
+    alert(t('common.deleteFailed') + ": " + err.message);
   }
 }
 
@@ -1103,58 +1125,58 @@ function showCreateMasterForm() {
 
     const formHTML = `
       <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
-        <h3 class="text-xl font-semibold text-gray-900 mb-4">Create New Master Record</h3>
+        <h3 class="text-xl font-semibold text-gray-900 mb-4">${t('masterDB.newRegistration')} (${t('masterDB.tabMaster')})</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">品番</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.productNumber')}</label>
             <input type="text" id="new品番" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">製品名</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.productName')}</label>
             <input type="text" id="new製品名" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">LH/RH</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.lhrh')}</label>
             <select id="newLHRH" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
-              <option value="">Select</option>
+              <option value="">${t('common.pleaseSelect')}</option>
               <option value="LH">LH</option>
               <option value="RH">RH</option>
               <option value="BOTH">BOTH</option>
             </select>
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">kanbanID</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.kanbanId')}</label>
             <input type="text" id="newKanbanID" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">設備</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.equipment')}</label>
             <select id="new設備" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
-              <option value="">Select 設備</option>
+              <option value="">${t('common.selectEquipment')}</option>
               ${equipmentOptions}
             </select>
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">工場</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.factory')}</label>
             <select id="new工場" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
-              <option value="">Select 工場</option>
+              <option value="">${t('common.selectFactory')}</option>
               ${factoryOptions}
             </select>
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">cycleTime</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.cycleTime')}</label>
             <input type="number" id="newCycleTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
-            <label class="block text-sm font-medium text-gray-700">Image Upload</label>
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.imageUpload')}</label>
             <input type="file" id="newImageFile" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
         </div>
         <div class="flex gap-3">
           <button class="inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewMaster()">
-            <i class="ri-check-line mr-2"></i>Save
+            <i class="ri-check-line mr-2"></i>${t('common.save')}
           </button>
           <button class="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" onclick="loadMasterData()">
-            <i class="ri-close-line mr-2"></i>Cancel
+            <i class="ri-close-line mr-2"></i>${t('common.cancel')}
           </button>
         </div>
       </div>
@@ -1207,7 +1229,7 @@ async function submitNewMaster() {
   };
 
   if (!data.品番 || !data.製品名) {
-    return alert("Please fill in required fields (品番, 製品名)");
+    return alert(t('common.fillRequiredFields'));
   }
 
   // Handle image upload
@@ -1227,18 +1249,18 @@ async function submitNewMaster() {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || "Failed to create record");
 
-    alert("Master record created successfully");
+    alert(t('masterDB.masterRecordCreated'));
     loadMasterData();
   } catch (err) {
     console.error("Create error:", err);
-    alert("Create failed: " + err.message);
+    alert(t('common.createFailed') + ": " + err.message);
   }
 }
 
 async function editMasterRecord(recordId) {
   // Find the record
   const record = allMasterData.find(r => r._id === recordId);
-  if (!record) return alert("Record not found");
+  if (!record) return alert(t('masterDB.recordNotFound'));
 
   // Similar form to create, but pre-filled
   // For brevity, I'll implement a simplified version
@@ -1246,7 +1268,7 @@ async function editMasterRecord(recordId) {
 }
 
 async function deleteMasterRecord(recordId) {
-  if (!confirm("Are you sure you want to delete this record?")) return;
+  if (!confirm(t('masterDB.confirmDeleteRecord'))) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -1262,11 +1284,11 @@ async function deleteMasterRecord(recordId) {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || "Failed to delete");
 
-    alert("Record deleted successfully");
+    alert(t('masterDB.recordDeleted'));
     loadMasterData();
   } catch (err) {
     console.error("Delete error:", err);
-    alert("Delete failed: " + err.message);
+    alert(t('common.deleteFailed') + ": " + err.message);
   }
 }
 
@@ -1290,7 +1312,7 @@ async function loadFactories() {
     renderFactoryTable(allFactories);
   } catch (err) {
     console.error("Failed to load factories:", err);
-    document.getElementById("factoryTableContainer").innerHTML = `<p class="text-red-600">Failed to load: ${err.message}</p>`;
+    document.getElementById("factoryTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -1302,19 +1324,19 @@ function renderFactoryTable(factories) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
-          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="factorySelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="factorySelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${factories.length} factories</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${factories.length} ${t('masterDB.factories')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded"></th>
-            <th class="px-4 py-3 text-left font-semibold">Factory Name</th>
-            <th class="px-4 py-3 text-left font-semibold">Address</th>
-            <th class="px-4 py-3 text-left font-semibold">Phone</th>
+            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.factoryName')}</th>
+            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.address')}</th>
+            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.phone')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
@@ -1341,24 +1363,24 @@ function showCreateFactoryForm() {
   
   const formHTML = `
     <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
-      <h3 class="text-xl font-semibold mb-4">Create New Factory</h3>
+      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createNewFactory')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">Factory Name</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')}</label>
           <input type="text" id="newFactoryName" class="w-full px-3 py-2 border rounded-lg" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Address</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label>
           <input type="text" id="newFactoryAddress" class="w-full px-3 py-2 border rounded-lg" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Phone</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label>
           <input type="text" id="newFactoryPhone" class="w-full px-3 py-2 border rounded-lg" />
         </div>
       </div>
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewFactory()">Save</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadFactories()">Cancel</button>
+        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewFactory()">${t('common.save')}</button>
+        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadFactories()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -1378,7 +1400,7 @@ async function submitNewFactory() {
     dbName
   };
 
-  if (!data.name) return alert("Factory name is required");
+  if (!data.name) return alert(t('masterDB.factoryNameRequired'));
 
   try {
     const res = await fetch(BASE_URL + "createFactory", {
@@ -1390,7 +1412,7 @@ async function submitNewFactory() {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || "Failed");
 
-    alert("Factory created successfully");
+    alert(t('masterDB.factoryCreatedSuccess'));
     loadFactories();
   } catch (err) {
     alert("Error: " + err.message);
@@ -1400,8 +1422,8 @@ async function submitNewFactory() {
 function startEditingFactory(factoryId) {
   document.querySelectorAll(`[factory-id='${factoryId}']`).forEach(el => el.disabled = false);
   document.getElementById(`factoryActions-${factoryId}`).innerHTML = `
-    <button class="text-green-600 hover:underline text-sm mr-2" onclick="saveFactory('${factoryId}')">Save</button>
-    <button class="text-gray-600 hover:underline text-sm" onclick="loadFactories()">Cancel</button>
+    <button class="text-green-600 hover:underline text-sm mr-2" onclick="saveFactory('${factoryId}')">${t('common.save')}</button>
+    <button class="text-gray-600 hover:underline text-sm" onclick="loadFactories()">${t('common.cancel')}</button>
   `;
 }
 
@@ -1423,8 +1445,8 @@ async function saveFactory(factoryId) {
       body: JSON.stringify({ factoryId, updateData: updated, dbName })
     });
 
-    if (!res.ok) throw new Error("Update failed");
-    alert("Factory updated");
+    if (!res.ok) throw new Error(t('common.updateFailed'));
+    alert(t('masterDB.factoryUpdated'));
     loadFactories();
   } catch (err) {
     alert("Error: " + err.message);
@@ -1432,7 +1454,7 @@ async function saveFactory(factoryId) {
 }
 
 async function deleteFactory(factoryId) {
-  if (!confirm("Delete this factory?")) return;
+  if (!confirm(t('masterDB.deleteThisFactory'))) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -1444,8 +1466,8 @@ async function deleteFactory(factoryId) {
       body: JSON.stringify({ factoryId, dbName })
     });
 
-    if (!res.ok) throw new Error("Delete failed");
-    alert("Factory deleted");
+    if (!res.ok) throw new Error(t('common.deleteFailed'));
+    alert(t('masterDB.factoryDeleted'));
     loadFactories();
   } catch (err) {
     alert("Error: " + err.message);
@@ -1469,7 +1491,7 @@ async function loadFactoriesForDivisionDropdown() {
     allFactories = await res.json();
     
     const select = document.getElementById("factorySelectForDivision");
-    select.innerHTML = '<option value="">-- Select Factory --</option>' +
+    select.innerHTML = `<option value="">${t('common.selectFactory')}</option>` +
       allFactories.map(f => `<option value="${f._id}">${f.name}</option>`).join("");
   } catch (err) {
     console.error("Failed to load factories:", err);
@@ -1479,7 +1501,7 @@ async function loadFactoriesForDivisionDropdown() {
 async function loadDivisions() {
   const factoryId = document.getElementById("factorySelectForDivision").value;
   if (!factoryId) {
-    document.getElementById("divisionTableContainer").innerHTML = `<p class="text-gray-500">Select a factory</p>`;
+    document.getElementById("divisionTableContainer").innerHTML = `<p class="text-gray-500">${t('masterDB.selectAFactory')}</p>`;
     return;
   }
 
@@ -1496,7 +1518,7 @@ async function loadDivisions() {
     ${canEdit ? `
       <div class="mb-4">
         <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateDivisionForm()">
-          <i class="ri-add-line mr-2"></i>Add Division
+          <i class="ri-add-line mr-2"></i>${t('masterDB.addDivision')}
         </button>
       </div>
     ` : ""}
@@ -1504,11 +1526,11 @@ async function loadDivisions() {
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
-            <th class="px-4 py-3 text-left">Name</th>
-            <th class="px-4 py-3 text-left">Code</th>
-            <th class="px-4 py-3 text-left">Manager</th>
-            <th class="px-4 py-3 text-left">Description</th>
-            ${canEdit ? `<th class="px-4 py-3 text-left">Actions</th>` : ""}
+            <th class="px-4 py-3 text-left">${t('common.name')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.code')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.manager')}</th>
+            <th class="px-4 py-3 text-left">${t('common.description')}</th>
+            ${canEdit ? `<th class="px-4 py-3 text-left">${t('common.actions')}</th>` : ""}
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -1520,7 +1542,7 @@ async function loadDivisions() {
               <td class="px-4 py-3">${div.description || ""}</td>
               ${canEdit ? `
                 <td class="px-4 py-3">
-                  <button class="text-red-600 hover:underline text-sm" onclick="deleteDivision(${idx})">Delete</button>
+                  <button class="text-red-600 hover:underline text-sm" onclick="deleteDivision(${idx})">${t('common.delete')}</button>
                 </td>
               ` : ""}
             </tr>
@@ -1538,28 +1560,28 @@ function showCreateDivisionForm() {
   
   const formHTML = `
     <div class="bg-white border p-4 rounded-xl mb-4">
-      <h3 class="font-semibold mb-3">Add New Division</h3>
+      <h3 class="font-semibold mb-3">${t('masterDB.addNewDivision')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
         <div>
-          <label class="block text-sm mb-1">Name</label>
+          <label class="block text-sm mb-1">${t('common.name')}</label>
           <input type="text" id="newDivName" class="w-full px-2 py-1 border rounded" />
         </div>
         <div>
-          <label class="block text-sm mb-1">Code</label>
+          <label class="block text-sm mb-1">${t('masterDB.code')}</label>
           <input type="text" id="newDivCode" class="w-full px-2 py-1 border rounded" />
         </div>
         <div>
-          <label class="block text-sm mb-1">Manager</label>
+          <label class="block text-sm mb-1">${t('masterDB.manager')}</label>
           <input type="text" id="newDivManager" class="w-full px-2 py-1 border rounded" />
         </div>
         <div>
-          <label class="block text-sm mb-1">Description</label>
+          <label class="block text-sm mb-1">${t('common.description')}</label>
           <input type="text" id="newDivDescription" class="w-full px-2 py-1 border rounded" />
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="px-3 py-1 bg-emerald-600 text-white rounded" onclick="submitNewDivision()">Save</button>
-        <button class="px-3 py-1 bg-gray-100 rounded" onclick="loadDivisions()">Cancel</button>
+        <button class="px-3 py-1 bg-emerald-600 text-white rounded" onclick="submitNewDivision()">${t('common.save')}</button>
+        <button class="px-3 py-1 bg-gray-100 rounded" onclick="loadDivisions()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -1569,7 +1591,7 @@ function showCreateDivisionForm() {
 
 async function submitNewDivision() {
   const factoryId = document.getElementById("factorySelectForDivision").value;
-  if (!factoryId) return alert("Please select a factory");
+  if (!factoryId) return alert(t('masterDB.pleaseSelectFactory'));
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -1581,7 +1603,7 @@ async function submitNewDivision() {
     description: document.getElementById("newDivDescription").value.trim()
   };
 
-  if (!newDiv.name) return alert("Name is required");
+  if (!newDiv.name) return alert(t('masterDB.nameRequired'));
 
   try {
     const res = await fetch(BASE_URL + "addDivision", {
@@ -1592,7 +1614,7 @@ async function submitNewDivision() {
 
     if (!res.ok) throw new Error("Failed to add division");
     
-    alert("Division added");
+    alert(t('masterDB.divisionAdded'));
     await loadFactoriesForDivisionDropdown(); // Reload factories to get updated divisions
     document.getElementById("factorySelectForDivision").value = factoryId;
     loadDivisions();
@@ -1602,7 +1624,7 @@ async function submitNewDivision() {
 }
 
 async function deleteDivision(divisionIndex) {
-  if (!confirm("Delete this division?")) return;
+  if (!confirm(t('masterDB.deleteThisDivision'))) return;
 
   const factoryId = document.getElementById("factorySelectForDivision").value;
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
@@ -1616,7 +1638,7 @@ async function deleteDivision(divisionIndex) {
     });
 
     if (!res.ok) throw new Error("Failed");
-    alert("Division deleted");
+    alert(t('masterDB.divisionDeleted'));
     await loadFactoriesForDivisionDropdown();
     document.getElementById("factorySelectForDivision").value = factoryId;
     loadDivisions();
@@ -1643,7 +1665,7 @@ async function loadEquipment() {
     renderEquipmentTable(allEquipment);
   } catch (err) {
     console.error("Failed to load equipment:", err);
-    document.getElementById("equipmentTableContainer").innerHTML = `<p class="text-red-600">Failed: ${err.message}</p>`;
+    document.getElementById("equipmentTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -1655,20 +1677,20 @@ function renderEquipmentTable(equipment) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
-          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="equipmentSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="equipmentSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${equipment.length} items</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${equipment.length} ${t('common.items')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">設備名</th>
-            <th class="px-4 py-3 text-left">工場 (Factories)</th>
-            <th class="px-4 py-3 text-left">Description</th>
-            <th class="px-4 py-3 text-left">📊 OPC Variables</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.equipmentName')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.factoriesLabel')}</th>
+            <th class="px-4 py-3 text-left">${t('common.description')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.opcVariables')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -1676,9 +1698,9 @@ function renderEquipmentTable(equipment) {
             const opcVars = eq.opcVariables || {};
             const opcDisplay = `
               <div class="text-xs space-y-1">
-                <div><strong>Kanban:</strong> ${opcVars.kanbanVariable || '-'}</div>
-                <div><strong>Production:</strong> ${opcVars.productionCountVariable || '-'}</div>
-                <div><strong>Box Qty:</strong> ${opcVars.boxQuantityVariable || '-'}</div>
+                <div><strong>${t('masterDB.kanbanVariable')}:</strong> ${opcVars.kanbanVariable || '-'}</div>
+                <div><strong>${t('masterDB.productionCountVariable')}:</strong> ${opcVars.productionCountVariable || '-'}</div>
+                <div><strong>${t('masterDB.boxQuantityVariable')}:</strong> ${opcVars.boxQuantityVariable || '-'}</div>
               </div>
             `;
             
@@ -1711,48 +1733,48 @@ function showCreateEquipmentForm() {
   
   const formHTML = `
     <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">Create Equipment</h3>
+      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createEquipment')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">設備名</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label>
           <input type="text" id="newEq設備名" class="w-full px-3 py-2 border rounded-lg" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Description</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <input type="text" id="newEqDescription" class="w-full px-3 py-2 border rounded-lg" />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-1">工場 (Select multiple)</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
           <div id="factoryTagContainer" class="border rounded-lg p-2 mb-2 min-h-10"></div>
           <select id="factorySelect" class="w-full px-3 py-2 border rounded-lg bg-white" onchange="addFactoryTag()">
-            <option value="">-- Select Factory --</option>
+            <option value="">${t('common.selectFactory')}</option>
             ${factoryOptions.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
         </div>
         <div class="md:col-span-2 border-t pt-4 mt-4">
-          <h4 class="text-lg font-semibold mb-3">📊 OPC Variable Mappings (for Tablets)</h4>
+          <h4 class="text-lg font-semibold mb-3">${t('masterDB.opcVariableMappings')}</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label class="block text-sm font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+              <label class="block text-sm font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
               <input type="text" id="newEqKanbanVar" class="w-full px-3 py-2 border rounded-lg" placeholder="kenyokiRHKanban" value="kenyokiRHKanban" />
-              <p class="text-xs text-gray-500 mt-1">For product title/lookup</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">生産数変数 (Production Count)</label>
+              <label class="block text-sm font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
               <input type="text" id="newEqProductionVar" class="w-full px-3 py-2 border rounded-lg" placeholder="seisanSu" value="seisanSu" />
-              <p class="text-xs text-gray-500 mt-1">For 作業数 calculation</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">箱入数変数 (Box Quantity)</label>
+              <label class="block text-sm font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
               <input type="text" id="newEqBoxQtyVar" class="w-full px-3 py-2 border rounded-lg" placeholder="hakoIresu" value="hakoIresu" />
-              <p class="text-xs text-gray-500 mt-1">For 合格数追加 display</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
             </div>
           </div>
         </div>
       </div>
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewEquipment()">Save</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadEquipment()">Cancel</button>
+        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewEquipment()">${t('common.save')}</button>
+        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadEquipment()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -1806,7 +1828,7 @@ async function submitNewEquipment() {
     dbName
   };
 
-  if (!data.設備名) return alert("設備名 is required");
+  if (!data.設備名) return alert(t('masterDB.equipmentNameRequired'));
 
   try {
     const res = await fetch(BASE_URL + "createEquipment", {
@@ -1815,8 +1837,8 @@ async function submitNewEquipment() {
       body: JSON.stringify(data)
     });
 
-    if (!res.ok) throw new Error("Failed");
-    alert("Equipment created");
+    if (!res.ok) throw new Error(t('common.createFailed'));
+    alert(t('masterDB.equipmentCreated'));
     selectedFactories = [];
     loadEquipment();
   } catch (err) {
@@ -1829,7 +1851,7 @@ async function editEquipment(equipmentId) {
 }
 
 async function deleteEquipment(equipmentId) {
-  if (!confirm("Delete this equipment?")) return;
+  if (!confirm(t('masterDB.deleteThisEquipment'))) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -1841,8 +1863,8 @@ async function deleteEquipment(equipmentId) {
       body: JSON.stringify({ equipmentId, dbName })
     });
 
-    if (!res.ok) throw new Error("Failed");
-    alert("Equipment deleted");
+    if (!res.ok) throw new Error(t('common.deleteFailed'));
+    alert(t('masterDB.equipmentDeleted'));
     loadEquipment();
   } catch (err) {
     alert("Error: " + err.message);
@@ -1867,7 +1889,7 @@ async function loadRoles() {
     renderRolesTable(allRoles);
   } catch (err) {
     console.error("Failed to load roles:", err);
-    document.getElementById("rolesTableContainer").innerHTML = `<p class="text-red-600">Failed: ${err.message}</p>`;
+    document.getElementById("rolesTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -1879,18 +1901,18 @@ function renderRolesTable(roles) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
-          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="rolesSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="rolesSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${roles.length} roles</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${roles.length} ${t('masterDB.roles')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">Role Name</th>
-            <th class="px-4 py-3 text-left">Description</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.roleName')}</th>
+            <th class="px-4 py-3 text-left">${t('common.description')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -1916,20 +1938,20 @@ function showCreateRoleForm() {
   
   const formHTML = `
     <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">Create Role</h3>
+      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createRole')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">Role Name</label>
-          <input type="text" id="newRoleName" class="w-full px-3 py-2 border rounded-lg" placeholder="e.g., member, 班長, 係長" />
+          <label class="block text-sm font-medium mb-1">${t('masterDB.roleName')}</label>
+          <input type="text" id="newRoleName" class="w-full px-3 py-2 border rounded-lg" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Description</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <input type="text" id="newRoleDescription" class="w-full px-3 py-2 border rounded-lg" />
         </div>
       </div>
       <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewRole()">Save</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadRoles()">Cancel</button>
+        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewRole()">${t('common.save')}</button>
+        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadRoles()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -1947,7 +1969,7 @@ async function submitNewRole() {
     dbName
   };
 
-  if (!data.roleName) return alert("Role name is required");
+  if (!data.roleName) return alert(t('masterDB.roleNameRequired'));
 
   try {
     const res = await fetch(BASE_URL + "createRole", {
@@ -1956,8 +1978,8 @@ async function submitNewRole() {
       body: JSON.stringify(data)
     });
 
-    if (!res.ok) throw new Error("Failed");
-    alert("Role created");
+    if (!res.ok) throw new Error(t('common.createFailed'));
+    alert(t('masterDB.roleCreated'));
     loadRoles();
   } catch (err) {
     alert("Error: " + err.message);
@@ -1965,7 +1987,7 @@ async function submitNewRole() {
 }
 
 async function deleteRole(roleId) {
-  if (!confirm("Delete this role?")) return;
+  if (!confirm(t('masterDB.deleteThisRole'))) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -1977,8 +1999,8 @@ async function deleteRole(roleId) {
       body: JSON.stringify({ roleId, dbName })
     });
 
-    if (!res.ok) throw new Error("Failed");
-    alert("Role deleted");
+    if (!res.ok) throw new Error(t('common.deleteFailed'));
+    alert(t('masterDB.roleDeleted'));
     loadRoles();
   } catch (err) {
     alert("Error: " + err.message);
@@ -2004,7 +2026,7 @@ async function loadDepartments() {
     renderDepartmentsTable(allDepartments);
   } catch (err) {
     console.error(err);
-    alert("Failed to load departments");
+    alert(t('masterDB.failedToLoadDepartments'));
   }
 }
 
@@ -2016,18 +2038,18 @@ function renderDepartmentsTable(departments) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteDepartmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('department')">
-          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="departmentSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="departmentSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${departments.length} departments</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${departments.length} ${t('masterDB.departments')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllDepartment" onchange="toggleSelectAll('department')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">部署名</th>
-            <th class="px-4 py-3 text-left">説明</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.departmentName')}</th>
+            <th class="px-4 py-3 text-left">${t('common.description')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -2067,7 +2089,7 @@ async function loadSections() {
     renderSectionsTable(allSections);
   } catch (err) {
     console.error(err);
-    alert("Failed to load sections");
+    alert(t('masterDB.failedToLoadSections'));
   }
 }
 
@@ -2079,18 +2101,18 @@ function renderSectionsTable(sections) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteSectionBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('section')">
-          <i class="ri-delete-bin-line mr-2"></i>Delete Selected (<span id="sectionSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="sectionSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${sections.length} sections</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${sections.length} ${t('masterDB.sections')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllSection" onchange="toggleSelectAll('section')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">係名</th>
-            <th class="px-4 py-3 text-left">説明</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.sectionName')}</th>
+            <th class="px-4 py-3 text-left">${t('common.description')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
@@ -2156,7 +2178,7 @@ function handleCSVUpload(event) {
         ${csvData.slice(0, 5).map(row => 
           `<tr>${headers.map(h => `<td class="px-2 py-1 border">${row[h]}</td>`).join('')}</tr>`
         ).join('')}
-        ${csvData.length > 5 ? `<tr><td colspan="${headers.length}" class="px-2 py-1 text-center text-gray-500">... and ${csvData.length - 5} more rows</td></tr>` : ''}
+        ${csvData.length > 5 ? `<tr><td colspan="${headers.length}" class="px-2 py-1 text-center text-gray-500">... ${t('common.moreRows').replace('{count}', csvData.length - 5)}</td></tr>` : ''}
       </tbody>
     `;
     
@@ -2168,7 +2190,7 @@ function handleCSVUpload(event) {
 
 async function uploadCSVData() {
   if (csvData.length === 0) {
-    alert('CSVデータがありません');
+    alert(t('masterDB.noCSVData'));
     return;
   }
 
@@ -2200,11 +2222,11 @@ async function uploadCSVData() {
       if (res.ok) successCount++;
     }
 
-    alert(`${successCount}/${csvData.length} レコードを登録しました`);
+    alert(t('masterDB.recordsRegistered').replace('{success}', successCount).replace('{total}', csvData.length));
     closeCSVUploadModal();
     loadMasterData();
   } catch (err) {
-    alert('アップロードエラー: ' + err.message);
+    alert(t('masterDB.uploadError') + ': ' + err.message);
   }
 }
 
@@ -2224,26 +2246,26 @@ async function showQuickCreateModal() {
       
       const equipmentOptions = allEquipment.length > 0 ? 
         allEquipment.map(e => `<option value="${e.設備名}">${e.設備名}</option>`).join('') :
-        '<option value="" class="text-red-600">⚠️ 設備データがありません</option>';
-      
-      const factoryOptions = allFactories.length > 0 ? 
+        `<option value="" class="text-red-600">⚠️ ${t('common.noEquipmentData')}</option>`;
+
+      const factoryOptions = allFactories.length > 0 ?
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
-      
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Master)';
+        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabMaster')})`;
       modalBody.innerHTML = `
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">品番 *</label>
-          <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.productNumber')} *</label>
+          <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: A001">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">製品名 *</label>
-          <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.productName')} *</label>
+          <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: ProductA">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">LH/RH</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.lhrh')}</label>
           <select id="quickLHRH" class="w-full px-3 py-2 border rounded-lg">
-            <option value="">選択してください</option>
+            <option value="">${t('common.pleaseSelect')}</option>
             <option value="LH">LH</option>
             <option value="RH">RH</option>
             <option value="MID">MID</option>
@@ -2252,55 +2274,55 @@ async function showQuickCreateModal() {
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">kanbanID</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.kanbanId')}</label>
           <input type="text" id="quickKanbanID" class="w-full px-3 py-2 border rounded-lg">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">設備</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.equipment')}</label>
           <select id="quick設備" class="w-full px-3 py-2 border rounded-lg ${allEquipment.length === 0 ? 'border-red-500' : ''}">
-            <option value="">選択してください</option>
+            <option value="">${t('common.pleaseSelect')}</option>
             ${equipmentOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">工場</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
           <select id="quick工場" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
-            <option value="">選択してください</option>
+            <option value="">${t('common.pleaseSelect')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">cycleTime</label>
-          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="サイクル時間を入力">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label>
+          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCycleTime')}">
         </div>
         <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
-          <label class="block text-sm font-medium mb-1 text-blue-800">検査メンバー数 *</label>
-          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="例: 2" value="2" required>
+          <label class="block text-sm font-medium mb-1 text-blue-800">${t('masterDB.inspectionMembers')} *</label>
+          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="${t('masterDB.example')}: 2" value="2" required>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">収容数</label>
-          <input type="number" id="quick収容数" class="w-full px-3 py-2 border rounded-lg" placeholder="収容数を入力">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label>
+          <input type="number" id="quick収容数" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCapacity')}">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">画像</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.productImage')}</label>
           <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
         </div>
       `;
       break;
       
     case 'factory': {
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (工場)';
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabFactory')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">Factory Name *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')} *</label>
           <input type="text" id="quickFactoryName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tokyo Factory">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Address</label>
-          <input type="text" id="quickFactoryAddress" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 〒100-0001 Tokyo">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label>
+          <input type="text" id="quickFactoryAddress" class="w-full px-3 py-2 border rounded-lg">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Phone</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label>
           <input type="text" id="quickFactoryPhone" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 03-1234-5678">
         </div>
       `;
@@ -2330,65 +2352,65 @@ async function showQuickCreateModal() {
       
       const factoryOptions = allFactories.length > 0 ? 
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
-      
+        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+
       const variableOptions = opcVariables.length > 0 ?
         opcVariables.map(v => `<option value="${v}">${v}</option>`).join('') :
-        '<option value="">No variables available</option>';
-      
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (設備)';
+        `<option value="">${t('masterDB.selectVariable')}</option>`;
+
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabEquipment')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
           <input type="text" id="quickEquipmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Machine A">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">工場 (複数選択可能)</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
           <div id="quickEquipmentFactoryTags" class="w-full px-3 py-2 border rounded-lg bg-white min-h-[42px] mb-2"></div>
           <select id="quickEquipmentFactorySelect" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
-            <option value="">+ 工場を追加</option>
+            <option value="">${t('common.addFactory')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">Description</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <textarea id="quickEquipmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
-        
+
         <!-- OPC Variable Mappings Section -->
         <div class="col-span-2 border-t pt-4 mt-4">
           <h4 class="text-sm font-semibold mb-3 flex items-center">
             <i class="ri-line-chart-line mr-2"></i>
-            📊 OPC Variable Mappings (for Tablets)
+            ${t('masterDB.opcVariableMappings')}
           </h4>
           <div class="grid grid-cols-1 gap-3">
             <div>
-              <label class="block text-xs font-medium mb-1">製品看板変数 (Kanban Variable)</label>
+              <label class="block text-xs font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
               <select id="quickEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg text-sm">
-                <option value="">-- Select Variable --</option>
+                <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">For product title/lookup in tablet</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1">生産数変数 (Production Count Variable)</label>
+              <label class="block text-xs font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
               <select id="quickEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg text-sm">
-                <option value="">-- Select Variable --</option>
+                <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">For 作業数 calculation in tablet</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1">箱入数変数 (Box Quantity Variable)</label>
+              <label class="block text-xs font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
               <select id="quickEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg text-sm">
-                <option value="">-- Select Variable --</option>
+                <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">For 合格数追加 display in tablet</p>
+              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
             </div>
           </div>
           <p class="text-xs text-gray-500 mt-3">
-            💡 Tip: Configure these variables from <strong>OPC Management</strong> page
+            ${t('masterDB.opcConfigTip')} <strong>${t('masterDB.opcManagementPage')}</strong>
           </p>
         </div>
       `;
@@ -2430,14 +2452,14 @@ async function showQuickCreateModal() {
     }
       
     case 'roles': {
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (Role)';
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabRoles')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">Role Name *</label>
-          <input type="text" id="quickRoleName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: operator">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.roleName')} *</label>
+          <input type="text" id="quickRoleName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: operator">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">Description</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <textarea id="quickRoleDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
       `;
@@ -2445,14 +2467,14 @@ async function showQuickCreateModal() {
       break;
       
     case 'department': {
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (所属部署)';
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabDepartment')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">部署名 *</label>
-          <input type="text" id="quickDepartmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 製造部">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.departmentName')} *</label>
+          <input type="text" id="quickDepartmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 製造部">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">説明</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <textarea id="quickDepartmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
       `;
@@ -2460,14 +2482,14 @@ async function showQuickCreateModal() {
       break;
       
     case 'section': {
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (所属係)';
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabSection')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">係名 *</label>
-          <input type="text" id="quickSectionName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 品質管理係">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.sectionName')} *</label>
+          <input type="text" id="quickSectionName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 品質管理係">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">説明</label>
+          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
           <textarea id="quickSectionDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
         </div>
       `;
@@ -2478,32 +2500,32 @@ async function showQuickCreateModal() {
       // Load equipment and factory data first
       await loadEquipment();
       await loadFactories();
-      
-      const factoryOptions = allFactories.length > 0 ? 
+
+      const factoryOptions = allFactories.length > 0 ?
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        '<option value="" class="text-red-600">⚠️ 工場データがありません</option>';
-      
-      modalTitle.innerHTML = '<i class="ri-add-line mr-2"></i>新規登録 (タブレット)';
+        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+
+      modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabTablet')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">タブレット名 *</label>
-          <input type="text" id="quickTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet1">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')} *</label>
+          <input type="text" id="quickTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: Tablet1">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">ブランド *</label>
-          <input type="text" id="quickTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="例: samsung">
+          <label class="block text-sm font-medium mb-1">${t('masterDB.brand')} *</label>
+          <input type="text" id="quickTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: samsung">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">工場名 *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')} *</label>
           <select id="quickTabletFactory" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}" onchange="updateQuickTabletEquipmentDropdown()">
-            <option value="">選択してください</option>
+            <option value="">${t('common.pleaseSelect')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
           <select id="quickTablet設備" class="w-full px-3 py-2 border rounded-lg">
-            <option value="">まず工場を選択してください</option>
+            <option value="">${t('common.selectFactoryFirst')}</option>
           </select>
         </div>
       `;
@@ -2545,7 +2567,7 @@ async function submitQuickCreate() {
         };
         
         if (!data.品番 || !data.製品名) {
-          return alert("品番と製品名は必須です");
+          return alert(t('common.fillRequiredFields'));
         }
         
         // Handle image upload
@@ -2568,7 +2590,7 @@ async function submitQuickCreate() {
         };
         
         if (!data.name) {
-          return alert("Factory Nameは必須です");
+          return alert(t('masterDB.factoryNameRequired'));
         }
         
         endpoint = "createFactory";
@@ -2588,7 +2610,7 @@ async function submitQuickCreate() {
         };
         
         if (!data.設備名) {
-          return alert("設備名は必須です");
+          return alert(t('masterDB.equipmentNameRequired'));
         }
         
         endpoint = "createEquipment";
@@ -2602,7 +2624,7 @@ async function submitQuickCreate() {
         };
         
         if (!data.roleName) {
-          return alert("Role Nameは必須です");
+          return alert(t('masterDB.roleNameRequired'));
         }
         
         endpoint = "createRole";
@@ -2614,9 +2636,9 @@ async function submitQuickCreate() {
           description: document.getElementById("quickDepartmentDesc").value.trim(),
           dbName
         };
-        
+
         if (!data.name) {
-          return alert("部署名は必須です");
+          return alert(t('masterDB.departmentNameRequired'));
         }
         
         endpoint = "createDepartment";
@@ -2628,9 +2650,9 @@ async function submitQuickCreate() {
           description: document.getElementById("quickSectionDesc").value.trim(),
           dbName
         };
-        
+
         if (!data.name) {
-          return alert("係名は必須です");
+          return alert(t('masterDB.sectionNameRequired'));
         }
         
         endpoint = "createSection";
@@ -2645,7 +2667,7 @@ async function submitQuickCreate() {
         };
         
         if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
-          return alert("タブレット名、ブランド、工場名、設備名は必須です");
+          return alert(t('masterDB.fillAllRequired'));
         }
         
         data = {
@@ -2667,12 +2689,12 @@ async function submitQuickCreate() {
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || "Failed to create record");
 
-    alert("登録しました");
+    alert(t('common.createdSuccessfully'));
     closeQuickCreateModal();
     loadTabData(currentTab);
   } catch (err) {
     console.error("Create error:", err);
-    alert("登録失敗: " + err.message);
+    alert(t('common.createFailed') + ": " + err.message);
   }
 }
 
@@ -2684,25 +2706,25 @@ async function submitQuickCreate() {
 function updateQuickTabletEquipmentDropdown() {
   const factorySelect = document.getElementById('quickTabletFactory');
   const equipmentSelect = document.getElementById('quickTablet設備');
-  
+
   if (!factorySelect || !equipmentSelect) return;
-  
+
   const selectedFactory = factorySelect.value;
-  
+
   if (!selectedFactory) {
-    equipmentSelect.innerHTML = '<option value="">まず工場を選択してください</option>';
+    equipmentSelect.innerHTML = `<option value="">${t('common.selectFactoryFirst')}</option>`;
     return;
   }
-  
+
   // Filter equipment by selected factory
-  const filteredEquipment = allEquipment.filter(eq => 
+  const filteredEquipment = allEquipment.filter(eq =>
     eq.工場 && eq.工場.includes(selectedFactory)
   );
-  
+
   if (filteredEquipment.length === 0) {
-    equipmentSelect.innerHTML = '<option value="">この工場に設備がありません</option>';
+    equipmentSelect.innerHTML = `<option value="">${t('common.noEquipmentForFactory')}</option>`;
   } else {
-    equipmentSelect.innerHTML = '<option value="">選択してください</option>' + 
+    equipmentSelect.innerHTML = `<option value="">${t('common.pleaseSelect')}</option>` +
       filteredEquipment.map(eq => `<option value="${eq.設備名}">${eq.設備名}</option>`).join('');
   }
 }
@@ -2787,11 +2809,11 @@ async function loadRpiServers() {
     if (data.success) {
       renderRpiServerTable(data.devices);
     } else {
-      showToast('Failed to load Raspberry Pi devices', 'error');
+      showToast(t('masterDB.failedToLoadDevices'), 'error');
     }
   } catch (error) {
     console.error('Error loading RPI servers:', error);
-    showToast('Failed to load Raspberry Pi devices', 'error');
+    showToast(t('masterDB.failedToLoadDevices'), 'error');
   }
 }
 
@@ -2802,39 +2824,39 @@ function renderRpiServerTable(devices) {
     container.innerHTML = `
       <div class="text-center py-12">
         <i class="ri-server-line text-6xl text-gray-300 mb-4"></i>
-        <p class="text-gray-500 text-lg">No Raspberry Pi devices registered yet</p>
-        <p class="text-gray-400 text-sm mt-2">Devices will appear here automatically when they connect</p>
+        <p class="text-gray-500 text-lg">${t('masterDB.noDevicesRegistered')}</p>
+        <p class="text-gray-400 text-sm mt-2">${t('masterDB.devicesAppearAutomatically')}</p>
       </div>
     `;
     return;
   }
-  
+
   let html = `
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead class="bg-gray-50 border-b-2 border-gray-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device ID</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device Name</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Local IP</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
-            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceId')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceName')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.localIp')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.owner')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.status')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.lastSeen')}</th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">${t('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
   `;
-  
+
   devices.forEach(device => {
     const isActive = isDeviceActive(device.updated_at);
-    const statusBadge = isActive 
-      ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Active</span>'
-      : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Inactive</span>';
-    
+    const statusBadge = isActive
+      ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">${t('masterDB.active')}</span>`
+      : `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">${t('masterDB.inactive')}</span>`;
+
     const lastUpdated = new Date(device.updated_at).toLocaleString('ja-JP');
     const authorizedUntil = new Date(device.authorized_until).toLocaleDateString('ja-JP');
-    
+
     html += `
       <tr class="hover:bg-gray-50 transition-colors">
         <td class="px-4 py-3">
@@ -2856,12 +2878,12 @@ function renderRpiServerTable(devices) {
         <td class="px-4 py-3">${statusBadge}</td>
         <td class="px-4 py-3">
           <div class="text-sm text-gray-900">${lastUpdated}</div>
-          <div class="text-xs text-gray-500">Valid until: ${authorizedUntil}</div>
+          <div class="text-xs text-gray-500">${t('masterDB.validUntil')}: ${authorizedUntil}</div>
         </td>
         <td class="px-4 py-3 text-center">
-          <button onclick="editRpiServer('${device._id}')" 
+          <button onclick="editRpiServer('${device._id}')"
             class="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
-            <i class="ri-edit-line mr-1"></i> Edit
+            <i class="ri-edit-line mr-1"></i> ${t('common.edit')}
           </button>
         </td>
       </tr>
@@ -2899,7 +2921,7 @@ async function editRpiServer(deviceId) {
     }
   } catch (error) {
     console.error('Error loading device:', error);
-    showToast('Failed to load device details', 'error');
+    showToast(t('masterDB.failedToLoadDeviceDetails'), 'error');
   }
 }
 
@@ -2908,62 +2930,62 @@ function showRpiServerEditModal(device) {
     <div id="rpiServerEditModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
         <div class="flex items-center justify-between p-6 border-b">
-          <h2 class="text-2xl font-semibold">Edit Raspberry Pi Device</h2>
+          <h2 class="text-2xl font-semibold">${t('masterDB.editDevice')}</h2>
           <button onclick="closeRpiServerEditModal()" class="text-gray-500 hover:text-gray-700">
             <i class="ri-close-line text-2xl"></i>
           </button>
         </div>
-        
+
         <div class="p-6">
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Device ID (Read-only)</label>
-              <input type="text" value="${device.device_id}" disabled 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceIdReadOnly')}</label>
+              <input type="text" value="${device.device_id}" disabled
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono">
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Device Name *</label>
-              <input type="text" id="editDeviceName" value="${device.device_name || ''}" 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceName')} *</label>
+              <input type="text" id="editDeviceName" value="${device.device_name || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-              <p class="mt-1 text-sm text-gray-500">Friendly name for this device (e.g., KSG2, Factory Line 1)</p>
+              <p class="mt-1 text-sm text-gray-500">${t('masterDB.friendlyNameHint')}</p>
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Owner</label>
-              <input type="text" id="editDeviceOwner" value="${device.owner || ''}" 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.owner')}</label>
+              <input type="text" id="editDeviceOwner" value="${device.owner || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             </div>
-            
+
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Local IP (Read-only)</label>
-                <input type="text" value="${device.local_ip || '-'}" disabled 
+                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.localIpReadOnly')}</label>
+                <input type="text" value="${device.local_ip || '-'}" disabled
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Last Updated</label>
-                <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled 
+                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.lastSeen')}</label>
+                <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
               </div>
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Authorized Until</label>
-              <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.authorizedUntil')}</label>
+              <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
             </div>
           </div>
         </div>
-        
+
         <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
-          <button onclick="closeRpiServerEditModal()" 
+          <button onclick="closeRpiServerEditModal()"
             class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
-            Cancel
+            ${t('common.cancel')}
           </button>
-          <button onclick="saveRpiServer()" 
+          <button onclick="saveRpiServer()"
             class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <i class="ri-save-line mr-2"></i>Save Changes
+            <i class="ri-save-line mr-2"></i>${t('masterDB.saveChanges')}
           </button>
         </div>
       </div>
@@ -2985,12 +3007,12 @@ function closeRpiServerEditModal() {
 async function saveRpiServer() {
   const deviceName = document.getElementById('editDeviceName').value.trim();
   const owner = document.getElementById('editDeviceOwner').value.trim();
-  
+
   if (!deviceName) {
-    showToast('Device name is required', 'error');
+    showToast(t('masterDB.deviceNameRequired'), 'error');
     return;
   }
-  
+
   try {
     const response = await fetch(`${API_URL}/api/deviceInfo/${editingRpiServerId}`, {
       method: 'PUT',
@@ -3001,19 +3023,19 @@ async function saveRpiServer() {
         owner: owner
       })
     });
-    
+
     const data = await response.json();
-    
+
     if (data.success) {
-      showToast('Raspberry Pi device updated successfully', 'success');
+      showToast(t('masterDB.deviceUpdatedSuccess'), 'success');
       closeRpiServerEditModal();
       loadRpiServers();
     } else {
-      showToast(data.message || 'Failed to update device', 'error');
+      showToast(data.message || t('masterDB.failedToUpdateDevice'), 'error');
     }
   } catch (error) {
     console.error('Error updating device:', error);
-    showToast('Failed to update device', 'error');
+    showToast(t('masterDB.failedToUpdateDevice'), 'error');
   }
 }
 
@@ -3036,7 +3058,7 @@ async function loadTablets() {
     renderTabletsTable(allTablets);
   } catch (err) {
     console.error("Failed to load tablets:", err);
-    document.getElementById("tabletTableContainer").innerHTML = `<p class="text-red-600">Failed: ${err.message}</p>`;
+    document.getElementById("tabletTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
   }
 }
 
@@ -3047,34 +3069,34 @@ function renderTabletsTable(tablets) {
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button id="deleteTabletsBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('tablet')">
-          <i class="ri-delete-bin-line mr-2"></i>選択削除 (<span id="tabletSelectedCount">0</span>)
+          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="tabletSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${tablets.length} tablets</div>
+      <div class="text-sm text-gray-600">${t('common.total')}: ${tablets.length} ${t('masterDB.tabTablet')}</div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllTablets" onchange="toggleSelectAll('tablet')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">タブレット名</th>
-            <th class="px-4 py-3 text-left">ブランド</th>
-            <th class="px-4 py-3 text-left">工場名</th>
-            <th class="px-4 py-3 text-left">設備名</th>
-            <th class="px-4 py-3 text-left">登録日</th>
-            <th class="px-4 py-3 text-left">登録者</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.tabletName')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.brand')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.factoryLocation')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.equipmentName')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.registeredDate')}</th>
+            <th class="px-4 py-3 text-left">${t('masterDB.registeredBy')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y">
-          ${tablets.map(t => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('tablet', '${t._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="tabletCheckbox rounded" value="${t._id}" onchange="updateSelectedCount('tablet')"></td>
-              <td class="px-4 py-3"><i class="ri-tablet-line text-blue-600 mr-2"></i>${t.tabletName || ""}</td>
-              <td class="px-4 py-3">${t.tabletBrand || ""}</td>
-              <td class="px-4 py-3">${t.factoryLocation || ""}</td>
-              <td class="px-4 py-3">${t.設備名 || ""}</td>
-              <td class="px-4 py-3">${t.registeredAt ? new Date(t.registeredAt).toLocaleDateString('ja-JP') : ""}</td>
-              <td class="px-4 py-3">${t.registeredBy || ""}</td>
+          ${tablets.map(tab => `
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('tablet', '${tab._id}')">
+              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="tabletCheckbox rounded" value="${tab._id}" onchange="updateSelectedCount('tablet')"></td>
+              <td class="px-4 py-3"><i class="ri-tablet-line text-blue-600 mr-2"></i>${tab.tabletName || ""}</td>
+              <td class="px-4 py-3">${tab.tabletBrand || ""}</td>
+              <td class="px-4 py-3">${tab.factoryLocation || ""}</td>
+              <td class="px-4 py-3">${tab.設備名 || ""}</td>
+              <td class="px-4 py-3">${tab.registeredAt ? new Date(tab.registeredAt).toLocaleDateString('ja-JP') : ""}</td>
+              <td class="px-4 py-3">${tab.registeredBy || ""}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -3107,42 +3129,42 @@ async function showCreateTabletForm() {
   
   const formHTML = `
     <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">タブレット登録</h3>
+      <h3 class="text-xl font-semibold mb-4">${t('masterDB.tabletRegistration')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">タブレット名 *</label>
-          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tablet-001" oninput="checkTabletNameUnique()" />
-          <p id="tabletNameError" class="text-red-600 text-sm mt-1 hidden">この名前は既に使用されています</p>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')} *</label>
+          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: Tablet-001" oninput="checkTabletNameUnique()" />
+          <p id="tabletNameError" class="text-red-600 text-sm mt-1 hidden">${t('masterDB.tabletNameInUse')}</p>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">ブランド *</label>
-          <input type="text" id="newTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="例: iPad, Samsung" />
+          <label class="block text-sm font-medium mb-1">${t('masterDB.brand')} *</label>
+          <input type="text" id="newTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: iPad, Samsung" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">工場名 *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')} *</label>
           <select id="newFactoryLocation" class="w-full px-3 py-2 border rounded-lg bg-white" onchange="updateTabletEquipmentDropdown()">
-            <option value="">-- 工場を選択 --</option>
+            <option value="">${t('common.selectFactory')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">設備名 *</label>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
           <select id="new設備名" class="w-full px-3 py-2 border rounded-lg bg-white" disabled>
-            <option value="">-- まず工場を選択 --</option>
+            <option value="">${t('common.selectFactoryFirst')}</option>
           </select>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-1">アクセス制限 (オプション)</label>
-          <p class="text-xs text-gray-500 mb-2">空欄の場合、工場・設備が一致する全ユーザーがアクセス可能です。特定のユーザーのみに制限する場合は、ユーザー名をカンマ区切りで入力してください。</p>
-          <input type="text" id="newAuthorizedUsers" class="w-full px-3 py-2 border rounded-lg" placeholder="例: user1, user2, user3 (空欄=制限なし)" />
+          <label class="block text-sm font-medium mb-1">${t('masterDB.accessRestriction')}</label>
+          <p class="text-xs text-gray-500 mb-2">${t('masterDB.accessRestrictionDesc')}</p>
+          <input type="text" id="newAuthorizedUsers" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.accessRestrictionPlaceholder')}" />
         </div>
       </div>
       <div class="flex gap-3">
         <button id="submitTabletBtn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
-          <i class="ri-save-line mr-2"></i>登録
+          <i class="ri-save-line mr-2"></i>${t('common.register')}
         </button>
         <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" onclick="loadTablets()">
-          <i class="ri-close-line mr-2"></i>キャンセル
+          <i class="ri-close-line mr-2"></i>${t('common.cancel')}
         </button>
       </div>
     </div>
@@ -3191,13 +3213,13 @@ function checkTabletNameUnique() {
 function updateTabletEquipmentDropdown() {
   const factorySelect = document.getElementById('newFactoryLocation');
   const equipmentSelect = document.getElementById('new設備名');
-  
+
   const selectedFactory = factorySelect.value;
-  
+
   if (!selectedFactory) {
     // No factory selected, disable and reset equipment dropdown
     equipmentSelect.disabled = true;
-    equipmentSelect.innerHTML = '<option value="">-- まず工場を選択 --</option>';
+    equipmentSelect.innerHTML = `<option value="">${t('common.selectFactoryFirst')}</option>`;
     return;
   }
   
@@ -3214,7 +3236,7 @@ function updateTabletEquipmentDropdown() {
   
   // Update dropdown
   equipmentSelect.disabled = false;
-  equipmentSelect.innerHTML = `<option value="">-- 設備を選択 --</option>${equipmentOptions}`;
+  equipmentSelect.innerHTML = `<option value="">${t('common.selectEquipment')}</option>${equipmentOptions}`;
 }
 
 // Function to update equipment dropdown in modal (for editing)
@@ -3228,23 +3250,23 @@ function updateTabletEquipmentDropdownModal() {
   if (!selectedFactory) {
     // No factory selected, disable and reset equipment dropdown
     equipmentSelect.disabled = true;
-    equipmentSelect.innerHTML = '<option value="">-- まず工場を選択 --</option>';
+    equipmentSelect.innerHTML = `<option value="">${t('common.selectFactoryFirst')}</option>`;
     return;
   }
-  
+
   // Filter equipment by selected factory
   const filteredEquipment = allEquipment.filter(eq => {
     return eq.工場 && Array.isArray(eq.工場) && eq.工場.includes(selectedFactory);
   });
-  
+
   // Generate options for filtered equipment
-  const equipmentOptions = filteredEquipment.map(eq => 
+  const equipmentOptions = filteredEquipment.map(eq =>
     `<option value="${eq.設備名 || ''}" ${eq.設備名 === currentEquipment ? 'selected' : ''}>${eq.設備名 || ''}</option>`
   ).join('');
-  
+
   // Update dropdown
   equipmentSelect.disabled = false;
-  equipmentSelect.innerHTML = `<option value="">-- 設備を選択 --</option>${equipmentOptions}`;
+  equipmentSelect.innerHTML = `<option value="">${t('common.selectEquipment')}</option>${equipmentOptions}`;
 }
 
 async function submitNewTablet() {
@@ -3268,16 +3290,16 @@ async function submitNewTablet() {
   }
 
   if (!tabletData.tabletName || !tabletData.tabletBrand || !tabletData.factoryLocation || !tabletData.設備名) {
-    return alert("すべての必須項目を入力してください");
+    return alert(t('masterDB.fillAllRequired'));
   }
-  
+
   // Check for duplicate tablet name
-  const nameExists = allTablets.some(tablet => 
+  const nameExists = allTablets.some(tablet =>
     tablet.tabletName && tablet.tabletName.toLowerCase() === tabletData.tabletName.toLowerCase()
   );
-  
+
   if (nameExists) {
-    return alert("このタブレット名は既に使用されています。別の名前を入力してください。");
+    return alert(t('masterDB.tabletNameExists'));
   }
 
   try {
@@ -3288,15 +3310,15 @@ async function submitNewTablet() {
     });
 
     if (!res.ok) throw new Error("Failed");
-    alert("タブレットを登録しました");
+    alert(t('masterDB.tabletCreated'));
     loadTablets();
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t('common.error') + ": " + err.message);
   }
 }
 
 async function deleteTablet(tabletId) {
-  if (!confirm("このタブレットを削除しますか？")) return;
+  if (!confirm(t('masterDB.deleteTabletConfirm'))) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -3310,10 +3332,10 @@ async function deleteTablet(tabletId) {
     });
 
     if (!res.ok) throw new Error("Failed");
-    alert("タブレットを削除しました");
+    alert(t('masterDB.tabletDeleted'));
     loadTablets();
   } catch (err) {
-    alert("Error: " + err.message);
+    alert(t('common.error') + ": " + err.message);
   }
 }
 
@@ -3326,10 +3348,10 @@ function toggleTabletQR() {
   
   if (qrSection.classList.contains('hidden')) {
     qrSection.classList.remove('hidden');
-    button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>QRコードを非表示';
+    button.innerHTML = `<i class="ri-eye-off-line mr-1"></i>${t('masterDB.hideQRCode')}`;
   } else {
     qrSection.classList.add('hidden');
-    button.innerHTML = '<i class="ri-eye-line mr-1"></i>QRコードを表示';
+    button.innerHTML = `<i class="ri-eye-line mr-1"></i>${t('masterDB.showQRCode')}`;
   }
 }
 
@@ -3342,7 +3364,7 @@ function copyTabletUrl() {
     // Change button text temporarily
     const button = event.target.closest('button');
     const originalHTML = button.innerHTML;
-    button.innerHTML = '<i class="ri-check-line mr-1"></i>コピーしました！';
+    button.innerHTML = `<i class="ri-check-line mr-1"></i>${t('masterDB.copied')}`;
     button.classList.remove('bg-green-600', 'hover:bg-green-700');
     button.classList.add('bg-emerald-600');
     
@@ -3352,7 +3374,7 @@ function copyTabletUrl() {
       button.classList.add('bg-green-600', 'hover:bg-green-700');
     }, 2000);
   }).catch(err => {
-    alert('URLのコピーに失敗しました');
+    alert(t('masterDB.urlCopyFailed'));
     console.error('Copy failed:', err);
   });
 }
@@ -3378,10 +3400,10 @@ function downloadTabletQR() {
       // Show success feedback
       const button = event.target.closest('button');
       const originalHTML = button.innerHTML;
-      button.innerHTML = '<i class="ri-check-line mr-1"></i>ダウンロード完了！';
+      button.innerHTML = `<i class="ri-check-line mr-1"></i>${t('masterDB.downloadComplete')}`;
       button.classList.remove('bg-purple-600', 'hover:bg-purple-700');
       button.classList.add('bg-emerald-600');
-      
+
       setTimeout(() => {
         button.innerHTML = originalHTML;
         button.classList.remove('bg-emerald-600');
@@ -3389,7 +3411,7 @@ function downloadTabletQR() {
       }, 2000);
     })
     .catch(err => {
-      alert('QRコードのダウンロードに失敗しました');
+      alert(t('masterDB.urlCopyFailed'));
       console.error('Download failed:', err);
     });
 }

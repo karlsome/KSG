@@ -31,65 +31,64 @@
     <div class="container mx-auto px-4 py-8">
         <!-- Header with Title and Action Buttons -->
         <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-900">Master DB</h1>
+            <h1 class="text-3xl font-bold text-gray-900" data-i18n="masterDB.title"></h1>
             <div class="flex gap-3">
                 <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm" onclick="showCSVUploadModal()">
-                    <i class="ri-file-upload-line mr-2"></i>CSV一括登録
+                    <i class="ri-file-upload-line mr-2"></i><span data-i18n="masterDB.csvBulkRegister"></span>
                 </button>
                 <button class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm" onclick="showQuickCreateModal()">
-                    <i class="ri-add-line mr-2"></i>新規登録
+                    <i class="ri-add-line mr-2"></i><span data-i18n="masterDB.newRegistration"></span>
                 </button>
             </div>
         </div>
-        
+
         <!-- Main Tabs -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
             <div class="flex border-b border-gray-200">
                 <button id="tabMaster" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors tab-active" onclick="switchMainTab('master')">
-                    <i class="ri-database-2-line mr-2"></i>Master
+                    <i class="ri-database-2-line mr-2"></i><span data-i18n="masterDB.tabMaster"></span>
                 </button>
                 <button id="tabFactory" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('factory')">
-                    <i class="ri-building-line mr-2"></i>工場
+                    <i class="ri-building-line mr-2"></i><span data-i18n="masterDB.tabFactory"></span>
                 </button>
                 <button id="tabEquipment" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('equipment')">
-                    <i class="ri-tools-line mr-2"></i>設備
+                    <i class="ri-tools-line mr-2"></i><span data-i18n="masterDB.tabEquipment"></span>
                 </button>
                 <button id="tabRoles" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('roles')">
-                    <i class="ri-shield-user-line mr-2"></i>Role
+                    <i class="ri-shield-user-line mr-2"></i><span data-i18n="masterDB.tabRoles"></span>
                 </button>
                 <button id="tabDepartment" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('department')">
-                    <i class="ri-building-2-line mr-2"></i>所属部署
+                    <i class="ri-building-2-line mr-2"></i><span data-i18n="masterDB.tabDepartment"></span>
                 </button>
                 <button id="tabSection" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('section')">
-                    <i class="ri-group-line mr-2"></i>所属係
+                    <i class="ri-group-line mr-2"></i><span data-i18n="masterDB.tabSection"></span>
                 </button>
                 <button id="tabRpiServer" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('rpiServer')">
-                    <i class="ri-server-line mr-2"></i>Rpi Server
+                    <i class="ri-server-line mr-2"></i><span data-i18n="masterDB.tabRpiServer"></span>
                 </button>
                 <button id="tabTablet" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('tablet')">
-                    <i class="ri-tablet-line mr-2"></i>Tablet
+                    <i class="ri-tablet-line mr-2"></i><span data-i18n="masterDB.tabTablet"></span>
                 </button>
             </div>
 
             <!-- Master Tab Content -->
             <div id="contentMaster" class="p-6">
-                <!-- Sub Tabs -->
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="masterSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('master', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="masterSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('master', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="masterDataContent">
                     <div id="masterTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="masterHistoryContent" class="hidden">
                     <div id="masterHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -98,20 +97,20 @@
             <div id="contentFactory" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="factorySubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('factory', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="factorySubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('factory', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="factoryDataContent">
                     <div id="factoryTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="factoryHistoryContent" class="hidden">
                     <div id="factoryHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -120,20 +119,20 @@
             <div id="contentEquipment" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="equipmentSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('equipment', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="equipmentSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('equipment', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="equipmentDataContent">
                     <div id="equipmentTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="equipmentHistoryContent" class="hidden">
                     <div id="equipmentHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -142,20 +141,20 @@
             <div id="contentRoles" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="rolesSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('roles', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="rolesSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('roles', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="rolesDataContent">
                     <div id="rolesTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="rolesHistoryContent" class="hidden">
                     <div id="rolesHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -164,20 +163,20 @@
             <div id="contentDepartment" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="departmentSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('department', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="departmentSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('department', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="departmentDataContent">
                     <div id="departmentTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="departmentHistoryContent" class="hidden">
                     <div id="departmentHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -186,20 +185,20 @@
             <div id="contentSection" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="sectionSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('section', 'data')">
-                        <i class="ri-table-line mr-2"></i>データ一覧
+                        <i class="ri-table-line mr-2"></i><span data-i18n="masterDB.dataList"></span>
                     </button>
                     <button id="sectionSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('section', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="sectionDataContent">
                     <div id="sectionTableContainer">
-                        <p class="text-gray-500">Loading...</p>
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
                     </div>
                 </div>
                 <div id="sectionHistoryContent" class="hidden">
                     <div id="sectionHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -208,12 +207,12 @@
             <div id="contentRpiServer" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="rpiServerSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('rpiServer', 'data')">
-                        <i class="ri-server-line mr-2"></i>デバイス一覧
+                        <i class="ri-server-line mr-2"></i><span data-i18n="masterDB.deviceList"></span>
                     </button>
                 </div>
                 <div id="rpiServerDataContent">
                     <div id="rpiServerTableContainer">
-                        <p class="text-gray-500">Loading Raspberry Pi devices...</p>
+                        <p class="text-gray-500" data-i18n="masterDB.loadingDevices"></p>
                     </div>
                 </div>
             </div>
@@ -222,20 +221,20 @@
             <div id="contentTablet" class="p-6 hidden">
                 <div class="flex gap-3 mb-4 border-b pb-2">
                     <button id="tabletSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('tablet', 'data')">
-                        <i class="ri-tablet-line mr-2"></i>タブレット一覧
+                        <i class="ri-tablet-line mr-2"></i><span data-i18n="masterDB.tabletList"></span>
                     </button>
                     <button id="tabletSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('tablet', 'history')">
-                        <i class="ri-history-line mr-2"></i>作成・削除履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
                     </button>
                 </div>
                 <div id="tabletDataContent">
                     <div id="tabletTableContainer">
-                        <p class="text-gray-500">Loading tablets...</p>
+                        <p class="text-gray-500" data-i18n="masterDB.loadingTablets"></p>
                     </div>
                 </div>
                 <div id="tabletHistoryContent" class="hidden">
                     <div id="tabletHistoryContainer">
-                        <p class="text-gray-500">Loading history...</p>
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
                     </div>
                 </div>
             </div>
@@ -245,29 +244,26 @@
         <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between p-6 border-b flex-shrink-0">
-                    <h2 id="modalTitle" class="text-2xl font-semibold">製品詳細</h2>
+                    <h2 id="modalTitle" class="text-2xl font-semibold"></h2>
                     <button onclick="closeDetailModal()" class="text-gray-500 hover:text-gray-700">
                         <i class="ri-close-line text-2xl"></i>
                     </button>
                 </div>
-                
+
                 <!-- Modal Sub Tabs -->
                 <div class="flex gap-3 px-6 pt-4 border-b flex-shrink-0">
                     <button id="modalTabDetails" class="px-4 py-2 rounded-t-lg bg-blue-600 text-white" onclick="switchModalTab('details')">
-                        <i class="ri-information-line mr-2"></i>詳細
+                        <i class="ri-information-line mr-2"></i><span data-i18n="masterDB.details"></span>
                     </button>
                     <button id="modalTabHistory" class="px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchModalTab('history')">
-                        <i class="ri-history-line mr-2"></i>変更履歴
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.changeHistory"></span>
                     </button>
                 </div>
 
                 <div class="overflow-y-auto flex-1">
-                    <!-- Details Tab -->
                     <div id="modalDetailsContent" class="p-6">
                         <div id="modalDetailsBody"></div>
                     </div>
-                    
-                    <!-- History Tab -->
                     <div id="modalHistoryContent" class="p-6 hidden">
                         <div id="modalHistoryBody"></div>
                     </div>
@@ -275,16 +271,16 @@
 
                 <div class="flex justify-end gap-3 p-6 border-t bg-gray-50 flex-shrink-0">
                     <button id="modalEditBtn" onclick="toggleEditMode()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                        <i class="ri-edit-line mr-2"></i>編集
+                        <i class="ri-edit-line mr-2"></i><span data-i18n="common.edit"></span>
                     </button>
                     <button id="modalSaveBtn" onclick="saveModalChanges()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 hidden">
-                        <i class="ri-save-line mr-2"></i>保存
+                        <i class="ri-save-line mr-2"></i><span data-i18n="common.save"></span>
                     </button>
                     <button id="modalCancelBtn" onclick="cancelEditMode()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 hidden">
-                        キャンセル
+                        <span data-i18n="common.cancel"></span>
                     </button>
                     <button onclick="closeDetailModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                        閉じる
+                        <span data-i18n="common.close"></span>
                     </button>
                 </div>
             </div>
@@ -295,19 +291,19 @@
             <div class="bg-white rounded-xl shadow-2xl max-w-md w-full">
                 <div class="p-6 border-b">
                     <h3 class="text-xl font-semibold text-red-600">
-                        <i class="ri-alert-line mr-2"></i>削除確認
+                        <i class="ri-alert-line mr-2"></i><span data-i18n="masterDB.deleteConfirmation"></span>
                     </h3>
                 </div>
                 <div class="p-6">
-                    <p class="mb-4">以下のデータを削除しますか？</p>
+                    <p class="mb-4" data-i18n="masterDB.deleteConfirmMsg"></p>
                     <div id="deleteItemsList" class="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto"></div>
                 </div>
                 <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
                     <button onclick="closeDeleteConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                        キャンセル
+                        <span data-i18n="common.cancel"></span>
                     </button>
                     <button onclick="confirmDelete()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
-                        <i class="ri-delete-bin-line mr-2"></i>削除
+                        <i class="ri-delete-bin-line mr-2"></i><span data-i18n="common.delete"></span>
                     </button>
                 </div>
             </div>
@@ -318,22 +314,22 @@
             <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
                 <div class="p-6 border-b">
                     <h3 class="text-xl font-semibold text-blue-600">
-                        <i class="ri-file-upload-line mr-2"></i>CSV一括登録
+                        <i class="ri-file-upload-line mr-2"></i><span data-i18n="masterDB.csvUploadTitle"></span>
                     </h3>
                 </div>
                 <div class="p-6">
-                    <p class="mb-4 text-gray-600">CSVファイルを選択して一括でデータを登録できます</p>
+                    <p class="mb-4 text-gray-600" data-i18n="masterDB.csvDescription"></p>
                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
                         <i class="ri-file-upload-line text-5xl text-gray-400 mb-4"></i>
-                        <p class="text-gray-600 mb-2">CSVファイルをドラッグ＆ドロップ</p>
-                        <p class="text-sm text-gray-500 mb-4">または</p>
+                        <p class="text-gray-600 mb-2" data-i18n="masterDB.dragAndDrop"></p>
+                        <p class="text-sm text-gray-500 mb-4" data-i18n="common.or"></p>
                         <label class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
-                            <i class="ri-folder-open-line mr-2"></i>ファイルを選択
+                            <i class="ri-folder-open-line mr-2"></i><span data-i18n="masterDB.selectFile"></span>
                             <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleCSVUpload(event)">
                         </label>
                     </div>
                     <div id="csvPreview" class="mt-4 hidden">
-                        <h4 class="font-semibold mb-2">プレビュー</h4>
+                        <h4 class="font-semibold mb-2" data-i18n="common.preview"></h4>
                         <div class="bg-gray-50 p-4 rounded-lg max-h-60 overflow-auto">
                             <table class="w-full text-sm" id="csvPreviewTable"></table>
                         </div>
@@ -341,10 +337,10 @@
                 </div>
                 <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
                     <button onclick="closeCSVUploadModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                        キャンセル
+                        <span data-i18n="common.cancel"></span>
                     </button>
                     <button id="csvUploadBtn" onclick="uploadCSVData()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 hidden">
-                        <i class="ri-upload-line mr-2"></i>アップロード
+                        <i class="ri-upload-line mr-2"></i><span data-i18n="common.upload"></span>
                     </button>
                 </div>
             </div>
@@ -355,68 +351,40 @@
             <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden">
                 <div class="p-6 border-b">
                     <h3 class="text-xl font-semibold text-green-600">
-                        <i class="ri-add-line mr-2"></i>新規登録
+                        <i class="ri-add-line mr-2"></i><span data-i18n="masterDB.newRegistration"></span>
                     </h3>
                 </div>
                 <div class="p-6 overflow-y-auto" style="max-height: calc(90vh - 180px);">
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">品番 *</label>
-                            <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="例: A001">
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">製品名 *</label>
-                            <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="例: ProductA">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">LH/RH</label>
-                            <select id="quickLHRH" class="w-full px-3 py-2 border rounded-lg">
-                                <option value="">選択してください</option>
-                                <option value="LH">LH</option>
-                                <option value="RH">RH</option>
-                                <option value="MID">MID</option>
-                                <option value="CTR">CTR</option>
-                                <option value="BOTH">BOTH</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">kanbanID</label>
-                            <input type="text" id="quickKanbanID" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">設備</label>
-                            <input type="text" id="quick設備" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">工場</label>
-                            <input type="text" id="quick工場" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">cycleTime</label>
-                            <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="サイクル時間を入力">
-                        </div>
-                        <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
-                            <label class="block text-sm font-medium mb-1 text-blue-800">検査メンバー数 *</label>
-                            <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="例: 2" value="2" required>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-sm font-medium mb-1">画像</label>
-                            <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
+                        <!-- Content dynamically populated by masterDB.js -->
                     </div>
                 </div>
                 <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
                     <button onclick="closeQuickCreateModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                        キャンセル
+                        <span data-i18n="common.cancel"></span>
                     </button>
                     <button onclick="submitQuickCreate()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                        <i class="ri-check-line mr-2"></i>登録
+                        <i class="ri-check-line mr-2"></i><span data-i18n="common.register"></span>
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
+    <script>
+        // Apply translations to all data-i18n elements in masterDB
+        function applyMasterDBTranslations() {
+            if (typeof t !== 'function') return;
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (key) el.textContent = t(key);
+            });
+        }
+        // Apply on load
+        applyMasterDBTranslations();
+        // Re-apply on language change
+        window.addEventListener('languageChanged', () => { applyMasterDBTranslations(); });
+    </script>
     <script src="js/masterDB.js"></script>
 </body>
 </html>
