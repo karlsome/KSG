@@ -2809,11 +2809,11 @@ async function loadRpiServers() {
     if (data.success) {
       renderRpiServerTable(data.devices);
     } else {
-      showToast('Failed to load Raspberry Pi devices', 'error');
+      showToast(t('masterDB.failedToLoadDevices'), 'error');
     }
   } catch (error) {
     console.error('Error loading RPI servers:', error);
-    showToast('Failed to load Raspberry Pi devices', 'error');
+    showToast(t('masterDB.failedToLoadDevices'), 'error');
   }
 }
 
@@ -2824,39 +2824,39 @@ function renderRpiServerTable(devices) {
     container.innerHTML = `
       <div class="text-center py-12">
         <i class="ri-server-line text-6xl text-gray-300 mb-4"></i>
-        <p class="text-gray-500 text-lg">No Raspberry Pi devices registered yet</p>
-        <p class="text-gray-400 text-sm mt-2">Devices will appear here automatically when they connect</p>
+        <p class="text-gray-500 text-lg">${t('masterDB.noDevicesRegistered')}</p>
+        <p class="text-gray-400 text-sm mt-2">${t('masterDB.devicesAppearAutomatically')}</p>
       </div>
     `;
     return;
   }
-  
+
   let html = `
     <div class="overflow-x-auto">
       <table class="w-full">
         <thead class="bg-gray-50 border-b-2 border-gray-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device ID</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device Name</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Local IP</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
-            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceId')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceName')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.localIp')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.owner')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.status')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.lastSeen')}</th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">${t('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
   `;
-  
+
   devices.forEach(device => {
     const isActive = isDeviceActive(device.updated_at);
-    const statusBadge = isActive 
-      ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Active</span>'
-      : '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Inactive</span>';
-    
+    const statusBadge = isActive
+      ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">${t('masterDB.active')}</span>`
+      : `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">${t('masterDB.inactive')}</span>`;
+
     const lastUpdated = new Date(device.updated_at).toLocaleString('ja-JP');
     const authorizedUntil = new Date(device.authorized_until).toLocaleDateString('ja-JP');
-    
+
     html += `
       <tr class="hover:bg-gray-50 transition-colors">
         <td class="px-4 py-3">
@@ -2878,12 +2878,12 @@ function renderRpiServerTable(devices) {
         <td class="px-4 py-3">${statusBadge}</td>
         <td class="px-4 py-3">
           <div class="text-sm text-gray-900">${lastUpdated}</div>
-          <div class="text-xs text-gray-500">Valid until: ${authorizedUntil}</div>
+          <div class="text-xs text-gray-500">${t('masterDB.validUntil')}: ${authorizedUntil}</div>
         </td>
         <td class="px-4 py-3 text-center">
-          <button onclick="editRpiServer('${device._id}')" 
+          <button onclick="editRpiServer('${device._id}')"
             class="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
-            <i class="ri-edit-line mr-1"></i> Edit
+            <i class="ri-edit-line mr-1"></i> ${t('common.edit')}
           </button>
         </td>
       </tr>
@@ -2921,7 +2921,7 @@ async function editRpiServer(deviceId) {
     }
   } catch (error) {
     console.error('Error loading device:', error);
-    showToast('Failed to load device details', 'error');
+    showToast(t('masterDB.failedToLoadDeviceDetails'), 'error');
   }
 }
 
@@ -2930,62 +2930,62 @@ function showRpiServerEditModal(device) {
     <div id="rpiServerEditModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
         <div class="flex items-center justify-between p-6 border-b">
-          <h2 class="text-2xl font-semibold">Edit Raspberry Pi Device</h2>
+          <h2 class="text-2xl font-semibold">${t('masterDB.editDevice')}</h2>
           <button onclick="closeRpiServerEditModal()" class="text-gray-500 hover:text-gray-700">
             <i class="ri-close-line text-2xl"></i>
           </button>
         </div>
-        
+
         <div class="p-6">
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Device ID (Read-only)</label>
-              <input type="text" value="${device.device_id}" disabled 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceIdReadOnly')}</label>
+              <input type="text" value="${device.device_id}" disabled
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono">
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Device Name *</label>
-              <input type="text" id="editDeviceName" value="${device.device_name || ''}" 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceName')} *</label>
+              <input type="text" id="editDeviceName" value="${device.device_name || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-              <p class="mt-1 text-sm text-gray-500">Friendly name for this device (e.g., KSG2, Factory Line 1)</p>
+              <p class="mt-1 text-sm text-gray-500">${t('masterDB.friendlyNameHint')}</p>
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Owner</label>
-              <input type="text" id="editDeviceOwner" value="${device.owner || ''}" 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.owner')}</label>
+              <input type="text" id="editDeviceOwner" value="${device.owner || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             </div>
-            
+
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Local IP (Read-only)</label>
-                <input type="text" value="${device.local_ip || '-'}" disabled 
+                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.localIpReadOnly')}</label>
+                <input type="text" value="${device.local_ip || '-'}" disabled
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Last Updated</label>
-                <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled 
+                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.lastSeen')}</label>
+                <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled
                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
               </div>
             </div>
-            
+
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Authorized Until</label>
-              <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled 
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.authorizedUntil')}</label>
+              <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
             </div>
           </div>
         </div>
-        
+
         <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
-          <button onclick="closeRpiServerEditModal()" 
+          <button onclick="closeRpiServerEditModal()"
             class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
-            Cancel
+            ${t('common.cancel')}
           </button>
-          <button onclick="saveRpiServer()" 
+          <button onclick="saveRpiServer()"
             class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <i class="ri-save-line mr-2"></i>Save Changes
+            <i class="ri-save-line mr-2"></i>${t('masterDB.saveChanges')}
           </button>
         </div>
       </div>
@@ -3007,12 +3007,12 @@ function closeRpiServerEditModal() {
 async function saveRpiServer() {
   const deviceName = document.getElementById('editDeviceName').value.trim();
   const owner = document.getElementById('editDeviceOwner').value.trim();
-  
+
   if (!deviceName) {
-    showToast('Device name is required', 'error');
+    showToast(t('masterDB.deviceNameRequired'), 'error');
     return;
   }
-  
+
   try {
     const response = await fetch(`${API_URL}/api/deviceInfo/${editingRpiServerId}`, {
       method: 'PUT',
@@ -3023,19 +3023,19 @@ async function saveRpiServer() {
         owner: owner
       })
     });
-    
+
     const data = await response.json();
-    
+
     if (data.success) {
-      showToast('Raspberry Pi device updated successfully', 'success');
+      showToast(t('masterDB.deviceUpdatedSuccess'), 'success');
       closeRpiServerEditModal();
       loadRpiServers();
     } else {
-      showToast(data.message || 'Failed to update device', 'error');
+      showToast(data.message || t('masterDB.failedToUpdateDevice'), 'error');
     }
   } catch (error) {
     console.error('Error updating device:', error);
-    showToast('Failed to update device', 'error');
+    showToast(t('masterDB.failedToUpdateDevice'), 'error');
   }
 }
 
@@ -3400,10 +3400,10 @@ function downloadTabletQR() {
       // Show success feedback
       const button = event.target.closest('button');
       const originalHTML = button.innerHTML;
-      button.innerHTML = '<i class="ri-check-line mr-1"></i>ダウンロード完了！';
+      button.innerHTML = `<i class="ri-check-line mr-1"></i>${t('masterDB.downloadComplete')}`;
       button.classList.remove('bg-purple-600', 'hover:bg-purple-700');
       button.classList.add('bg-emerald-600');
-      
+
       setTimeout(() => {
         button.innerHTML = originalHTML;
         button.classList.remove('bg-emerald-600');
@@ -3411,7 +3411,7 @@ function downloadTabletQR() {
       }, 2000);
     })
     .catch(err => {
-      alert('QRコードのダウンロードに失敗しました');
+      alert(t('masterDB.urlCopyFailed'));
       console.error('Download failed:', err);
     });
 }
