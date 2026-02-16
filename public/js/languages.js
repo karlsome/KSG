@@ -231,6 +231,7 @@ const translations = {
 
       // Combine form
       combinedVariableName: "Combined Variable Name",
+      combinedVariable: "Combined Variable",
       combinedVariablePlaceholder: "e.g., 看板, full_data",
       selectVariablesToCombine: "Select Variables to Combine",
       noVariablesSelected: "No variables selected",
@@ -721,6 +722,7 @@ const translations = {
 
       // Combine form
       combinedVariableName: "結合変数名",
+      combinedVariable: "結合変数",
       combinedVariablePlaceholder: "例: 看板, full_data",
       selectVariablesToCombine: "結合する変数を選択",
       noVariablesSelected: "変数が選択されていません",
@@ -1002,11 +1004,41 @@ function t(key) {
   return value || key;
 }
 
+// Apply translations to all elements with data-i18n attribute
+function applyTranslations(container = document) {
+  // Handle data-i18n attributes (set textContent)
+  container.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key) {
+      el.textContent = t(key);
+    }
+  });
+
+  // Handle data-i18n-placeholder attributes (set placeholder)
+  container.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) {
+      el.placeholder = t(key);
+    }
+  });
+
+  // Handle data-i18n-title attributes (set title)
+  container.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) {
+      el.title = t(key);
+    }
+  });
+}
+
 // Change language function
 function changeLanguage(lang) {
   if (translations[lang]) {
     currentLanguage = lang;
     localStorage.setItem('preferredLanguage', lang);
+
+    // Apply translations to all data-i18n elements
+    applyTranslations();
 
     // Trigger a custom event to notify all components
     window.dispatchEvent(new CustomEvent('languageChanged', { detail: { language: lang } }));
@@ -1024,6 +1056,7 @@ function getCurrentLanguage() {
 // Export functions to global scope
 if (typeof window !== 'undefined') {
   window.t = t;
+  window.applyTranslations = applyTranslations;
   window.changeLanguage = changeLanguage;
   window.getCurrentLanguage = getCurrentLanguage;
   window.translations = translations;

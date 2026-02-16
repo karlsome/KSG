@@ -5,7 +5,7 @@
 window.addEventListener('languageChanged', () => {
     // Update page title
     const titleEl = document.getElementById('opcManagementTitle');
-    if (titleEl) titleEl.textContent = `🔧${t('opcManagement.title')}`;
+    if (titleEl) titleEl.textContent = t('opcManagement.title');
     
     // Reload data displays if they exist
     if (window.opcManagementState && window.opcManagementState.rawDataCache && Object.keys(window.opcManagementState.rawDataCache).length > 0) {
@@ -393,7 +393,7 @@ function renderRealTimeData(data) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-inbox-line text-5xl mb-4"></i>
-                <p class="text-lg">No datapoints configured</p>
+                <p class="text-lg">${t('opcManagement.selectDeviceToView')}</p>
             </div>
         `;
         return;
@@ -404,12 +404,12 @@ function renderRealTimeData(data) {
             <table class="w-full">
                 <thead class="bg-gray-50 border-b-2 border-gray-200">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OPC Node ID</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.opcNodeId')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.type')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.quality')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.lastUpdated')}</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -419,7 +419,7 @@ function renderRealTimeData(data) {
     
     data.datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
-        const displayValue = isArray ? `[${dp.value.length} items]` : dp.value;
+        const displayValue = isArray ? `[${dp.value.length} ${t('common.items')}]` : dp.value;
         const dpDataStr = JSON.stringify(dp).replace(/"/g, '&quot;');
         
         // Parse timestamp correctly from UTC and display in local timezone
@@ -450,16 +450,16 @@ function renderRealTimeData(data) {
         }
         
         // Quality badge
-        const quality = dp.quality || 'Unknown';
+        const quality = dp.quality || t('opcManagement.unknown');
         let qualityBadge = '';
-        if (quality === 'Good') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">Good</span>';
-        } else if (quality === 'Bad') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">Bad</span>';
+        if (quality === 'Good' || quality === t('opcManagement.good')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">${t('opcManagement.good')}</span>`;
+        } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
             qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">Uncertain</span>';
         } else {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
         }
         
         // Apply styling for bad quality or stale data
@@ -987,8 +987,8 @@ function renderVariables() {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-price-tag-3-line text-5xl mb-4"></i>
-                <p class="text-lg">No variables created yet</p>
-                <p class="text-sm mt-2">Click on data values to create variables</p>
+                <p class="text-lg">${t('opcManagement.noVariablesCreated')}</p>
+                <p class="text-sm mt-2">${t('opcManagement.clickDataToCreate')}</p>
             </div>
         `;
         return;
@@ -1001,10 +1001,10 @@ function renderVariables() {
             <table class="w-full">
                 <thead class="bg-gray-50 border-b-2 border-gray-200">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Actions</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.status')}</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">${t('opcManagement.actions')}</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -1016,7 +1016,7 @@ function renderVariables() {
         // Get device name and variable name from allDevicesDataCache
         let deviceDisplay = '';
         let sourceVariableName = variable.datapointName || variable.opcNodeId || variable.datapointId;
-        let quality = variable.quality || 'Unknown';
+        let quality = variable.quality || t('opcManagement.unknown');
         let dataTimestamp = variable.timestamp || null;
         
         if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
@@ -1057,7 +1057,7 @@ function renderVariables() {
         // Build full source path with device name
         let fullSourcePath = '';
         if (variable.sourceType === 'combined') {
-            fullSourcePath = 'Combined Variable';
+            fullSourcePath = t('opcManagement.combinedVariable');
         } else {
             fullSourcePath = deviceDisplay ? `${deviceDisplay}.${sourceVariableName}` : sourceVariableName;
             if (variable.arrayIndex !== null) {
@@ -1067,14 +1067,14 @@ function renderVariables() {
         
         // Quality badge
         let qualityBadge = '';
-        if (quality === 'Good') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ Good</span>';
-        } else if (quality === 'Bad') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ Bad</span>';
+        if (quality === 'Good' || quality === t('opcManagement.good')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ ${t('opcManagement.good')}</span>`;
+        } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ ${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
             qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">⚠️ Uncertain</span>';
         } else {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
         }
         
         // Calculate staleness
@@ -1086,10 +1086,10 @@ function renderVariables() {
             if (ageSeconds > 60) {
                 const ageMinutes = Math.floor(ageSeconds / 60);
                 if (ageMinutes < 60) {
-                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ Stale (${ageMinutes}m ago)</div>`;
+                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageMinutes}m ${t('opcManagement.ago')})</div>`;
                 } else {
                     const ageHours = Math.floor(ageMinutes / 60);
-                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ Stale (${ageHours}h ago)</div>`;
+                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageHours}h ${t('opcManagement.ago')})</div>`;
                 }
             }
         }

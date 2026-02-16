@@ -188,6 +188,9 @@
               const container = doc.querySelector('.container');
               mainContent.innerHTML = container ? container.innerHTML : html;
               
+              // Apply translations to the loaded content
+              applyTranslations(mainContent);
+              
               // Load the masterDB.js script
               const script = document.createElement('script');
               script.src = '/js/masterDB.js';
@@ -219,6 +222,9 @@
               const container = doc.querySelector('.container') || doc.querySelector('body > div');
               mainContent.innerHTML = container ? container.innerHTML : html;
               
+              // Apply translations to the loaded content
+              applyTranslations(mainContent);
+              
               // Also load the modals (they're outside the container)
               const modals = doc.querySelectorAll('[id$="-modal"]');
               modals.forEach(modal => {
@@ -226,7 +232,10 @@
                 const existingModal = document.getElementById(modal.id);
                 if (existingModal) existingModal.remove();
                 // Append modal to body
-                document.body.appendChild(modal.cloneNode(true));
+                const clonedModal = modal.cloneNode(true);
+                document.body.appendChild(clonedModal);
+                // Apply translations to the modal
+                applyTranslations(clonedModal);
               });
               
               // Load Socket.IO if not already loaded
@@ -306,6 +315,9 @@
       document.getElementById('searchInput').placeholder = t('common.search');
       document.getElementById('roleLabel').textContent = t('common.role');
       document.getElementById('logoutBtn').textContent = t('common.logout');
+      
+      // Apply translations to all data-i18n elements
+      applyTranslations();
     }
 
     // Listen for language changes - update sidebar/header + reload current page

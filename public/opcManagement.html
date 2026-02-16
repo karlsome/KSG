@@ -12,7 +12,7 @@
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
         <div class="flex justify-between items-center mb-6">
-            <h1 id="opcManagementTitle" class="text-3xl font-bold text-gray-800"></h1>
+            <h1 id="opcManagementTitle" class="text-3xl font-bold text-gray-800" data-i18n="opcManagement.title"></h1>
             <div class="flex items-center gap-3">
                 <span id="opc-connection-status" class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 text-gray-600">
                     <span class="w-2 h-2 rounded-full bg-gray-400"></span>
@@ -406,6 +406,7 @@
         </div>
     </div>
 
+    <script src="js/config.js"></script>
     <script src="js/languages.js"></script>
     <script>
         // Apply translations to all data-i18n elements
@@ -434,8 +435,15 @@
             const titleEl = document.getElementById('opcManagementTitle');
             if (titleEl) titleEl.textContent = '🔧' + t('opcManagement.title');
         }
-        // Apply on load
-        if (typeof t === 'function') applyOPCTranslations();
+        // Apply on DOM load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                if (typeof t === 'function') applyOPCTranslations();
+            });
+        } else {
+            // DOM already loaded
+            if (typeof t === 'function') applyOPCTranslations();
+        }
         // Re-apply on language change
         window.addEventListener('languageChanged', () => { applyOPCTranslations(); });
     </script>
