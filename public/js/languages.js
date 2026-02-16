@@ -236,6 +236,15 @@ const translations = {
       selectVariablesToCombine: "Select Variables to Combine",
       noVariablesSelected: "No variables selected",
       addVariable: "+ Add variable...",
+      availableVariables: "Available Variables",
+      selectedVariables: "Selected Variables",
+      clickVariablesToAdd: "Click variables to add",
+      variableSettings: "Variable Settings",
+      enterVariableNamePlaceholder: "Enter variable name",
+      selectOperationPlaceholder: "Select operation...",
+      noVariablesAvailable: "No variables available",
+      value: "Value",
+      saveCombinedVariable: "Save Combined Variable",
 
       // Edit form
       sourceVariables: "Source Variables",
@@ -727,6 +736,15 @@ const translations = {
       selectVariablesToCombine: "結合する変数を選択",
       noVariablesSelected: "変数が選択されていません",
       addVariable: "+ 変数を追加...",
+      availableVariables: "利用可能な変数",
+      selectedVariables: "選択された変数",
+      clickVariablesToAdd: "変数をクリックして追加",
+      variableSettings: "変数設定",
+      enterVariableNamePlaceholder: "変数名を入力",
+      selectOperationPlaceholder: "操作を選択...",
+      noVariablesAvailable: "利用可能な変数がありません",
+      value: "値",
+      saveCombinedVariable: "結合変数を保存",
 
       // Edit form
       sourceVariables: "ソース変数",

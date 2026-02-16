@@ -1207,7 +1207,7 @@ function openCombinedVariableModal() {
                 <div class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-purple-600 to-purple-700 text-white">
                     <h2 class="text-2xl font-semibold flex items-center">
                         <i class="ri-links-line mr-3"></i>
-                        Create Combined Variable
+                        ${t('opcManagement.createCombinedVariable')}
                     </h2>
                     <button onclick="closeCombinedVariableModal()" class="text-white hover:text-gray-200 transition-colors">
                         <i class="ri-close-line text-2xl"></i>
@@ -1220,7 +1220,7 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-gray-200 rounded-lg p-4">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-list-check mr-2 text-blue-600"></i>
-                                Available Variables
+                                ${t('opcManagement.availableVariables')}
                             </h3>
                             <div id="availableVariablesList" class="space-y-2 max-h-96 overflow-y-auto">
                                 <!-- Will be populated dynamically -->
@@ -1231,12 +1231,12 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-checkbox-multiple-line mr-2 text-purple-600"></i>
-                                Selected Variables
+                                ${t('opcManagement.selectedVariables')}
                             </h3>
                             <div id="selectedVariablesList" class="space-y-2 min-h-[300px]">
                                 <div class="text-center text-gray-400 py-12">
                                     <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                                    <p class="text-sm">Click variables to add</p>
+                                    <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
                                 </div>
                             </div>
                         </div>
@@ -1245,39 +1245,39 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-settings-3-line mr-2 text-green-600"></i>
-                                Variable Settings
+                                ${t('opcManagement.variableSettings')}
                             </h3>
                             <div class="space-y-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Variable Name *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.variableNameLabel')} *</label>
                                     <input type="text" id="combinedVariableName" 
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                        placeholder="Enter variable name">
+                                        placeholder="${t('opcManagement.enterVariableNamePlaceholder')}">
                                 </div>
                                 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Operation *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.operation')} *</label>
                                     <select id="combinedOperation" onchange="updateCombinedPreview()"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                                        <option value="">Select operation...</option>
-                                        <option value="concatenate">Concatenate (Join values)</option>
-                                        <option value="add">Add (+)</option>
-                                        <option value="subtract">Subtract (-)</option>
-                                        <option value="multiply">Multiply (×)</option>
-                                        <option value="divide">Divide (÷)</option>
-                                        <option value="average">Average</option>
+                                        <option value="">${t('opcManagement.selectOperationPlaceholder')}</option>
+                                        <option value="concatenate">${t('opcManagement.concatenateJoin')}</option>
+                                        <option value="add">${t('opcManagement.add')}</option>
+                                        <option value="subtract">${t('opcManagement.subtract')}</option>
+                                        <option value="multiply">${t('opcManagement.multiply')}</option>
+                                        <option value="divide">${t('opcManagement.divide')}</option>
+                                        <option value="average">${t('opcManagement.average')}</option>
                                     </select>
                                 </div>
                                 
                                 <div class="bg-white border border-gray-200 rounded p-3 mt-4">
-                                    <div class="text-xs text-gray-500 mb-1">Preview</div>
+                                    <div class="text-xs text-gray-500 mb-1">${t('opcManagement.preview')}</div>
                                     <div id="combinedPreview" class="font-mono text-lg font-semibold text-gray-900">-</div>
                                 </div>
                                 
                                 <button onclick="saveCombinedVariable()" 
                                     class="w-full mt-6 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center font-semibold">
                                     <i class="ri-save-line mr-2"></i>
-                                    Save Combined Variable
+                                    ${t('opcManagement.saveCombinedVariable')}
                                 </button>
                             </div>
                         </div>
@@ -1304,7 +1304,7 @@ function renderAvailableVariables() {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-8">
                 <i class="ri-inbox-line text-3xl mb-2"></i>
-                <p class="text-sm">No variables available</p>
+                <p class="text-sm">${t('opcManagement.noVariablesAvailable')}</p>
             </div>
         `;
         return;
@@ -1322,7 +1322,7 @@ function renderAvailableVariables() {
                 }">
                 <div class="font-medium text-sm">${variable.variableName}</div>
                 <div class="text-xs text-gray-500 mt-1">
-                    Value: <span class="font-mono">${variable.currentValue || '-'}</span>
+                    ${t('opcManagement.value')}: <span class="font-mono">${variable.currentValue || '-'}</span>
                 </div>
             </div>
         `;
@@ -1354,7 +1354,7 @@ function renderSelectedVariables() {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-12">
                 <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                <p class="text-sm">Click variables to add</p>
+                <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
             </div>
         `;
         return;
@@ -1616,7 +1616,7 @@ async function handleCombineSubmit(e) {
     e.preventDefault();
     
     if (selectedVariablesForCombine.length < 2) {
-        showNotification('Please select at least 2 variables', 'error');
+        showNotification(t('opcManagement.selectAtLeast2Variables'), 'error');
         return;
     }
     
@@ -1642,15 +1642,15 @@ async function handleCombineSubmit(e) {
         const data = await response.json();
         
         if (response.ok) {
-            showNotification('Combined variable created successfully', 'success');
+            showNotification(t('opcManagement.combinedVariableCreatedSuccess'), 'success');
             closeOPCModal('opc-combine-modal');
             await loadVariables();
         } else {
-            showNotification(data.message || 'Failed to create combined variable', 'error');
+            showNotification(data.message || t('opcManagement.combinedVariableCreatedFail'), 'error');
         }
     } catch (error) {
         console.error('Error creating combined variable:', error);
-        showNotification('Failed to create combined variable', 'error');
+        showNotification(t('opcManagement.combinedVariableCreatedFail'), 'error');
     }
 }
 
