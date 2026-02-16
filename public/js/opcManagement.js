@@ -5,7 +5,7 @@
 window.addEventListener('languageChanged', () => {
     // Update page title
     const titleEl = document.getElementById('opcManagementTitle');
-    if (titleEl) titleEl.textContent = `🔧${t('opcManagement.title')}`;
+    if (titleEl) titleEl.textContent = t('opcManagement.title');
     
     // Reload data displays if they exist
     if (window.opcManagementState && window.opcManagementState.rawDataCache && Object.keys(window.opcManagementState.rawDataCache).length > 0) {
@@ -393,7 +393,7 @@ function renderRealTimeData(data) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-inbox-line text-5xl mb-4"></i>
-                <p class="text-lg">No datapoints configured</p>
+                <p class="text-lg">${t('opcManagement.selectDeviceToView')}</p>
             </div>
         `;
         return;
@@ -404,12 +404,12 @@ function renderRealTimeData(data) {
             <table class="w-full">
                 <thead class="bg-gray-50 border-b-2 border-gray-200">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OPC Node ID</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.opcNodeId')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.type')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.quality')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.lastUpdated')}</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -419,7 +419,7 @@ function renderRealTimeData(data) {
     
     data.datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
-        const displayValue = isArray ? `[${dp.value.length} items]` : dp.value;
+        const displayValue = isArray ? `[${dp.value.length} ${t('common.items')}]` : dp.value;
         const dpDataStr = JSON.stringify(dp).replace(/"/g, '&quot;');
         
         // Parse timestamp correctly from UTC and display in local timezone
@@ -450,16 +450,16 @@ function renderRealTimeData(data) {
         }
         
         // Quality badge
-        const quality = dp.quality || 'Unknown';
+        const quality = dp.quality || t('opcManagement.unknown');
         let qualityBadge = '';
-        if (quality === 'Good') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">Good</span>';
-        } else if (quality === 'Bad') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">Bad</span>';
+        if (quality === 'Good' || quality === t('opcManagement.good')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">${t('opcManagement.good')}</span>`;
+        } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
             qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">Uncertain</span>';
         } else {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
         }
         
         // Apply styling for bad quality or stale data
@@ -987,8 +987,8 @@ function renderVariables() {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-price-tag-3-line text-5xl mb-4"></i>
-                <p class="text-lg">No variables created yet</p>
-                <p class="text-sm mt-2">Click on data values to create variables</p>
+                <p class="text-lg">${t('opcManagement.noVariablesCreated')}</p>
+                <p class="text-sm mt-2">${t('opcManagement.clickDataToCreate')}</p>
             </div>
         `;
         return;
@@ -1001,10 +1001,10 @@ function renderVariables() {
             <table class="w-full">
                 <thead class="bg-gray-50 border-b-2 border-gray-200">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Variable Name</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Value</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Actions</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.status')}</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">${t('opcManagement.actions')}</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -1016,7 +1016,7 @@ function renderVariables() {
         // Get device name and variable name from allDevicesDataCache
         let deviceDisplay = '';
         let sourceVariableName = variable.datapointName || variable.opcNodeId || variable.datapointId;
-        let quality = variable.quality || 'Unknown';
+        let quality = variable.quality || t('opcManagement.unknown');
         let dataTimestamp = variable.timestamp || null;
         
         if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
@@ -1057,7 +1057,7 @@ function renderVariables() {
         // Build full source path with device name
         let fullSourcePath = '';
         if (variable.sourceType === 'combined') {
-            fullSourcePath = 'Combined Variable';
+            fullSourcePath = t('opcManagement.combinedVariable');
         } else {
             fullSourcePath = deviceDisplay ? `${deviceDisplay}.${sourceVariableName}` : sourceVariableName;
             if (variable.arrayIndex !== null) {
@@ -1067,14 +1067,14 @@ function renderVariables() {
         
         // Quality badge
         let qualityBadge = '';
-        if (quality === 'Good') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ Good</span>';
-        } else if (quality === 'Bad') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ Bad</span>';
+        if (quality === 'Good' || quality === t('opcManagement.good')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ ${t('opcManagement.good')}</span>`;
+        } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ ${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
             qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">⚠️ Uncertain</span>';
         } else {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">Unknown</span>';
+            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
         }
         
         // Calculate staleness
@@ -1086,10 +1086,10 @@ function renderVariables() {
             if (ageSeconds > 60) {
                 const ageMinutes = Math.floor(ageSeconds / 60);
                 if (ageMinutes < 60) {
-                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ Stale (${ageMinutes}m ago)</div>`;
+                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageMinutes}m ${t('opcManagement.ago')})</div>`;
                 } else {
                     const ageHours = Math.floor(ageMinutes / 60);
-                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ Stale (${ageHours}h ago)</div>`;
+                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageHours}h ${t('opcManagement.ago')})</div>`;
                 }
             }
         }
@@ -1204,12 +1204,12 @@ function openCombinedVariableModal() {
     const modalHtml = `
         <div id="combinedVariableModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-xl shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-                <div class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-purple-600 to-purple-700 text-white">
-                    <h2 class="text-2xl font-semibold flex items-center">
+                <div class="flex items-center justify-between p-6 border-b">
+                    <h2 class="text-xl font-semibold text-green-600 flex items-center">
                         <i class="ri-links-line mr-3"></i>
-                        Create Combined Variable
+                        ${t('opcManagement.createCombinedVariable')}
                     </h2>
-                    <button onclick="closeCombinedVariableModal()" class="text-white hover:text-gray-200 transition-colors">
+                    <button onclick="closeCombinedVariableModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
                         <i class="ri-close-line text-2xl"></i>
                     </button>
                 </div>
@@ -1220,7 +1220,7 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-gray-200 rounded-lg p-4">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-list-check mr-2 text-blue-600"></i>
-                                Available Variables
+                                ${t('opcManagement.availableVariables')}
                             </h3>
                             <div id="availableVariablesList" class="space-y-2 max-h-96 overflow-y-auto">
                                 <!-- Will be populated dynamically -->
@@ -1231,12 +1231,12 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-checkbox-multiple-line mr-2 text-purple-600"></i>
-                                Selected Variables
+                                ${t('opcManagement.selectedVariables')}
                             </h3>
                             <div id="selectedVariablesList" class="space-y-2 min-h-[300px]">
                                 <div class="text-center text-gray-400 py-12">
                                     <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                                    <p class="text-sm">Click variables to add</p>
+                                    <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
                                 </div>
                             </div>
                         </div>
@@ -1245,39 +1245,39 @@ function openCombinedVariableModal() {
                         <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
                             <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
                                 <i class="ri-settings-3-line mr-2 text-green-600"></i>
-                                Variable Settings
+                                ${t('opcManagement.variableSettings')}
                             </h3>
                             <div class="space-y-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Variable Name *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.variableNameLabel')} *</label>
                                     <input type="text" id="combinedVariableName" 
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                        placeholder="Enter variable name">
+                                        placeholder="${t('opcManagement.enterVariableNamePlaceholder')}">
                                 </div>
                                 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Operation *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.operation')} *</label>
                                     <select id="combinedOperation" onchange="updateCombinedPreview()"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                                        <option value="">Select operation...</option>
-                                        <option value="concatenate">Concatenate (Join values)</option>
-                                        <option value="add">Add (+)</option>
-                                        <option value="subtract">Subtract (-)</option>
-                                        <option value="multiply">Multiply (×)</option>
-                                        <option value="divide">Divide (÷)</option>
-                                        <option value="average">Average</option>
+                                        <option value="">${t('opcManagement.selectOperationPlaceholder')}</option>
+                                        <option value="concatenate">${t('opcManagement.concatenateJoin')}</option>
+                                        <option value="add">${t('opcManagement.add')}</option>
+                                        <option value="subtract">${t('opcManagement.subtract')}</option>
+                                        <option value="multiply">${t('opcManagement.multiply')}</option>
+                                        <option value="divide">${t('opcManagement.divide')}</option>
+                                        <option value="average">${t('opcManagement.average')}</option>
                                     </select>
                                 </div>
                                 
                                 <div class="bg-white border border-gray-200 rounded p-3 mt-4">
-                                    <div class="text-xs text-gray-500 mb-1">Preview</div>
+                                    <div class="text-xs text-gray-500 mb-1">${t('opcManagement.preview')}</div>
                                     <div id="combinedPreview" class="font-mono text-lg font-semibold text-gray-900">-</div>
                                 </div>
                                 
                                 <button onclick="saveCombinedVariable()" 
                                     class="w-full mt-6 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center font-semibold">
                                     <i class="ri-save-line mr-2"></i>
-                                    Save Combined Variable
+                                    ${t('opcManagement.saveCombinedVariable')}
                                 </button>
                             </div>
                         </div>
@@ -1304,7 +1304,7 @@ function renderAvailableVariables() {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-8">
                 <i class="ri-inbox-line text-3xl mb-2"></i>
-                <p class="text-sm">No variables available</p>
+                <p class="text-sm">${t('opcManagement.noVariablesAvailable')}</p>
             </div>
         `;
         return;
@@ -1322,7 +1322,7 @@ function renderAvailableVariables() {
                 }">
                 <div class="font-medium text-sm">${variable.variableName}</div>
                 <div class="text-xs text-gray-500 mt-1">
-                    Value: <span class="font-mono">${variable.currentValue || '-'}</span>
+                    ${t('opcManagement.value')}: <span class="font-mono">${variable.currentValue || '-'}</span>
                 </div>
             </div>
         `;
@@ -1354,7 +1354,7 @@ function renderSelectedVariables() {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-12">
                 <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                <p class="text-sm">Click variables to add</p>
+                <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
             </div>
         `;
         return;
@@ -1616,7 +1616,7 @@ async function handleCombineSubmit(e) {
     e.preventDefault();
     
     if (selectedVariablesForCombine.length < 2) {
-        showNotification('Please select at least 2 variables', 'error');
+        showNotification(t('opcManagement.selectAtLeast2Variables'), 'error');
         return;
     }
     
@@ -1642,15 +1642,15 @@ async function handleCombineSubmit(e) {
         const data = await response.json();
         
         if (response.ok) {
-            showNotification('Combined variable created successfully', 'success');
+            showNotification(t('opcManagement.combinedVariableCreatedSuccess'), 'success');
             closeOPCModal('opc-combine-modal');
             await loadVariables();
         } else {
-            showNotification(data.message || 'Failed to create combined variable', 'error');
+            showNotification(data.message || t('opcManagement.combinedVariableCreatedFail'), 'error');
         }
     } catch (error) {
         console.error('Error creating combined variable:', error);
-        showNotification('Failed to create combined variable', 'error');
+        showNotification(t('opcManagement.combinedVariableCreatedFail'), 'error');
     }
 }
 
