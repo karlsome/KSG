@@ -1204,12 +1204,12 @@ function openCombinedVariableModal() {
     const modalHtml = `
         <div id="combinedVariableModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-xl shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-                <div class="flex items-center justify-between p-6 border-b bg-gradient-to-r from-purple-600 to-purple-700 text-white">
-                    <h2 class="text-2xl font-semibold flex items-center">
+                <div class="flex items-center justify-between p-6 border-b">
+                    <h2 class="text-xl font-semibold text-green-600 flex items-center">
                         <i class="ri-links-line mr-3"></i>
                         ${t('opcManagement.createCombinedVariable')}
                     </h2>
-                    <button onclick="closeCombinedVariableModal()" class="text-white hover:text-gray-200 transition-colors">
+                    <button onclick="closeCombinedVariableModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
                         <i class="ri-close-line text-2xl"></i>
                     </button>
                 </div>
