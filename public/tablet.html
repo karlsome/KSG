@@ -414,20 +414,20 @@
     }
 
     .counter-button {
-      background: #e8f4fc;
-      border: 1px solid #c5dff0;
+      background: #ffebee;
+      border: 1px solid #ffcdd2;
       padding: 12px;
       border-radius: 4px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 500;
       text-align: center;
-      color: #5a7d9a;
+      color: #c62828;
       transition: all 0.2s ease;
     }
 
     .counter-button:hover {
-      background: #dbeaf5;
+      background: #ffcdd2;
     }
 
     .counter-button.shoulder {
@@ -755,7 +755,7 @@
     <div class="card collapsible" id="basicSettingsCard">
       <div class="card-header" onclick="toggleBasicSettings()">
         <div class="card-title">基本設定（ログイン・木本）</div>
-        <button class="reset-button" onclick="resetBasicSettings()">リセット</button>
+        <button class="reset-button" onclick="resetBasicSettings()">全リセット</button>
       </div>
       <div class="info-section">
         <!-- Row 1 Headers -->
@@ -882,7 +882,7 @@
           <span class="info-divider" style="color: #e0e0e0; font-weight: 300;">|</span>
           <span style="font-weight: 500; color: #424242; font-size: 11px;">合格数: <span id="inlinePassCount">0</span></span>
         </div>
-        <button class="reset-button" onclick="resetDefectCounters()">リセット</button>
+        <button class="reset-button" onclick="resetDefectCounters()">不良リセット</button>
       </div>
       <div class="counter-grid">
         <!-- Row 1: Shoulder defects (Orange) -->

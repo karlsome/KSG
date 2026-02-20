@@ -1906,8 +1906,23 @@ function updateDefectSum() {
   
   console.log('🔴 Total defects:', total);
   
+  // Update counter colors based on values
+  updateDefectCounterColors();
+  
   // Update pass count whenever defects change
   updatePassCount();
+}
+
+// Update counter display colors: black if 0, red if > 0
+function updateDefectCounterColors() {
+  const counterDisplays = document.querySelectorAll('.counter-display');
+  counterDisplays.forEach(display => {
+    const counterNumber = display.querySelector('.counter-number');
+    if (counterNumber) {
+      const value = parseInt(counterNumber.textContent) || 0;
+      display.style.color = value > 0 ? '#c62828' : '#424242';
+    }
+  });
 }
 
 // Calculate and update pass count: workCount - defects
