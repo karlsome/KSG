@@ -13,7 +13,7 @@
 
     body {
       font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-      background: #f5f5f0;
+      background: #f8f9fa;
       min-height: 100vh;
       padding: 20px;
     }
@@ -25,10 +25,11 @@
 
     .card {
       background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      padding: 12px;
-      margin-bottom: 20px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #e8e8e8;
     }
 
     .card-header {
@@ -37,34 +38,34 @@
       align-items: center;
       margin-bottom: 15px;
       padding-bottom: 10px;
-      border-bottom: 2px solid #f0f0f0;
+      border-bottom: 1px solid #f0f0f0;
     }
 
     .card-title {
       font-size: 12px;
-      font-weight: bold;
-      color: #333;
+      font-weight: 600;
+      color: #5a7d9a;
+      letter-spacing: 0.5px;
     }
 
     .reset-button {
-      background: #f44336;
-      color: white;
-      border: none;
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #ffcdd2;
       padding: 6px 12px;
       border-radius: 4px;
       cursor: pointer;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 500;
       transition: all 0.2s;
     }
 
     .reset-button:hover {
-      background: #d32f2f;
-      transform: scale(1.05);
+      background: #ffcdd2;
     }
 
     .reset-button:active {
-      transform: scale(0.95);
+      background: #ef9a9a;
     }
 
     .header {
@@ -74,14 +75,15 @@
       margin-bottom: 15px;
       background: white;
       padding: 15px 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      border: 1px solid #e8e8e8;
     }
 
     .title {
-      font-size: 24px;
-      font-weight: bold;
-      color: #333;
+      font-size: 22px;
+      font-weight: 600;
+      color: #424242;
     }
 
     .connection-status {
@@ -91,8 +93,8 @@
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background: white;
-      border: 2px solid #ddd;
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
       margin-left: 5px;
     }
 
@@ -137,29 +139,34 @@
 
     .info-section {
       display: grid;
-      gap: 10px;
+      gap: 4px;
     }
 
     .info-header-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
+      margin-bottom: -2px;
     }
 
     .info-header {
-      background: #2196F3;
-      color: white;
-      padding: 8px;
-      font-size: 13px;
-      font-weight: bold;
-      text-align: center;
-      border-radius: 4px;
+      background: transparent;
+      color: #9e9e9e;
+      padding: 0 4px 4px 4px;
+      font-size: 11px;
+      font-weight: 500;
+      text-align: left;
+      border-radius: 0;
+      letter-spacing: 0.3px;
+      border-bottom: none;
+      text-transform: uppercase;
     }
 
     .info-input-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
+      margin-bottom: 12px;
     }
 
     .info-cell {
@@ -195,22 +202,32 @@
     }
 
     .field-label {
-      background: #2196F3;
-      color: white;
-      padding: 8px;
-      font-size: 13px;
-      font-weight: bold;
-      text-align: center;
-      border-radius: 4px 4px 0 0;
+      background: transparent;
+      color: #9e9e9e;
+      padding: 0 4px 4px 4px;
+      font-size: 11px;
+      font-weight: 500;
+      text-align: left;
+      border-radius: 0;
+      letter-spacing: 0.3px;
+      border-bottom: none;
+      text-transform: uppercase;
     }
 
     .field-input {
-      border: 2px solid #ddd;
+      border: 1px solid #e0e0e0;
       padding: 10px;
       font-size: 14px;
       border-radius: 4px;
-      background: white;
+      background: #fafafa;
       width: 100%;
+      transition: border-color 0.2s ease;
+    }
+
+    .field-input:focus {
+      outline: none;
+      border-color: #c5dff0;
+      background: white;
     }
 
     select.field-input {
@@ -218,46 +235,51 @@
     }
 
     .send-button {
-      background: #1976D2;
-      color: white;
-      border: none;
+      background: #e8f4fc;
+      color: #5a7d9a;
+      border: 1px solid #c5dff0;
       padding: 12px 20px;
-      border-radius: 6px;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
-      font-weight: bold;
+      font-weight: 500;
       width: 100%;
     }
 
     .send-button:hover {
-      background: #1565C0;
+      background: #dbeaf5;
     }
 
     .button-section {
       display: grid;
-      gap: 10px;
+      gap: 4px;
     }
 
     .button-header-row {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: 10px;
+      margin-bottom: -2px;
     }
 
     .button-header {
-      background: #2196F3;
-      color: white;
-      padding: 12px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: bold;
-      text-align: center;
+      background: transparent;
+      color: #9e9e9e;
+      padding: 0 4px 4px 4px;
+      border-radius: 0;
+      font-size: 11px;
+      font-weight: 500;
+      text-align: left;
+      letter-spacing: 0.3px;
+      border-bottom: none;
+      text-transform: uppercase;
     }
 
     .button-action-row {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       gap: 10px;
+      margin-bottom: 8px;
     }
 
     .button-cell {
@@ -279,38 +301,43 @@
     }
 
     .action-button {
-      background: #e3f2fd;
-      border: 2px solid #90caf9;
-      border-radius: 6px;
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 13px;
-      font-weight: bold;
+      font-weight: 500;
       text-align: center;
-      transition: all 0.3s;
+      transition: all 0.2s ease;
       height: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 0 10px;
+      color: #5a7d9a;
     }
 
     .action-button:hover {
-      background: #bbdefb;
-      transform: translateY(-2px);
+      background: #e8f4fc;
+      border-color: #c5dff0;
+    }
+
+    .action-button:active {
+      background: #dbeaf5;
     }
 
     .action-button.complete {
-      background: #81C784;
-      border-color: #66BB6A;
-      color: white;
+      background: #e8f5e9;
+      border-color: #a5d6a7;
+      color: #4a8c4f;
       font-size: 16px;
-      animation: pulse 2s infinite;
+      animation: none;
     }
 
     .action-button.disabled {
-      background: #e0e0e0;
-      border-color: #bdbdbd;
-      color: #9e9e9e;
+      background: #f5f5f5;
+      border-color: #eeeeee;
+      color: #bdbdbd;
       cursor: not-allowed;
       pointer-events: none;
     }
@@ -333,10 +360,10 @@
     }
 
     .counter-display {
-      background: #212121;
-      color: white;
+      background: #f5f5f5;
+      color: #424242;
       padding: 8px 12px;
-      border-radius: 6px;
+      border-radius: 4px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -345,14 +372,15 @@
       font-family: 'Courier New', monospace;
       cursor: pointer;
       transition: all 0.2s;
+      border: 1px solid #e0e0e0;
     }
 
     .counter-display:hover {
-      background: #424242;
+      background: #eeeeee;
     }
 
     .counter-display:active {
-      transform: scale(0.95);
+      background: #e0e0e0;
     }
 
     .counter-number {
@@ -360,31 +388,30 @@
     }
 
     .counter-button {
-      background: #2196F3;
-      border: 2px solid #1976D2;
+      background: #e8f4fc;
+      border: 1px solid #c5dff0;
       padding: 12px;
-      border-radius: 6px;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 13px;
-      font-weight: bold;
+      font-weight: 500;
       text-align: center;
-      color: white;
-      transition: all 0.3s;
+      color: #5a7d9a;
+      transition: all 0.2s ease;
     }
 
     .counter-button:hover {
-      background: #1976D2;
-      transform: translateY(-2px);
+      background: #dbeaf5;
     }
 
     .counter-button.shoulder {
-      background: #FF9800;
-      border: 2px solid #F57C00;
-      color: white;
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      color: #e65100;
     }
 
     .counter-button.shoulder:hover {
-      background: #F57C00;
+      background: #ffe0b2;
     }
 
     .bottom-section {
@@ -402,43 +429,44 @@
 
     .remarks-label {
       font-size: 12px;
-      font-weight: bold;
-      color: #666;
+      font-weight: 500;
+      color: #5a7d9a;
       margin-bottom: 4px;
     }
 
     .remarks-input {
-      border: 2px solid #ddd;
+      border: 1px solid #e0e0e0;
       padding: 10px;
-      border-radius: 6px;
+      border-radius: 4px;
       resize: none;
       font-size: 14px;
       min-height: 60px;
+      background: #fafafa;
     }
 
     .remarks-display {
-      border: 2px solid #ddd;
+      border: 1px solid #e0e0e0;
       padding: 10px;
-      border-radius: 6px;
+      border-radius: 4px;
       font-size: 14px;
       min-height: 60px;
-      background: #f9f9f9;
+      background: #fafafa;
     }
 
     .bottom-button {
-      background: #757575;
-      color: white;
-      border: none;
+      background: #f5f5f5;
+      color: #616161;
+      border: 1px solid #e0e0e0;
       padding: 12px 24px;
-      border-radius: 6px;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
-      font-weight: bold;
+      font-weight: 500;
       height: fit-content;
     }
 
     .bottom-button:hover {
-      background: #616161;
+      background: #eeeeee;
     }
 
     /* Break Modal Styles */
@@ -685,10 +713,10 @@
       </div>
       <div style="display: flex; align-items: center; gap: 10px;">
         <div id="userInfo" style="text-align: right; margin-right: 10px;">
-          <div style="font-size: 12px; color: #666;">ユーザー</div>
-          <div style="font-size: 14px; font-weight: bold;" id="currentUsername">-</div>
+          <div style="font-size: 11px; color: #9e9e9e;">ユーザー</div>
+          <div style="font-size: 14px; font-weight: 500; color: #424242;" id="currentUsername">-</div>
         </div>
-        <button onclick="logoutTablet()" style="background: #f44336; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+        <button onclick="logoutTablet()" style="background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">
           ログアウト
         </button>
         <div class="connection-status" id="connectionStatus">
