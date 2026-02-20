@@ -197,6 +197,9 @@ function startBreakTimer() {
   
   // Update every second
   breakTimerInterval = setInterval(updateBreakTimer, 1000);
+
+  // Lock defect counters while break is active
+  updateDefectCounterState();
 }
 
 // Stop break timer
@@ -278,6 +281,9 @@ function completeBreak() {
   if (timerDisplay) {
     timerDisplay.textContent = '00:00';
   }
+
+  // Re-evaluate defect counter lock state
+  updateDefectCounterState();
   
   console.log('✅ Break modal closed');
 }
@@ -307,6 +313,9 @@ function startTroubleTimer() {
   
   // Update every second
   troubleTimerInterval = setInterval(updateTroubleTimer, 1000);
+
+  // Lock defect counters while trouble is active
+  updateDefectCounterState();
 }
 
 // Stop machine trouble timer
@@ -388,6 +397,9 @@ function completeTrouble() {
   if (timerDisplay) {
     timerDisplay.textContent = '00:00';
   }
+
+  // Re-evaluate defect counter lock state
+  updateDefectCounterState();
   
   console.log('✅ Machine trouble modal closed');
 }
@@ -456,9 +468,49 @@ function restoreAllFields() {
       }
     });
     
+    // Restore product name and kanban ID for inline info
+    const savedProductName = localStorage.getItem('tablet_currentProductName');
+    if (savedProductName !== null) {
+      currentProductName = savedProductName;
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      if (productNameDisplay && savedProductName) {
+        productNameDisplay.textContent = savedProductName;
+      }
+      console.log(`📦 Restored currentProductName:`, savedProductName);
+    }
+    
+    const savedKanbanID = localStorage.getItem('tablet_kanbanID');
+    if (savedKanbanID) {
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (kanbanIdDisplay) {
+        kanbanIdDisplay.textContent = ', ' + savedKanbanID;
+      }
+      console.log(`📦 Restored kanbanID:`, savedKanbanID);
+    }
+    
+    // Restore kensaMembers to show/hide poster cells correctly
+    const savedKensaMembers = localStorage.getItem('tablet_kensaMembers');
+    if (savedKensaMembers) {
+      const kensaMembers = parseInt(savedKensaMembers, 10);
+      updateKensaMembersDisplay(kensaMembers);
+      console.log(`📦 Restored kensaMembers:`, kensaMembers);
+    }
+    
     // Update calculated fields
     updateDefectSum();
     updateWorkCount();
+    
+    // Update inline values from restored fields (in case OPC data not yet available)
+    const workCountInput = document.getElementById('workCount');
+    const passCountInput = document.getElementById('passCount');
+    const inlineWorkCount = document.getElementById('inlineWorkCount');
+    const inlinePassCount = document.getElementById('inlinePassCount');
+    if (inlineWorkCount && workCountInput) {
+      inlineWorkCount.textContent = workCountInput.value || '0';
+    }
+    if (inlinePassCount && passCountInput) {
+      inlinePassCount.textContent = passCountInput.value || '0';
+    }
     
     // Restart work timer if start time exists
     const savedStartTime = localStorage.getItem('tablet_startTime');
@@ -529,6 +581,9 @@ function restoreAllFields() {
   } catch (e) {
     console.error('Failed to restore fields:', e);
   }
+
+  // Restore defect counter lock state
+  updateDefectCounterState();
   
   // Restore collapsed state of basic settings card
   restoreBasicSettingsState();
@@ -766,6 +821,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Restore all fields from localStorage
   restoreAllFields();
   
+  // Update inline info after restoring fields
+  updateInlineInfo();
+  
+  // If work has already started (startTime has value), show inline info and collapse basic settings
+  const startTimeInput = document.getElementById('startTime');
+  if (startTimeInput && startTimeInput.value) {
+    const inlineInfo = document.querySelector('.inline-info');
+    if (inlineInfo) {
+      inlineInfo.classList.add('visible');
+      console.log('📋 Work already started, showing inline info');
+    }
+    const basicSettingsCard = document.getElementById('basicSettingsCard');
+    if (basicSettingsCard) {
+      basicSettingsCard.classList.add('collapsed');
+      console.log('📋 Work already started, collapsing basic settings card');
+    }
+  }
+  
   // Add event listener for poster1 dropdown changes
   const poster1Select = document.getElementById('poster1');
   if (poster1Select) {
@@ -790,17 +863,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (fieldId === 'poster1') {
           checkBasicSettingsAttention(); // Check attention state when poster1 changes
         }
+        // Update inline info when any dropdown changes
+        updateInlineInfo();
       });
     }
   });
   
-  // Add change listeners for text inputs
-  const textInputs = ['workTime', 'manHours', 'otherDetails'];
+  // Add change listeners for regular text inputs (input elements)
+  const textInputs = ['workTime', 'manHours'];
   textInputs.forEach(fieldId => {
     const field = document.getElementById(fieldId);
     if (field) {
       field.addEventListener('input', () => {
         saveFieldToLocalStorage(fieldId, field.value);
+      });
+    }
+  });
+  
+  // Add change listeners for contentEditable fields (use textContent, not value)
+  const contentEditableFields = ['otherDetails', 'remarks'];
+  contentEditableFields.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('input', () => {
+        saveFieldToLocalStorage(fieldId, field.textContent);
       });
     }
   });
@@ -938,6 +1024,10 @@ async function loadProductByKanbanID(kanbanId) {
       currentProductId = product.品番;
       currentProductName = product['製品名'] || '';
       
+      // Save to localStorage for persistence across page reloads
+      localStorage.setItem('tablet_currentProductName', currentProductName);
+      localStorage.setItem('tablet_kanbanID', product.kanbanID || '');
+      
       // Set product name and kanbanID in header title
       const productNameDisplay = document.getElementById('productNameDisplay');
       const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
@@ -950,21 +1040,7 @@ async function loadProductByKanbanID(kanbanId) {
         console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
       }
       
-      // Set product name in remarks display (only if never set before)
-      const remarksDisplay = document.getElementById('remarks');
-      if (remarksDisplay && product['製品名']) {
-        // Check if user has ever interacted with this field (localStorage exists)
-        const hasRemarksInStorage = localStorage.getItem('tablet_remarks') !== null;
-        
-        if (!hasRemarksInStorage) {
-          // First time loading - set product name
-          remarksDisplay.textContent = product['製品名'];
-          console.log(`✅ Set product name to: ${product['製品名']}`);
-        } else {
-          // User has interacted with field before - respect their saved value (even if empty)
-          console.log(`ℹ️ Remarks field has been set by user, not overwriting`);
-        }
-      }
+      // Remarks are user-only; do not auto-fill from product data.
       
       // Set LH/RH dropdown based on product data
       if (product['LH/RH']) {
@@ -979,6 +1055,9 @@ async function loadProductByKanbanID(kanbanId) {
       // Set kensaMembers (default to 2 if not specified)
       const kensaMembers = product.kensaMembers || 2;
       console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+      // Save kensaMembers to localStorage for persistence
+      localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
       
       // Show/hide columns based on kensaMembers
       updateKensaMembersDisplay(kensaMembers);
@@ -997,6 +1076,7 @@ async function loadProductByKanbanID(kanbanId) {
       }
       // Default to 2 members if product not found
       updateKensaMembersDisplay(2);
+      updateInlineInfo();
     }
   } catch (error) {
     console.error('❌ Error loading product info:', error);
@@ -1013,6 +1093,7 @@ async function loadProductByKanbanID(kanbanId) {
     }
     // Default to 2 members on error
     updateKensaMembersDisplay(2);
+    updateInlineInfo();
   }
 }
 
@@ -1051,6 +1132,9 @@ async function loadProductInfoOld() {
       // Set kensaMembers (default to 2 if not specified)
       const kensaMembers = product.kensaMembers || 2;
       console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+      // Save kensaMembers to localStorage for persistence
+      localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
       
       // Show/hide columns based on kensaMembers
       updateKensaMembersDisplay(kensaMembers);
@@ -1095,6 +1179,56 @@ function updateKensaMembersDisplay(kensaMembers) {
       }
     }
   });
+}
+
+// ============================================================
+// 🔹 UPDATE INLINE INFO (ボタン card header)
+// ============================================================
+function updateInlineInfo() {
+  // Update product name
+  const inlineProductName = document.getElementById('inlineProductName');
+  if (inlineProductName) {
+    inlineProductName.textContent = currentProductName || '-';
+  }
+  
+  // Update LH/RH
+  const inlineLhRh = document.getElementById('inlineLhRh');
+  const lhRhSelect = document.getElementById('lhRh');
+  if (inlineLhRh && lhRhSelect) {
+    inlineLhRh.textContent = lhRhSelect.value || '-';
+  }
+  
+  // Update Kanban ID
+  const inlineKanbanId = document.getElementById('inlineKanbanId');
+  const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+  if (inlineKanbanId) {
+    // Get kanban value from the display (remove comma prefix if present)
+    let kanbanValue = kanbanIdDisplay ? kanbanIdDisplay.textContent.replace(/^,\s*/, '') : '';
+    inlineKanbanId.textContent = kanbanValue || '-';
+  }
+  
+  // Update Posters (dynamic - show only those with values)
+  const inlinePosters = document.getElementById('inlinePosters');
+  if (inlinePosters) {
+    const poster1 = document.getElementById('poster1');
+    const poster2 = document.getElementById('poster2');
+    const poster3 = document.getElementById('poster3');
+    
+    const posters = [];
+    if (poster1 && poster1.value && poster1.selectedIndex > 0) {
+      posters.push(poster1.options[poster1.selectedIndex].text);
+    }
+    if (poster2 && poster2.value && poster2.selectedIndex > 0 && poster2.closest('.info-cell')?.style.display !== 'none') {
+      posters.push(poster2.options[poster2.selectedIndex].text);
+    }
+    if (poster3 && poster3.value && poster3.selectedIndex > 0 && poster3.closest('.info-cell')?.style.display !== 'none') {
+      posters.push(poster3.options[poster3.selectedIndex].text);
+    }
+    
+    inlinePosters.textContent = posters.length > 0 ? posters.join(', ') : '-';
+  }
+  
+  console.log('📋 Updated inline info in ボタン card header');
 }
 
 // ============================================================
@@ -1151,6 +1285,12 @@ function updateWorkCount() {
     workCountInput.value = 0;
     saveFieldToLocalStorage('workCount', '0');
     console.log('🔢 Work count: 0 (no starting value set)');
+  }
+  
+  // Update inline work count in defect card header
+  const inlineWorkCount = document.getElementById('inlineWorkCount');
+  if (inlineWorkCount) {
+    inlineWorkCount.textContent = workCountInput.value;
   }
   
   // Update pass count whenever work count changes
@@ -1301,8 +1441,20 @@ function resetBasicSettings() {
     // Re-check start button state after reset
     checkStartButtonState();
     
-    // Check basic settings attention state after reset
+    // Expand basic settings card if collapsed (must happen BEFORE attention check)
+    const basicSettingsCard = document.getElementById('basicSettingsCard');
+    if (basicSettingsCard && basicSettingsCard.classList.contains('collapsed')) {
+      basicSettingsCard.classList.remove('collapsed');
+    }
+    
+    // Check basic settings attention state after reset (card is now expanded, so no wave)
     checkBasicSettingsAttention();
+    
+    // Hide inline info in ボタン card
+    const inlineInfo = document.querySelector('.inline-info');
+    if (inlineInfo) {
+      inlineInfo.classList.remove('visible');
+    }
   }
 }
 
@@ -1314,6 +1466,7 @@ function resetButtonData() {
 }
 
 function resetDefectCounters() {
+  if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
   if (confirm('不良カウンターをリセットしますか？')) {
     document.querySelectorAll('.counter-number').forEach(counter => {
       counter.textContent = '0';
@@ -1380,12 +1533,29 @@ function checkStartButtonState() {
   if (hasKanbanValue && hasPoster1 && startTimeEmpty) {
     // Enable button
     startButton.classList.remove('disabled');
-    console.log('✅ Start button ENABLED');
+    // Unlock scroll when button is enabled (user can now press start)
+    document.body.classList.remove('scroll-locked');
+    console.log('✅ Start button ENABLED, scroll unlocked');
   } else {
     // Disable button
     startButton.classList.add('disabled');
-    console.log('🔒 Start button DISABLED');
+
+    // Lock scroll when button is disabled
+    if (startTimeEmpty) {
+      // Work not started yet - lock at top
+      document.body.classList.add('scroll-locked');
+      window.scrollTo(0, 0);
+      console.log('🔒 Start button DISABLED, scroll locked at TOP');
+    } else {
+      // Work already started - lock at bottom
+      document.body.classList.add('scroll-locked');
+      window.scrollTo(0, document.body.scrollHeight);
+      console.log('🔒 Start button DISABLED (work started), scroll locked at BOTTOM');
+    }
   }
+
+  // Update defect counter lock state whenever kanban/poster1 changes
+  updateDefectCounterState();
 }
 
 // Start work button clicked
@@ -1427,6 +1597,34 @@ function startWork() {
   
   // Grey out button after recording time
   checkStartButtonState();
+  
+  // Collapse/hide the basic settings card
+  const basicSettingsCard = document.getElementById('basicSettingsCard');
+  if (basicSettingsCard) {
+    basicSettingsCard.classList.add('collapsed');
+    console.log('📋 Basic settings card collapsed');
+  }
+  
+  // Show inline info in button card header
+  const inlineInfo = document.querySelector('.inline-info');
+  if (inlineInfo) {
+    updateInlineInfo();
+    inlineInfo.classList.add('visible');
+    console.log('📋 Inline info now visible');
+  }
+  
+  // Scroll to bottom then lock
+  setTimeout(() => {
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'
+    });
+    // Lock scroll at bottom after scrolling completes
+    setTimeout(() => {
+      document.body.classList.add('scroll-locked');
+      console.log('📜 Auto-scrolled to bottom and locked');
+    }, 500);
+  }, 100);
   
   // Check basic settings attention state (startTime is now filled)
   checkBasicSettingsAttention();
@@ -1475,6 +1673,12 @@ async function sendData() {
         poster1Select.style.boxShadow = '';
       }
     }
+
+    // if (missingFields.length > 0) {
+    //   console.warn('⚠️ Validation failed - missing required fields:', missingFields);
+    // } else {
+    //   console.log('✅ Validation passed - all required fields are filled');
+    // }
     
     // If there are missing fields, show alert and stop submission
     if (missingFields.length > 0) {
@@ -1719,8 +1923,50 @@ function updateDefectSum() {
   
   console.log('🔴 Total defects:', total);
   
+  // Update counter colors based on values
+  updateDefectCounterColors();
+  
   // Update pass count whenever defects change
   updatePassCount();
+}
+
+// Update counter display colors: black if 0, red if > 0
+function updateDefectCounterColors() {
+  const counterDisplays = document.querySelectorAll('.counter-display');
+  counterDisplays.forEach(display => {
+    const counterNumber = display.querySelector('.counter-number');
+    if (counterNumber) {
+      const value = parseInt(counterNumber.textContent) || 0;
+      display.style.color = value > 0 ? '#c62828' : '#424242';
+    }
+  });
+}
+
+// Lock/unlock defect counters based on conditions
+function updateDefectCounterState() {
+  const defectCard = document.getElementById('defectCard');
+  if (!defectCard) return;
+
+  const poster1 = document.getElementById('poster1');
+  const poster1Empty = !poster1 || poster1.value === '';
+
+  function isValidValue(value) {
+    if (!value || value === null || value === '') return false;
+    const s = String(value);
+    return !/^[\x00]+$/.test(s) && s.trim() !== '';
+  }
+
+  const noKanban = !isValidValue(kenyokiRHKanbanValue);
+  const breakActive = breakStartTime !== null;
+  const troubleActive = troubleStartTime !== null;
+
+  if (noKanban || poster1Empty || breakActive || troubleActive) {
+    defectCard.classList.add('defect-locked');
+    console.log('🔒 Defect counters locked:', { noKanban, poster1Empty, breakActive, troubleActive });
+  } else {
+    defectCard.classList.remove('defect-locked');
+    console.log('🔓 Defect counters unlocked');
+  }
 }
 
 // Calculate and update pass count: workCount - defects
@@ -1738,11 +1984,18 @@ function updatePassCount() {
   passCountInput.value = passCount;
   saveFieldToLocalStorage('passCount', passCount);
   console.log(`✅ Pass count: ${workCount} - ${defects} = ${passCount}`);
+  
+  // Update inline pass count in defect card header
+  const inlinePassCount = document.getElementById('inlinePassCount');
+  if (inlinePassCount) {
+    inlinePassCount.textContent = passCount;
+  }
 }
 
 // Add click handlers for counter buttons (increment)
 document.querySelectorAll('.counter-button').forEach((button, index) => {
   button.addEventListener('click', function() {
+    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
     const counterDisplay = this.previousElementSibling;
     const counterNumber = counterDisplay.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
@@ -1755,6 +2008,7 @@ document.querySelectorAll('.counter-button').forEach((button, index) => {
 // Add click handlers for counter displays (decrement)
 document.querySelectorAll('.counter-display').forEach((display, index) => {
   display.addEventListener('click', function() {
+    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
     const counterNumber = this.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
     if (currentCount > 0) {
