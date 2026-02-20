@@ -456,6 +456,34 @@ function restoreAllFields() {
       }
     });
     
+    // Restore product name and kanban ID for inline info
+    const savedProductName = localStorage.getItem('tablet_currentProductName');
+    if (savedProductName !== null) {
+      currentProductName = savedProductName;
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      if (productNameDisplay && savedProductName) {
+        productNameDisplay.textContent = savedProductName;
+      }
+      console.log(`📦 Restored currentProductName:`, savedProductName);
+    }
+    
+    const savedKanbanID = localStorage.getItem('tablet_kanbanID');
+    if (savedKanbanID) {
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (kanbanIdDisplay) {
+        kanbanIdDisplay.textContent = ', ' + savedKanbanID;
+      }
+      console.log(`📦 Restored kanbanID:`, savedKanbanID);
+    }
+    
+    // Restore kensaMembers to show/hide poster cells correctly
+    const savedKensaMembers = localStorage.getItem('tablet_kensaMembers');
+    if (savedKensaMembers) {
+      const kensaMembers = parseInt(savedKensaMembers, 10);
+      updateKensaMembersDisplay(kensaMembers);
+      console.log(`📦 Restored kensaMembers:`, kensaMembers);
+    }
+    
     // Update calculated fields
     updateDefectSum();
     updateWorkCount();
@@ -766,6 +794,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Restore all fields from localStorage
   restoreAllFields();
   
+  // Update inline info after restoring fields
+  updateInlineInfo();
+  
+  // If work has already started (startTime has value), show inline info and collapse basic settings
+  const startTimeInput = document.getElementById('startTime');
+  if (startTimeInput && startTimeInput.value) {
+    const inlineInfo = document.querySelector('.inline-info');
+    if (inlineInfo) {
+      inlineInfo.classList.add('visible');
+      console.log('📋 Work already started, showing inline info');
+    }
+    const basicSettingsCard = document.getElementById('basicSettingsCard');
+    if (basicSettingsCard) {
+      basicSettingsCard.classList.add('collapsed');
+      console.log('📋 Work already started, collapsing basic settings card');
+    }
+  }
+  
   // Add event listener for poster1 dropdown changes
   const poster1Select = document.getElementById('poster1');
   if (poster1Select) {
@@ -790,6 +836,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (fieldId === 'poster1') {
           checkBasicSettingsAttention(); // Check attention state when poster1 changes
         }
+        // Update inline info when any dropdown changes
+        updateInlineInfo();
       });
     }
   });
@@ -938,6 +986,10 @@ async function loadProductByKanbanID(kanbanId) {
       currentProductId = product.品番;
       currentProductName = product['製品名'] || '';
       
+      // Save to localStorage for persistence across page reloads
+      localStorage.setItem('tablet_currentProductName', currentProductName);
+      localStorage.setItem('tablet_kanbanID', product.kanbanID || '');
+      
       // Set product name and kanbanID in header title
       const productNameDisplay = document.getElementById('productNameDisplay');
       const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
@@ -980,6 +1032,9 @@ async function loadProductByKanbanID(kanbanId) {
       const kensaMembers = product.kensaMembers || 2;
       console.log(`👥 KensaMembers: ${kensaMembers}`);
       
+      // Save kensaMembers to localStorage for persistence
+      localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
+      
       // Show/hide columns based on kensaMembers
       updateKensaMembersDisplay(kensaMembers);
     } else {
@@ -997,6 +1052,7 @@ async function loadProductByKanbanID(kanbanId) {
       }
       // Default to 2 members if product not found
       updateKensaMembersDisplay(2);
+      updateInlineInfo();
     }
   } catch (error) {
     console.error('❌ Error loading product info:', error);
@@ -1013,6 +1069,7 @@ async function loadProductByKanbanID(kanbanId) {
     }
     // Default to 2 members on error
     updateKensaMembersDisplay(2);
+    updateInlineInfo();
   }
 }
 
@@ -1051,6 +1108,9 @@ async function loadProductInfoOld() {
       // Set kensaMembers (default to 2 if not specified)
       const kensaMembers = product.kensaMembers || 2;
       console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+      // Save kensaMembers to localStorage for persistence
+      localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
       
       // Show/hide columns based on kensaMembers
       updateKensaMembersDisplay(kensaMembers);
@@ -1095,6 +1155,56 @@ function updateKensaMembersDisplay(kensaMembers) {
       }
     }
   });
+}
+
+// ============================================================
+// 🔹 UPDATE INLINE INFO (ボタン card header)
+// ============================================================
+function updateInlineInfo() {
+  // Update product name
+  const inlineProductName = document.getElementById('inlineProductName');
+  if (inlineProductName) {
+    inlineProductName.textContent = currentProductName || '-';
+  }
+  
+  // Update LH/RH
+  const inlineLhRh = document.getElementById('inlineLhRh');
+  const lhRhSelect = document.getElementById('lhRh');
+  if (inlineLhRh && lhRhSelect) {
+    inlineLhRh.textContent = lhRhSelect.value || '-';
+  }
+  
+  // Update Kanban ID
+  const inlineKanbanId = document.getElementById('inlineKanbanId');
+  const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+  if (inlineKanbanId) {
+    // Get kanban value from the display (remove comma prefix if present)
+    let kanbanValue = kanbanIdDisplay ? kanbanIdDisplay.textContent.replace(/^,\s*/, '') : '';
+    inlineKanbanId.textContent = kanbanValue || '-';
+  }
+  
+  // Update Posters (dynamic - show only those with values)
+  const inlinePosters = document.getElementById('inlinePosters');
+  if (inlinePosters) {
+    const poster1 = document.getElementById('poster1');
+    const poster2 = document.getElementById('poster2');
+    const poster3 = document.getElementById('poster3');
+    
+    const posters = [];
+    if (poster1 && poster1.value && poster1.selectedIndex > 0) {
+      posters.push(poster1.options[poster1.selectedIndex].text);
+    }
+    if (poster2 && poster2.value && poster2.selectedIndex > 0 && poster2.closest('.info-cell')?.style.display !== 'none') {
+      posters.push(poster2.options[poster2.selectedIndex].text);
+    }
+    if (poster3 && poster3.value && poster3.selectedIndex > 0 && poster3.closest('.info-cell')?.style.display !== 'none') {
+      posters.push(poster3.options[poster3.selectedIndex].text);
+    }
+    
+    inlinePosters.textContent = posters.length > 0 ? posters.join(', ') : '-';
+  }
+  
+  console.log('📋 Updated inline info in ボタン card header');
 }
 
 // ============================================================
@@ -1303,6 +1413,18 @@ function resetBasicSettings() {
     
     // Check basic settings attention state after reset
     checkBasicSettingsAttention();
+    
+    // Hide inline info in ボタン card
+    const inlineInfo = document.querySelector('.inline-info');
+    if (inlineInfo) {
+      inlineInfo.classList.remove('visible');
+    }
+    
+    // Expand basic settings card if collapsed
+    const basicSettingsCard = document.getElementById('basicSettingsCard');
+    if (basicSettingsCard && basicSettingsCard.classList.contains('collapsed')) {
+      basicSettingsCard.classList.remove('collapsed');
+    }
   }
 }
 
@@ -1448,6 +1570,14 @@ function startWork() {
     console.log('📋 Basic settings card collapsed');
   }
   
+  // Show inline info in button card header
+  const inlineInfo = document.querySelector('.inline-info');
+  if (inlineInfo) {
+    updateInlineInfo();
+    inlineInfo.classList.add('visible');
+    console.log('📋 Inline info now visible');
+  }
+  
   // Scroll to bottom then lock
   setTimeout(() => {
     window.scrollTo({
@@ -1508,6 +1638,12 @@ async function sendData() {
         poster1Select.style.boxShadow = '';
       }
     }
+
+    // if (missingFields.length > 0) {
+    //   console.warn('⚠️ Validation failed - missing required fields:', missingFields);
+    // } else {
+    //   console.log('✅ Validation passed - all required fields are filled');
+    // }
     
     // If there are missing fields, show alert and stop submission
     if (missingFields.length > 0) {
