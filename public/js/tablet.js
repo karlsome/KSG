@@ -854,13 +854,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
   
-  // Add change listeners for text inputs
-  const textInputs = ['workTime', 'manHours', 'otherDetails'];
+  // Add change listeners for regular text inputs (input elements)
+  const textInputs = ['workTime', 'manHours'];
   textInputs.forEach(fieldId => {
     const field = document.getElementById(fieldId);
     if (field) {
       field.addEventListener('input', () => {
         saveFieldToLocalStorage(fieldId, field.value);
+      });
+    }
+  });
+  
+  // Add change listeners for contentEditable fields (use textContent, not value)
+  const contentEditableFields = ['otherDetails', 'remarks'];
+  contentEditableFields.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('input', () => {
+        saveFieldToLocalStorage(fieldId, field.textContent);
       });
     }
   });
@@ -1014,21 +1025,7 @@ async function loadProductByKanbanID(kanbanId) {
         console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
       }
       
-      // Set product name in remarks display (only if never set before)
-      const remarksDisplay = document.getElementById('remarks');
-      if (remarksDisplay && product['製品名']) {
-        // Check if user has ever interacted with this field (localStorage exists)
-        const hasRemarksInStorage = localStorage.getItem('tablet_remarks') !== null;
-        
-        if (!hasRemarksInStorage) {
-          // First time loading - set product name
-          remarksDisplay.textContent = product['製品名'];
-          console.log(`✅ Set product name to: ${product['製品名']}`);
-        } else {
-          // User has interacted with field before - respect their saved value (even if empty)
-          console.log(`ℹ️ Remarks field has been set by user, not overwriting`);
-        }
-      }
+      // Remarks are user-only; do not auto-fill from product data.
       
       // Set LH/RH dropdown based on product data
       if (product['LH/RH']) {
