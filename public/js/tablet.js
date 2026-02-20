@@ -1441,19 +1441,19 @@ function resetBasicSettings() {
     // Re-check start button state after reset
     checkStartButtonState();
     
-    // Check basic settings attention state after reset
+    // Expand basic settings card if collapsed (must happen BEFORE attention check)
+    const basicSettingsCard = document.getElementById('basicSettingsCard');
+    if (basicSettingsCard && basicSettingsCard.classList.contains('collapsed')) {
+      basicSettingsCard.classList.remove('collapsed');
+    }
+    
+    // Check basic settings attention state after reset (card is now expanded, so no wave)
     checkBasicSettingsAttention();
     
     // Hide inline info in ボタン card
     const inlineInfo = document.querySelector('.inline-info');
     if (inlineInfo) {
       inlineInfo.classList.remove('visible');
-    }
-    
-    // Expand basic settings card if collapsed
-    const basicSettingsCard = document.getElementById('basicSettingsCard');
-    if (basicSettingsCard && basicSettingsCard.classList.contains('collapsed')) {
-      basicSettingsCard.classList.remove('collapsed');
     }
   }
 }
