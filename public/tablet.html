@@ -875,7 +875,13 @@
     <!-- Card 3: Defect Counter -->
     <div class="card" id="defectCard">
       <div class="card-header">
-        <div class="card-title">不良カウンター : <span id="defectSum" style="font-weight: bold; color: #f44336;">0</span></div>
+        <div class="card-title">
+          不良カウンター : <span id="defectSum" style="font-weight: bold; color: #f44336;">0</span>
+          <span class="info-divider" style="color: #e0e0e0; font-weight: 300; margin-left: 8px;">|</span>
+          <span style="font-weight: 500; color: #424242; font-size: 11px;">作業数: <span id="inlineWorkCount">0</span></span>
+          <span class="info-divider" style="color: #e0e0e0; font-weight: 300;">|</span>
+          <span style="font-weight: 500; color: #424242; font-size: 11px;">合格数: <span id="inlinePassCount">0</span></span>
+        </div>
         <button class="reset-button" onclick="resetDefectCounters()">リセット</button>
       </div>
       <div class="counter-grid">

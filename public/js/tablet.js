@@ -488,6 +488,18 @@ function restoreAllFields() {
     updateDefectSum();
     updateWorkCount();
     
+    // Update inline values from restored fields (in case OPC data not yet available)
+    const workCountInput = document.getElementById('workCount');
+    const passCountInput = document.getElementById('passCount');
+    const inlineWorkCount = document.getElementById('inlineWorkCount');
+    const inlinePassCount = document.getElementById('inlinePassCount');
+    if (inlineWorkCount && workCountInput) {
+      inlineWorkCount.textContent = workCountInput.value || '0';
+    }
+    if (inlinePassCount && passCountInput) {
+      inlinePassCount.textContent = passCountInput.value || '0';
+    }
+    
     // Restart work timer if start time exists
     const savedStartTime = localStorage.getItem('tablet_startTime');
     const savedWorkStartTime = localStorage.getItem('workStartTime');
@@ -1263,6 +1275,12 @@ function updateWorkCount() {
     console.log('🔢 Work count: 0 (no starting value set)');
   }
   
+  // Update inline work count in defect card header
+  const inlineWorkCount = document.getElementById('inlineWorkCount');
+  if (inlineWorkCount) {
+    inlineWorkCount.textContent = workCountInput.value;
+  }
+  
   // Update pass count whenever work count changes
   updatePassCount();
 }
@@ -1907,6 +1925,12 @@ function updatePassCount() {
   passCountInput.value = passCount;
   saveFieldToLocalStorage('passCount', passCount);
   console.log(`✅ Pass count: ${workCount} - ${defects} = ${passCount}`);
+  
+  // Update inline pass count in defect card header
+  const inlinePassCount = document.getElementById('inlinePassCount');
+  if (inlinePassCount) {
+    inlinePassCount.textContent = passCount;
+  }
 }
 
 // Add click handlers for counter buttons (increment)
