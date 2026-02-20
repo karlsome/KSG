@@ -440,6 +440,19 @@
       background: #ffe0b2;
     }
 
+    /* Defect counter locked state */
+    #defectCard.defect-locked .counter-display,
+    #defectCard.defect-locked .counter-button {
+      opacity: 0.35;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    #defectCard.defect-locked .reset-button {
+      opacity: 0.35;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+
     .bottom-section {
       display: grid;
       grid-template-columns: 2fr 1fr auto auto;

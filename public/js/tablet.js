@@ -197,6 +197,9 @@ function startBreakTimer() {
   
   // Update every second
   breakTimerInterval = setInterval(updateBreakTimer, 1000);
+
+  // Lock defect counters while break is active
+  updateDefectCounterState();
 }
 
 // Stop break timer
@@ -278,6 +281,9 @@ function completeBreak() {
   if (timerDisplay) {
     timerDisplay.textContent = '00:00';
   }
+
+  // Re-evaluate defect counter lock state
+  updateDefectCounterState();
   
   console.log('✅ Break modal closed');
 }
@@ -307,6 +313,9 @@ function startTroubleTimer() {
   
   // Update every second
   troubleTimerInterval = setInterval(updateTroubleTimer, 1000);
+
+  // Lock defect counters while trouble is active
+  updateDefectCounterState();
 }
 
 // Stop machine trouble timer
@@ -388,6 +397,9 @@ function completeTrouble() {
   if (timerDisplay) {
     timerDisplay.textContent = '00:00';
   }
+
+  // Re-evaluate defect counter lock state
+  updateDefectCounterState();
   
   console.log('✅ Machine trouble modal closed');
 }
@@ -569,6 +581,9 @@ function restoreAllFields() {
   } catch (e) {
     console.error('Failed to restore fields:', e);
   }
+
+  // Restore defect counter lock state
+  updateDefectCounterState();
   
   // Restore collapsed state of basic settings card
   restoreBasicSettingsState();
@@ -1451,6 +1466,7 @@ function resetButtonData() {
 }
 
 function resetDefectCounters() {
+  if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
   if (confirm('不良カウンターをリセットしますか？')) {
     document.querySelectorAll('.counter-number').forEach(counter => {
       counter.textContent = '0';
@@ -1523,6 +1539,7 @@ function checkStartButtonState() {
   } else {
     // Disable button
     startButton.classList.add('disabled');
+
     // Lock scroll when button is disabled
     if (startTimeEmpty) {
       // Work not started yet - lock at top
@@ -1536,6 +1553,9 @@ function checkStartButtonState() {
       console.log('🔒 Start button DISABLED (work started), scroll locked at BOTTOM');
     }
   }
+
+  // Update defect counter lock state whenever kanban/poster1 changes
+  updateDefectCounterState();
 }
 
 // Start work button clicked
@@ -1922,6 +1942,33 @@ function updateDefectCounterColors() {
   });
 }
 
+// Lock/unlock defect counters based on conditions
+function updateDefectCounterState() {
+  const defectCard = document.getElementById('defectCard');
+  if (!defectCard) return;
+
+  const poster1 = document.getElementById('poster1');
+  const poster1Empty = !poster1 || poster1.value === '';
+
+  function isValidValue(value) {
+    if (!value || value === null || value === '') return false;
+    const s = String(value);
+    return !/^[\x00]+$/.test(s) && s.trim() !== '';
+  }
+
+  const noKanban = !isValidValue(kenyokiRHKanbanValue);
+  const breakActive = breakStartTime !== null;
+  const troubleActive = troubleStartTime !== null;
+
+  if (noKanban || poster1Empty || breakActive || troubleActive) {
+    defectCard.classList.add('defect-locked');
+    console.log('🔒 Defect counters locked:', { noKanban, poster1Empty, breakActive, troubleActive });
+  } else {
+    defectCard.classList.remove('defect-locked');
+    console.log('🔓 Defect counters unlocked');
+  }
+}
+
 // Calculate and update pass count: workCount - defects
 function updatePassCount() {
   const workCountInput = document.getElementById('workCount');
@@ -1948,6 +1995,7 @@ function updatePassCount() {
 // Add click handlers for counter buttons (increment)
 document.querySelectorAll('.counter-button').forEach((button, index) => {
   button.addEventListener('click', function() {
+    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
     const counterDisplay = this.previousElementSibling;
     const counterNumber = counterDisplay.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
@@ -1960,6 +2008,7 @@ document.querySelectorAll('.counter-button').forEach((button, index) => {
 // Add click handlers for counter displays (decrement)
 document.querySelectorAll('.counter-display').forEach((display, index) => {
   display.addEventListener('click', function() {
+    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
     const counterNumber = this.querySelector('.counter-number');
     const currentCount = parseInt(counterNumber.textContent);
     if (currentCount > 0) {
