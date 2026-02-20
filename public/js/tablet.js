@@ -1380,11 +1380,24 @@ function checkStartButtonState() {
   if (hasKanbanValue && hasPoster1 && startTimeEmpty) {
     // Enable button
     startButton.classList.remove('disabled');
-    console.log('✅ Start button ENABLED');
+    // Unlock scroll when button is enabled (user can now press start)
+    document.body.classList.remove('scroll-locked');
+    console.log('✅ Start button ENABLED, scroll unlocked');
   } else {
     // Disable button
     startButton.classList.add('disabled');
-    console.log('🔒 Start button DISABLED');
+    // Lock scroll when button is disabled
+    if (startTimeEmpty) {
+      // Work not started yet - lock at top
+      document.body.classList.add('scroll-locked');
+      window.scrollTo(0, 0);
+      console.log('🔒 Start button DISABLED, scroll locked at TOP');
+    } else {
+      // Work already started - lock at bottom
+      document.body.classList.add('scroll-locked');
+      window.scrollTo(0, document.body.scrollHeight);
+      console.log('🔒 Start button DISABLED (work started), scroll locked at BOTTOM');
+    }
   }
 }
 
@@ -1427,6 +1440,26 @@ function startWork() {
   
   // Grey out button after recording time
   checkStartButtonState();
+  
+  // Collapse/hide the basic settings card
+  const basicSettingsCard = document.getElementById('basicSettingsCard');
+  if (basicSettingsCard) {
+    basicSettingsCard.classList.add('collapsed');
+    console.log('📋 Basic settings card collapsed');
+  }
+  
+  // Scroll to bottom then lock
+  setTimeout(() => {
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: 'smooth'
+    });
+    // Lock scroll at bottom after scrolling completes
+    setTimeout(() => {
+      document.body.classList.add('scroll-locked');
+      console.log('📜 Auto-scrolled to bottom and locked');
+    }, 500);
+  }, 100);
   
   // Check basic settings attention state (startTime is now filled)
   checkBasicSettingsAttention();
