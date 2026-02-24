@@ -3679,7 +3679,10 @@ function addNGItemRow(item = null) {
 
   const row = document.createElement('div');
   row.className = 'flex items-center gap-2 ng-item-row p-2 bg-gray-50 border border-gray-200 rounded-lg';
+  row.draggable = true;
   row.innerHTML = `
+    <span class="ng-drag-handle flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 px-1 text-lg select-none" title="ドラッグして並び替え">⠿</span>
+    <span class="ng-order-badge flex-shrink-0 w-6 h-6 rounded-full bg-gray-300 text-gray-700 text-xs font-bold flex items-center justify-center select-none">?</span>
     <input type="text" placeholder="不良名（例: シルバー）" value="${name.replace(/"/g, '&quot;')}"
            class="flex-1 px-2 py-1.5 border rounded ng-item-name text-sm" />
     <div class="flex items-center gap-1">
@@ -3695,7 +3698,17 @@ function addNGItemRow(item = null) {
       <i class="ri-delete-bin-line"></i>
     </button>
   `;
+
+  // Drag-and-drop events
+  row.addEventListener('dragstart', _ngDragStart);
+  row.addEventListener('dragover',  _ngDragOver);
+  row.addEventListener('dragenter', _ngDragEnter);
+  row.addEventListener('dragleave', _ngDragLeave);
+  row.addEventListener('drop',      _ngDrop);
+  row.addEventListener('dragend',   _ngDragEnd);
+
   list.appendChild(row);
+  renumberNGItems();
 }
 
 function removeNGItem(btn) {
@@ -3705,6 +3718,68 @@ function removeNGItem(btn) {
   if (list && list.children.length === 0) {
     document.getElementById('ngItemsEmpty')?.classList.remove('hidden');
   }
+  renumberNGItems();
+}
+
+// Update the ① ② … badges on every row
+function renumberNGItems() {
+  const rows = document.querySelectorAll('#ngItemsList .ng-item-row');
+  rows.forEach((row, i) => {
+    const badge = row.querySelector('.ng-order-badge');
+    if (badge) badge.textContent = i + 1;
+  });
+}
+
+// ── Drag-and-drop state ──────────────────────────────────────
+let _ngDragSrc = null;
+
+function _ngDragStart(e) {
+  _ngDragSrc = this;
+  e.dataTransfer.effectAllowed = 'move';
+  this.style.opacity = '0.5';
+}
+
+function _ngDragEnter(e) {
+  e.preventDefault();
+  if (this !== _ngDragSrc) {
+    this.classList.add('ring-2', 'ring-blue-400');
+  }
+}
+
+function _ngDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  return false;
+}
+
+function _ngDragLeave() {
+  this.classList.remove('ring-2', 'ring-blue-400');
+}
+
+function _ngDrop(e) {
+  e.stopPropagation();
+  if (_ngDragSrc && this !== _ngDragSrc) {
+    const list = document.getElementById('ngItemsList');
+    const rows = Array.from(list.querySelectorAll('.ng-item-row'));
+    const srcIdx  = rows.indexOf(_ngDragSrc);
+    const destIdx = rows.indexOf(this);
+
+    if (srcIdx < destIdx) {
+      list.insertBefore(_ngDragSrc, this.nextSibling);
+    } else {
+      list.insertBefore(_ngDragSrc, this);
+    }
+    renumberNGItems();
+  }
+  this.classList.remove('ring-2', 'ring-blue-400');
+  return false;
+}
+
+function _ngDragEnd() {
+  this.style.opacity = '';
+  document.querySelectorAll('#ngItemsList .ng-item-row').forEach(row => {
+    row.classList.remove('ring-2', 'ring-blue-400');
+  });
 }
 
 async function saveNGGroup() {
