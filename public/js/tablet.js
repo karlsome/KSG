@@ -83,6 +83,7 @@ let currentProductId = ''; // Will be set from URL parameter or selection
 let currentProductName = ''; // Store product name from masterDB
 let availableUsers = []; // Store available users
 let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
+let currentNGGroup = null; // Store currently active NG group for this product
 let seisanSuStartValue = null; // Starting value of seisanSu when work started
 let currentSeisanSuValue = null; // Current seisanSu value
 let hakoIresuValue = null; // Store hakoIresu variable value
@@ -1061,6 +1062,9 @@ async function loadProductByKanbanID(kanbanId) {
       
       // Show/hide columns based on kensaMembers
       updateKensaMembersDisplay(kensaMembers);
+
+      // Render NG buttons from assigned NG group
+      renderNGButtons(product.ngGroup || null);
     } else {
       console.error('❌ Failed to load product:', data.error);
       // Clear product info if not found
@@ -1076,6 +1080,7 @@ async function loadProductByKanbanID(kanbanId) {
       }
       // Default to 2 members if product not found
       updateKensaMembersDisplay(2);
+      renderNGButtons(null);
       updateInlineInfo();
     }
   } catch (error) {
@@ -1093,6 +1098,7 @@ async function loadProductByKanbanID(kanbanId) {
     }
     // Default to 2 members on error
     updateKensaMembersDisplay(2);
+    renderNGButtons(null);
     updateInlineInfo();
   }
 }
@@ -1471,6 +1477,8 @@ function resetDefectCounters() {
     document.querySelectorAll('.counter-number').forEach(counter => {
       counter.textContent = '0';
     });
+    // Clear NG counter localStorage entries
+    Object.keys(localStorage).filter(k => k.startsWith('tablet_ng_')).forEach(k => localStorage.removeItem(k));
     
     // Clear both text fields
     const otherDetails = document.getElementById('otherDetails');
@@ -1910,10 +1918,17 @@ function viewInspectionList() {
 
 // Calculate total defects and update display
 function updateDefectSum() {
-  const counterNumbers = document.querySelectorAll('.counter-number');
+  const counterItems = document.querySelectorAll('.counter-item');
   let total = 0;
-  counterNumbers.forEach(counter => {
-    total += parseInt(counter.textContent) || 0;
+  counterItems.forEach(item => {
+    const button = item.querySelector('.counter-button');
+    const counterNumber = item.querySelector('.counter-number');
+    if (!counterNumber) return;
+    // Only add to total if countUp is not explicitly set to 'false'
+    const countUp = !button || button.getAttribute('data-count-up') !== 'false';
+    if (countUp) {
+      total += parseInt(counterNumber.textContent) || 0;
+    }
   });
   
   const defectSumDisplay = document.getElementById('defectSum');
@@ -1921,7 +1936,7 @@ function updateDefectSum() {
     defectSumDisplay.textContent = total;
   }
   
-  console.log('🔴 Total defects:', total);
+  console.log('🔴 Total defects (countUp only):', total);
   
   // Update counter colors based on values
   updateDefectCounterColors();
@@ -1992,29 +2007,109 @@ function updatePassCount() {
   }
 }
 
-// Add click handlers for counter buttons (increment)
-document.querySelectorAll('.counter-button').forEach((button, index) => {
-  button.addEventListener('click', function() {
-    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
-    const counterDisplay = this.previousElementSibling;
-    const counterNumber = counterDisplay.querySelector('.counter-number');
-    const currentCount = parseInt(counterNumber.textContent);
-    counterNumber.textContent = currentCount + 1;
-    saveFieldToLocalStorage(`defect_${index}`, currentCount + 1);
-    updateDefectSum(); // Update sum after increment
-  });
-});
+// ============================================================
+// 🔹 DYNAMIC NG BUTTONS
+// ============================================================
 
-// Add click handlers for counter displays (decrement)
-document.querySelectorAll('.counter-display').forEach((display, index) => {
-  display.addEventListener('click', function() {
-    if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
-    const counterNumber = this.querySelector('.counter-number');
-    const currentCount = parseInt(counterNumber.textContent);
-    if (currentCount > 0) {
-      counterNumber.textContent = currentCount - 1;
-      saveFieldToLocalStorage(`defect_${index}`, currentCount - 1);
-      updateDefectSum(); // Update sum after decrement
-    }
+// Color helper utilities
+function _hexToRgb(hex) {
+  const h = (hex || '#f44336').replace('#', '');
+  if (h.length !== 6) return { r: 244, g: 67, b: 54 };
+  return {
+    r: parseInt(h.substring(0, 2), 16),
+    g: parseInt(h.substring(2, 4), 16),
+    b: parseInt(h.substring(4, 6), 16)
+  };
+}
+function _mixWithWhite(hex, ratio) {
+  const { r, g, b } = _hexToRgb(hex);
+  return `rgb(${Math.round(r * ratio + 255 * (1 - ratio))},${Math.round(g * ratio + 255 * (1 - ratio))},${Math.round(b * ratio + 255 * (1 - ratio))})`;
+}
+function _darkenColor(hex, ratio) {
+  const { r, g, b } = _hexToRgb(hex);
+  return `rgb(${Math.round(r * ratio)},${Math.round(g * ratio)},${Math.round(b * ratio)})`;
+}
+
+// Render NG buttons dynamically from the product's assigned NG group
+function renderNGButtons(ngGroup) {
+  currentNGGroup = ngGroup;
+  const container = document.getElementById('ngButtonsContainer');
+  if (!container) return;
+
+  if (!ngGroup || !ngGroup.items || ngGroup.items.length === 0) {
+    container.innerHTML = '<p style="color:#bdbdbd;font-size:13px;padding:8px;grid-column:1/-1;">不良グループが割り当てられていません</p>';
+    updateDefectSum();
+    return;
+  }
+
+  container.innerHTML = ngGroup.items.map((item, index) => {
+    const color = item.color || '#f44336';
+    const countUp = item.countUp !== false;
+    const defectName = item.name || `NG_${index}`;
+    const savedCount = localStorage.getItem(`tablet_ng_${defectName}`) || '0';
+
+    const bgColor  = _mixWithWhite(color, 0.18);
+    const bdColor  = _mixWithWhite(color, 0.50);
+    const txtColor = _darkenColor(color, 0.65);
+
+    return `
+      <div class="counter-item">
+        <div class="counter-display">
+          <span class="counter-number">${savedCount}</span>
+        </div>
+        <div class="counter-button"
+             data-defect="${defectName.replace(/"/g, '&quot;')}"
+             data-count-up="${countUp}"
+             style="background:${bgColor};border-color:${bdColor};color:${txtColor};">
+          ${defectName}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  attachNGButtonListeners();
+  updateDefectSum();
+  console.log(`🔴 Rendered ${ngGroup.items.length} NG buttons (group: ${ngGroup.groupName})`);
+}
+
+// Attach click handlers to dynamically rendered NG buttons
+function attachNGButtonListeners() {
+  const container = document.getElementById('ngButtonsContainer');
+  if (!container) return;
+
+  container.querySelectorAll('.counter-button').forEach(button => {
+    // Compute hover background (slightly more saturated than normal)
+    const normalBg = button.style.background;
+    const hoverBg  = button.style.borderColor || normalBg;
+
+    button.addEventListener('mouseenter', () => { button.style.background = hoverBg; });
+    button.addEventListener('mouseleave', () => { button.style.background = normalBg; });
+    button.addEventListener('mousedown',  () => { button.style.background = hoverBg; });
+
+    button.addEventListener('click', function () {
+      if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
+      const counterDisplay = this.previousElementSibling;
+      const counterNumber = counterDisplay.querySelector('.counter-number');
+      const currentCount = parseInt(counterNumber.textContent);
+      counterNumber.textContent = currentCount + 1;
+      const defectName = this.getAttribute('data-defect');
+      localStorage.setItem(`tablet_ng_${defectName}`, currentCount + 1);
+      updateDefectSum();
+    });
   });
-});
+
+  container.querySelectorAll('.counter-display').forEach(display => {
+    display.addEventListener('click', function () {
+      if (document.getElementById('defectCard')?.classList.contains('defect-locked')) return;
+      const counterNumber = this.querySelector('.counter-number');
+      const currentCount = parseInt(counterNumber.textContent);
+      if (currentCount > 0) {
+        counterNumber.textContent = currentCount - 1;
+        const button = this.nextElementSibling;
+        const defectName = button?.getAttribute('data-defect');
+        if (defectName) localStorage.setItem(`tablet_ng_${defectName}`, currentCount - 1);
+        updateDefectSum();
+      }
+    });
+  });
+}

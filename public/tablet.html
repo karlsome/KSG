@@ -898,95 +898,9 @@
         </div>
         <button class="reset-button" onclick="resetDefectCounters()">不良リセット</button>
       </div>
-      <div class="counter-grid">
-        <!-- Row 1: Shoulder defects (Orange) -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button shoulder" data-defect="ショルダー　シルバー">シルバー</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button shoulder" data-defect="ショルダー　キズ">キズ</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button shoulder" data-defect="ショルダー　その他">その他</div>
-        </div>
-
-        <!-- Row 2: Regular defects (Blue) -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="素材不良">素材不良</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="ダブり">ダブり</div>
-        </div>
-
-        <!-- Row 3: More defects -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="ハガレ">ハガレ</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="イブツ">イブツ</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="シワ">シワ</div>
-        </div>
-
-        <!-- Row 4: Final defects -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="ヘンケイ">ヘンケイ</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="グリス付着">グリス付着</div>
-        </div>
-
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="ビス不締まり">ビス不締まり</div>
-        </div>
-
-        <!-- Row 5: Other -->
-        <div class="counter-item">
-          <div class="counter-display">
-            <span class="counter-number">0</span>
-          </div>
-          <div class="counter-button" data-defect="その他">その他</div>
-        </div>
+      <div class="counter-grid" id="ngButtonsContainer">
+        <!-- Dynamically populated by tablet.js based on the NG group assigned to the scanned product -->
+        <p style="color: #bdbdbd; font-size: 13px; padding: 8px; grid-column: 1/-1;">看板をスキャンすると不良ボタンが表示されます</p>
       </div>
 
       <!-- Bottom Section -->

@@ -989,6 +989,18 @@ app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
         }
         
         console.log(`📦 [TABLET] Served product info for kanbanID: ${kanbanId} → ${product.品番}, kensaMembers: ${product.kensaMembers || 2}`);
+
+        // Fetch associated NG group if assigned
+        let ngGroup = null;
+        if (product.ngGroupId) {
+            try {
+                const { ObjectId } = require('mongodb');
+                ngGroup = await db.collection('ngGroups').findOne({ _id: new ObjectId(product.ngGroupId) });
+            } catch (e) {
+                console.warn('⚠️ [TABLET] Failed to load ngGroup for product:', e.message);
+            }
+        }
+
         res.json({
             success: true,
             product: {
@@ -998,7 +1010,9 @@ app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
                 kensaMembers: product.kensaMembers || 2,
                 工場: product.工場,
                 設備: product.設備,
-                kanbanID: product.kanbanID
+                kanbanID: product.kanbanID,
+                ngGroupId: product.ngGroupId || null,
+                ngGroup: ngGroup || null
             }
         });
         
@@ -5294,6 +5308,87 @@ app.post("/deleteMasterRecord", async (req, res) => {
     res.json({ deletedCount: result.deletedCount });
   } catch (err) {
     console.error("Error deleting master record:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// NG GROUPS ROUTES
+// ==========================================
+
+// Get all NG groups
+app.post("/getNGGroups", async (req, res) => {
+  const { dbName } = req.body;
+  if (!dbName) return res.status(400).json({ error: "dbName is required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const groups = await db.collection("ngGroups").find({}).toArray();
+    res.json(groups);
+  } catch (err) {
+    console.error("Error fetching ngGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create NG group
+app.post("/createNGGroup", async (req, res) => {
+  const { dbName, username, groupName, items } = req.body;
+  if (!dbName || !username || !groupName) return res.status(400).json({ error: "dbName, username, groupName required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const newGroup = {
+      groupName,
+      items: items || [],
+      createdBy: username,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const result = await db.collection("ngGroups").insertOne(newGroup);
+    res.json({ message: "NG Group created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating ngGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update NG group
+app.post("/updateNGGroup", async (req, res) => {
+  const { groupId, dbName, username, groupName, items } = req.body;
+  if (!groupId || !dbName || !username) return res.status(400).json({ error: "groupId, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const updateData = { updatedAt: new Date(), updatedBy: username };
+    if (groupName !== undefined) updateData.groupName = groupName;
+    if (items !== undefined) updateData.items = items;
+    const result = await db.collection("ngGroups").updateOne(
+      { _id: new ObjectId(groupId) },
+      { $set: updateData }
+    );
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating ngGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete NG groups (batch)
+app.post("/deleteNGGroups", async (req, res) => {
+  const { groupIds, dbName, username } = req.body;
+  if (!groupIds || !dbName || !username) return res.status(400).json({ error: "groupIds, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const result = await db.collection("ngGroups").deleteMany({
+      _id: { $in: groupIds.map(id => new ObjectId(id)) }
+    });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting ngGroups:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

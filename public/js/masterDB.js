@@ -10,6 +10,7 @@ let allRoles = [];
 let allDepartments = [];
 let allSections = [];
 let allTablets = [];
+let allNGGroups = [];
 let selectedItems = [];
 let currentModalData = null;
 let currentModalType = null;
@@ -33,6 +34,7 @@ window.addEventListener('languageChanged', () => {
 function switchMainTab(tabName) {
   // Hide all content
   document.getElementById('contentMaster').classList.add('hidden');
+  document.getElementById('contentMasterNG').classList.add('hidden');
   document.getElementById('contentFactory').classList.add('hidden');
   document.getElementById('contentEquipment').classList.add('hidden');
   document.getElementById('contentRoles').classList.add('hidden');
@@ -43,6 +45,7 @@ function switchMainTab(tabName) {
 
   // Remove active class from all tabs
   document.getElementById('tabMaster').classList.remove('tab-active');
+  document.getElementById('tabMasterNG').classList.remove('tab-active');
   document.getElementById('tabFactory').classList.remove('tab-active');
   document.getElementById('tabEquipment').classList.remove('tab-active');
   document.getElementById('tabRoles').classList.remove('tab-active');
@@ -58,14 +61,14 @@ function switchMainTab(tabName) {
   document.getElementById(`tab${capitalizeFirst(tabName)}`).classList.add('tab-active');
 
   // Reset sub-tab buttons (if they exist)
-  if (tabName !== 'rpiServer') {
+  if (tabName !== 'rpiServer' && tabName !== 'masterNG') {
     switchSubTab(tabName, 'data');
   }
 
   // Disable/enable 新規登録 button based on tab
   const quickCreateBtn = document.querySelector('button[onclick="showQuickCreateModal()"]');
   if (quickCreateBtn) {
-    if (tabName === 'rpiServer') {
+    if (tabName === 'rpiServer' || tabName === 'masterNG') {
       quickCreateBtn.disabled = true;
       quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
       quickCreateBtn.classList.remove('hover:bg-green-700');
@@ -126,6 +129,9 @@ function loadTabData(tabName) {
       break;
     case 'tablet':
       loadTablets();
+      break;
+  case 'masterNG':
+      loadNGGroups();
       break;
   }
 }
@@ -434,8 +440,23 @@ function renderModalDetails(type, data) {
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
+          <div class="col-span-2">
+            <label class="block text-sm font-medium mb-1">不良グループ</label>
+            <input type="text" id="modalNGGroupDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.ngGroupId ? '...' : '未割当'}" disabled />
+            <select id="modalNGGroupSelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white" data-field="ngGroupId">
+              <option value="">未割当（なし）</option>
+            </select>
+          </div>
         </div>
       `;
+      // Populate NG group display name after innerHTML is set
+      if (data.ngGroupId) {
+        setTimeout(() => {
+          const existing = allNGGroups.find(g => g._id?.toString() === data.ngGroupId?.toString());
+          const displayEl = document.getElementById('modalNGGroupDisplay');
+          if (displayEl && existing) displayEl.value = existing.groupName;
+        }, 50);
+      }
       break;
       
     case 'factory':
@@ -707,11 +728,13 @@ async function toggleEditMode() {
   // Load factories and equipment data for master tab
   if (currentModalType === 'master') {
     await loadFactoriesAndEquipmentForModal();
+    // Load NG groups for master tab
+    await loadNGGroupsForModal();
   }
   
   // Enable all inputs
   document.querySelectorAll('#modalDetailsBody input, #modalDetailsBody textarea, #modalDetailsBody select').forEach(el => {
-    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay') {
+    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay' && el.id !== 'modalNGGroupDisplay') {
       el.disabled = false;
       el.classList.remove('bg-gray-50');
       el.classList.add('bg-white');
@@ -895,6 +918,12 @@ async function saveModalChanges() {
     } else {
       updateData['工場'] = '';
     }
+
+    // Get NG group assignment
+    const ngGroupSelect = document.getElementById('modalNGGroupSelect');
+    if (ngGroupSelect && !ngGroupSelect.classList.contains('hidden')) {
+      updateData['ngGroupId'] = ngGroupSelect.value || null;
+    }
   }
   
   // Handle special fields for tablet
@@ -913,7 +942,7 @@ async function saveModalChanges() {
   }
   
   // Get other fields (excluding selects which are handled above)
-  document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
+  document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay):not(#modalNGGroupDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
     if (!el.disabled) {
       const field = el.dataset.field;
       let value = el.value;
@@ -3420,3 +3449,304 @@ function openTabletUrl() {
   const url = document.getElementById('tabletUrlInput').value;
   window.open(url, '_blank');
 }
+
+// ====================
+// NG Groups - Modal Helper (edit mode in master record)
+// ====================
+async function loadNGGroupsForModal() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  try {
+    const res = await fetch(BASE_URL + "getNGGroups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    allNGGroups = await res.json();
+  } catch (e) {
+    console.error("Failed to load ngGroups for modal:", e);
+    allNGGroups = [];
+  }
+
+  // Populate select
+  const select = document.getElementById('modalNGGroupSelect');
+  const display = document.getElementById('modalNGGroupDisplay');
+  if (!select) return;
+
+  select.innerHTML = '<option value="">未割当（なし）</option>';
+  allNGGroups.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g._id;
+    opt.textContent = g.groupName;
+    if (currentModalData && String(currentModalData.ngGroupId) === String(g._id)) opt.selected = true;
+    select.appendChild(opt);
+  });
+
+  // Swap display → select
+  if (display) display.classList.add('hidden');
+  select.classList.remove('hidden');
+}
+
+// ====================
+// Master NG Tab Functions
+// ====================
+async function loadNGGroups() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  document.getElementById('masterNGTableContainer').innerHTML = '<p class="text-gray-500">読み込み中...</p>';
+  try {
+    const res = await fetch(BASE_URL + "getNGGroups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    allNGGroups = await res.json();
+    renderNGGroupsTable(allNGGroups);
+  } catch (e) {
+    console.error("Failed to load ngGroups:", e);
+    document.getElementById('masterNGTableContainer').innerHTML = '<p class="text-red-500">読み込みエラー</p>';
+  }
+}
+
+function renderNGGroupsTable(groups) {
+  const container = document.getElementById('masterNGTableContainer');
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+
+  const tableHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-3">
+        <button onclick="showNGGroupModal()" class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+          <i class="ri-add-line mr-2"></i>新規グループ作成
+        </button>
+        <button id="deleteNGGroupsBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="confirmDeleteNGGroups()">
+          <i class="ri-delete-bin-line mr-2"></i>削除 (<span id="ngGroupSelectedCount">0</span>)
+        </button>
+      </div>
+      <div class="text-sm text-gray-600">合計: ${groups.length} グループ</div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllNGGroups" onchange="toggleSelectAllNGGroups()" class="rounded"></th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">グループ名</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">不良項目数</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">カラープレビュー</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">作成者</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">作成日時</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-700">操作</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          ${groups.length === 0 ? `
+            <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">グループがありません。「新規グループ作成」から作成してください。</td></tr>
+          ` : groups.map(g => `
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3"><input type="checkbox" class="ngGroupCheckbox rounded" value="${g._id}" onchange="updateNGGroupSelectCount()"></td>
+              <td class="px-4 py-3 font-medium">${g.groupName || ''}</td>
+              <td class="px-4 py-3">${(g.items || []).length} 項目</td>
+              <td class="px-4 py-3">
+                <div class="flex flex-wrap gap-1">
+                  ${(g.items || []).slice(0, 8).map(item => `
+                    <span class="inline-block w-5 h-5 rounded-full border border-gray-200" style="background:${item.color || '#ccc'}" title="${item.name || ''}"></span>
+                  `).join('')}
+                  ${(g.items || []).length > 8 ? `<span class="text-xs text-gray-400">+${(g.items || []).length - 8}</span>` : ''}
+                </div>
+              </td>
+              <td class="px-4 py-3 text-gray-500">${g.createdBy || '-'}</td>
+              <td class="px-4 py-3 text-gray-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
+              <td class="px-4 py-3">
+                <button onclick="showNGGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="text-blue-600 hover:underline text-sm mr-3">
+                  <i class="ri-edit-line mr-1"></i>編集
+                </button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  container.innerHTML = tableHTML;
+}
+
+function toggleSelectAllNGGroups() {
+  const selectAll = document.getElementById('selectAllNGGroups');
+  document.querySelectorAll('.ngGroupCheckbox').forEach(cb => cb.checked = selectAll.checked);
+  updateNGGroupSelectCount();
+}
+
+function updateNGGroupSelectCount() {
+  const checked = document.querySelectorAll('.ngGroupCheckbox:checked').length;
+  const countEl = document.getElementById('ngGroupSelectedCount');
+  const btn = document.getElementById('deleteNGGroupsBtn');
+  if (countEl) countEl.textContent = checked;
+  if (btn) {
+    if (checked > 0) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+}
+
+async function confirmDeleteNGGroups() {
+  const checked = document.querySelectorAll('.ngGroupCheckbox:checked');
+  const ids = Array.from(checked).map(cb => cb.value);
+  if (ids.length === 0) return;
+  if (!confirm(`選択した ${ids.length} 件のグループを削除しますか？\n割り当て済みの製品の不良グループは解除されません。`)) return;
+
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  try {
+    const res = await fetch(BASE_URL + "deleteNGGroups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupIds: ids, dbName, username })
+    });
+    const result = await res.json();
+    alert(`${result.deletedCount} 件削除しました`);
+    loadNGGroups();
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
+// Track which color input is currently focused for palette click
+let _focusedColorInput = null;
+let _editingNGGroup = null;
+
+function setFocusedColorInput(input) {
+  _focusedColorInput = input;
+}
+
+function applyPresetColor(color) {
+  if (_focusedColorInput) {
+    _focusedColorInput.value = color;
+    // Update swatch preview next to the input
+    const swatch = _focusedColorInput.nextElementSibling;
+    if (swatch && swatch.classList.contains('ng-color-swatch')) {
+      swatch.style.background = color;
+    }
+  }
+}
+
+function showNGGroupModal(group = null) {
+  _editingNGGroup = group;
+  const modal = document.getElementById('ngGroupModal');
+  const title = document.getElementById('ngGroupModalTitle');
+  const nameInput = document.getElementById('ngGroupName');
+  const itemsList = document.getElementById('ngItemsList');
+  const emptyMsg = document.getElementById('ngItemsEmpty');
+
+  title.textContent = group ? `不良グループ編集: ${group.groupName}` : '不良グループ新規作成';
+  nameInput.value = group ? group.groupName : '';
+  itemsList.innerHTML = '';
+  _focusedColorInput = null;
+
+  // Wire up palette clicks
+  document.querySelectorAll('.ng-preset-color').forEach(el => {
+    el.onclick = () => applyPresetColor(el.dataset.color);
+  });
+
+  if (group && group.items && group.items.length > 0) {
+    group.items.forEach(item => addNGItemRow(item));
+    emptyMsg.classList.add('hidden');
+  } else {
+    emptyMsg.classList.remove('hidden');
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeNGGroupModal() {
+  document.getElementById('ngGroupModal').classList.add('hidden');
+  _editingNGGroup = null;
+  _focusedColorInput = null;
+}
+
+function addNGItemRow(item = null) {
+  const list = document.getElementById('ngItemsList');
+  const emptyMsg = document.getElementById('ngItemsEmpty');
+  if (emptyMsg) emptyMsg.classList.add('hidden');
+
+  const color = (item && item.color) ? item.color : '#f44336';
+  const name = (item && item.name) ? item.name : '';
+  const countUp = item ? (item.countUp !== false) : true;
+
+  const row = document.createElement('div');
+  row.className = 'flex items-center gap-2 ng-item-row p-2 bg-gray-50 border border-gray-200 rounded-lg';
+  row.innerHTML = `
+    <input type="text" placeholder="不良名（例: シルバー）" value="${name.replace(/"/g, '&quot;')}"
+           class="flex-1 px-2 py-1.5 border rounded ng-item-name text-sm" />
+    <div class="flex items-center gap-1">
+      <input type="color" value="${color}" class="w-9 h-8 border rounded cursor-pointer ng-item-color p-0"
+             onfocus="setFocusedColorInput(this)" oninput="this.nextElementSibling.style.background=this.value" />
+      <span class="ng-color-swatch w-5 h-5 rounded-full border border-gray-300 flex-shrink-0" style="background:${color}"></span>
+    </div>
+    <label class="flex items-center gap-1 text-xs whitespace-nowrap cursor-pointer select-none" title="チェックON: 不良合計にカウント / チェックOFF: カウントしない">
+      <input type="checkbox" class="ng-item-countup" ${countUp ? 'checked' : ''}>
+      <span>合計に含む</span>
+    </label>
+    <button type="button" onclick="removeNGItem(this)" class="text-red-400 hover:text-red-600 flex-shrink-0 p-1">
+      <i class="ri-delete-bin-line"></i>
+    </button>
+  `;
+  list.appendChild(row);
+}
+
+function removeNGItem(btn) {
+  const row = btn.closest('.ng-item-row');
+  if (row) row.remove();
+  const list = document.getElementById('ngItemsList');
+  if (list && list.children.length === 0) {
+    document.getElementById('ngItemsEmpty')?.classList.remove('hidden');
+  }
+}
+
+async function saveNGGroup() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  const groupName = document.getElementById('ngGroupName').value.trim();
+  if (!groupName) { alert('グループ名を入力してください'); return; }
+
+  const items = [];
+  document.querySelectorAll('#ngItemsList .ng-item-row').forEach(row => {
+    const name = row.querySelector('.ng-item-name')?.value.trim();
+    const color = row.querySelector('.ng-item-color')?.value || '#f44336';
+    const countUp = row.querySelector('.ng-item-countup')?.checked !== false;
+    if (name) items.push({ name, color, countUp });
+  });
+
+  try {
+    if (_editingNGGroup && _editingNGGroup._id) {
+      // Update existing
+      const res = await fetch(BASE_URL + "updateNGGroup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: _editingNGGroup._id, dbName, username, groupName, items })
+      });
+      if (!res.ok) throw new Error("Update failed");
+      alert('グループを更新しました');
+    } else {
+      // Create new
+      const res = await fetch(BASE_URL + "createNGGroup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName, username, groupName, items })
+      });
+      if (!res.ok) throw new Error("Create failed");
+      alert('グループを作成しました');
+    }
+    closeNGGroupModal();
+    loadNGGroups();
+  } catch (e) {
+    alert('保存エラー: ' + e.message);
+  }
+}
+
