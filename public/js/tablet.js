@@ -1344,18 +1344,38 @@ function updateUIWithVariables(variables) {
       if (kenyokiRHKanbanValue) {
         loadProductByKanbanID(kenyokiRHKanbanValue);
       } else {
-        // Clear product info when kanban becomes blank
-        console.log('🧹 Clearing product info (kanban is blank)');
-        currentProductId = '';
-        currentProductName = '';
-        const productNameDisplay = document.getElementById('productNameDisplay');
-        const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-        if (productNameDisplay) {
-          productNameDisplay.textContent = '看板なし';
+        // Kanban went blank
+        console.log('🧹 Kanban is blank');
+
+        const workInProgress = !!(document.getElementById('startTime')?.value);
+
+        if (workInProgress) {
+          // Work is still in progress — keep NG buttons, just show 看板なし and lock defects
+          console.log('⚠️ Work in progress — keeping NG buttons, locking defect area');
+
+          const productNameDisplay = document.getElementById('productNameDisplay');
+          const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+          if (productNameDisplay) productNameDisplay.textContent = '看板なし';
+          if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
+          // kenyokiRHKanbanValue is already null, so updateDefectCounterState (called via
+          // checkStartButtonState below) will lock the defect card automatically.
+        } else {
+          // No work in progress — fully reset product info and clear NG buttons
+          console.log('🧹 Clearing product info and NG buttons (kanban blank, not in progress)');
+          currentProductId = '';
+          currentProductName = '';
+          localStorage.removeItem('tablet_currentProductName');
+          localStorage.removeItem('tablet_kanbanID');
+
+          const productNameDisplay = document.getElementById('productNameDisplay');
+          const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+          if (productNameDisplay) productNameDisplay.textContent = '看板なし';
+          if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
+
+          renderNGButtons(null);
         }
-        if (kanbanIdDisplay) {
-          kanbanIdDisplay.textContent = '';
-        }
+
+        updateInlineInfo();
       }
     }
     
