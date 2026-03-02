@@ -1107,8 +1107,50 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
     try {
         console.log('📱 [TABLET] Received submission:', submissionData);
         
-        // Add submission metadata
         const now = new Date();
+
+        // Auto-set end_time to current time if not provided
+        const endTime = submissionData.終了時間 || (() => {
+            const h = String(now.getHours()).padStart(2, '0');
+            const m = String(now.getMinutes()).padStart(2, '0');
+            return `${h}:${m}`;
+        })();
+
+        // Calculate man_hours from start/end times if not provided or zero
+        let manHours = parseFloat(submissionData.工数) || 0;
+        if (manHours === 0 && submissionData.開始時間 && endTime) {
+            try {
+                const [startH, startM] = submissionData.開始時間.split(':').map(Number);
+                const [endH, endM] = endTime.split(':').map(Number);
+                let startMinutes = startH * 60 + startM;
+                let endMinutes = endH * 60 + endM;
+                if (endMinutes < startMinutes) endMinutes += 24 * 60; // midnight crossover
+                const stopTime = parseFloat(submissionData.休憩時間) || 0; // break/trouble time in hours
+                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - stopTime).toFixed(2));
+                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, stop: ${stopTime}h)`);
+            } catch (e) {
+                console.warn('⚠️ [TABLET] Could not calculate man_hours:', e.message);
+            }
+        }
+
+        // Known fixed keys — everything else is a dynamic defect field
+        const KNOWN_KEYS = new Set([
+            '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH',
+            '技能員①', '技能員②', '良品数', '工数',
+            'その他詳細', '開始時間', '終了時間', '休憩時間', '備考', '工数（除外工数）'
+        ]);
+
+        // Extract dynamic defect fields with their original Japanese names
+        const defects = {};
+        Object.keys(submissionData).forEach(key => {
+            if (!KNOWN_KEYS.has(key)) {
+                defects[key] = submissionData[key] ?? 0;
+            }
+        });
+
+        console.log(`🔴 [TABLET] Dynamic defects extracted:`, defects);
+
+        // Build final data: fixed metadata → dynamic defects → fixed trailing fields
         const finalData = {
             timestamp: now.toISOString(),
             date_year: now.getFullYear(),
@@ -1122,22 +1164,11 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             operator1: submissionData['技能員①'] || '',
             operator2: submissionData['技能員②'] || '',
             good_count: submissionData.良品数 || 0,
-            man_hours: submissionData.工数 || 0,
-            shoulder_silver_defect: submissionData['ショルダー　シルバー'] || 0,
-            shoulder_scratch_defect: submissionData['ショルダー　キズ'] || 0,
-            shoulder_other_defect: submissionData['ショルダー　その他'] || 0,
-            material_defect: submissionData.素材不良 || 0,
-            double_defect: submissionData.ダブり || 0,
-            peeling_defect: submissionData.ハガレ || 0,
-            foreign_matter_defect: submissionData.イブツ || 0,
-            wrinkle_defect: submissionData.シワ || 0,
-            deformation_defect: submissionData.ヘンケイ || 0,
-            grease_defect: submissionData.グリス付着 || 0,
-            screw_loose_defect: submissionData.ビス不締まり || 0,
-            other_defect: submissionData.その他 || 0,
+            man_hours: manHours,
+            ...defects,
             other_description: submissionData.その他詳細 || '',
             start_time: submissionData.開始時間 || '',
-            end_time: submissionData.終了時間 || '',
+            end_time: endTime,
             break_time: submissionData.休憩時間 || '',
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,

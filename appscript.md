@@ -1,0 +1,396 @@
+# Google Apps Script — KSG Tablet Data Receiver
+
+Paste this entire code block into the Apps Script editor, replacing all existing content.  
+After saving, deploy as a **Web App** (Execute as: Me, Who has access: Anyone).
+
+---
+
+```javascript
+// ============================================================
+// KSG Tablet Production Data Receiver
+// Version: 3.0.0 — Dynamic defect columns
+// ============================================================
+
+const SHEET_NAME = 'KSG生産データ';
+const HEADER_ROW = 1;
+
+// Fixed columns BEFORE defect columns (metadata, operators, counts)
+const PRE_DEFECT_COLS = [
+  { key: 'timestamp',    header: 'タイムスタンプ' },
+  { key: 'date_year',    header: '年'             },
+  { key: 'date_month',   header: '月'             },
+  { key: 'date_day',     header: '日'             },
+  { key: 'hinban',       header: '品番'           },
+  { key: 'product_name', header: '製品名'         },
+  { key: 'kanban_id',    header: 'かんばんID'     },
+  { key: 'hako_iresu',   header: '箱入数'         },
+  { key: 'lh_rh',        header: 'LH/RH'          },
+  { key: 'operator1',    header: '技能員①'        },
+  { key: 'operator2',    header: '技能員②'        },
+  { key: 'good_count',   header: '良品数'         },
+  { key: 'man_hours',    header: '工数'           },
+];
+
+// Fixed columns AFTER defect columns (times, remarks)
+const POST_DEFECT_COLS = [
+  { key: 'other_description',  header: 'その他詳細'      },
+  { key: 'start_time',         header: '開始時間'        },
+  { key: 'end_time',           header: '終了時間'        },
+  { key: 'break_time',         header: '休憩時間'        },
+  { key: 'remarks',            header: '備考'            },
+  { key: 'excluded_man_hours', header: '工数（除外工数）' },
+  { key: 'submitted_from',     header: '送信元'          },
+];
+
+// All fixed keys combined (used to identify dynamic defect fields)
+const ALL_FIXED_KEYS = new Set(
+  [...PRE_DEFECT_COLS, ...POST_DEFECT_COLS].map(c => c.key)
+);
+
+// ============================================================
+// ENTRY POINTS
+// ============================================================
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    console.log('📥 Received:', JSON.stringify(data));
+
+    const sheet = getOrCreateSheet();
+    setupHeaders(sheet);
+    ensureDefectColumns(sheet, data);
+
+    const rowNumber = addDataToSheet(sheet, data);
+    formatNewRow(sheet, rowNumber);
+
+    console.log('✅ Added to row', rowNumber);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        success: true,
+        rowNumber: rowNumber,
+        timestamp: new Date().toISOString(),
+        hinban: data.hinban || 'N/A'
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    console.error('❌ Error:', error);
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        success: false,
+        error: error.message || 'Unknown error'
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      message: 'KSG Tablet Production Data Receiver is running',
+      version: '3.0.0',
+      timestamp: new Date().toISOString()
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============================================================
+// SHEET HELPERS
+// ============================================================
+
+function getOrCreateSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+}
+
+/**
+ * Returns a map of { headerText: columnIndex (1-based) } for the header row.
+ */
+function getHeaderMap(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol === 0) return {};
+  const headers = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  const map = {};
+  headers.forEach((h, i) => { if (h !== '') map[String(h)] = i + 1; });
+  return map;
+}
+
+/**
+ * Creates all fixed column headers on first run.
+ * Does nothing if headers already exist.
+ */
+function setupHeaders(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol > 0) {
+    const firstCell = sheet.getRange(HEADER_ROW, 1).getValue();
+    if (firstCell !== '') return; // Headers already set
+  }
+
+  const allCols = [...PRE_DEFECT_COLS, ...POST_DEFECT_COLS];
+  const headerValues = allCols.map(c => c.header);
+
+  sheet.getRange(HEADER_ROW, 1, 1, headerValues.length).setValues([headerValues]);
+
+  // Style: blue for pre-defect (metadata), grey for post-defect (times/remarks)
+  const preRange = sheet.getRange(HEADER_ROW, 1, 1, PRE_DEFECT_COLS.length);
+  preRange.setBackground('#1a73e8');
+  preRange.setFontColor('#ffffff');
+  preRange.setFontWeight('bold');
+  preRange.setHorizontalAlignment('center');
+
+  const postRange = sheet.getRange(
+    HEADER_ROW,
+    PRE_DEFECT_COLS.length + 1,
+    1,
+    POST_DEFECT_COLS.length
+  );
+  postRange.setBackground('#546e7a');
+  postRange.setFontColor('#ffffff');
+  postRange.setFontWeight('bold');
+  postRange.setHorizontalAlignment('center');
+
+  sheet.setFrozenRows(HEADER_ROW);
+  console.log('📝 Headers created');
+}
+
+/**
+ * For each dynamic defect key in data (not in ALL_FIXED_KEYS),
+ * inserts a new column before 'その他詳細' if it doesn't already exist.
+ * Defect columns are styled in red.
+ */
+function ensureDefectColumns(sheet, data) {
+  const defectKeys = Object.keys(data).filter(k => !ALL_FIXED_KEYS.has(k));
+  if (defectKeys.length === 0) return;
+
+  for (const key of defectKeys) {
+    // Re-read header map each iteration (it changes after each insert)
+    const headerMap = getHeaderMap(sheet);
+
+    if (headerMap[key]) continue; // Column already exists
+
+    // Find boundary column (first POST_DEFECT column: 'その他詳細')
+    const boundaryHeader = POST_DEFECT_COLS[0].header;
+    const boundaryCol = headerMap[boundaryHeader];
+
+    if (!boundaryCol) {
+      console.warn('⚠️ Boundary column not found, appending at end');
+      const newCol = sheet.getLastColumn() + 1;
+      sheet.getRange(HEADER_ROW, newCol).setValue(key);
+      styleDefectHeader(sheet, HEADER_ROW, newCol);
+      continue;
+    }
+
+    // Insert new column BEFORE the boundary (POST_DEFECT block shifts right)
+    sheet.insertColumnBefore(boundaryCol);
+    sheet.getRange(HEADER_ROW, boundaryCol).setValue(key);
+    styleDefectHeader(sheet, HEADER_ROW, boundaryCol);
+
+    console.log(`🔴 Added defect column "${key}" at column ${boundaryCol}`);
+  }
+}
+
+function styleDefectHeader(sheet, row, col) {
+  const cell = sheet.getRange(row, col);
+  cell.setBackground('#c62828');
+  cell.setFontColor('#ffffff');
+  cell.setFontWeight('bold');
+  cell.setHorizontalAlignment('center');
+}
+
+// ============================================================
+// WRITE DATA
+// ============================================================
+
+function addDataToSheet(sheet, data) {
+  const headerMap = getHeaderMap(sheet);
+  const totalCols = sheet.getLastColumn();
+  const newRow = sheet.getLastRow() + 1;
+
+  // Initialize with empty values
+  const rowData = new Array(totalCols).fill('');
+
+  // Write PRE_DEFECT fixed fields
+  for (const col of PRE_DEFECT_COLS) {
+    const colIdx = headerMap[col.header];
+    if (!colIdx) continue;
+    let value = data[col.key];
+    if (col.key === 'timestamp' && value) {
+      value = new Date(value);
+    } else if (value === undefined || value === null) {
+      value = '';
+    }
+    rowData[colIdx - 1] = value;
+  }
+
+  // Write POST_DEFECT fixed fields
+  for (const col of POST_DEFECT_COLS) {
+    const colIdx = headerMap[col.header];
+    if (!colIdx) continue;
+    let value = data[col.key];
+    if (value === undefined || value === null) value = '';
+    rowData[colIdx - 1] = value;
+  }
+
+  // Write dynamic defect fields
+  const defectKeys = Object.keys(data).filter(k => !ALL_FIXED_KEYS.has(k));
+  for (const key of defectKeys) {
+    const colIdx = headerMap[key];
+    if (!colIdx) continue;
+    const value = (data[key] !== undefined && data[key] !== null) ? data[key] : 0;
+    rowData[colIdx - 1] = value;
+  }
+
+  sheet.getRange(newRow, 1, 1, totalCols).setValues([rowData]);
+  return newRow;
+}
+
+// ============================================================
+// FORMATTING
+// ============================================================
+
+function formatNewRow(sheet, rowNumber) {
+  const totalCols = sheet.getLastColumn();
+  const range = sheet.getRange(rowNumber, 1, 1, totalCols);
+
+  // Alternate row shading
+  if (rowNumber % 2 === 0) {
+    range.setBackground('#f1f3f4');
+  }
+
+  // Borders
+  range.setBorder(
+    true, true, true, true, true, true,
+    '#dadce0', SpreadsheetApp.BorderStyle.SOLID
+  );
+
+  // Format timestamp cell
+  const headerMap = getHeaderMap(sheet);
+  const tsCol = headerMap['タイムスタンプ'];
+  if (tsCol) {
+    sheet.getRange(rowNumber, tsCol).setNumberFormat('yyyy/mm/dd hh:mm:ss');
+  }
+
+  // Right-align numeric cells
+  const rowValues = range.getValues()[0];
+  rowValues.forEach((val, i) => {
+    if (typeof val === 'number') {
+      sheet.getRange(rowNumber, i + 1).setHorizontalAlignment('right');
+    }
+  });
+
+  // Auto-resize only for small sheets (avoid slow resizes in production)
+  if (sheet.getLastRow() <= 5) {
+    sheet.autoResizeColumns(1, totalCols);
+  }
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+
+/**
+ * Test function — run manually from the Apps Script editor to verify setup.
+ */
+function testDataReceiver() {
+  const testData = {
+    timestamp: new Date().toISOString(),
+    date_year: 2026,
+    date_month: 3,
+    date_day: 2,
+    hinban: '62410-30410-C0',
+    product_name: '440D Bピラー',
+    kanban_id: 'A947',
+    hako_iresu: 6,
+    lh_rh: 'RH',
+    operator1: '技能員A',
+    operator2: '技能員B',
+    good_count: 45,
+    man_hours: 1.5,
+    // Dynamic defects (these will create new columns automatically)
+    '素材不良': 1,
+    'ダブり': 0,
+    'ハガレ': 2,
+    'イブツ': 0,
+    'シワ': 1,
+    'ヘンケイ': 0,
+    'グリス付着': 0,
+    'ビス不締まり': 0,
+    'その他': 0,
+    'ショルダー　汚れ': 0,
+    'ショルダー　キズ': 1,
+    'ショルダー　その他': 0,
+    other_description: 'テスト詳細',
+    start_time: '09:00',
+    end_time: '10:30',
+    break_time: 0,
+    remarks: 'テスト用データ',
+    excluded_man_hours: 0,
+    submitted_from: 'tablet'
+  };
+
+  try {
+    const sheet = getOrCreateSheet();
+    setupHeaders(sheet);
+    ensureDefectColumns(sheet, testData);
+    const rowNumber = addDataToSheet(sheet, testData);
+    formatNewRow(sheet, rowNumber);
+    console.log('✅ Test data added to row', rowNumber);
+    return { success: true, rowNumber };
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Clear all data rows (keeps headers). Use for dev/testing only.
+ */
+function clearAllData() {
+  const sheet = getOrCreateSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow > HEADER_ROW) {
+    sheet.getRange(HEADER_ROW + 1, 1, lastRow - HEADER_ROW, sheet.getLastColumn()).clearContent();
+    console.log(`🗑️ Cleared ${lastRow - HEADER_ROW} rows`);
+  }
+}
+
+/**
+ * Quick statistics summary.
+ */
+function getDataStatistics() {
+  const sheet = getOrCreateSheet();
+  const lastRow = sheet.getLastRow();
+  const dataRows = lastRow - HEADER_ROW;
+  if (dataRows <= 0) return { totalRows: 0, message: 'No data' };
+
+  const headerMap = getHeaderMap(sheet);
+  const hinbanCol = headerMap['品番'];
+  const goodCountCol = headerMap['良品数'];
+
+  const hinbanValues = hinbanCol
+    ? sheet.getRange(HEADER_ROW + 1, hinbanCol, dataRows, 1).getValues().flat().filter(v => v !== '')
+    : [];
+  const goodCounts = goodCountCol
+    ? sheet.getRange(HEADER_ROW + 1, goodCountCol, dataRows, 1).getValues().flat().filter(v => v !== '' && !isNaN(v))
+    : [];
+
+  const totalGood = goodCounts.reduce((s, v) => s + Number(v), 0);
+
+  return {
+    totalRows: dataRows,
+    uniqueProducts: [...new Set(hinbanValues)].length,
+    totalGoodParts: totalGood,
+    lastUpdated: new Date().toISOString()
+  };
+}
+```
+
+---
+
+## Notes
+
+- **Dynamic defect columns**: Any defect field sent from the server (with its original Japanese name) will automatically get a new column inserted before `その他詳細` the first time it appears. Defect columns are styled **red**; metadata columns are **blue**; time/remarks columns are **grey**.
+- **Column order**: `タイムスタンプ → ... → 工数 → [defects in order first seen] → その他詳細 → ... → 送信元`
+- **Re-deploy required** after any code change. Use "Manage Deployments" and create a new version.
+- The `GOOGLE_SHEETS_WEBHOOK_URL` env var on the server should point to the latest deployment URL.

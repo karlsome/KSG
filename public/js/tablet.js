@@ -1696,6 +1696,20 @@ async function sendData() {
       return; // Stop submission
     }
     
+    // Auto-set end time to current time
+    const endTimeInput = document.getElementById('endTime');
+    if (endTimeInput && !endTimeInput.value) {
+      const nowEnd = new Date();
+      const endHH = String(nowEnd.getHours()).padStart(2, '0');
+      const endMM = String(nowEnd.getMinutes()).padStart(2, '0');
+      endTimeInput.value = `${endHH}:${endMM}`;
+      saveFieldToLocalStorage('endTime', endTimeInput.value);
+      console.log('⏰ End time auto-set:', endTimeInput.value);
+    }
+    
+    // Force recalculate work duration so manHours is up to date
+    updateWorkDuration();
+
     // Gather all defect data with proper names
     const defectButtons = document.querySelectorAll('.counter-button');
     const defectNumbers = document.querySelectorAll('.counter-number');
@@ -1719,10 +1733,10 @@ async function sendData() {
       良品数: parseInt(document.getElementById('passCount')?.value) || 0,
       工数: parseFloat(document.getElementById('manHours')?.value) || 0,
       ...defectData,
-      その他詳細: document.getElementById('otherDetails')?.value || '',
+      その他詳細: document.getElementById('otherDetails')?.textContent || '',
       開始時間: startTimeValue,
-      終了時間: document.getElementById('endTime')?.value || '',
-      休憩時間: '',
+      終了時間: endTimeInput?.value || '',
+      休憩時間: parseFloat(document.getElementById('stopTime')?.value) || '',
       備考: document.getElementById('remarks')?.textContent || '',
       '工数（除外工数）': 0
     };
