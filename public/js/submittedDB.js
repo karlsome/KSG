@@ -55,6 +55,7 @@ async function loadSubmittedDB() {
 
   const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
   const username    = currentUser.username || '';
+  const token       = localStorage.getItem('ksgToken') || '';
 
   // Build query string
   const params = new URLSearchParams();
@@ -81,9 +82,9 @@ async function loadSubmittedDB() {
   params.set('page',      _sdbCurrentPage);
 
   try {
-    const res    = await fetch(`${API_URL}/api/admin/submitted-db?${params.toString()}`, {
-      headers: { 'x-session-user': username }
-    });
+    const headers = { 'x-session-user': username };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res    = await fetch(`${API_URL}/api/admin/submitted-db?${params.toString()}`, { headers });
     const result = await res.json();
     if (!result.success) throw new Error(result.error || 'Failed to load');
 

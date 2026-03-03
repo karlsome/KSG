@@ -3028,8 +3028,21 @@ async function validateRaspberryPi(req, res, next) {
 // Middleware: Validate Admin User
 async function validateAdminUser(req, res, next) {
     try {
-        const username = req.headers['x-session-user'];
-        
+        let username = req.headers['x-session-user'];
+
+        // Fallback: accept Authorization: Bearer <jwt>
+        if (!username) {
+            const authHeader = req.headers['authorization'];
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                try {
+                    const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+                    username = decoded.username;
+                } catch (jwtErr) {
+                    return res.status(401).json({ error: 'Invalid or expired token' });
+                }
+            }
+        }
+
         if (!username) {
             return res.status(401).json({ error: 'Authentication required' });
         }

@@ -369,6 +369,19 @@
 
     // Load dashboard by default
     document.addEventListener('DOMContentLoaded', () => {
+      // Parse JWT token from URL and store in localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get('token');
+      if (urlToken) {
+        try {
+          const payload = JSON.parse(atob(urlToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+          localStorage.setItem('authUser', JSON.stringify(payload));
+          localStorage.setItem('ksgToken', urlToken);
+        } catch(e) {
+          console.warn('Failed to parse URL token:', e);
+        }
+      }
+
       applyPageTranslations();
       loadPage('dashboard');
 
