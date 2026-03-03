@@ -397,6 +397,11 @@ async function openDetailModal(type, id) {
 
   currentModalData = data;
 
+  // Ensure reference data is available before rendering tablet details
+  if (type === 'tablet') {
+    await ensureTabletModalReferenceDataLoaded();
+  }
+
   // Set modal title
   const titleMap = {
     'master': t('masterDB.productDetails'),
@@ -417,6 +422,47 @@ async function openDetailModal(type, id) {
   
   // Reset to details tab
   switchModalTab('details');
+}
+
+async function ensureTabletModalReferenceDataLoaded() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const requests = [];
+
+    if (!Array.isArray(allFactories) || allFactories.length === 0) {
+      requests.push(
+        fetch(BASE_URL + "getFactories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dbName })
+        }).then(res => res.ok ? res.json() : [])
+      );
+    } else {
+      requests.push(Promise.resolve(allFactories));
+    }
+
+    if (!Array.isArray(allEquipment) || allEquipment.length === 0) {
+      requests.push(
+        fetch(BASE_URL + "getEquipment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dbName })
+        }).then(res => res.ok ? res.json() : [])
+      );
+    } else {
+      requests.push(Promise.resolve(allEquipment));
+    }
+
+    const [factories, equipment] = await Promise.all(requests);
+    allFactories = Array.isArray(factories) ? factories : [];
+    allEquipment = Array.isArray(equipment) ? equipment : [];
+  } catch (err) {
+    console.error('Failed to preload tablet modal reference data:', err);
+    if (!Array.isArray(allFactories)) allFactories = [];
+    if (!Array.isArray(allEquipment)) allEquipment = [];
+  }
 }
 
 function renderModalDetails(type, data) {
