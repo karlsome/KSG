@@ -33,7 +33,8 @@ if (typeof window.opcManagementState === 'undefined') {
         allDevicesDataCache: {}, // Stores data from all devices for variable updates
         variablesCache: [],
         selectedVariablesForCombine: [],
-        currentConversionData: null
+        currentConversionData: null,
+        listenersBound: false
     };
 }
 
@@ -60,14 +61,14 @@ async function initializeOPCManagement() {
         // Initialize state references
         initOpcState();
         
-        // Load Raspberry Pis
-        await loadRaspberryPis();
-        
-        // Load existing variables
-        await loadVariables();
-        
-        // Load data from all devices for variable updates
-        await loadAllDevicesData();
+        // Load Raspberry Pis once and reuse the list for bulk data preload
+        const devices = await loadRaspberryPis();
+
+        // Load existing variables and all device data in parallel
+        await Promise.all([
+            loadVariables(),
+            loadAllDevicesData(devices)
+        ]);
         
         // Check if there's a previously selected device and auto-select it
         const lastSelectedDevice = localStorage.getItem('opcLastSelectedDevice');
@@ -75,8 +76,19 @@ async function initializeOPCManagement() {
             const select = document.getElementById('opc-raspberry-filter');
             if (select) {
                 select.value = lastSelectedDevice;
-                // Trigger change to load data
-                await handleRaspberryChange({ target: select });
+
+                currentRaspberryId = lastSelectedDevice;
+                window.opcManagementState.currentRaspberryId = lastSelectedDevice;
+
+                // Reuse preloaded cache when available, otherwise fetch selected device data
+                const cachedDeviceData = window.opcManagementState.allDevicesDataCache[lastSelectedDevice];
+                if (cachedDeviceData) {
+                    window.opcManagementState.rawDataCache = cachedDeviceData;
+                    rawDataCache = cachedDeviceData;
+                    renderRealTimeData(cachedDeviceData);
+                } else {
+                    await loadRealTimeData(lastSelectedDevice);
+                }
             }
         }
         
@@ -106,6 +118,8 @@ async function loadRaspberryPis() {
         
         select.innerHTML = `<option value="">${t('opcManagement.selectRaspberryPi')}</option>`;
         
+        const devices = (data.success && data.devices) ? data.devices : [];
+
         if (data.success && data.devices) {
             data.devices.forEach(device => {
                 const option = document.createElement('option');
@@ -114,33 +128,47 @@ async function loadRaspberryPis() {
                 select.appendChild(option);
             });
         }
+
+        return devices;
     } catch (error) {
         console.error('Error loading Raspberry Pis:', error);
+        return [];
     }
 }
 
 // Load data from all devices for variable updates
-async function loadAllDevicesData() {
+async function loadAllDevicesData(devices = null) {
     try {
-        const response = await fetch(`${API_URL}/api/deviceInfo?company=${COMPANY}`);
-        const data = await response.json();
-        
-        if (data.success && data.devices) {
-            // Load data for each device
-            for (const device of data.devices) {
-                try {
-                    const dataResponse = await fetch(`${API_URL}/api/deviceInfo/${device.device_id}/opcua-data?company=${COMPANY}`);
-                    const deviceData = await dataResponse.json();
-                    
-                    if (deviceData.success) {
-                        window.opcManagementState.allDevicesDataCache[device.device_id] = deviceData;
-                        allDevicesDataCache[device.device_id] = deviceData;
+        let deviceList = devices;
+
+        // Fallback for callers that don't pass device list
+        if (!Array.isArray(deviceList)) {
+            const response = await fetch(`${API_URL}/api/deviceInfo?company=${COMPANY}`);
+            const data = await response.json();
+            deviceList = (data.success && data.devices) ? data.devices : [];
+        }
+
+        if (deviceList.length > 0) {
+            const deviceDataResults = await Promise.all(
+                deviceList.map(async (device) => {
+                    try {
+                        const dataResponse = await fetch(`${API_URL}/api/deviceInfo/${device.device_id}/opcua-data?company=${COMPANY}`);
+                        const deviceData = await dataResponse.json();
+                        return { deviceId: device.device_id, deviceData };
+                    } catch (error) {
+                        console.error(`Error loading data for device ${device.device_id}:`, error);
+                        return { deviceId: device.device_id, deviceData: null };
                     }
-                } catch (error) {
-                    console.error(`Error loading data for device ${device.device_id}:`, error);
+                })
+            );
+
+            deviceDataResults.forEach(({ deviceId, deviceData }) => {
+                if (deviceData && deviceData.success) {
+                    window.opcManagementState.allDevicesDataCache[deviceId] = deviceData;
+                    allDevicesDataCache[deviceId] = deviceData;
                 }
-            }
-            
+            });
+
             // Update variable values after loading all device data
             updateVariableValues();
         }
@@ -209,6 +237,10 @@ function updateConnectionStatus(connected) {
 
 // Setup event listeners
 function setupEventListeners() {
+    if (window.opcManagementState.listenersBound) {
+        return;
+    }
+
     // Raspberry Pi selection
     const filterSelect = document.getElementById('opc-raspberry-filter');
     if (filterSelect) {
@@ -242,6 +274,8 @@ function setupEventListeners() {
     if (editForm) {
         editForm.addEventListener('submit', handleEditVariableSubmit);
     }
+
+    window.opcManagementState.listenersBound = true;
 }
 
 // Handle Raspberry Pi selection change

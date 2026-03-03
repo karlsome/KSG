@@ -197,6 +197,75 @@ async function setupEventLogTTLIndex() {
     }
 }
 
+// Setup indexes for OPC Management query performance
+async function setupOpcManagementIndexes() {
+    try {
+        if (!mongoClient) {
+            console.log('⚠️  MongoDB not connected, skipping OPC Management index setup');
+            return false;
+        }
+
+        console.log('🔧 Setting up OPC Management indexes...');
+
+        const db = mongoClient.db(DB_NAME);
+        const masterUsers = await db.collection(COLLECTION_NAME).find({
+            role: 'masterUser'
+        }).project({ company: 1, dbName: 1 }).toArray();
+
+        const targetDatabases = new Set();
+        masterUsers.forEach(user => {
+            const dbName = user.company || user.dbName;
+            if (dbName) targetDatabases.add(dbName);
+        });
+
+        let configuredCount = 0;
+
+        for (const dbName of targetDatabases) {
+            try {
+                const userDb = mongoClient.db(dbName);
+
+                await Promise.all([
+                    userDb.collection('deviceInfo').createIndex(
+                        { device_id: 1 },
+                        { name: 'device_id_idx', background: true }
+                    ),
+                    userDb.collection('opcua_discovered_nodes').createIndex(
+                        { raspberryId: 1, opcNodeId: 1 },
+                        { name: 'discovered_node_lookup_idx', background: true }
+                    ),
+                    userDb.collection('opcua_datapoints').createIndex(
+                        { raspberryId: 1, opcNodeId: 1 },
+                        { name: 'datapoint_node_lookup_idx', background: true }
+                    ),
+                    userDb.collection('opcua_conversions').createIndex(
+                        { company: 1, variableName: 1 },
+                        { name: 'conversion_company_var_idx', background: true }
+                    ),
+                    userDb.collection('opcua_conversions').createIndex(
+                        { raspberryId: 1, opcNodeId: 1 },
+                        { name: 'conversion_source_idx', background: true }
+                    )
+                ]);
+
+                configuredCount++;
+                console.log(`  ✓ OPC indexes ready for ${dbName}`);
+            } catch (error) {
+                if (error.code === 85 || error.codeName === 'IndexOptionsConflict') {
+                    console.log(`  ℹ️  OPC indexes already exist/conflict for ${dbName}`);
+                } else {
+                    console.error(`  ❌ Failed to create OPC indexes for ${dbName}:`, error.message);
+                }
+            }
+        }
+
+        console.log(`✅ OPC Management index setup complete (${configuredCount} databases)`);
+        return true;
+    } catch (error) {
+        console.error('❌ Failed to setup OPC Management indexes:', error.message);
+        return false;
+    }
+}
+
 // 📱 Fetch authorized devices from MongoDB
 async function fetchAuthorizedDevices() {
     try {
@@ -3286,7 +3355,24 @@ app.get('/api/deviceInfo/:deviceId/opcua-data', async (req, res) => {
         
         // Get discovered nodes for this device (raspberryId = device_id)
         const discoveredNodes = await db.collection('opcua_discovered_nodes')
-            .find({ raspberryId: deviceId })
+            .find(
+                { raspberryId: deviceId },
+                {
+                    projection: {
+                        _id: 1,
+                        variableName: 1,
+                        browseName: 1,
+                        opcNodeId: 1,
+                        dataType: 1,
+                        type: 1,
+                        value: 1,
+                        currentValue: 1,
+                        discoveredAt: 1,
+                        createdAt: 1,
+                        namespace: 1
+                    }
+                }
+            )
             .sort({ variableName: 1 })
             .toArray();
         
@@ -4297,32 +4383,73 @@ app.get('/api/opcua/conversions', async (req, res) => {
         
         const db = mongoClient.db(company);
         const conversions = await db.collection('opcua_conversions').find({}).toArray();
-        
-        // Enrich with datapoint names
-        for (const conv of conversions) {
-            // Try to find datapoint by opcNodeId first (more stable), then fall back to datapointId
-            let datapoint = null;
-            
-            if (conv.opcNodeId && conv.raspberryId) {
-                // Find by opcNodeId (stable across restarts)
-                datapoint = await db.collection('opcua_datapoints').findOne({ 
-                    raspberryId: conv.raspberryId,
-                    opcNodeId: conv.opcNodeId 
-                });
-            }
-            
-            // Fallback to datapointId if opcNodeId lookup failed
-            if (!datapoint && conv.datapointId) {
+
+        if (conversions.length === 0) {
+            return res.json({ success: true, conversions });
+        }
+
+        const datapointsCollection = db.collection('opcua_datapoints');
+        const datapointIds = [];
+        const pairQueries = [];
+        const pairSet = new Set();
+
+        conversions.forEach(conv => {
+            if (conv.datapointId) {
                 try {
-                    datapoint = await db.collection('opcua_datapoints').findOne({ _id: new ObjectId(conv.datapointId) });
+                    datapointIds.push(new ObjectId(conv.datapointId));
                 } catch (e) {
-                    // Invalid ObjectId, skip
+                    // Ignore invalid ObjectId format
                 }
             }
-            
+
+            if (conv.opcNodeId && conv.raspberryId) {
+                const key = `${conv.raspberryId}::${conv.opcNodeId}`;
+                if (!pairSet.has(key)) {
+                    pairSet.add(key);
+                    pairQueries.push({ raspberryId: conv.raspberryId, opcNodeId: conv.opcNodeId });
+                }
+            }
+        });
+
+        const [datapointsByPair, datapointsById] = await Promise.all([
+            pairQueries.length > 0
+                ? datapointsCollection.find(
+                    { $or: pairQueries },
+                    { projection: { _id: 1, name: 1, opcNodeId: 1, raspberryId: 1 } }
+                ).toArray()
+                : Promise.resolve([]),
+            datapointIds.length > 0
+                ? datapointsCollection.find(
+                    { _id: { $in: datapointIds } },
+                    { projection: { _id: 1, name: 1, opcNodeId: 1, raspberryId: 1 } }
+                ).toArray()
+                : Promise.resolve([])
+        ]);
+
+        const datapointByPair = new Map();
+        datapointsByPair.forEach(dp => {
+            datapointByPair.set(`${dp.raspberryId}::${dp.opcNodeId}`, dp);
+        });
+
+        const datapointById = new Map();
+        datapointsById.forEach(dp => {
+            datapointById.set(dp._id.toString(), dp);
+        });
+
+        // Enrich with datapoint names (preserve original precedence: opcNodeId lookup first, then datapointId)
+        for (const conv of conversions) {
+            let datapoint = null;
+
+            if (conv.opcNodeId && conv.raspberryId) {
+                datapoint = datapointByPair.get(`${conv.raspberryId}::${conv.opcNodeId}`) || null;
+            }
+
+            if (!datapoint && conv.datapointId) {
+                datapoint = datapointById.get(String(conv.datapointId)) || null;
+            }
+
             if (datapoint) {
                 conv.datapointName = datapoint.name || datapoint.opcNodeId;
-                // Update datapointId to current one if found by opcNodeId
                 if (conv.opcNodeId && datapoint._id.toString() !== conv.datapointId) {
                     conv.datapointId = datapoint._id.toString();
                 }
@@ -6809,6 +6936,7 @@ async function startServer() {
     if (mongoConnected) {
         // Initial device fetch
         await fetchAuthorizedDevices();
+        await setupOpcManagementIndexes();
     } else {
         console.log('⚠️  Server starting without MongoDB - Using fallback mode');
         console.log('📋 No devices will be authorized until MongoDB connection is established');
