@@ -541,7 +541,12 @@ function renderModalDetails(type, data) {
       detailsHTML = `
         <div class="grid grid-cols-1 gap-4">
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" /></div>
+          <div>
+            <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
+            <input type="text" id="modalEquipmentFactoryDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" />
+            <div id="modalEquipmentFactoryTags" class="hidden w-full px-3 py-2 border rounded-lg bg-white min-h-[42px]" data-field="工場"></div>
+            <select id="modalEquipmentFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
+          </div>
           <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
 
           <div class="border-t pt-4 mt-4">
@@ -792,16 +797,18 @@ function closeDetailModal() {
 async function toggleEditMode() {
   isEditMode = true;
   
-  // Load factories and equipment data for master tab
+  // Load factories and equipment data for both master and equipment tabs
   if (currentModalType === 'master') {
     await loadFactoriesAndEquipmentForModal();
     // Load NG groups for master tab
     await loadNGGroupsForModal();
+  } else if (currentModalType === 'equipment') {
+    await loadFactoriesForEquipmentModal();
   }
   
   // Enable all inputs
   document.querySelectorAll('#modalDetailsBody input, #modalDetailsBody textarea, #modalDetailsBody select').forEach(el => {
-    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay' && el.id !== 'modalNGGroupDisplay') {
+    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay' && el.id !== 'modalNGGroupDisplay' && el.id !== 'modalEquipmentFactoryDisplay') {
       el.disabled = false;
       el.classList.remove('bg-gray-50');
       el.classList.add('bg-white');
@@ -913,6 +920,77 @@ function removeModalFactoryTag(factory) {
   renderModalFactoryTags();
 }
 
+let selectedEquipmentModalFactories = [];
+
+async function loadFactoriesForEquipmentModal() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  
+  try {
+    // Load factories
+    const factoriesRes = await fetch(BASE_URL + "getFactories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    const factories = await factoriesRes.json();
+    
+    // Setup Equipment Factory multi-select
+    const factoryDisplay = document.getElementById('modalEquipmentFactoryDisplay');
+    const factoryTags = document.getElementById('modalEquipmentFactoryTags');
+    const factorySelect = document.getElementById('modalEquipmentFactorySelect');
+    
+    if (factoryDisplay && factoryTags && factorySelect) {
+      if (factories.length === 0) {
+        factorySelect.innerHTML = `<option value="" class="text-red-600">${t('common.noFactoryData')}</option>`;
+        factorySelect.classList.add('border-red-500');
+      } else {
+        factorySelect.innerHTML = `<option value="">${t('common.addFactory')}</option>` +
+          factories.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+        factorySelect.onchange = (e) => {
+          if (e.target.value && !selectedEquipmentModalFactories.includes(e.target.value)) {
+            selectedEquipmentModalFactories.push(e.target.value);
+            renderEquipmentModalFactoryTags();
+          }
+          e.target.value = '';
+        };
+      }
+      
+      // Initialize selected factories from array
+      selectedEquipmentModalFactories = currentModalData.工場 ? Array.isArray(currentModalData.工場) ? currentModalData.工場 : [currentModalData.工場] : [];
+      
+      factoryDisplay.classList.add('hidden');
+      factoryTags.classList.remove('hidden');
+      factorySelect.classList.remove('hidden');
+      
+      renderEquipmentModalFactoryTags();
+    }
+    
+  } catch (err) {
+    console.error('Failed to load factories for equipment modal:', err);
+  }
+}
+
+function renderEquipmentModalFactoryTags() {
+  const factoryTags = document.getElementById('modalEquipmentFactoryTags');
+  if (!factoryTags) return;
+  
+  factoryTags.innerHTML = selectedEquipmentModalFactories.length > 0 ? 
+    selectedEquipmentModalFactories.map(f => `
+      <span class="inline-flex items-center px-2 py-1 mr-2 mb-2 bg-blue-100 text-blue-800 rounded">
+        ${f}
+        <button type="button" onclick="removeEquipmentModalFactoryTag('${f}')" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">
+          ×
+        </button>
+      </span>
+    `).join('') : `<span class="text-gray-400 text-sm">${t('common.selectFactoryFirst')}</span>`;
+}
+
+function removeEquipmentModalFactoryTag(factory) {
+  selectedEquipmentModalFactories = selectedEquipmentModalFactories.filter(f => f !== factory);
+  renderEquipmentModalFactoryTags();
+}
+
 let selectedQuickEquipmentFactories = [];
 
 async function loadFactoriesForEquipmentCreate() {
@@ -993,6 +1071,14 @@ async function saveModalChanges() {
     }
   }
   
+  // Handle special fields for equipment
+  if (currentModalType === 'equipment') {
+    // Get factories from tags (array)
+    if (selectedEquipmentModalFactories && selectedEquipmentModalFactories.length > 0) {
+      updateData['工場'] = selectedEquipmentModalFactories;
+    }
+  }
+  
   // Handle special fields for tablet
   if (currentModalType === 'tablet') {
     // Get factory from dropdown
@@ -1009,7 +1095,7 @@ async function saveModalChanges() {
   }
   
   // Get other fields (excluding selects which are handled above)
-  document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay):not(#modalNGGroupDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
+  document.querySelectorAll('#modalDetailsBody input[data-field]:not(#modalEquipmentDisplay):not(#modalFactoryDisplay):not(#modalNGGroupDisplay):not(#modalEquipmentFactoryDisplay), #modalDetailsBody textarea[data-field]').forEach(el => {
     if (!el.disabled) {
       const field = el.dataset.field;
       let value = el.value;
