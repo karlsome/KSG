@@ -217,15 +217,28 @@ async function loadMasterData() {
   const role = currentUser.role || "admin";
 
   try {
-    const res = await fetch(BASE_URL + "getMasterDB", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dbName, role })
-    });
+    // Load master data and ngGroups in parallel
+    const [masterRes, ngGroupsRes] = await Promise.all([
+      fetch(BASE_URL + "getMasterDB", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName, role })
+      }),
+      fetch(BASE_URL + "getNGGroups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName })
+      })
+    ]);
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    if (!masterRes.ok) throw new Error(`HTTP ${masterRes.status}: ${masterRes.statusText}`);
 
-    allMasterData = await res.json();
+    allMasterData = await masterRes.json();
+    if (ngGroupsRes.ok) {
+      allNGGroups = await ngGroupsRes.json();
+    } else {
+      allNGGroups = [];
+    }
     renderMasterTable(allMasterData);
   } catch (err) {
     console.error("Failed to load master data:", err);
@@ -245,6 +258,7 @@ function renderMasterTable(data) {
     { key: "kanbanID", label: t('masterDB.kanbanId') },
     { key: "設備", label: t('masterDB.equipment') },
     { key: "工場", label: t('masterDB.factory') },
+    { key: "ngGroupId", label: "不良グループ", isNGGroup: true },
     { key: "cycleTime", label: t('masterDB.cycleTime') },
     { key: "検査メンバー数", label: t('masterDB.inspectionMembers') },
     { key: "収容数", label: t('masterDB.capacity') }
@@ -280,6 +294,13 @@ function renderMasterTable(data) {
                 }
                 if (h.key === "検査メンバー数" && !value) {
                   value = "2"; // Default value
+                }
+                // Lookup ngGroup name from ngGroupId
+                if (h.isNGGroup && value) {
+                  const group = allNGGroups.find(g => String(g._id) === String(value));
+                  value = group ? group.groupName : `<span class="text-gray-400 text-xs">ID: ${value}</span>`;
+                } else if (h.isNGGroup && !value) {
+                  value = `<span class="text-gray-400 text-xs">未割当</span>`;
                 }
                 return `<td class="px-4 py-3">${value}</td>`;
               }).join("")}
