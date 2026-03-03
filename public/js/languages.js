@@ -59,7 +59,8 @@ const translations = {
       dashboard: "Dashboard",
       userManagement: "User Management",
       masterDB: "Master DB",
-      opcManagement: "OPC Management"
+      opcManagement: "OPC Management",
+      submittedDB: "Submitted Data"
     },
 
     // Dashboard
@@ -559,7 +560,8 @@ const translations = {
       dashboard: "ダッシュボード",
       userManagement: "ユーザー管理",
       masterDB: "マスターDB",
-      opcManagement: "OPC管理"
+      opcManagement: "OPC管理",
+      submittedDB: "提出データ"
     },
 
     // Dashboard

@@ -64,6 +64,12 @@
               <span data-nav="opcManagement"></span>
             </a>
           </li>
+          <li>
+            <a href="#submitted-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-file-list-3-line text-xl"></i>
+              <span data-nav="submittedDB"></span>
+            </a>
+          </li>
         </ul>
       </nav>
     </aside>
@@ -284,6 +290,33 @@
             });
           break;
           
+        case 'submitted-db':
+          fetch('/submittedDB.html')
+            .then(response => response.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const container = doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.outerHTML : html;
+
+              // Load the submittedDB.js script
+              const existingScript = document.querySelector('script[src="/js/submittedDB.js"]');
+              if (existingScript) {
+                if (typeof initializeSubmittedDB === 'function') initializeSubmittedDB();
+                return;
+              }
+              const script = document.createElement('script');
+              script.src = '/js/submittedDB.js';
+              script.onload = () => {
+                if (typeof initializeSubmittedDB === 'function') initializeSubmittedDB();
+              };
+              document.body.appendChild(script);
+            })
+            .catch(err => {
+              mainContent.innerHTML = `<div class="bg-white p-6 rounded-lg shadow"><p class="text-red-600">読み込みエラー: ${err.message}</p></div>`;
+            });
+          break;
+
         default:
           mainContent.innerHTML = `
             <h2 class="text-2xl font-semibold mb-4">${t('common.pageNotFound')}</h2>

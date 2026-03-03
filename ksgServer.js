@@ -1260,6 +1260,86 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
 // ============================================================
 
+// GET /api/admin/submitted-db  — Fetch submittedDB records with filtering, sorting, pagination
+app.get('/api/admin/submitted-db', validateAdminUser, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db('KSG');
+        const collection = db.collection('submittedDB');
+
+        // --- Build MongoDB filter ---
+        const filter = {};
+
+        // Date range (ISO date strings or YYYY-MM-DD)
+        if (req.query.startDate || req.query.endDate) {
+            filter.timestamp = {};
+            if (req.query.startDate) filter.timestamp.$gte = new Date(req.query.startDate);
+            if (req.query.endDate) {
+                const end = new Date(req.query.endDate);
+                end.setHours(23, 59, 59, 999);
+                filter.timestamp.$lte = end;
+            }
+        }
+
+        // Text filters (case-insensitive)
+        if (req.query.hinban)      filter.hinban      = { $regex: req.query.hinban,      $options: 'i' };
+        if (req.query.productName) filter.product_name = { $regex: req.query.productName, $options: 'i' };
+        if (req.query.operator)    filter.$or = [
+            { operator1: { $regex: req.query.operator, $options: 'i' } },
+            { operator2: { $regex: req.query.operator, $options: 'i' } }
+        ];
+        if (req.query.lhRh && req.query.lhRh !== 'all') filter.lh_rh = req.query.lhRh;
+        if (req.query.kanbanId)    filter.kanban_id   = { $regex: req.query.kanbanId,    $options: 'i' };
+
+        // --- Sorting ---
+        const sortField = req.query.sortField || 'timestamp';
+        const sortDir   = req.query.sortDir   === 'asc' ? 1 : -1;
+        const sort = { [sortField]: sortDir };
+
+        // --- Pagination ---
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+        const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+        const skip  = (page - 1) * limit;
+
+        // --- Execute ---
+        const [data, total] = await Promise.all([
+            collection.find(filter).sort(sort).skip(skip).limit(limit).toArray(),
+            collection.countDocuments(filter)
+        ]);
+
+        // --- Aggregate summary ---
+        const summaryPipeline = [
+            { $match: filter },
+            { $group: {
+                _id: null,
+                totalGoodCount:  { $sum: '$good_count' },
+                totalManHours:   { $sum: '$man_hours' },
+                totalBreakTime:  { $sum: '$break_time' },
+                totalTroubleTime:{ $sum: '$trouble_time' },
+                recordCount:     { $sum: 1 }
+            }}
+        ];
+        const summaryResult = await collection.aggregate(summaryPipeline).toArray();
+        const summary = summaryResult[0] || { totalGoodCount: 0, totalManHours: 0, totalBreakTime: 0, totalTroubleTime: 0, recordCount: 0 };
+
+        res.json({
+            success: true,
+            data,
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+            summary
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching submittedDB:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================================
+
 // Submit production data to both MongoDB and Google Sheets
 app.post('/api/submit-production-data', authenticateDevice, async (req, res) => {
     const deviceId = req.deviceId;
