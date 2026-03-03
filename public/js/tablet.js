@@ -21,6 +21,21 @@
 
   try {
     const auth = JSON.parse(authData);
+    const authenticatedTablet = auth.tabletName || auth.tablet?.tabletName;
+    
+    // Get the tablet name from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTabletName = urlParams.get('tabletName');
+    
+    // 🔒 CRITICAL: Validate that URL tablet matches authenticated tablet
+    // This prevents loading old auth data from localStorage when visiting a different tablet
+    if (urlTabletName && authenticatedTablet && urlTabletName !== authenticatedTablet) {
+      console.warn(`⚠️ Tablet mismatch! URL has "${urlTabletName}" but auth is for "${authenticatedTablet}"`);
+      console.log('🔄 Clearing old auth and redirecting to login...');
+      localStorage.removeItem('tabletAuth');
+      window.location.href = `tablet-login.html?tabletName=${urlTabletName}`;
+      return;
+    }
     
     // Check if token is expired (12 hours)
     const loginTime = new Date(auth.loginTime);
@@ -30,9 +45,8 @@
     if (hoursSinceLogin > 12) {
       // Token expired, clear and redirect
       localStorage.removeItem('tabletAuth');
-      const tabletName = auth.tabletName || auth.tablet?.tabletName;
-      if (tabletName) {
-        window.location.href = `tablet-login.html?tabletName=${tabletName}`;
+      if (authenticatedTablet) {
+        window.location.href = `tablet-login.html?tabletName=${authenticatedTablet}`;
       } else {
         window.location.href = 'tablet-login.html';
       }
@@ -102,6 +116,7 @@ let variableMappings = {
   productionCount: 'seisanSu',          // Default: For 作業数 calculation
   boxQuantity: 'hakoIresu'              // Default: For 合格数追加 display
 };
+let isEquipmentConfigLoaded = false; // Flag to track if config loaded
 
 // Restore seisanSuStartValue from localStorage on load
 try {
@@ -1019,6 +1034,15 @@ async function loadEquipmentConfig() {
   } catch (error) {
     console.error('❌ Error loading equipment config:', error);
     console.log('ℹ️ Using default variable mappings');
+  } finally {
+    // ✅ NOW subscribe to OPC variables with correct mappings loaded
+    isEquipmentConfigLoaded = true;
+    if (socket.connected) {
+      console.log('📡 Subscribing to OPC variables with equipment-specific mappings...');
+      const authData = localStorage.getItem('tabletAuth');
+      const token = authData ? JSON.parse(authData).token : null;
+      socket.emit('subscribe_variables', { company: currentCompany, token });
+    }
   }
 }
 
@@ -1274,10 +1298,14 @@ function updateConnectionStatus(status) {
 socket.on('connect', () => {
   console.log('✅ Connected to ksgServer');
   updateConnectionStatus('connected');
-  // Subscribe to real-time variable updates for this company with token
-  const authData = localStorage.getItem('tabletAuth');
-  const token = authData ? JSON.parse(authData).token : null;
-  socket.emit('subscribe_variables', { company: currentCompany, token });
+  // Subscribe to OPC variables only if equipment config is already loaded
+  // Otherwise, loadEquipmentConfig() will subscribe after loading
+  if (isEquipmentConfigLoaded) {
+    console.log('🔄 Reconnected - subscribing to OPC variables');
+    const authData = localStorage.getItem('tabletAuth');
+    const token = authData ? JSON.parse(authData).token : null;
+    socket.emit('subscribe_variables', { company: currentCompany, token });
+  }
 });
 
 socket.on('disconnect', () => {
