@@ -1125,9 +1125,10 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
                 let startMinutes = startH * 60 + startM;
                 let endMinutes = endH * 60 + endM;
                 if (endMinutes < startMinutes) endMinutes += 24 * 60; // midnight crossover
-                const stopTime = parseFloat(submissionData.休憩時間) || 0; // break/trouble time in hours
-                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - stopTime).toFixed(2));
-                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, stop: ${stopTime}h)`);
+                const breakTime = parseFloat(submissionData.休憩時間) || 0;
+                const troubleTime = parseFloat(submissionData['機械トラブル時間']) || 0;
+                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleTime).toFixed(2));
+                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleTime}h)`);
             } catch (e) {
                 console.warn('⚠️ [TABLET] Could not calculate man_hours:', e.message);
             }
@@ -1137,7 +1138,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         const KNOWN_KEYS = new Set([
             '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH',
             '技能員①', '技能員②', '良品数', '工数',
-            'その他詳細', '開始時間', '終了時間', '休憩時間', '備考', '工数（除外工数）'
+            'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -1149,6 +1150,12 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         });
 
         console.log(`🔴 [TABLET] Dynamic defects extracted:`, defects);
+
+        // Calculate cycle time (min/piece) based on total count (good + defects) and man hours
+        const totalDefectCount = Object.values(defects).reduce((sum, v) => sum + (parseInt(v) || 0), 0);
+        const totalWorkCount = (parseInt(submissionData['良品数']) || 0) + totalDefectCount;
+        const cycleTime = totalWorkCount > 0 ? parseFloat((manHours * 60 / totalWorkCount).toFixed(2)) : 0;
+        console.log(`⏱️ [TABLET] cycle_time: ${cycleTime} min/piece (${totalWorkCount} total pieces, ${manHours}h)`);
 
         // Build final data: fixed metadata → dynamic defects → fixed trailing fields
         const finalData = {
@@ -1165,11 +1172,13 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             operator2: submissionData['技能員②'] || '',
             good_count: submissionData.良品数 || 0,
             man_hours: manHours,
+            cycle_time: cycleTime,
             ...defects,
             other_description: submissionData.その他詳細 || '',
             start_time: submissionData.開始時間 || '',
             end_time: endTime,
-            break_time: submissionData.休憩時間 || '',
+            break_time: parseFloat(submissionData.休憩時間) || 0,
+            trouble_time: parseFloat(submissionData['機械トラブル時間']) || 0,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,
             submitted_from: 'tablet'

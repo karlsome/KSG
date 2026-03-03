@@ -93,6 +93,8 @@ let breakTimerInterval = null; // Interval for break timer
 let breakStartTime = null; // Timestamp when break started
 let troubleTimerInterval = null; // Interval for machine trouble timer
 let troubleStartTime = null; // Timestamp when machine trouble started
+let totalBreakHours = 0; // Total accumulated break time in hours
+let totalTroubleHours = 0; // Total accumulated machine trouble time in hours
 
 // 🆕 Equipment-specific OPC variable mappings (loaded dynamically)
 let variableMappings = {
@@ -110,6 +112,16 @@ try {
   }
 } catch (e) {
   console.error('Failed to restore seisanSuStartValue:', e);
+}
+
+// Restore break/trouble hour accumulators from localStorage
+try {
+  const savedBreakHours = localStorage.getItem('tablet_totalBreakHours');
+  if (savedBreakHours !== null) totalBreakHours = parseFloat(savedBreakHours) || 0;
+  const savedTroubleHours = localStorage.getItem('tablet_totalTroubleHours');
+  if (savedTroubleHours !== null) totalTroubleHours = parseFloat(savedTroubleHours) || 0;
+} catch (e) {
+  console.error('Failed to restore break/trouble hours:', e);
 }
 
 // ============================================================
@@ -158,19 +170,20 @@ function updateWorkDuration() {
   const elapsedMs = now - workStartTime;
   const elapsedMinutes = Math.floor(elapsedMs / 60000);
   
-  // Calculate hours and minutes
-  const hours = Math.floor(elapsedMinutes / 60);
-  const minutes = elapsedMinutes % 60;
+  // Calculate gross hours and minutes (for workTime display)
+  const grossHours = Math.floor(elapsedMinutes / 60);
+  const grossMinutes = elapsedMinutes % 60;
   
-  // Format as HH:MM
-  const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  // Format gross elapsed as HH:MM (for display)
+  const timeString = `${String(grossHours).padStart(2, '0')}:${String(grossMinutes).padStart(2, '0')}`;
   document.getElementById('workTime').value = timeString;
   
-  // Calculate decimal hours (e.g., 1:30 = 1.5)
-  const decimalHours = (hours + minutes / 60).toFixed(2);
-  document.getElementById('manHours').value = decimalHours;
+  // Net man_hours = gross elapsed - break - trouble
+  const grossDecimalHours = grossHours + grossMinutes / 60;
+  const netDecimalHours = Math.max(0, grossDecimalHours - totalBreakHours - totalTroubleHours);
+  document.getElementById('manHours').value = netDecimalHours.toFixed(2);
   
-  console.log(`⏱️ Work duration: ${timeString} (${decimalHours}h)`);
+  console.log(`⏱️ Work duration: ${timeString} gross, net=${netDecimalHours.toFixed(2)}h (break=${totalBreakHours}h, trouble=${totalTroubleHours}h)`);
 }
 
 // ============================================================
@@ -266,6 +279,11 @@ function completeBreak() {
     saveFieldToLocalStorage('stopTime', newStopTime);
     console.log(`✅ Updated stopTime: ${currentStopTime} + ${decimalHours} = ${newStopTime}h`);
   }
+  
+  // Track break hours separately
+  totalBreakHours = parseFloat((totalBreakHours + parseFloat(decimalHours)).toFixed(2));
+  localStorage.setItem('tablet_totalBreakHours', totalBreakHours.toString());
+  console.log(`⏸️ totalBreakHours: ${totalBreakHours}h`);
   
   // Stop timer and close modal
   stopBreakTimer();
@@ -382,6 +400,11 @@ function completeTrouble() {
     saveFieldToLocalStorage('stopTime', newStopTime);
     console.log(`✅ Updated stopTime: ${currentStopTime} + ${decimalHours} = ${newStopTime}h`);
   }
+  
+  // Track trouble hours separately
+  totalTroubleHours = parseFloat((totalTroubleHours + parseFloat(decimalHours)).toFixed(2));
+  localStorage.setItem('tablet_totalTroubleHours', totalTroubleHours.toString());
+  console.log(`🔧 totalTroubleHours: ${totalTroubleHours}h`);
   
   // Stop timer and close modal
   stopTroubleTimer();
@@ -929,7 +952,7 @@ function populateUserDropdowns() {
       // Add users as options
       availableUsers.forEach(user => {
         const option = document.createElement('option');
-        option.value = user.username;
+        option.value = user.fullName || user.username;
         // Display format: "lastName firstName" or username if names not available
         option.textContent = user.fullName || user.username;
         dropdown.appendChild(option);
@@ -1756,7 +1779,8 @@ async function sendData() {
       その他詳細: document.getElementById('otherDetails')?.textContent || '',
       開始時間: startTimeValue,
       終了時間: endTimeInput?.value || '',
-      休憩時間: parseFloat(document.getElementById('stopTime')?.value) || '',
+      休憩時間: totalBreakHours || 0,
+      機械トラブル時間: totalTroubleHours || 0,
       備考: document.getElementById('remarks')?.textContent || '',
       '工数（除外工数）': 0
     };
@@ -1867,6 +1891,24 @@ function clearAllFields() {
     
     updateDefectSum(); // Update sum after reset
     console.log('🔄 Reset defect counters');
+    
+    // Reset stopTime, endTime, poster1, poster2
+    const stopTimeEl = document.getElementById('stopTime');
+    if (stopTimeEl) { stopTimeEl.value = ''; }
+    const endTimeEl = document.getElementById('endTime');
+    if (endTimeEl) { endTimeEl.value = ''; }
+    const poster1El = document.getElementById('poster1');
+    if (poster1El) { poster1El.value = ''; }
+    const poster2El = document.getElementById('poster2');
+    if (poster2El) { poster2El.value = ''; }
+    console.log('🔄 Reset stopTime, endTime, poster1, poster2');
+    
+    // Reset break/trouble hour accumulators
+    totalBreakHours = 0;
+    totalTroubleHours = 0;
+    localStorage.removeItem('tablet_totalBreakHours');
+    localStorage.removeItem('tablet_totalTroubleHours');
+    console.log('🔄 Reset break/trouble time accumulators');
     
     // Clear all localStorage
     clearAllLocalStorage();
