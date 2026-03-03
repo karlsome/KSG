@@ -179,7 +179,7 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
     </th>`).join('');
 
   // ── Table body ──
-  const tbody = records.map(rec => {
+  const tbody = records.map((rec, idx) => {
     const cells = allCols.map(col => {
       let val = rec[col.key] ?? '';
       if (col.fmt) val = col.fmt(val);
@@ -190,7 +190,7 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
       }
       return `<td class="px-3 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis" title="${String(val).replace(/"/g, '&quot;')}">${val}</td>`;
     }).join('');
-    return `<tr class="hover:bg-blue-50 border-b border-gray-100">${cells}</tr>`;
+    return `<tr class="hover:bg-blue-50 border-b border-gray-100 cursor-pointer" onclick="openSdbDetail(${idx})">${cells}</tr>`;
   }).join('');
 
   container.innerHTML = `
@@ -283,6 +283,83 @@ function exportSubmittedDBCSV() {
   a.download = `submittedDB_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// --- Detail Modal ---
+
+function openSdbDetail(idx) {
+  const rec = _sdbAllData[idx];
+  if (!rec) return;
+
+  const ts = rec.timestamp ? new Date(rec.timestamp).toLocaleString('ja-JP') : '';
+
+  // Header
+  document.getElementById('sdbModalDate').textContent       = ts;
+  document.getElementById('sdbModalTitle').textContent      = rec.product_name || '—';
+  document.getElementById('sdbModalSub').textContent        = [rec.hinban, rec.kanban_id].filter(Boolean).join('  /  ');
+
+  // Stats
+  document.getElementById('sdbModalGood').textContent      = rec.good_count ?? '—';
+  document.getElementById('sdbModalManHours').textContent  = rec.man_hours != null ? Number(rec.man_hours).toFixed(2) : '—';
+  document.getElementById('sdbModalCT').textContent        = rec.cycle_time != null ? Number(rec.cycle_time).toFixed(2) : '—';
+  document.getElementById('sdbModalLhRh').textContent      = rec.lh_rh || '—';
+
+  // Operators
+  document.getElementById('sdbModalOp1').textContent = rec.operator1 || '—';
+  document.getElementById('sdbModalOp2').textContent = rec.operator2 || '';
+
+  // Time
+  document.getElementById('sdbModalStart').textContent   = rec.start_time || '—';
+  document.getElementById('sdbModalEnd').textContent     = rec.end_time   || '—';
+  document.getElementById('sdbModalBreak').textContent   = rec.break_time   != null ? `${rec.break_time} h`   : '—';
+  document.getElementById('sdbModalTrouble').textContent = rec.trouble_time != null ? `${rec.trouble_time} h` : '—';
+
+  // Defects — build cards for all non-fixed keys
+  const defectsEl = document.getElementById('sdbModalDefects');
+  const defectEntries = Object.entries(rec).filter(([k]) => !SDB_FIXED_KEYS.has(k)).sort((a, b) => a[0].localeCompare(b[0]));
+  if (defectEntries.length === 0) {
+    document.getElementById('sdbModalDefectsSection').classList.add('hidden');
+  } else {
+    document.getElementById('sdbModalDefectsSection').classList.remove('hidden');
+    defectsEl.innerHTML = defectEntries.map(([k, v]) => {
+      const hasDefect = Number(v) > 0;
+      return `<div class="rounded-xl border p-3 text-center ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+        <p class="text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-400'} mb-1 truncate" title="${k}">${k}</p>
+        <p class="text-2xl font-bold ${hasDefect ? 'text-red-600' : 'text-gray-300'}">${v ?? 0}</p>
+      </div>`;
+    }).join('');
+  }
+
+  // Remarks
+  const remarksSection = document.getElementById('sdbModalRemarksSection');
+  if (rec.remarks) {
+    document.getElementById('sdbModalRemarks').textContent = rec.remarks;
+    remarksSection.classList.remove('hidden');
+  } else {
+    remarksSection.classList.add('hidden');
+  }
+
+  // Other description
+  const otherSection = document.getElementById('sdbModalOtherSection');
+  if (rec.other_description) {
+    document.getElementById('sdbModalOther').textContent = rec.other_description;
+    otherSection.classList.remove('hidden');
+  } else {
+    otherSection.classList.add('hidden');
+  }
+
+  // Footer
+  document.getElementById('sdbModalFrom').textContent = rec.submitted_from ? `送信元: ${rec.submitted_from}` : '';
+
+  document.getElementById('sdbDetailModal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSdbDetail(e) {
+  // If called from backdrop click, only close if the click was on the backdrop itself
+  if (e && e.target !== document.getElementById('sdbDetailModal')) return;
+  document.getElementById('sdbDetailModal').classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
 // --- Init ---
