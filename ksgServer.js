@@ -4986,10 +4986,69 @@ io.of('/opcua').on('connection', (socket) => {
 // CUSTOMER USER MANAGEMENT ROUTES
 // ==========================================
 
+const userIndexInitializedDBs = new Set();
+
+function escapeRegex(input = "") {
+    return String(input).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildCSVFieldRegex(value) {
+    const escaped = escapeRegex(value);
+    return new RegExp(`(^|\\s*,\\s*)${escaped}(\\s*,\\s*|$)`, "i");
+}
+
+async function ensureUsersCollectionIndexes(db) {
+    const dbName = db.databaseName;
+    if (userIndexInitializedDBs.has(dbName)) {
+        return;
+    }
+
+    const usersCollection = db.collection("users");
+    await Promise.all([
+        usersCollection.createIndex({ username: 1 }),
+        usersCollection.createIndex({ email: 1 }),
+        usersCollection.createIndex({ role: 1 }),
+        usersCollection.createIndex({ division: 1 }),
+        usersCollection.createIndex({ section: 1 }),
+        usersCollection.createIndex({ enable: 1 }),
+        usersCollection.createIndex({ userID: 1 })
+    ]);
+
+    userIndexInitializedDBs.add(dbName);
+}
+
 // Get all users for a customer database
 app.post("/customerGetUsers", async (req, res) => {
-  const { dbName, role } = req.body;
-  console.log("Received request to get users:", { dbName, role });
+    const {
+        dbName,
+        role,
+        page = 1,
+        limit = 25,
+        search = "",
+        filterRole = "",
+        filterDivision = "",
+        filterSection = "",
+        filterEnable = "",
+        filterFactory = "",
+        filterEquipment = "",
+        sortField = "",
+        sortOrder = ""
+    } = req.body;
+    console.log("Received request to get users:", {
+        dbName,
+        role,
+        page,
+        limit,
+        search,
+        filterRole,
+        filterDivision,
+        filterSection,
+        filterEnable,
+        filterFactory,
+        filterEquipment,
+        sortField,
+        sortOrder
+    });
 
   if (!dbName) {
     return res.status(400).json({ error: "Missing dbName" });
@@ -5006,9 +5065,105 @@ app.post("/customerGetUsers", async (req, res) => {
     
     const db = mongoClient.db(dbName);
     const users = db.collection("users");
+        await ensureUsersCollectionIndexes(db);
 
-    const result = await users.find({}, { projection: { password: 0 } }).toArray();
-    res.status(200).json(result);
+        const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+        const pageSize = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 200);
+        const skip = (pageNumber - 1) * pageSize;
+
+        const queryClauses = [];
+
+        if (filterRole) queryClauses.push({ role: filterRole });
+        if (filterDivision) queryClauses.push({ division: filterDivision });
+        if (filterSection) queryClauses.push({ section: filterSection });
+        if (filterEnable) queryClauses.push({ enable: filterEnable });
+
+        if (filterFactory) {
+            queryClauses.push({
+                $or: [
+                    { factory: filterFactory },
+                    { factory: buildCSVFieldRegex(filterFactory) }
+                ]
+            });
+        }
+
+        if (filterEquipment) {
+            queryClauses.push({
+                $or: [
+                    { equipment: filterEquipment },
+                    { equipment: buildCSVFieldRegex(filterEquipment) }
+                ]
+            });
+        }
+
+        const trimmedSearch = String(search || "").trim();
+        if (trimmedSearch) {
+            const searchRegex = new RegExp(escapeRegex(trimmedSearch), "i");
+            queryClauses.push({
+                $or: [
+                    { firstName: searchRegex },
+                    { lastName: searchRegex },
+                    { email: searchRegex },
+                    { username: searchRegex },
+                    { userID: searchRegex },
+                    { role: searchRegex },
+                    { division: searchRegex },
+                    { section: searchRegex },
+                    { factory: searchRegex },
+                    { equipment: searchRegex }
+                ]
+            });
+        }
+
+        const query = queryClauses.length > 0 ? { $and: queryClauses } : {};
+
+        const allowedSortFields = new Set([
+            'firstName',
+            'lastName',
+            'email',
+            'username',
+            'role',
+            'division',
+            'section',
+            'enable',
+            'factory',
+            'equipment',
+            'userID',
+            'createdAt',
+            'updatedAt'
+        ]);
+
+const normalizedSortField = allowedSortFields.has(sortField) ? sortField : 'userID';
+    const normalizedSortOrder = sortOrder === 'asc' ? 1 : -1;
+    const sortSpec = normalizedSortField
+      ? { [normalizedSortField]: normalizedSortOrder, _id: -1 }
+      : { userID: 1, _id: -1 };
+
+        const [result, totalCount] = await Promise.all([
+            users
+                .find(query, { projection: { password: 0 } })
+                .sort(sortSpec)
+                .skip(skip)
+                .limit(pageSize)
+                .toArray(),
+            users.countDocuments(query)
+        ]);
+
+        const totalPages = Math.max(Math.ceil(totalCount / pageSize), 1);
+
+        res.status(200).json({
+            users: result,
+            pagination: {
+                page: pageNumber,
+                limit: pageSize,
+                totalCount,
+                totalPages,
+                hasPrevPage: pageNumber > 1,
+                hasNextPage: pageNumber < totalPages,
+                sortField: normalizedSortField,
+                sortOrder: normalizedSortField ? (normalizedSortOrder === 1 ? 'asc' : 'desc') : null
+            }
+        });
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ error: "Internal server error" });

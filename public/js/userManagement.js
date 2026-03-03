@@ -11,13 +11,29 @@ let availableDepartments = []; // Departments from 所属部署 tab
 let availableSections = []; // Sections from 所属係 tab
 let selectedUserFactories = []; // For create/edit factory tags
 let selectedUserEquipment = []; // For create/edit equipment tags
+let userReferenceDataLoaded = false;
+let userQueryState = {
+  page: 1,
+  limit: 25,
+  search: '',
+  filterRole: '',
+  filterDivision: '',
+  filterSection: '',
+  filterEnable: '',
+  filterFactory: '',
+  filterEquipment: '',
+  sortField: 'userID',
+  sortOrder: 'asc',
+  totalCount: 0,
+  totalPages: 1,
+  hasPrevPage: false,
+  hasNextPage: false
+};
 
 // Listen for language changes
 window.addEventListener('languageChanged', () => {
-  // Reload the current view if users are loaded
-  if (allUsers.length > 0) {
-    renderUserTable(allUsers);
-  }
+  // Re-render current user table with translated labels
+  renderUserTable(allUsers, userQueryState);
   // Update page title if it exists
   const titleEl = document.getElementById('userManagementTitle');
   if (titleEl) {
@@ -146,38 +162,181 @@ async function loadAvailableSections() {
   }
 }
 
-async function loadUsers() {
+async function ensureUserReferenceData(forceReload = false) {
+  if (userReferenceDataLoaded && !forceReload) {
+    return;
+  }
+
+  await Promise.all([
+    loadAvailableRoles(),
+    loadAvailableFactories(),
+    loadAvailableEquipment(),
+    loadAvailableDepartments(),
+    loadAvailableSections()
+  ]);
+
+  userReferenceDataLoaded = true;
+}
+
+function _readValue(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+function syncUserQueryStateFromUI() {
+  userQueryState.search = _readValue('userSearchInput');
+  userQueryState.filterRole = _readValue('userFilterRole');
+  userQueryState.filterDivision = _readValue('userFilterDivision');
+  userQueryState.filterSection = _readValue('userFilterSection');
+  userQueryState.filterEnable = _readValue('userFilterEnable');
+  userQueryState.filterFactory = _readValue('userFilterFactory');
+  userQueryState.filterEquipment = _readValue('userFilterEquipment');
+}
+
+async function loadUsers(options = {}) {
   // Get current user info (should be set when user logs in)
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const role = currentUser.role || "admin";
 
-  // Load available roles, factories, and equipment first
-  await loadAvailableRoles();
-  await loadAvailableFactories();
-  await loadAvailableEquipment();
-  await loadAvailableDepartments();
-  await loadAvailableSections();
+  if (typeof options.page === 'number') {
+    userQueryState.page = options.page;
+  }
+  if (typeof options.limit === 'number') {
+    userQueryState.limit = options.limit;
+  }
+  if (options.resetPage === true) {
+    userQueryState.page = 1;
+  }
+
+  await ensureUserReferenceData(options.forceReferenceReload === true);
+  syncUserQueryStateFromUI();
+
+  const requestPayload = {
+    dbName,
+    role,
+    page: userQueryState.page,
+    limit: userQueryState.limit,
+    search: userQueryState.search,
+    filterRole: userQueryState.filterRole,
+    filterDivision: userQueryState.filterDivision,
+    filterSection: userQueryState.filterSection,
+    filterEnable: userQueryState.filterEnable,
+    filterFactory: userQueryState.filterFactory,
+    filterEquipment: userQueryState.filterEquipment,
+    sortField: userQueryState.sortField,
+    sortOrder: userQueryState.sortOrder
+  };
 
   try {
     const res = await fetch(BASE_URL + "customerGetUsers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dbName, role })
+      body: JSON.stringify(requestPayload)
     });
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
 
-    const users = await res.json();
+    const payload = await res.json();
+    const users = Array.isArray(payload) ? payload : (payload.users || []);
+    const pagination = payload.pagination || {
+      page: 1,
+      limit: users.length || userQueryState.limit,
+      totalCount: users.length,
+      totalPages: 1,
+      hasPrevPage: false,
+      hasNextPage: false,
+      sortField: null,
+      sortOrder: null
+    };
+
+    userQueryState = {
+      ...userQueryState,
+      page: pagination.page,
+      limit: pagination.limit,
+      totalCount: pagination.totalCount,
+      totalPages: pagination.totalPages,
+      hasPrevPage: pagination.hasPrevPage,
+      hasNextPage: pagination.hasNextPage,
+      sortField: pagination.sortField || userQueryState.sortField,
+      sortOrder: pagination.sortOrder || userQueryState.sortOrder
+    };
+
+    // If current page becomes out-of-range after data updates, move to last available page
+    if (users.length === 0 && userQueryState.totalCount > 0 && userQueryState.page > userQueryState.totalPages) {
+      await loadUsers({ page: userQueryState.totalPages });
+      return;
+    }
+
     allUsers = users;
-    renderUserTable(users);
+    renderUserTable(users, userQueryState);
   } catch (err) {
     console.error("Failed to load users:", err);
     document.getElementById("userTableContainer").innerHTML =
       `<p class="text-red-600">${t('userManagement.failedToLoad')}: ${err.message}</p>`;
   }
+}
+
+function applyUserFilters() {
+  loadUsers({ page: 1, resetPage: true });
+}
+
+function resetUserFilters() {
+  userQueryState.search = '';
+  userQueryState.filterRole = '';
+  userQueryState.filterDivision = '';
+  userQueryState.filterSection = '';
+  userQueryState.filterEnable = '';
+  userQueryState.filterFactory = '';
+  userQueryState.filterEquipment = '';
+  userQueryState.page = 1;
+
+  const ids = [
+    'userSearchInput',
+    'userFilterRole',
+    'userFilterDivision',
+    'userFilterSection',
+    'userFilterEnable',
+    'userFilterFactory',
+    'userFilterEquipment'
+  ];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  loadUsers({ page: 1 });
+}
+
+function goToUserPage(page) {
+  if (page < 1 || page > userQueryState.totalPages) return;
+  loadUsers({ page });
+}
+
+function changeUserPageSize(limit) {
+  const parsedLimit = parseInt(limit, 10);
+  if (!parsedLimit || parsedLimit < 1) return;
+  loadUsers({ page: 1, limit: parsedLimit });
+}
+
+function sortUsersBy(field) {
+  if (!field) return;
+
+  if (userQueryState.sortField === field) {
+    userQueryState.sortOrder = userQueryState.sortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    userQueryState.sortField = field;
+    userQueryState.sortOrder = 'asc';
+  }
+
+  loadUsers({ page: 1 });
+}
+
+function getSortIndicator(field) {
+  if (userQueryState.sortField !== field) return '';
+  return userQueryState.sortOrder === 'asc' ? ' ↑' : ' ↓';
 }
 
 function showCreateUserForm() {
@@ -512,7 +671,7 @@ async function deleteUser(userId) {
   }
 }
 
-function renderUserTable(users) {
+function renderUserTable(users, paginationState = userQueryState) {
   const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "equipment", "userID"];
   
   // Create header translations map
@@ -529,24 +688,106 @@ function renderUserTable(users) {
     equipment: t('userManagement.equipment'),
     userID: t('userManagement.userID')
   };
+
+  const currentPage = paginationState.page || 1;
+  const pageSize = paginationState.limit || 25;
+  const totalCount = paginationState.totalCount || 0;
+  const totalPages = paginationState.totalPages || 1;
+  const startIndex = totalCount === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+  const endIndex = totalCount === 0 ? 0 : Math.min(currentPage * pageSize, totalCount);
+
+  const roleFilterOptions = availableRoles.map(r => `<option value="${r}" ${userQueryState.filterRole === r ? 'selected' : ''}>${r}</option>`).join('');
+  const divisionFilterOptions = availableDepartments.map(d => `<option value="${d}" ${userQueryState.filterDivision === d ? 'selected' : ''}>${d}</option>`).join('');
+  const sectionFilterOptions = availableSections.map(s => `<option value="${s}" ${userQueryState.filterSection === s ? 'selected' : ''}>${s}</option>`).join('');
+  const factoryFilterOptions = availableFactories.map(f => `<option value="${f}" ${userQueryState.filterFactory === f ? 'selected' : ''}>${f}</option>`).join('');
+  const equipmentFilterOptions = availableEquipment.map(e => `<option value="${e}" ${userQueryState.filterEquipment === e ? 'selected' : ''}>${e}</option>`).join('');
   
   const tableHTML = `
-    <div class="mb-4">
+    <div class="mb-4 flex flex-wrap items-center gap-3">
       <button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" onclick="showCreateUserForm()">
         <i class="ri-user-add-line mr-2"></i>
         ${t('userManagement.createNewUser')}
       </button>
+      <span class="text-sm text-gray-600">${totalCount} users</span>
     </div>
+
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('common.search')}</label>
+          <input id="userSearchInput" type="text" value="${userQueryState.search || ''}" placeholder="${t('common.search')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.role')}</label>
+          <select id="userFilterRole" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            ${roleFilterOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.division')}</label>
+          <select id="userFilterDivision" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            ${divisionFilterOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.section')}</label>
+          <select id="userFilterSection" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            ${sectionFilterOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.enable')}</label>
+          <select id="userFilterEnable" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            <option value="enabled" ${userQueryState.filterEnable === 'enabled' ? 'selected' : ''}>${t('userManagement.enabled')}</option>
+            <option value="disabled" ${userQueryState.filterEnable === 'disabled' ? 'selected' : ''}>${t('userManagement.disabled')}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.factory')}</label>
+          <select id="userFilterFactory" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            ${factoryFilterOptions}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">${t('userManagement.equipment')}</label>
+          <select id="userFilterEquipment" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+            <option value="">All</option>
+            ${equipmentFilterOptions}
+          </select>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 mt-3">
+        <button class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm" onclick="applyUserFilters()">Apply</button>
+        <button class="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm" onclick="resetUserFilters()">Reset</button>
+      </div>
+    </div>
+
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
         <thead class="bg-gray-100">
           <tr>
-            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${headerTranslations[h]}</th>`).join("")}
+            ${headers.map(h => `
+              <th class="px-4 py-3 text-left font-semibold text-gray-700">
+                <button class="inline-flex items-center gap-1 hover:text-blue-700" onclick="sortUsersBy('${h}')">
+                  <span>${headerTranslations[h]}</span><span>${getSortIndicator(h)}</span>
+                </button>
+              </th>
+            `).join("")}
             <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('userManagement.actions')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          ${users.map(u => `
+          ${users.length === 0 ? `
+            <tr>
+              <td class="px-4 py-6 text-center text-gray-500" colspan="12">No users found</td>
+            </tr>
+          ` : users.map(u => `
             <tr class="hover:bg-gray-50" id="userRow-${u._id}">
               ${headers.map(h => `
                 <td class="px-4 py-3">
@@ -622,9 +863,36 @@ function renderUserTable(users) {
         </tbody>
       </table>
     </div>
+
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="text-sm text-gray-600">Showing ${startIndex}-${endIndex} of ${totalCount}</div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 mr-2">
+          <label for="userPageSize" class="text-sm text-gray-600">Rows</label>
+          <select id="userPageSize" class="px-2 py-1.5 border border-gray-300 rounded bg-white text-sm" onchange="changeUserPageSize(this.value)">
+            <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+            <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+            <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+          </select>
+        </div>
+        <button class="px-3 py-1.5 border rounded ${currentPage <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}" ${currentPage <= 1 ? 'disabled' : ''} onclick="goToUserPage(${currentPage - 1})">Prev</button>
+        <span class="text-sm text-gray-700">Page ${currentPage} / ${totalPages}</span>
+        <button class="px-3 py-1.5 border rounded ${currentPage >= totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}" ${currentPage >= totalPages ? 'disabled' : ''} onclick="goToUserPage(${currentPage + 1})">Next</button>
+      </div>
+    </div>
   `;
 
   document.getElementById("userTableContainer").innerHTML = tableHTML;
+
+  const searchInput = document.getElementById('userSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        applyUserFilters();
+      }
+    });
+  }
 }
 
 async function submitNewUser() {
@@ -863,6 +1131,11 @@ if (typeof window !== 'undefined') {
   window.removeEditUserFactoryTag = removeEditUserFactoryTag;
   window.renderEditUserEquipmentTags = renderEditUserEquipmentTags;
   window.removeEditUserEquipmentTag = removeEditUserEquipmentTag;
+  window.applyUserFilters = applyUserFilters;
+  window.resetUserFilters = resetUserFilters;
+  window.goToUserPage = goToUserPage;
+  window.changeUserPageSize = changeUserPageSize;
+  window.sortUsersBy = sortUsersBy;
     window.showResetPasswordModal = showResetPasswordModal;
     window.closeResetPasswordModal = closeResetPasswordModal;
     window.submitResetPassword = submitResetPassword;
