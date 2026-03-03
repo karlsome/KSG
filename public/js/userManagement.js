@@ -614,6 +614,7 @@ function renderUserTable(users) {
               `).join("")}
               <td class="px-4 py-3" id="actions-${u._id}">
                 <button class="text-blue-600 hover:underline text-sm" onclick="startEditingUser('${u._id}')">${t('userManagement.edit')}</button>
+                  <button class="ml-2 text-orange-600 hover:underline text-sm" onclick="showResetPasswordModal('${u._id}', '${u.username}')">${t('userManagement.resetPassword')}</button>
                 <button class="ml-2 text-red-600 hover:underline text-sm" onclick="deleteUser('${u._id}')">${t('userManagement.delete')}</button>
               </td>
             </tr>
@@ -730,6 +731,121 @@ function removeUserEquipmentTag(equipment) {
   renderUserEquipmentTags();
 }
 
+  // Password Reset Functions
+  function showResetPasswordModal(userId, username) {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('resetPasswordModal');
+    if (!modal) {
+      const modalHTML = `
+        <div id="resetPasswordModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
+          <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div class="p-6">
+              <div class="flex items-center gap-2 mb-4">
+                <i class="ri-lock-password-line text-2xl text-orange-600"></i>
+                <h3 class="text-xl font-semibold text-gray-900">${t('userManagement.resetPasswordTitle')}</h3>
+              </div>
+              <div class="mb-4">
+                <p class="text-gray-600 text-sm mb-1">${t('userManagement.username')}:</p>
+                <p class="font-medium text-gray-900" id="resetPasswordUsername"></p>
+              </div>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">${t('userManagement.newPassword')}</label>
+                  <input type="password" id="resetPasswordNew" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" placeholder="${t('userManagement.newPassword')}" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">${t('userManagement.confirmPassword')}</label>
+                  <input type="password" id="resetPasswordConfirm" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" placeholder="${t('userManagement.confirmPassword')}" />
+                </div>
+              </div>
+              <div class="flex gap-3 mt-6">
+                <button class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors" onclick="submitResetPassword()">
+                  <i class="ri-check-line mr-2"></i>
+                  ${t('userManagement.resetPassword')}
+                </button>
+                <button class="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors" onclick="closeResetPasswordModal()">
+                  <i class="ri-close-line mr-2"></i>
+                  ${t('userManagement.cancel')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML('beforeend', modalHTML);
+      modal = document.getElementById('resetPasswordModal');
+    }
+  
+    // Set user info and show modal
+    document.getElementById('resetPasswordUsername').textContent = username;
+    modal.dataset.userId = userId;
+    document.getElementById('resetPasswordNew').value = '';
+    document.getElementById('resetPasswordConfirm').value = '';
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeResetPasswordModal() {
+    const modal = document.getElementById('resetPasswordModal');
+    if (modal) {
+      modal.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  }
+
+  async function submitResetPassword() {
+    const modal = document.getElementById('resetPasswordModal');
+    const userId = modal.dataset.userId;
+    const newPassword = document.getElementById('resetPasswordNew').value.trim();
+    const confirmPassword = document.getElementById('resetPasswordConfirm').value.trim();
+  
+    if (!newPassword || !confirmPassword) {
+      alert(t('userManagement.fillRequiredFields'));
+      return;
+    }
+  
+    if (newPassword.length < 6) {
+      alert(t('userManagement.passwordMinLength'));
+      return;
+    }
+  
+    if (newPassword !== confirmPassword) {
+      alert(t('userManagement.passwordsDoNotMatch'));
+      return;
+    }
+  
+    const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+    const dbName = currentUser.dbName || "KSG";
+    const username = currentUser.username || "admin";
+    const role = currentUser.role || "admin";
+  
+    try {
+      const res = await fetch(BASE_URL + "customerResetUserPassword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          newPassword,
+          dbName,
+          role,
+          username
+        })
+      });
+    
+      const result = await res.json();
+    
+      if (res.ok) {
+        alert(t('userManagement.passwordResetSuccess'));
+        closeResetPasswordModal();
+      } else {
+        alert(t('userManagement.passwordResetFailed') + ": " + (result.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error("Error resetting password:", err);
+      alert(t('userManagement.passwordResetFailed'));
+    }
+  }
+
 // Initialize when page loads
 if (typeof window !== 'undefined') {
   window.loadUsers = loadUsers;
@@ -747,4 +863,7 @@ if (typeof window !== 'undefined') {
   window.removeEditUserFactoryTag = removeEditUserFactoryTag;
   window.renderEditUserEquipmentTags = renderEditUserEquipmentTags;
   window.removeEditUserEquipmentTag = removeEditUserEquipmentTag;
+    window.showResetPasswordModal = showResetPasswordModal;
+    window.closeResetPasswordModal = closeResetPasswordModal;
+    window.submitResetPassword = submitResetPassword;
 }

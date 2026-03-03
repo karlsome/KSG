@@ -141,7 +141,16 @@ const translations = {
       accessDenied: "Access denied",
 
       // Confirmation messages
-      confirmDelete: "Are you sure you want to delete this user?"
+  confirmDelete: "Are you sure you want to delete this user?",
+
+  // Password reset
+  resetPassword: "Reset Password",
+  newPassword: "New Password",
+  confirmPassword: "Confirm Password",
+  resetPasswordTitle: "Reset User Password",
+  passwordsDoNotMatch: "Passwords do not match",
+  passwordResetSuccess: "Password reset successfully",
+  passwordResetFailed: "Failed to reset password"
     },
 
     // OPC Management Page
@@ -642,7 +651,16 @@ const translations = {
       accessDenied: "アクセスが拒否されました",
 
       // Confirmation messages
-      confirmDelete: "このユーザーを削除してもよろしいですか？"
+  confirmDelete: "このユーザーを削除してもよろしいですか？",
+
+  // Password reset
+  resetPassword: "パスワードリセット",
+  newPassword: "新しいパスワード",
+  confirmPassword: "パスワード確認",
+  resetPasswordTitle: "ユーザーパスワードのリセット",
+  passwordsDoNotMatch: "パスワードが一致しません",
+  passwordResetSuccess: "パスワードが正常にリセットされました",
+  passwordResetFailed: "パスワードのリセットに失敗しました"
     },
 
     // OPC Management Page
