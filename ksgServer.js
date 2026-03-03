@@ -5114,6 +5114,8 @@ io.of('/opcua').on('connection', (socket) => {
 // ==========================================
 
 const userIndexInitializedDBs = new Set();
+const userReferenceDataCache = new Map();
+const USER_REFERENCE_CACHE_TTL_MS = parseInt(process.env.USER_REFERENCE_CACHE_TTL_MS || '120000', 10);
 
 function escapeRegex(input = "") {
     return String(input).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -5143,6 +5145,75 @@ async function ensureUsersCollectionIndexes(db) {
 
     userIndexInitializedDBs.add(dbName);
 }
+
+async function fetchUserReferenceData(db) {
+    const [roles, factories, equipment, departments, sections] = await Promise.all([
+        db.collection('roles')
+            .find({}, { projection: { _id: 0, roleName: 1 } })
+            .sort({ roleName: 1 })
+            .toArray(),
+        db.collection('factories')
+            .find({}, { projection: { _id: 0, name: 1 } })
+            .sort({ name: 1 })
+            .toArray(),
+        db.collection('equipment')
+            .find({}, { projection: { _id: 0, 設備名: 1 } })
+            .sort({ 設備名: 1 })
+            .toArray(),
+        db.collection('department')
+            .find({}, { projection: { _id: 0, name: 1 } })
+            .sort({ name: 1 })
+            .toArray(),
+        db.collection('section')
+            .find({}, { projection: { _id: 0, name: 1 } })
+            .sort({ name: 1 })
+            .toArray()
+    ]);
+
+    return {
+        roles: roles.map(item => item.roleName).filter(Boolean),
+        factories: factories.map(item => item.name).filter(Boolean),
+        equipment: equipment.map(item => item.設備名).filter(Boolean),
+        departments: departments.map(item => item.name).filter(Boolean),
+        sections: sections.map(item => item.name).filter(Boolean)
+    };
+}
+
+// Get all user-management reference data in a single request
+app.post('/customerUserReferenceData', async (req, res) => {
+    const { dbName, forceRefresh = false } = req.body;
+
+    if (!dbName) {
+        return res.status(400).json({ error: 'Missing dbName' });
+    }
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+
+        const cacheKey = `userRef:${dbName}`;
+        const now = Date.now();
+        const cached = userReferenceDataCache.get(cacheKey);
+
+        if (!forceRefresh && cached && (now - cached.timestamp) < USER_REFERENCE_CACHE_TTL_MS) {
+            return res.status(200).json({ success: true, ...cached.data, cached: true });
+        }
+
+        const db = mongoClient.db(dbName);
+        const referenceData = await fetchUserReferenceData(db);
+
+        userReferenceDataCache.set(cacheKey, {
+            timestamp: now,
+            data: referenceData
+        });
+
+        res.status(200).json({ success: true, ...referenceData, cached: false });
+    } catch (error) {
+        console.error('Error fetching user reference data:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // Get all users for a customer database
 app.post("/customerGetUsers", async (req, res) => {

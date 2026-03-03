@@ -167,13 +167,39 @@ async function ensureUserReferenceData(forceReload = false) {
     return;
   }
 
-  await Promise.all([
-    loadAvailableRoles(),
-    loadAvailableFactories(),
-    loadAvailableEquipment(),
-    loadAvailableDepartments(),
-    loadAvailableSections()
-  ]);
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "customerUserReferenceData", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName, forceRefresh: forceReload })
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    const payload = await res.json();
+    availableRoles = Array.isArray(payload.roles) && payload.roles.length > 0
+      ? payload.roles
+      : availableRoles;
+    availableFactories = Array.isArray(payload.factories) ? payload.factories : [];
+    availableEquipment = Array.isArray(payload.equipment) ? payload.equipment : [];
+    availableDepartments = Array.isArray(payload.departments) ? payload.departments : [];
+    availableSections = Array.isArray(payload.sections) ? payload.sections : [];
+  } catch (err) {
+    console.log("Combined reference-data endpoint failed, falling back to legacy loaders:", err);
+
+    await Promise.all([
+      loadAvailableRoles(),
+      loadAvailableFactories(),
+      loadAvailableEquipment(),
+      loadAvailableDepartments(),
+      loadAvailableSections()
+    ]);
+  }
 
   userReferenceDataLoaded = true;
 }
