@@ -1766,6 +1766,15 @@ async function sendData() {
       console.warn('⚠️ Validation failed - missing required fields:', missingFields);
       return; // Stop submission
     }
+
+    // Check 作業数 (Work Count) — must be > 0
+    const workCountInput = document.getElementById('workCount');
+    const workCountValue = parseInt(workCountInput?.value) || 0;
+    if (workCountValue === 0) {
+      alert('作業数が 0 です。送信できません。\n\nWork count is 0. Cannot submit.\n\n作業開始後、OPC データが反映されてから送信してください。\nPlease wait for OPC data to update after starting work.');
+      console.warn('⚠️ Validation failed - workCount is 0');
+      return;
+    }
     
     // Auto-set end time to current time
     const endTimeInput = document.getElementById('endTime');
