@@ -194,3 +194,11 @@ See `raspberry_pi/requirements.txt` for Python dependencies.
 | `start_time`, `end_time` | Work period |
 | `break_time`, `trouble_time` | Deducted hours |
 | `submitted_from` | Always `"tablet"` |
+
+---
+
+## License
+
+Copyright (c) 2026 Sasaki Coating Co., Ltd. All Rights Reserved.
+
+This software is proprietary and confidential. Unauthorized copying, distribution, or modification is strictly prohibited. See [LICENSE](LICENSE) for full terms.
