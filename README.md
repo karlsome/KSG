@@ -1,331 +1,196 @@
-# KSG OPC UA Monitoring System
+# KSG Production Inspection System
 
-A comprehensive multi-tenant OPC UA monitoring system for factory equipment across multiple locations.
-
-## 🏗️ System Architecture
-
-```
-┌─────────────────┐
-│  Web Interfaces │
-│  (Admin/Monitor)│
-└────────┬────────┘
-         │ HTTPS
-         ↓
-┌─────────────────┐
-│   Node.js API   │
-│ (Render.com)    │
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐      ┌──────────────────┐
-│  MongoDB Atlas  │←────→│  Raspberry Pi    │
-│  (Cloud DB)     │      │  (Factory Local) │
-└─────────────────┘      └────────┬─────────┘
-                                  │ OPC UA
-                                  ↓
-                         ┌──────────────────┐
-                         │  KV-8000 PLC     │
-                         │  (Equipment)     │
-                         └──────────────────┘
-```
-
-## 📦 Components
-
-### 1. Node.js Backend (`ksgServer.js`)
-- **Location:** Render.com cloud hosting
-- **Purpose:** REST API, authentication, data management
-- **Features:**
-  - Multi-tenant support
-  - Device authentication by uniqueId
-  - Real-time WebSocket updates
-  - MongoDB integration
-
-### 2. Raspberry Pi Client (`raspberry_pi/opcua_client.py`)
-- **Location:** Factory local network
-- **Purpose:** OPC UA data collection
-- **Features:**
-  - Connects to KV-8000 PLC via OPC UA
-  - Polls configured datapoints
-  - Pushes data to cloud API
-  - Auto-reconnection & heartbeat
-
-### 3. Admin UI (`public/opcua-admin.html`)
-- **Purpose:** System configuration & management
-- **Users:** Administrators, masterUsers
-- **Features:**
-  - Raspberry Pi device management
-  - Equipment configuration
-  - Datapoint selection (40+ variables)
-  - Real-time status monitoring
-
-### 4. Monitor UI (`public/opcua-monitor.html`)
-- **Purpose:** Real-time equipment monitoring
-- **Users:** Factory operators
-- **Device:** iPad/Tablet optimized
-- **Features:**
-  - Live equipment grid display
-  - Auto-updating datapoints
-  - WebSocket real-time updates
-  - Touch-friendly interface
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Node.js 16+ and npm
-- Python 3.7+ (for Raspberry Pi)
-- MongoDB Atlas account
-- Render.com account (or any Node.js hosting)
-
-### Backend Setup (Node.js)
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Configure environment variables:**
-   Create `.env` file:
-   ```env
-   MONGODB_URI=mongodb+srv://your-connection-string
-   PORT=3000
-   ```
-
-3. **Start server:**
-   ```bash
-   npm start
-   ```
-
-4. **Deploy to Render.com:**
-   - Connect your GitHub repository
-   - Set environment variables
-   - Deploy automatically
-
-### Raspberry Pi Setup
-
-1. **Navigate to raspberry_pi folder:**
-   ```bash
-   cd raspberry_pi
-   ```
-
-2. **Install Python dependencies:**
-   ```bash
-   pip3 install -r requirements.txt
-   ```
-
-3. **Configure your device:**
-   Edit `opcua_client.py`:
-   ```python
-   RASPBERRY_ID = "YOUR_UNIQUE_ID"  # e.g., "6C10F6"
-   ```
-
-4. **Run the client:**
-   ```bash
-   python3 opcua_client.py
-   ```
-
-5. **Setup as service (optional):**
-   See `raspberry_pi/README.md` for systemd service setup
-
-## 📊 MongoDB Collections
-
-Each customer has their own database (e.g., "KSG") with collections:
-
-### `opcua_config`
-Raspberry Pi configuration (IP, port, intervals)
-
-### `opcua_equipment`
-Equipment definitions (machines, lines)
-
-### `opcua_datapoints`
-OPC UA node mappings (40+ variables per equipment)
-
-### `opcua_realtime`
-Current values cache for fast dashboard access
-
-## 🔐 Authentication
-
-### Raspberry Pi Authentication
-- Uses `uniqueId` hardcoded in Python script
-- Must match `masterUsers.devices.uniqueId` in MongoDB
-- Validated on every API call
-
-### Admin Authentication
-- Uses `masterUser` credentials
-- Login via web interface
-- Access to configuration and management
-
-### Monitor View
-- Optional company selection
-- Read-only public access (or PIN-protected)
-
-## 🌐 API Endpoints
-
-### Raspberry Pi Endpoints
-```
-GET  /api/opcua/config/:raspberryId          # Get configuration
-POST /api/opcua/heartbeat                    # Update heartbeat
-POST /api/opcua/data                         # Push real-time data
-GET  /api/opcua/datapoints/:raspberryId     # Get monitored datapoints
-```
-
-### Admin Endpoints
-```
-GET    /api/opcua/admin/raspberries         # List all Raspberry Pis
-POST   /api/opcua/admin/raspberry           # Add/update Raspberry Pi
-DELETE /api/opcua/admin/raspberry/:id       # Delete Raspberry Pi
-GET    /api/opcua/admin/equipment/:id       # List equipment
-POST   /api/opcua/admin/equipment           # Add/update equipment
-GET    /api/opcua/admin/datapoints/:id      # List datapoints
-POST   /api/opcua/admin/datapoints          # Add/update datapoint
-PUT    /api/opcua/admin/datapoints/:id/toggle  # Enable/disable
-```
-
-### Monitor Endpoints
-```
-GET /api/opcua/monitor/dashboard?company=KSG  # Get all equipment data
-WS  /opcua                                    # WebSocket for real-time
-```
-
-## 🎨 Web Interfaces
-
-### Admin Interface
-**URL:** `https://ksg-lu47.onrender.com/opcua-admin`
-
-**Features:**
-- Manage Raspberry Pi devices
-- Configure OPC UA connections
-- Add/edit equipment
-- Select which variables to monitor (checkboxes)
-- Test connections
-- View system status
-
-### Monitor Interface
-**URL:** `https://ksg-lu47.onrender.com/opcua-monitor`
-
-**Features:**
-- Real-time equipment dashboard
-- Grid layout with equipment cards
-- Live data updates via WebSocket
-- Color-coded status indicators
-- iPad/tablet optimized
-- Auto-refresh
-
-## 📝 Configuration Workflow
-
-### Initial Setup (Admin)
-
-1. **Add Raspberry Pi Device:**
-   - Open Admin UI
-   - Click "Add Raspberry Pi"
-   - Enter uniqueId (e.g., "6C10F6")
-   - Enter display name (e.g., "KSG2")
-   - Set OPC UA server IP (e.g., "192.168.1.50")
-   - Save
-
-2. **Add Equipment:**
-   - Select Raspberry Pi from dropdown
-   - Click "Add Equipment"
-   - Enter equipment ID (e.g., "W312_2")
-   - Enter display name (e.g., "W312-#2")
-   - Add description and location
-   - Save
-
-3. **Add Data Points:**
-   - Select equipment from dropdown
-   - Click "Add Data Point"
-   - Enter OPC UA node ID (e.g., "ns=4;s=W312_2_Kadou1")
-   - Enter label (e.g., "稼働時間(時)")
-   - Select data type and unit
-   - Enable monitoring
-   - Save
-
-4. **Deploy Raspberry Pi:**
-   - Configure Python script with uniqueId
-   - Start the client
-   - Verify connection in Admin UI
-   - Monitor real-time data
-
-### Daily Operation (Operators)
-
-1. Open Monitor UI on iPad
-2. Select company from dropdown
-3. View real-time equipment status
-4. Data updates automatically
-
-## 🔧 Customization
-
-### Adding New Customers
-
-1. Add masterUser in MongoDB `masterUsers` collection
-2. Add device entries with unique uniqueIds
-3. Configure Raspberry Pis with those uniqueIds
-4. System automatically handles multi-tenancy
-
-### Adding More Equipment
-
-- Use Admin UI to add equipment and datapoints
-- No code changes required
-- Raspberry Pi automatically picks up new configuration
-
-### Changing Poll Intervals
-
-- Adjust in Admin UI per Raspberry Pi
-- Default: 5000ms (5 seconds)
-- Range: 1000ms - 60000ms recommended
-
-## 📚 Documentation
-
-- [System Design](OPCUA_SYSTEM_DESIGN.md) - Detailed architecture
-- [Raspberry Pi Setup](raspberry_pi/README.md) - Deployment guide
-- [API Reference](OPCUA_SYSTEM_DESIGN.md#api-endpoints) - Complete API docs
-
-## 🛠️ Troubleshooting
-
-### Raspberry Pi Can't Connect
-
-1. Check uniqueId matches MongoDB
-2. Verify network connectivity
-3. Check OPC UA server IP/port
-4. View logs: `python3 opcua_client.py`
-
-### Data Not Updating
-
-1. Check Raspberry Pi status in Admin UI
-2. Verify datapoints are enabled
-3. Check OPC UA server is running
-4. Inspect WebSocket connection
-
-### Admin UI Not Loading
-
-1. Check Node.js server is running
-2. Verify MongoDB connection
-3. Check browser console for errors
-4. Ensure correct authentication
-
-## 📈 Future Enhancements
-
-- [ ] Auto-discovery of OPC UA nodes
-- [ ] Historical data charts and analytics
-- [ ] Alert/notification system
-- [ ] Mobile app (iOS/Android)
-- [ ] Multi-language support
-- [ ] Export data to CSV/Excel
-- [ ] Equipment maintenance scheduling
-
-## 📄 License
-
-Proprietary - KSG Internal Use Only
-
-## 👥 Support
-
-For issues or questions:
-- Check documentation first
-- Review system logs
-- Contact: [Your contact info]
+A real-time production inspection and quality tracking system for Kasugai Kakou. The system connects factory floor OPC UA equipment to inspection tablets, logs production data to MongoDB, and syncs to Google Sheets.
 
 ---
 
-**Version:** 1.0.0  
-**Last Updated:** November 5, 2025  
-**Status:** Production Ready ✅
+## Architecture Overview
+
+```
+OPC UA Machine
+     │
+     ▼
+Raspberry Pi (opcua_client.py)
+     │  polls OPC UA nodes
+     ▼
+ksgServer.js  (Node.js / Express / Socket.IO)
+     │
+     ├──► MongoDB Atlas
+     │      ├── Sasaki_Coating_MasterDB.masterUsers  (user accounts)
+     │      └── [CompanyDB]
+     │             ├── tabletDB           (registered tablets)
+     │             ├── submittedDB        (submitted inspection records)
+     │             ├── deviceInfo         (Raspberry Pi device registry)
+     │             ├── opcua_raspberries  (Pi configs)
+     │             ├── opcua_equipment    (equipment configs)
+     │             ├── opcua_datapoints   (monitored OPC nodes)
+     │             └── opcua_event_log    (OPC event history, 2-year TTL)
+     │
+     ├──► Google Sheets (webhook)
+     │
+     └──► Tablets (browser via Socket.IO)
+            └── public/tablet.html + public/js/tablet.js
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Server | Node.js, Express, Socket.IO |
+| Database | MongoDB Atlas |
+| Auth | JWT + Firebase Admin SDK |
+| Frontend | Vanilla JS, Socket.IO client |
+| OPC UA client | Python (`opcua` library), Raspberry Pi |
+| File uploads | Multer (memory storage) |
+
+---
+
+## Running the Server
+
+```bash
+# Install dependencies
+npm install
+
+# Development (auto-restart on change)
+npm run dev
+
+# Production
+npm start
+```
+
+Server runs on port `3000` by default.
+
+### Environment Variables (`.env`)
+
+```
+MONGODB_URI=mongodb+srv://...
+JWT_SECRET=your_jwt_secret
+FIREBASE_PROJECT_ID=...
+FIREBASE_PRIVATE_KEY=...
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_CLIENT_X509_CERT_URL=...
+FIREBASE_STORAGE_BUCKET=...
+GOOGLE_SHEETS_WEBHOOK_URL=https://script.google.com/...
+DEVICE_CACHE_DURATION=300000
+```
+
+---
+
+## Frontend URL Configuration
+
+Edit `public/js/config.js` to switch between local and production:
+
+```js
+// Local development
+const API_URL = 'http://localhost:3000';
+
+// Production
+// const API_URL = 'https://ksg.freyaaccess.com';
+```
+
+---
+
+## Key Pages
+
+| URL | Description |
+|---|---|
+| `/tablet.html?tabletName=<name>` | Inspection tablet UI |
+| `/tablet-login.html?tabletName=<name>` | Tablet login |
+| `/opcua-admin` | OPC UA admin panel (manage Pis, equipment, datapoints) |
+| `/opcua-monitor` | Real-time OPC UA data monitor |
+| `/masterDB.html` | Product master database viewer |
+| `/submittedDB.html` | Submitted inspection records viewer |
+| `/opcManagement.html` | OPC management UI |
+
+---
+
+## Tablet Inspection Flow
+
+1. **User opens** `tablet.html?tabletName=<TabletName>` — redirected to login if not authenticated.
+2. **User logs in** via `tablet-login.html` using their factory account (JWT issued for 12 hours).
+3. **OPC UA variables** are pushed in real-time from the server via Socket.IO (`opcua_variables_update` event).
+4. **Kanban ID** is read from an OPC variable (e.g. `kenyokiRHKanban`) — this auto-populates the product name and NG defect buttons.
+5. **User presses 作業開始** — captures the current OPC production counter (`seisanSu`) as the start baseline.
+6. **作業数** = current `seisanSu` − baseline. **合格数** = 作業数 − total defects.
+7. **User presses データ送信** — validated and submitted to MongoDB (`submittedDB`) and Google Sheets.
+
+---
+
+## Registering a Tablet
+
+Tablets are stored in MongoDB under `[CompanyDB].tabletDB`. Each tablet document links to a specific OPC equipment configuration.
+
+### Document structure
+
+```json
+{
+  "tabletName": "Tablet-A1",
+  "company": "KSG",
+  "factory": "木本",
+  "enabled": true,
+  "opcVariables": {
+    "kanbanVariable": "kenyokiRHKanban",
+    "productionCountVariable": "seisanSu",
+    "boxQuantityVariable": "hakoIresu"
+  },
+  "ngGroup": "440D-BPillar"
+}
+```
+
+### Steps to register a new tablet
+
+1. Open the **OPC UA Admin panel** (`/opcua-admin`) and confirm the equipment and datapoints for the target factory line are configured.
+2. In MongoDB Atlas, open the `[CompanyDB].tabletDB` collection and insert a new document following the structure above.
+   - `tabletName` must match the `?tabletName=` URL parameter used when opening the tablet.
+   - `opcVariables` must reference the exact OPC variable names configured for the equipment.
+   - `ngGroup` must match a group name defined in `masterDB` for the products this tablet inspects.
+3. Navigate to `tablet-login.html?tabletName=<TabletName>` on the tablet device to verify login works.
+
+---
+
+## OPC UA System
+
+### Raspberry Pi Setup
+
+The Pi runs `raspberry_pi/opcua_client.py` which:
+- Connects to the OPC UA server on the factory machine.
+- Polls configured datapoints and POSTs data to `/api/opcua/data`.
+- Sends heartbeats to `/api/opcua/heartbeat`.
+- Discovers and uploads node structure to `/api/opcua/discovered-nodes`.
+
+See `raspberry_pi/requirements.txt` for Python dependencies.
+
+### Adding a new Raspberry Pi
+
+1. In `/opcua-admin`, go to **Raspberry Pi Management** → **Add Pi**.
+2. Fill in the Pi's `uniqueId`, description, and company.
+3. On the Pi itself, set the `UNIQUE_ID` and `SERVER_URL` environment variables to match, then run `opcua_client.py`.
+
+### Adding Equipment and Datapoints
+
+1. In `/opcua-admin`, select a Pi → **Add Equipment** with a name and OPC UA server endpoint URL.
+2. Under the equipment, click **Discover Nodes** to browse the OPC UA address space.
+3. Select the nodes to monitor and save them as **Datapoints**.
+4. The datapoint variable names (e.g. `seisanSu`, `kenyokiRHKanban`) are what you reference in the tablet's `opcVariables` config.
+
+---
+
+## Submitted Data Fields (MongoDB `submittedDB`)
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO submission datetime |
+| `hinban` | Part number |
+| `product_name` | Product name |
+| `kanban_id` | Kanban ID from OPC |
+| `lh_rh` | Left-hand / Right-hand |
+| `operator1`, `operator2` | Inspector names |
+| `good_count` | 合格数 (good pieces) |
+| `man_hours` | Net working hours |
+| `cycle_time` | Minutes per piece |
+| `[defect name]` | Dynamic defect counts (Japanese field names) |
+| `start_time`, `end_time` | Work period |
+| `break_time`, `trouble_time` | Deducted hours |
+| `submitted_from` | Always `"tablet"` |
