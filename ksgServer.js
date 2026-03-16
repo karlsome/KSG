@@ -934,10 +934,15 @@ app.get('/api/users/:company', authenticateDevice, async (req, res) => {
 // 🔹 TABLET API ENDPOINTS (Public - No Authentication Required)
 // ============================================================
 
-// Get users for tablet (filtered by factory and enabled status)
-app.get('/api/tablet/users/:factory', async (req, res) => {
-    const factory = decodeURIComponent(req.params.factory);
-    
+// Get users for tablet (filtered by factory + equipment and enabled status)
+app.get('/api/tablet/users', async (req, res) => {
+    const factory = req.query.factory ? decodeURIComponent(req.query.factory) : '';
+    const equipment = req.query.equipment ? decodeURIComponent(req.query.equipment) : '';
+
+    if (!factory) {
+        return res.status(400).json({ success: false, error: 'factory query parameter is required' });
+    }
+
     try {
         if (!mongoClient) {
             return res.status(503).json({ 
@@ -950,27 +955,36 @@ app.get('/api/tablet/users/:factory', async (req, res) => {
         const db = mongoClient.db('KSG');
         const collection = db.collection('users');
         
-        // Query users where enabled and factory matches (supports comma-separated values)
-        // This will match if factory appears anywhere in the comma-separated list
+        // Fetch all enabled users that have this factory in their assignment
         const users = await collection.find({
             enable: 'enabled',
             factory: { $regex: factory, $options: 'i' }
         }).toArray();
+
+        // If an equipment is specified, also require the user to have it assigned
+        const filteredUsers = users.filter(user => {
+            if (!equipment) return true;
+            const userEquipment = Array.isArray(user.equipment)
+                ? user.equipment
+                : (user.equipment || '').split(',').map(e => e.trim()).filter(e => e);
+            return userEquipment.includes(equipment);
+        });
         
         // Return user info needed for dropdowns
-        const filteredUsers = users.map(user => ({
+        const result = filteredUsers.map(user => ({
             username: user.username,
             firstName: user.firstName,
             lastName: user.lastName,
             fullName: `${user.lastName || ''} ${user.firstName || ''}`.trim()
         }));
         
-        console.log(`👥 [TABLET] Served ${filteredUsers.length} users for factory: ${factory}`);
+        console.log(`👥 [TABLET] Served ${result.length} users for factory: ${factory}, equipment: ${equipment}`);
         res.json({
             success: true,
-            users: filteredUsers,
-            count: filteredUsers.length,
-            factory: factory
+            users: result,
+            count: result.length,
+            factory: factory,
+            equipment: equipment
         });
         
     } catch (error) {

@@ -93,6 +93,7 @@ const socket = io(API_URL);
 
 let currentCompany = 'KSG'; // Default company
 let currentFactory = ''; // Will be set from URL parameter
+let currentEquipment = ''; // Will be set from tabletAuth data
 let currentProductId = ''; // Will be set from URL parameter or selection
 let currentProductName = ''; // Store product name from masterDB
 let availableUsers = []; // Store available users
@@ -840,11 +841,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Error displaying user info:', err);
   }
   
-  // Get factory from URL parameter, or fall back to the stored tablet auth data
+  // Get factory and equipment from URL parameter, or fall back to the stored tablet auth data
   const _storedAuth = localStorage.getItem('tabletAuth');
-  const _storedTabletFactory = _storedAuth ? (JSON.parse(_storedAuth)?.tablet?.factoryLocation) : null;
-  currentFactory = getURLParameter('factory') || _storedTabletFactory || 'KSG加工';
-  console.log('🏭 Factory:', currentFactory);
+  const _storedTablet = _storedAuth ? JSON.parse(_storedAuth)?.tablet : null;
+  currentFactory = getURLParameter('factory') || _storedTablet?.factoryLocation || 'KSG加工';
+  currentEquipment = getURLParameter('equipment') || _storedTablet?.設備名 || '';
+  console.log('🏭 Factory:', currentFactory, '| ⚙️ Equipment:', currentEquipment);
   
   // Get product ID from URL (optional)
   currentProductId = getURLParameter('product') || 'aaa'; // Default to 'aaa' for testing
@@ -939,12 +941,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadUsers() {
   try {
-    const response = await fetch(`${API_URL}/api/tablet/users/${encodeURIComponent(currentFactory)}`);
+    const params = new URLSearchParams({ factory: currentFactory });
+    if (currentEquipment) params.set('equipment', currentEquipment);
+    const response = await fetch(`${API_URL}/api/tablet/users?${params.toString()}`);
     const data = await response.json();
     
     if (data.success) {
       availableUsers = data.users;
-      console.log(`✅ Loaded ${data.count} users for factory: ${currentFactory}`, availableUsers);
+      console.log(`✅ Loaded ${data.count} users for factory: ${currentFactory}, equipment: ${currentEquipment}`, availableUsers);
       
       // Populate dropdowns
       populateUserDropdowns();
