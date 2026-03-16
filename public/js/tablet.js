@@ -840,9 +840,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Error displaying user info:', err);
   }
   
-  // Get factory from URL parameter
-  currentFactory = getURLParameter('factory') || 'KSG加工';
-  console.log('🏭 Factory from URL:', currentFactory);
+  // Get factory from URL parameter, or fall back to the stored tablet auth data
+  const _storedAuth = localStorage.getItem('tabletAuth');
+  const _storedTabletFactory = _storedAuth ? (JSON.parse(_storedAuth)?.tablet?.factoryLocation) : null;
+  currentFactory = getURLParameter('factory') || _storedTabletFactory || 'KSG加工';
+  console.log('🏭 Factory:', currentFactory);
   
   // Get product ID from URL (optional)
   currentProductId = getURLParameter('product') || 'aaa'; // Default to 'aaa' for testing
