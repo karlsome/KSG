@@ -119,6 +119,48 @@ let variableMappings = {
 };
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
 
+function normalizeKanbanValue(rawValue) {
+  if (rawValue === null || rawValue === undefined) {
+    return null;
+  }
+
+  const stringValue = String(rawValue).replace(/\x00/g, '').trim();
+  return stringValue ? stringValue : null;
+}
+
+function persistLastKnownKanban(kanbanId) {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  if (!normalizedKanban) {
+    return null;
+  }
+
+  localStorage.setItem('tablet_lastKnownKanbanID', normalizedKanban);
+  localStorage.setItem('tablet_kanbanID', normalizedKanban);
+  return normalizedKanban;
+}
+
+function getLastKnownKanban() {
+  return normalizeKanbanValue(
+    localStorage.getItem('tablet_lastKnownKanbanID') || localStorage.getItem('tablet_kanbanID')
+  );
+}
+
+async function fetchProductByKanbanID(kanbanId) {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  if (!normalizedKanban) {
+    return null;
+  }
+
+  const response = await fetch(`${API_URL}/api/tablet/product-by-kanban/${encodeURIComponent(normalizedKanban)}`);
+  const data = await response.json();
+
+  if (!response.ok || !data.success || !data.product) {
+    throw new Error(data.error || `Failed to load product for kanban ${normalizedKanban}`);
+  }
+
+  return data.product;
+}
+
 // Restore seisanSuStartValue from localStorage on load
 try {
   const saved = localStorage.getItem('seisanSuStartValue');
@@ -1060,82 +1102,63 @@ async function loadProductInfo() {
 
 // Load product info by kanbanID (called when kenyokiRHKanban value updates)
 async function loadProductByKanbanID(kanbanId) {
-  if (!kanbanId || kanbanId === '') {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  if (!normalizedKanban) {
     console.warn('⚠️ No kanbanID provided');
     return;
   }
   
   try {
-    console.log(`📦 Fetching product for kanbanID: ${kanbanId}`);
-    const response = await fetch(`${API_URL}/api/tablet/product-by-kanban/${encodeURIComponent(kanbanId)}`);
-    const data = await response.json();
-    
-    if (data.success) {
-      const product = data.product;
-      console.log('✅ Loaded product info:', product);
+    console.log(`📦 Fetching product for kanbanID: ${normalizedKanban}`);
+    const product = await fetchProductByKanbanID(normalizedKanban);
+    console.log('✅ Loaded product info:', product);
       
-      // Update current product ID and name
-      currentProductId = product.品番;
-      currentProductName = product['製品名'] || '';
+    // Update current product ID and name
+    currentProductId = product.品番;
+    currentProductName = product['製品名'] || '';
       
-      // Save to localStorage for persistence across page reloads
-      localStorage.setItem('tablet_currentProductName', currentProductName);
-      localStorage.setItem('tablet_kanbanID', product.kanbanID || '');
+    // Save to localStorage for persistence across page reloads
+    localStorage.setItem('tablet_currentProductName', currentProductName);
+    persistLastKnownKanban(product.kanbanID || normalizedKanban);
       
-      // Set product name and kanbanID in header title
-      const productNameDisplay = document.getElementById('productNameDisplay');
-      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-      if (productNameDisplay && product['製品名']) {
-        productNameDisplay.textContent = product['製品名'];
-        console.log(`✅ Set product name in title to: ${product['製品名']}`);
-      }
-      if (kanbanIdDisplay && product.kanbanID) {
-        kanbanIdDisplay.textContent = ', ' + product.kanbanID;
+    // Set product name and kanbanID in header title
+    const productNameDisplay = document.getElementById('productNameDisplay');
+    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+    if (productNameDisplay && product['製品名']) {
+      productNameDisplay.textContent = product['製品名'];
+      console.log(`✅ Set product name in title to: ${product['製品名']}`);
+    }
+    if (kanbanIdDisplay) {
+      kanbanIdDisplay.textContent = product.kanbanID ? ', ' + product.kanbanID : '';
+      if (product.kanbanID) {
         console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
       }
-      
-      // Remarks are user-only; do not auto-fill from product data.
-      
-      // Set LH/RH dropdown based on product data
-      if (product['LH/RH']) {
-        const lhRhDropdown = document.getElementById('lhRh');
-        if (lhRhDropdown) {
-          lhRhDropdown.value = product['LH/RH'];
-          saveFieldToLocalStorage('lhRh', product['LH/RH']);
-          console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
-        }
-      }
-      
-      // Set kensaMembers (default to 2 if not specified)
-      const kensaMembers = product.kensaMembers || 2;
-      console.log(`👥 KensaMembers: ${kensaMembers}`);
-      
-      // Save kensaMembers to localStorage for persistence
-      localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
-      
-      // Show/hide columns based on kensaMembers
-      updateKensaMembersDisplay(kensaMembers);
-
-      // Render NG buttons from assigned NG group
-      renderNGButtons(product.ngGroup || null);
-    } else {
-      console.error('❌ Failed to load product:', data.error);
-      // Clear product info if not found
-      currentProductId = '';
-      currentProductName = '';
-      const productNameDisplay = document.getElementById('productNameDisplay');
-      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-      if (productNameDisplay) {
-        productNameDisplay.textContent = '看板なし';
-      }
-      if (kanbanIdDisplay) {
-        kanbanIdDisplay.textContent = '';
-      }
-      // Default to 2 members if product not found
-      updateKensaMembersDisplay(2);
-      renderNGButtons(null);
-      updateInlineInfo();
     }
+      
+    // Remarks are user-only; do not auto-fill from product data.
+      
+    // Set LH/RH dropdown based on product data
+    if (product['LH/RH']) {
+      const lhRhDropdown = document.getElementById('lhRh');
+      if (lhRhDropdown) {
+        lhRhDropdown.value = product['LH/RH'];
+        saveFieldToLocalStorage('lhRh', product['LH/RH']);
+        console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
+      }
+    }
+      
+    // Set kensaMembers (default to 2 if not specified)
+    const kensaMembers = product.kensaMembers || 2;
+    console.log(`👥 KensaMembers: ${kensaMembers}`);
+      
+    // Save kensaMembers to localStorage for persistence
+    localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
+      
+    // Show/hide columns based on kensaMembers
+    updateKensaMembersDisplay(kensaMembers);
+
+    // Render NG buttons from assigned NG group
+    renderNGButtons(product.ngGroup || null);
   } catch (error) {
     console.error('❌ Error loading product info:', error);
     // Clear product info on error
@@ -1388,9 +1411,7 @@ function updateUIWithVariables(variables) {
   // Check kanban variable for start button validation AND product loading
   if (variables[kanbanVarName] !== undefined) {
     const value = variables[kanbanVarName].value;
-    // Treat null bytes, empty strings, null, and undefined as "no value"
-    const isBlankValue = !value || value === '' || value === '\x00' || value.match(/^[\x00]+$/);
-    const newKanbanValue = isBlankValue ? null : value;
+    const newKanbanValue = normalizeKanbanValue(value);
     
     // Check if value changed
     if (newKanbanValue !== kenyokiRHKanbanValue) {
@@ -1399,6 +1420,7 @@ function updateUIWithVariables(variables) {
       
       // Load product info when kanban ID changes (and has a value)
       if (kenyokiRHKanbanValue) {
+        persistLastKnownKanban(kenyokiRHKanbanValue);
         loadProductByKanbanID(kenyokiRHKanbanValue);
       } else {
         // Kanban went blank
@@ -1618,12 +1640,14 @@ function checkStartButtonState() {
   if (hasKanbanValue && hasPoster1 && startTimeEmpty) {
     // Enable button
     startButton.classList.remove('disabled');
+    startButton.classList.add('start-ready');
     // Unlock scroll when button is enabled (user can now press start)
     document.body.classList.remove('scroll-locked');
     console.log('✅ Start button ENABLED, scroll unlocked');
   } else {
     // Disable button
     startButton.classList.add('disabled');
+    startButton.classList.remove('start-ready');
 
     // Lock scroll when button is disabled
     if (startTimeEmpty) {
@@ -1796,6 +1820,29 @@ async function sendData() {
     // Force recalculate work duration so manHours is up to date
     updateWorkDuration();
 
+    const resolvedKanbanID = normalizeKanbanValue(kenyokiRHKanbanValue) || getLastKnownKanban();
+    let resolvedProductId = currentProductId || '';
+    let resolvedProductName = currentProductName || '';
+
+    if (resolvedKanbanID) {
+      try {
+        const product = await fetchProductByKanbanID(resolvedKanbanID);
+        resolvedProductId = product.品番 || '';
+        resolvedProductName = product['製品名'] || '';
+        currentProductId = resolvedProductId;
+        currentProductName = resolvedProductName;
+        localStorage.setItem('tablet_currentProductName', resolvedProductName);
+        persistLastKnownKanban(product.kanbanID || resolvedKanbanID);
+        console.log('✅ Resolved product data from master before submit:', {
+          kanbanID: product.kanbanID || resolvedKanbanID,
+          品番: resolvedProductId,
+          製品名: resolvedProductName
+        });
+      } catch (productError) {
+        console.error('❌ Failed to resolve product from master before submit:', productError);
+      }
+    }
+
     // Gather all defect data with proper names
     const defectButtons = document.querySelectorAll('.counter-button');
     const defectNumbers = document.querySelectorAll('.counter-number');
@@ -1809,9 +1856,9 @@ async function sendData() {
     
     // Prepare submission data
     const submissionData = {
-      品番: currentProductId || '',
-      製品名: currentProductName || '',
-      kanbanID: kenyokiRHKanbanValue || '',
+      品番: resolvedProductId,
+      製品名: resolvedProductName,
+      kanbanID: resolvedKanbanID || '',
       hakoIresu: hakoIresuValue || 0,
       'LH/RH': document.getElementById('lhRh')?.value || '',
       '技能員①': poster1Value,

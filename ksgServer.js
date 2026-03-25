@@ -5161,10 +5161,14 @@ async function ensureUsersCollectionIndexes(db) {
 }
 
 async function fetchUserReferenceData(db) {
-    const [roles, factories, equipment, departments, sections] = await Promise.all([
+    const [roles, primaryFactories, legacyFactories, equipment, departments, sections] = await Promise.all([
         db.collection('roles')
             .find({}, { projection: { _id: 0, roleName: 1 } })
             .sort({ roleName: 1 })
+            .toArray(),
+        db.collection('factory')
+            .find({}, { projection: { _id: 0, name: 1 } })
+            .sort({ name: 1 })
             .toArray(),
         db.collection('factories')
             .find({}, { projection: { _id: 0, name: 1 } })
@@ -5184,9 +5188,14 @@ async function fetchUserReferenceData(db) {
             .toArray()
     ]);
 
+    const factories = Array.from(new Set([
+        ...primaryFactories.map(item => item.name).filter(Boolean),
+        ...legacyFactories.map(item => item.name).filter(Boolean)
+    ])).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
     return {
         roles: roles.map(item => item.roleName).filter(Boolean),
-        factories: factories.map(item => item.name).filter(Boolean),
+        factories,
         equipment: equipment.map(item => item.設備名).filter(Boolean),
         departments: departments.map(item => item.name).filter(Boolean),
         sections: sections.map(item => item.name).filter(Boolean)
