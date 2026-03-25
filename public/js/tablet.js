@@ -161,6 +161,46 @@ async function fetchProductByKanbanID(kanbanId) {
   return data.product;
 }
 
+async function hydrateInProgressProductContextFromFallback(options = {}) {
+  const { preserveMissingTitle = false } = options;
+  const workInProgress = !!document.getElementById('startTime')?.value;
+  const fallbackKanban = getLastKnownKanban();
+
+  if (!workInProgress || !fallbackKanban) {
+    return false;
+  }
+
+  try {
+    const product = await fetchProductByKanbanID(fallbackKanban);
+    currentProductId = product.品番 || currentProductId;
+    currentProductName = product['製品名'] || currentProductName;
+    localStorage.setItem('tablet_currentProductName', currentProductName);
+    persistLastKnownKanban(product.kanbanID || fallbackKanban);
+
+    const kensaMembers = product.kensaMembers || 2;
+    localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
+    updateKensaMembersDisplay(kensaMembers);
+
+    if (!currentNGGroup || !currentNGGroup.items || currentNGGroup.items.length === 0) {
+      renderNGButtons(product.ngGroup || null);
+    }
+
+    if (preserveMissingTitle) {
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (productNameDisplay) productNameDisplay.textContent = '看板なし';
+      if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
+    }
+
+    updateInlineInfo();
+    console.log('♻️ Restored in-progress product context from fallback kanban:', fallbackKanban);
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to restore in-progress product context from fallback kanban:', error);
+    return false;
+  }
+}
+
 // Restore seisanSuStartValue from localStorage on load
 try {
   const saved = localStorage.getItem('seisanSuStartValue');
@@ -905,6 +945,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Restore all fields from localStorage
   restoreAllFields();
+
+  // If work was already in progress before refresh, rebuild product/NG context from fallback kanban
+  const restoredStartTimeInput = document.getElementById('startTime');
+  if (restoredStartTimeInput && restoredStartTimeInput.value) {
+    await hydrateInProgressProductContextFromFallback();
+  }
   
   // Update inline info after restoring fields
   updateInlineInfo();
@@ -1436,6 +1482,7 @@ function updateUIWithVariables(variables) {
           const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
           if (productNameDisplay) productNameDisplay.textContent = '看板なし';
           if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
+          void hydrateInProgressProductContextFromFallback({ preserveMissingTitle: true });
           // kenyokiRHKanbanValue is already null, so updateDefectCounterState (called via
           // checkStartButtonState below) will lock the defect card automatically.
         } else {
@@ -1462,6 +1509,14 @@ function updateUIWithVariables(variables) {
   } else {
     kenyokiRHKanbanValue = null;
     console.warn(`⚠️ ${kanbanVarName} variable not found`);
+    if (document.getElementById('startTime')?.value) {
+      const productNameDisplay = document.getElementById('productNameDisplay');
+      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+      if (productNameDisplay) productNameDisplay.textContent = '看板なし';
+      if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
+      void hydrateInProgressProductContextFromFallback({ preserveMissingTitle: true });
+      updateInlineInfo();
+    }
     checkStartButtonState();
   }
   
