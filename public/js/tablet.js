@@ -1988,8 +1988,9 @@ async function sendData() {
       console.log('✅ Data submitted successfully:', result);
       alert('データが正常に送信されました！');
       
-      // Clear all fields after successful submission
+      // Clear all fields after successful submission, then fully reload to avoid stale UI state
       clearAllFields();
+      window.location.reload();
     } else {
       throw new Error(result.error || 'Submission failed');
     }
