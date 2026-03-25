@@ -1654,11 +1654,20 @@ function resetDefectCounters() {
 // Check if start button should be enabled
 function checkStartButtonState() {
   const startButton = document.getElementById('startWorkButton');
+  const sendButton = document.getElementById('sendDataButton');
   const poster1Select = document.getElementById('poster1');
   const startTimeInput = document.getElementById('startTime');
   
   if (!startButton || !poster1Select || !startTimeInput) {
     return;
+  }
+
+  if (sendButton) {
+    if (startTimeInput.value !== '') {
+      sendButton.classList.add('submit-ready');
+    } else {
+      sendButton.classList.remove('submit-ready');
+    }
   }
   
   // Helper function to check if value is valid (not null, empty, or only null bytes)
