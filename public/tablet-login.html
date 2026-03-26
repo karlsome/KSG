@@ -271,9 +271,8 @@
           throw new Error(result.error || 'Login failed');
         }
 
-        // Store authentication data
+        // Store non-sensitive session info (token is in httpOnly cookie set by server)
         localStorage.setItem('tabletAuth', JSON.stringify({
-          token: result.token,
           user: result.user,
           tablet: result.tablet,
           tabletId: window.tabletId,

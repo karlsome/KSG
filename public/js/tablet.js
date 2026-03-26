@@ -37,22 +37,6 @@
       return;
     }
     
-    // Check if token is expired (12 hours)
-    const loginTime = new Date(auth.loginTime);
-    const now = new Date();
-    const hoursSinceLogin = (now - loginTime) / (1000 * 60 * 60);
-    
-    if (hoursSinceLogin > 12) {
-      // Token expired, clear and redirect
-      localStorage.removeItem('tabletAuth');
-      if (authenticatedTablet) {
-        window.location.href = `tablet-login.html?tabletName=${authenticatedTablet}`;
-      } else {
-        window.location.href = 'tablet-login.html';
-      }
-      return;
-    }
-    
     // Authentication valid, update UI with user info
     console.log('✅ Authenticated as:', auth.user.username);
     console.log('📱 Tablet:', auth.tablet.tabletName);
@@ -74,12 +58,15 @@ function logoutTablet() {
       tabletName = auth.tabletName || auth.tablet?.tabletName;
     }
     localStorage.removeItem('tabletAuth');
-    
-    if (tabletName) {
-      window.location.href = `tablet-login.html?tabletName=${tabletName}`;
-    } else {
-      window.location.href = 'tablet-login.html';
-    }
+
+    // Clear the httpOnly cookie server-side
+    fetch(`${API_URL}/tabletLogout`, { method: 'POST' }).finally(() => {
+      if (tabletName) {
+        window.location.href = `tablet-login.html?tabletName=${tabletName}`;
+      } else {
+        window.location.href = 'tablet-login.html';
+      }
+    });
   }
 }
 
@@ -867,16 +854,10 @@ async function validateToken() {
       console.log('⚠️ No auth data found');
       return;
     }
-    
-    const auth = JSON.parse(authData);
-    const token = auth.token;
-    
+
     const response = await fetch(`${API_URL}/validateToken`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
+      headers: { 'Content-Type': 'application/json' }
     });
     
     if (!response.ok) {
@@ -1133,9 +1114,7 @@ async function loadEquipmentConfig() {
     isEquipmentConfigLoaded = true;
     if (socket.connected) {
       console.log('📡 Subscribing to OPC variables with equipment-specific mappings...');
-      const authData = localStorage.getItem('tabletAuth');
-      const token = authData ? JSON.parse(authData).token : null;
-      socket.emit('subscribe_variables', { company: currentCompany, token });
+      socket.emit('subscribe_variables', { company: currentCompany });
     }
   }
 }
@@ -1377,9 +1356,7 @@ socket.on('connect', () => {
   // Otherwise, loadEquipmentConfig() will subscribe after loading
   if (isEquipmentConfigLoaded) {
     console.log('🔄 Reconnected - subscribing to OPC variables');
-    const authData = localStorage.getItem('tabletAuth');
-    const token = authData ? JSON.parse(authData).token : null;
-    socket.emit('subscribe_variables', { company: currentCompany, token });
+    socket.emit('subscribe_variables', { company: currentCompany });
   }
 });
 
@@ -1947,23 +1924,10 @@ async function sendData() {
       uploadingModal.classList.add('active');
     }
     
-    // Get auth token
-    const authData = localStorage.getItem('tabletAuth');
-    if (!authData) {
-      alert('認証エラー / Authentication error');
-      logoutTablet();
-      return;
-    }
-    const auth = JSON.parse(authData);
-    const token = auth.token;
-    
-    // Submit to server with Authorization header
+    // Submit to server (token is sent automatically via httpOnly cookie)
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(submissionData)
     });
     

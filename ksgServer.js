@@ -7,6 +7,7 @@ const bcrypt = require('bcrypt');
 const admin = require('firebase-admin');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -38,6 +39,7 @@ const io = new Server(server, {
 app.set('socketio', io);
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Serve static files
 app.use(express.static('public'));
@@ -499,13 +501,12 @@ if config.get('qr_confirming', False):
 // 🔐 Tablet Authentication Middleware
 async function authenticateTablet(req, res, next) {
     try {
-        const authHeader = req.headers.authorization;
-        
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const token = req.cookies.tabletToken;
+
+        if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
 
-        const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
         // Get user from database to check current enable status
@@ -606,15 +607,14 @@ Object.keys(DEVICE_FUNCTIONS).forEach(deviceId => {
 // 🔐 TOKEN VALIDATION ENDPOINT
 app.post("/validateToken", async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = req.cookies.tabletToken;
+
+    if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     // Token is valid, return user data
     res.json({
       username: decoded.username,
@@ -625,6 +625,12 @@ app.post("/validateToken", async (req, res) => {
     console.error('Token validation error:', error);
     res.status(401).json({ error: 'Invalid or expired token' });
   }
+});
+
+// 🔐 TABLET LOGOUT ENDPOINT
+app.post("/tabletLogout", (req, res) => {
+  res.clearCookie('tabletToken', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+  res.json({ message: 'Logged out successfully' });
 });
 
 // 🔐 LOGIN ENDPOINT
@@ -2422,8 +2428,16 @@ io.on('connection', (socket) => {
     // Handle tablet subscription to real-time variable updates
     socket.on('subscribe_variables', async (data) => {
         try {
-            const token = data.token;
             const company = data.company || 'KSG';
+            // Read token from the httpOnly cookie sent with the socket handshake
+            const cookieHeader = socket.handshake.headers.cookie || '';
+            const cookies = Object.fromEntries(
+                cookieHeader.split(';').map(pair => {
+                    const [k, ...v] = pair.trim().split('=');
+                    return [k.trim(), decodeURIComponent(v.join('='))];
+                })
+            );
+            const token = cookies.tabletToken;
             
             // Validate token and check user enable status
             if (token) {
@@ -6770,9 +6784,15 @@ app.post("/tabletLogin", async (req, res) => {
       { expiresIn: '12h' }
     );
 
+    res.cookie('tabletToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 12 * 60 * 60 * 1000 // 12 hours, matches JWT expiry
+    });
+
     res.json({
       message: "Login successful",
-      token,
       user: {
         username: user.username,
         firstName: user.firstName,
