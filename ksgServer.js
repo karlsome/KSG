@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const bcrypt = require('bcrypt');
 const admin = require('firebase-admin');
 const multer = require('multer');
@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID, X-Session-User, X-Session-Role, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID, X-Tablet-Name, X-Session-User, X-Session-Role, Authorization');
     
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
@@ -496,6 +496,98 @@ if config.get('qr_confirming', False):
     }
 };
 
+function normalizeCsvValues(values) {
+    if (Array.isArray(values)) {
+        return values.map(value => String(value).trim()).filter(Boolean);
+    }
+
+    return [];
+}
+
+function normalizeUsername(value = '') {
+    return String(value).trim().toLowerCase();
+}
+
+function userHasTabletAccess(user, tablet) {
+    if (!user || !tablet) {
+        return false;
+    }
+
+    const normalizedUsername = normalizeUsername(user.username);
+    const authorizedUsers = Array.isArray(tablet.authorizedUsers)
+        ? tablet.authorizedUsers.map(value => String(value).trim()).filter(Boolean)
+        : [];
+
+    console.log('🔍 Access Check Debug:');
+    console.log('  User:', user.username);
+    console.log('  User factories:', user.factories);
+    console.log('  User equipment:', user.equipment);
+    console.log('  Tablet:', tablet.tabletName);
+    console.log('  Tablet factory:', tablet.factoryLocation);
+    console.log('  Tablet equipment:', tablet.設備名);
+    console.log('  Tablet authorizedUsers:', tablet.authorizedUsers);
+
+    if (authorizedUsers.length > 0) {
+        return authorizedUsers.includes(user._id.toString()) ||
+            authorizedUsers.some(value => normalizeUsername(value) === normalizedUsername);
+    }
+
+    let userFactories = normalizeCsvValues(user.factories);
+    let userEquipment = normalizeCsvValues(user.equipment);
+
+    if (!userFactories.length && user.factory) {
+        userFactories = String(user.factory).split(',').map(value => value.trim()).filter(Boolean);
+    }
+
+    console.log('  Parsed factories:', userFactories);
+    console.log('  Parsed equipment:', userEquipment);
+
+    const factoryMatch = userFactories.length > 0 && userFactories.includes(tablet.factoryLocation);
+    const equipmentMatch = userEquipment.length > 0 && userEquipment.includes(tablet.設備名);
+
+    console.log('  Factory match:', factoryMatch);
+    console.log('  Equipment match:', equipmentMatch);
+
+    if (userFactories.length > 0 && userEquipment.length > 0) {
+        return factoryMatch && equipmentMatch;
+    }
+
+    if (userFactories.length > 0) {
+        return factoryMatch;
+    }
+
+    if (userEquipment.length > 0) {
+        return equipmentMatch;
+    }
+
+    return false;
+}
+
+async function resolveTabletForRequest(db, decoded, requestedTabletName = '') {
+    const tablets = db.collection('tabletDB');
+    const normalizedRequestedTabletName = String(requestedTabletName || '').trim();
+
+    if (decoded.tabletId && ObjectId.isValid(decoded.tabletId)) {
+        const tabletById = await tablets.findOne({ _id: new ObjectId(decoded.tabletId) });
+        if (tabletById) {
+            return tabletById;
+        }
+    }
+
+    if (decoded.tabletName) {
+        const tabletByName = await tablets.findOne({ tabletName: decoded.tabletName });
+        if (tabletByName) {
+            return tabletByName;
+        }
+    }
+
+    if (normalizedRequestedTabletName) {
+        return tablets.findOne({ tabletName: normalizedRequestedTabletName });
+    }
+
+    return null;
+}
+
 // 🔐 Tablet Authentication Middleware
 async function authenticateTablet(req, res, next) {
     try {
@@ -507,6 +599,7 @@ async function authenticateTablet(req, res, next) {
 
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const requestedTabletName = String(req.headers['x-tablet-name'] || '').trim();
         
         // Get user from database to check current enable status
         if (!mongoClient) {
@@ -523,14 +616,35 @@ async function authenticateTablet(req, res, next) {
         if (user.enable !== 'enabled') {
             return res.status(403).json({ error: 'Account is disabled', forceLogout: true });
         }
+
+        const tablet = await resolveTabletForRequest(db, decoded, requestedTabletName);
+
+        if (tablet && !userHasTabletAccess(user, tablet)) {
+            return res.status(403).json({ error: 'Tablet access denied', forceLogout: true });
+        }
+
+        if (!tablet && requestedTabletName) {
+            console.warn(`⚠️ [TABLET] Could not resolve tablet from request header: ${requestedTabletName}`);
+        }
         
         // Attach user info to request
         req.user = {
             username: user.username,
             role: user.role,
             dbName: decoded.dbName,
-            userId: user._id.toString()
+            userId: user._id.toString(),
+            tabletId: tablet?._id?.toString() || decoded.tabletId || '',
+            tabletName: tablet?.tabletName || decoded.tabletName || ''
         };
+
+        if (tablet) {
+            req.tablet = {
+                tabletId: tablet._id.toString(),
+                tabletName: tablet.tabletName,
+                factoryLocation: tablet.factoryLocation || '',
+                equipmentName: tablet.設備名 || ''
+            };
+        }
         
         next();
     } catch (error) {
@@ -1238,7 +1352,9 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         const totalDefectCount = Object.values(defects).reduce((sum, v) => sum + (parseInt(v) || 0), 0);
         const totalWorkCount = (parseInt(submissionData['良品数']) || 0) + totalDefectCount;
         const cycleTime = totalWorkCount > 0 ? parseFloat((manHours * 60 / totalWorkCount).toFixed(2)) : 0;
+        const submittedFrom = req.user.tabletName || 'tablet';
         console.log(`⏱️ [TABLET] cycle_time: ${cycleTime} min/piece (${totalWorkCount} total pieces, ${manHours}h)`);
+        console.log(`📍 [TABLET] Submission source resolved as: ${submittedFrom}`);
 
         // Build final data: fixed metadata → dynamic defects → fixed trailing fields
         const finalData = {
@@ -1264,7 +1380,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             trouble_time: parseFloat(submissionData['機械トラブル時間']) || 0,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,
-            submitted_from: 'tablet'
+            submitted_from: submittedFrom
         };
         
         let mongoResult = null;
@@ -6658,7 +6774,6 @@ app.post("/tabletLogin", async (req, res) => {
       return res.status(503).json({ error: "Database not connected" });
     }
 
-    const { ObjectId } = require('mongodb');
     const db = mongoClient.db(dbName);
     const users = db.collection("users");
     const tablets = db.collection("tabletDB");
@@ -6703,53 +6818,7 @@ app.post("/tabletLogin", async (req, res) => {
     console.log('  Tablet equipment:', tablet.設備名);
     console.log('  Tablet authorizedUsers:', tablet.authorizedUsers);
 
-    // Check if tablet has explicit authorized users list (and it's not empty)
-    if (tablet.authorizedUsers && Array.isArray(tablet.authorizedUsers) && tablet.authorizedUsers.length > 0) {
-      // Tablet-level restriction: Only authorized users can access
-      hasAccess = tablet.authorizedUsers.includes(user._id.toString()) || 
-                  tablet.authorizedUsers.includes(username.trim().toLowerCase());
-    } else {
-      // Factory/Equipment-based access: Check if user's assignments match tablet
-      // Handle both old format (factory string) and new format (factories/equipment arrays)
-      let userFactories = user.factories || [];
-      let userEquipment = user.equipment || [];
-      
-      // Backward compatibility: parse old 'factory' field (comma-separated string)
-      if (!userFactories.length && user.factory) {
-        userFactories = user.factory.split(',').map(f => f.trim()).filter(f => f);
-      }
-      
-      console.log('  Parsed factories:', userFactories);
-      console.log('  Parsed equipment:', userEquipment);
-      
-      // Grant access if:
-      // 1. User has the factory assigned, OR
-      // 2. User has the equipment assigned, OR
-      // 3. User has both factory AND equipment (most restrictive)
-      // This allows flexible assignment - admins can assign by factory, equipment, or both
-      
-      const factoryMatch = userFactories.length > 0 && userFactories.includes(tablet.factoryLocation);
-      const equipmentMatch = userEquipment.length > 0 && userEquipment.includes(tablet.設備名);
-      
-      console.log('  Factory match:', factoryMatch);
-      console.log('  Equipment match:', equipmentMatch);
-      
-      // Grant access if user has at least factory OR equipment match
-      // If user has both arrays populated, they must match at least one
-      if (userFactories.length > 0 && userEquipment.length > 0) {
-        // User has both assigned - require both to match for stricter control
-        hasAccess = factoryMatch && equipmentMatch;
-      } else if (userFactories.length > 0) {
-        // User only has factories assigned - match by factory
-        hasAccess = factoryMatch;
-      } else if (userEquipment.length > 0) {
-        // User only has equipment assigned - match by equipment
-        hasAccess = equipmentMatch;
-      } else {
-        // User has neither assigned - no access
-        hasAccess = false;
-      }
-    }
+        hasAccess = userHasTabletAccess(user, tablet);
 
     console.log('  ✅ hasAccess:', hasAccess);
 
@@ -6763,7 +6832,8 @@ app.post("/tabletLogin", async (req, res) => {
         username: user.username, 
         role: user.role, 
         dbName,
-        tabletId,
+                tabletId: tablet._id.toString(),
+                tabletName: tablet.tabletName,
         userId: user._id.toString()
       },
       process.env.JWT_SECRET,

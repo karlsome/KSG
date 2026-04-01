@@ -193,7 +193,7 @@ See `raspberry_pi/requirements.txt` for Python dependencies.
 | `[defect name]` | Dynamic defect counts (Japanese field names) |
 | `start_time`, `end_time` | Work period |
 | `break_time`, `trouble_time` | Deducted hours |
-| `submitted_from` | Always `"tablet"` |
+| `submitted_from` | Logged-in tablet name (falls back to `"tablet"` if unavailable) |
 
 ---
 

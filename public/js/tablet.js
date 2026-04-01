@@ -1956,13 +1956,15 @@ async function sendData() {
     }
     const auth = JSON.parse(authData);
     const token = auth.token;
+    const tabletName = auth.tablet?.tabletName || auth.tabletName || '';
     
     // Submit to server with Authorization header
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'X-Tablet-Name': tabletName
       },
       body: JSON.stringify(submissionData)
     });
