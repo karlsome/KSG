@@ -118,6 +118,7 @@ let variableMappings = {
   boxQuantity: 'hakoIresu'              // Default: For 合格数追加 display
 };
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
+const IGNORED_KANBAN_NOISE_VALUES = new Set(['9999']);
 
 function normalizeKanbanValue(rawValue) {
   if (rawValue === null || rawValue === undefined) {
@@ -128,9 +129,19 @@ function normalizeKanbanValue(rawValue) {
   return stringValue ? stringValue : null;
 }
 
+function isIgnoredKanbanNoise(kanbanId) {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  return !!normalizedKanban && IGNORED_KANBAN_NOISE_VALUES.has(normalizedKanban);
+}
+
+function isUsableKanbanValue(kanbanId) {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  return !!normalizedKanban && !isIgnoredKanbanNoise(normalizedKanban);
+}
+
 function persistLastKnownKanban(kanbanId) {
   const normalizedKanban = normalizeKanbanValue(kanbanId);
-  if (!normalizedKanban) {
+  if (!isUsableKanbanValue(normalizedKanban)) {
     return null;
   }
 
@@ -140,9 +151,37 @@ function persistLastKnownKanban(kanbanId) {
 }
 
 function getLastKnownKanban() {
-  return normalizeKanbanValue(
+  const cachedKanban = normalizeKanbanValue(
     localStorage.getItem('tablet_lastKnownKanbanID') || localStorage.getItem('tablet_kanbanID')
   );
+
+  return isUsableKanbanValue(cachedKanban) ? cachedKanban : null;
+}
+
+function resolveKanbanValueForActiveWork(rawKanbanValue) {
+  const normalizedKanban = normalizeKanbanValue(rawKanbanValue);
+  if (isUsableKanbanValue(normalizedKanban)) {
+    return normalizedKanban;
+  }
+
+  if (isIgnoredKanbanNoise(normalizedKanban)) {
+    const fallbackKanban = getLastKnownKanban();
+    if (fallbackKanban) {
+      console.warn(`⚠️ Ignoring noisy kanban value "${normalizedKanban}" during active work; continuing with last known kanban "${fallbackKanban}"`);
+      return fallbackKanban;
+    }
+  }
+
+  return null;
+}
+
+function resolveKanbanValueForSubmit(currentKanbanValue) {
+  const normalizedKanban = normalizeKanbanValue(currentKanbanValue);
+  if (isUsableKanbanValue(normalizedKanban)) {
+    return normalizedKanban;
+  }
+
+  return getLastKnownKanban();
 }
 
 async function fetchProductByKanbanID(kanbanId) {
@@ -601,7 +640,7 @@ function restoreAllFields() {
       console.log(`📦 Restored currentProductName:`, savedProductName);
     }
     
-    const savedKanbanID = localStorage.getItem('tablet_kanbanID');
+    const savedKanbanID = getLastKnownKanban();
     if (savedKanbanID) {
       const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
       if (kanbanIdDisplay) {
@@ -1457,7 +1496,11 @@ function updateUIWithVariables(variables) {
   // Check kanban variable for start button validation AND product loading
   if (variables[kanbanVarName] !== undefined) {
     const value = variables[kanbanVarName].value;
-    const newKanbanValue = normalizeKanbanValue(value);
+    const rawKanbanValue = normalizeKanbanValue(value);
+    const workInProgress = !!(document.getElementById('startTime')?.value);
+    const newKanbanValue = workInProgress
+      ? resolveKanbanValueForActiveWork(rawKanbanValue)
+      : (isUsableKanbanValue(rawKanbanValue) ? rawKanbanValue : null);
     
     // Check if value changed
     if (newKanbanValue !== kenyokiRHKanbanValue) {
@@ -1471,8 +1514,6 @@ function updateUIWithVariables(variables) {
       } else {
         // Kanban went blank
         console.log('🧹 Kanban is blank');
-
-        const workInProgress = !!(document.getElementById('startTime')?.value);
 
         if (workInProgress) {
           // Work is still in progress — keep NG buttons, just show 看板なし and lock defects
@@ -1670,26 +1711,11 @@ function checkStartButtonState() {
     }
   }
   
-  // Helper function to check if value is valid (not null, empty, or only null bytes)
-  function isValidValue(value) {
-    if (!value || value === null || value === '') return false;
-    
-    // Check if value only contains null bytes (\x00)
-    const stringValue = String(value);
-    const hasOnlyNullBytes = /^[\x00]+$/.test(stringValue);
-    if (hasOnlyNullBytes) return false;
-    
-    // Check if trimmed value is empty
-    if (stringValue.trim() === '') return false;
-    
-    return true;
-  }
-  
   // Button is enabled ONLY when:
-  // 1. kenyokiRHKanban has a valid value (not null, empty, or null bytes)
+  // 1. kenyokiRHKanban has a valid value (not null, empty, null bytes, or known scanner noise)
   // 2. poster1 is selected
   // 3. startTime is empty (no value yet)
-  const hasKanbanValue = isValidValue(kenyokiRHKanbanValue);
+  const hasKanbanValue = isUsableKanbanValue(kenyokiRHKanbanValue);
   const hasPoster1 = poster1Select.value !== '';
   const startTimeEmpty = startTimeInput.value === '';
   
@@ -1884,7 +1910,7 @@ async function sendData() {
     // Force recalculate work duration so manHours is up to date
     updateWorkDuration();
 
-    const resolvedKanbanID = normalizeKanbanValue(kenyokiRHKanbanValue) || getLastKnownKanban();
+    const resolvedKanbanID = resolveKanbanValueForSubmit(kenyokiRHKanbanValue);
     let resolvedProductId = currentProductId || '';
     let resolvedProductName = currentProductName || '';
 
@@ -2198,13 +2224,7 @@ function updateDefectCounterState() {
   const poster1 = document.getElementById('poster1');
   const poster1Empty = !poster1 || poster1.value === '';
 
-  function isValidValue(value) {
-    if (!value || value === null || value === '') return false;
-    const s = String(value);
-    return !/^[\x00]+$/.test(s) && s.trim() !== '';
-  }
-
-  const noKanban = !isValidValue(kenyokiRHKanbanValue);
+  const noKanban = !isUsableKanbanValue(kenyokiRHKanbanValue);
   const breakActive = breakStartTime !== null;
   const troubleActive = troubleStartTime !== null;
 
