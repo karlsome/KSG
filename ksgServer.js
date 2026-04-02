@@ -1710,12 +1710,14 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                     name,
                     submissions: 0,
                     totalGoodCount: 0,
+                    totalTroubleHours: 0,
                     cycleTimeTotal: 0,
                     cycleTimeSamples: 0
                 };
 
                 operatorEntry.submissions += 1;
                 operatorEntry.totalGoodCount += goodCount;
+                operatorEntry.totalTroubleHours += troubleTime;
                 if (Number.isFinite(cycleTime) && cycleTime > 0) {
                     operatorEntry.cycleTimeTotal += cycleTime;
                     operatorEntry.cycleTimeSamples += 1;
@@ -1810,6 +1812,40 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                     : 0
             }));
 
+        const activeOperatorList = [...operatorMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.name.localeCompare(b.name, 'ja'))
+            .map(operator => ({
+                ...operator,
+                averageCycleTime: operator.cycleTimeSamples > 0
+                    ? operator.cycleTimeTotal / operator.cycleTimeSamples
+                    : 0
+            }));
+
+        const mappedTodayRecords = todayRecords.map(record => {
+            const defectEntries = getSubmittedDBRecordDefects(record)
+                .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'));
+
+            return {
+                id: record._id,
+                timestamp: record.timestamp,
+                productName: record.product_name || '',
+                hinban: record.hinban || '',
+                kanbanId: record.kanban_id || '',
+                operators: [record.operator1, record.operator2]
+                    .map(name => String(name ?? '').trim())
+                    .filter(Boolean),
+                goodCount: Number(record.good_count ?? 0) || 0,
+                totalDefects: defectEntries.reduce((sum, defect) => sum + defect.count, 0),
+                troubleTime: Number(record.trouble_time ?? 0) || 0,
+                cycleTime: Number(record.cycle_time ?? 0) || 0,
+                source: record.submitted_from || '',
+                lhRh: record.lh_rh || '',
+                remarks: String(record.remarks ?? '').trim(),
+                otherDescription: String(record.other_description ?? '').trim(),
+                topDefects: defectEntries.slice(0, 3)
+            };
+        });
+
         const mappedRecentRecords = recentRecords.map(record => ({
             id: record._id,
             timestamp: record.timestamp,
@@ -1845,11 +1881,14 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                 activeRecords,
                 trashRecords
             },
+            todaySubmissions: mappedTodayRecords,
+            activeOperatorList,
             recentSubmissions: mappedRecentRecords,
             problemsToday: {
                 topDefects,
                 totalIssueRecords: issueRecords.length,
-                issueRecords: issueRecords.slice(0, 6)
+                issueRecords: issueRecords.slice(0, 6),
+                allIssueRecords: issueRecords
             },
             topProducts,
             topOperators,

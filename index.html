@@ -159,6 +159,7 @@
     function loadPage(page) {
       const mainContent = document.getElementById('mainContent');
       closeDashboardSubmissionDetail(null, true);
+      closeDashboardInsightModal(null, true);
       disposeAdminDashboardChart();
       
       handleNavClick(); // Close sidebar on mobile
@@ -329,6 +330,8 @@
     let adminDashboardRequestId = 0;
     let adminDashboardDetailRequestId = 0;
     let adminDashboardOpenRecordId = '';
+    let adminDashboardData = null;
+    let adminDashboardInsightKey = '';
     const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
       '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
       'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
@@ -390,6 +393,14 @@
       }
     }
 
+    function syncDashboardModalBodyLock() {
+      const submissionModal = document.getElementById('dashboardSubmissionModal');
+      const insightModal = document.getElementById('dashboardInsightModal');
+      const submissionOpen = !!submissionModal && !submissionModal.classList.contains('hidden');
+      const insightOpen = !!insightModal && !insightModal.classList.contains('hidden');
+      document.body.style.overflow = submissionOpen || insightOpen ? 'hidden' : '';
+    }
+
     function closeDashboardSubmissionDetail(e, force = false) {
       const modal = document.getElementById('dashboardSubmissionModal');
       if (!modal) return;
@@ -397,7 +408,17 @@
 
       adminDashboardOpenRecordId = '';
       modal.classList.add('hidden');
-      document.body.style.overflow = '';
+      syncDashboardModalBodyLock();
+    }
+
+    function closeDashboardInsightModal(e, force = false) {
+      const modal = document.getElementById('dashboardInsightModal');
+      if (!modal) return;
+      if (!force && e && e.target !== modal) return;
+
+      adminDashboardInsightKey = '';
+      modal.classList.add('hidden');
+      syncDashboardModalBodyLock();
     }
 
     function buildAdminDashboardShell() {
@@ -513,6 +534,25 @@
                 <div class="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50 px-6 py-4">
                   <span id="dashboardSubmissionFooter" class="text-xs text-gray-400"></span>
                   <button onclick="closeDashboardSubmissionDetail(null, true)" class="rounded-xl bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300">${t('common.close')}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="dashboardInsightModal" class="fixed inset-0 z-50 hidden bg-black/40 p-4" onclick="closeDashboardInsightModal(event)">
+            <div class="mx-auto flex h-full max-w-4xl items-center justify-center">
+              <div class="flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+                <div class="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+                  <div>
+                    <p class="text-xs text-gray-400">${dashboardText('quickLookTitle')}</p>
+                    <h3 id="dashboardInsightTitle" class="mt-1 text-xl font-semibold text-gray-900"></h3>
+                    <p id="dashboardInsightSub" class="mt-1 text-sm text-gray-500"></p>
+                  </div>
+                  <button onclick="closeDashboardInsightModal(null, true)" class="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">${t('common.close')}</button>
+                </div>
+                <div id="dashboardInsightBody" class="overflow-y-auto px-6 py-5 text-sm text-gray-600"></div>
+                <div class="flex justify-end border-t border-gray-100 bg-gray-50 px-6 py-4">
+                  <button onclick="closeDashboardInsightModal(null, true)" class="rounded-xl bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300">${t('common.close')}</button>
                 </div>
               </div>
             </div>
@@ -639,7 +679,7 @@
       adminDashboardOpenRecordId = recordId;
       const requestId = ++adminDashboardDetailRequestId;
       modal.classList.remove('hidden');
-      document.body.style.overflow = 'hidden';
+      syncDashboardModalBodyLock();
       renderDashboardSubmissionLoading();
 
       try {
@@ -679,12 +719,165 @@
       openDashboardSubmissionDetail(recordId);
     }
 
+    function openDashboardSubmissionDetailFromInsight(recordId) {
+      closeDashboardInsightModal(null, true);
+      openDashboardSubmissionDetail(recordId);
+    }
+
+    function buildDashboardInsightRecordList(records = [], emptyText) {
+      if (!Array.isArray(records) || records.length === 0) {
+        return `<div class="rounded-2xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">${emptyText}</div>`;
+      }
+
+      return `<div class="space-y-3">${records.map(record => {
+        const recordId = String(record.id || '');
+        const issueSummary = Array.isArray(record.topDefects) && record.topDefects.length > 0
+          ? record.topDefects.map(defect => `${escapeDashboardHtml(defect.name)} ${formatDashboardNumber(defect.count)}`).join(' / ')
+          : '';
+        const note = record.remarks || record.otherDescription || '';
+
+        return `
+          <article class="cursor-pointer rounded-2xl border border-gray-100 bg-white p-4 transition hover:border-gray-200 hover:bg-gray-50" role="button" tabindex="0" onclick="openDashboardSubmissionDetailFromInsight('${recordId}')" onkeydown="handleDashboardSubmissionCardKeydown(event, '${recordId}')">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                  <span>${formatDashboardDateTime(record.timestamp)}</span>
+                  <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.source || '—')}</span>
+                  <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.lhRh || '—')}</span>
+                </div>
+                <h4 class="mt-2 truncate text-base font-semibold text-gray-900">${escapeDashboardHtml(record.productName || '—')}</h4>
+                <p class="mt-1 truncate text-sm text-gray-500">${[record.hinban, record.kanbanId].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ') || '—'}</p>
+                <p class="mt-2 text-sm text-gray-600">${formatDashboardOperators(record.operators)}</p>
+                ${issueSummary ? `<p class="mt-2 text-xs text-gray-500">${issueSummary}</p>` : ''}
+                ${note ? `<p class="mt-2 line-clamp-2 text-xs text-gray-500">${escapeDashboardHtml(note)}</p>` : ''}
+              </div>
+              <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+                <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(record.goodCount || 0)}</span>
+                <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+                <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('defects')}: ${formatDashboardNumber(record.totalDefects || 0)}</span>
+                ${record.troubleTime > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>` : ''}
+              </div>
+            </div>
+          </article>`;
+      }).join('')}</div>`;
+    }
+
+    function buildDashboardInsightOperatorList(operators = [], emptyText) {
+      if (!Array.isArray(operators) || operators.length === 0) {
+        return `<div class="rounded-2xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">${emptyText}</div>`;
+      }
+
+      return `<div class="grid gap-3 md:grid-cols-2">${operators.map((operator, index) => `
+        <div class="rounded-2xl border border-gray-100 bg-white p-4">
+          <div class="flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sm font-semibold text-sky-700">${index + 1}</div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-base font-semibold text-gray-900">${escapeDashboardHtml(operator.name || '—')}</p>
+              <p class="mt-1 text-xs uppercase tracking-wide text-gray-400">${dashboardText('operatorSummary')}</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">${dashboardText('submissions')}: ${formatDashboardNumber(operator.submissions || 0)}</span>
+                <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(operator.totalGoodCount || 0)}</span>
+                <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</span>
+                ${operator.totalTroubleHours > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(operator.totalTroubleHours, 2)} h</span>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderDashboardInsightModal(cardKey) {
+      const data = adminDashboardData || {};
+      const titleEl = document.getElementById('dashboardInsightTitle');
+      const subEl = document.getElementById('dashboardInsightSub');
+      const bodyEl = document.getElementById('dashboardInsightBody');
+      if (!titleEl || !subEl || !bodyEl) return;
+
+      const todaySubmissions = Array.isArray(data.todaySubmissions) ? data.todaySubmissions : [];
+      const issueRecords = Array.isArray(data.problemsToday?.allIssueRecords) ? data.problemsToday.allIssueRecords : [];
+      const activeOperatorList = Array.isArray(data.activeOperatorList) ? data.activeOperatorList : [];
+
+      let title = dashboardText('todayOverview');
+      let subtitle = '';
+      let html = '';
+
+      switch (cardKey) {
+        case 'todaySubmissions': {
+          title = dashboardText('todaySubmissions');
+          subtitle = `${formatDashboardNumber(todaySubmissions.length)} ${dashboardText('submissions')}`;
+          html = buildDashboardInsightRecordList(todaySubmissions, dashboardText('noTodaySubmissions'));
+          break;
+        }
+        case 'goodPiecesToday': {
+          const records = [...todaySubmissions].sort((a, b) => (b.goodCount || 0) - (a.goodCount || 0));
+          title = dashboardText('goodPiecesToday');
+          subtitle = `${formatDashboardNumber(data.today?.totalGoodCount || 0)} ${dashboardText('goodPieces')}`;
+          html = buildDashboardInsightRecordList(records, dashboardText('noTodaySubmissions'));
+          break;
+        }
+        case 'defectsToday': {
+          const records = [...todaySubmissions]
+            .filter(record => (record.totalDefects || 0) > 0)
+            .sort((a, b) => (b.totalDefects || 0) - (a.totalDefects || 0));
+          title = dashboardText('defectsToday');
+          subtitle = `${formatDashboardNumber(data.today?.totalDefectCount || 0)} ${dashboardText('defects')}`;
+          html = buildDashboardInsightRecordList(records, dashboardText('noDefectRecords'));
+          break;
+        }
+        case 'issueCasesToday': {
+          title = dashboardText('issueCasesToday');
+          subtitle = `${formatDashboardNumber(data.today?.issueCount || 0)} ${dashboardText('problemCount')}`;
+          html = buildDashboardInsightRecordList(issueRecords, dashboardText('noIssueCases'));
+          break;
+        }
+        case 'activeOperators': {
+          title = dashboardText('activeOperators');
+          subtitle = `${formatDashboardNumber(data.today?.activeOperators || 0)} ${dashboardText('operators')}`;
+          html = buildDashboardInsightOperatorList(activeOperatorList, dashboardText('noActiveOperators'));
+          break;
+        }
+        case 'avgCycleTime': {
+          const records = [...todaySubmissions]
+            .filter(record => Number(record.cycleTime || 0) > 0)
+            .sort((a, b) => (b.cycleTime || 0) - (a.cycleTime || 0));
+          title = dashboardText('avgCycleTime');
+          subtitle = `${formatDashboardNumber(data.today?.averageCycleTime || 0, 2)} ${dashboardText('cycleTimeShort')}`;
+          html = buildDashboardInsightRecordList(records, dashboardText('noCycleTimeRecords'));
+          break;
+        }
+        default:
+          html = `<div class="rounded-2xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">${dashboardText('noTodaySubmissions')}</div>`;
+      }
+
+      titleEl.textContent = title;
+      subEl.textContent = subtitle;
+      bodyEl.innerHTML = html;
+    }
+
+    function openDashboardInsightModal(cardKey) {
+      if (!cardKey || !adminDashboardData) return;
+
+      const modal = document.getElementById('dashboardInsightModal');
+      if (!modal) return;
+
+      adminDashboardInsightKey = cardKey;
+      modal.classList.remove('hidden');
+      renderDashboardInsightModal(cardKey);
+      syncDashboardModalBodyLock();
+    }
+
+    function handleDashboardInsightCardKeydown(event, cardKey) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openDashboardInsightModal(cardKey);
+    }
+
     function renderDashboardCards(today = {}) {
       const cardsEl = document.getElementById('dashboardCards');
       if (!cardsEl) return;
 
       const cards = [
         {
+          key: 'todaySubmissions',
           title: dashboardText('todaySubmissions'),
           value: formatDashboardNumber(today.submissions || 0),
           subtext: dashboardText('submissions'),
@@ -693,6 +886,7 @@
           valueClass: 'text-slate-900'
         },
         {
+          key: 'goodPiecesToday',
           title: dashboardText('goodPiecesToday'),
           value: formatDashboardNumber(today.totalGoodCount || 0),
           subtext: dashboardText('goodPieces'),
@@ -701,6 +895,7 @@
           valueClass: 'text-emerald-600'
         },
         {
+          key: 'defectsToday',
           title: dashboardText('defectsToday'),
           value: formatDashboardNumber(today.totalDefectCount || 0),
           subtext: dashboardText('defects'),
@@ -709,6 +904,7 @@
           valueClass: 'text-rose-600'
         },
         {
+          key: 'issueCasesToday',
           title: dashboardText('issueCasesToday'),
           value: formatDashboardNumber(today.issueCount || 0),
           subtext: dashboardText('problemCount'),
@@ -717,6 +913,7 @@
           valueClass: 'text-amber-600'
         },
         {
+          key: 'activeOperators',
           title: dashboardText('activeOperators'),
           value: formatDashboardNumber(today.activeOperators || 0),
           subtext: dashboardText('operators'),
@@ -725,6 +922,7 @@
           valueClass: 'text-sky-600'
         },
         {
+          key: 'avgCycleTime',
           title: dashboardText('avgCycleTime'),
           value: formatDashboardNumber(today.averageCycleTime || 0, 2),
           subtext: `${dashboardText('cycleTimeShort')} min`,
@@ -735,18 +933,19 @@
       ];
 
       cardsEl.innerHTML = cards.map(card => `
-        <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <article class="cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-gray-200 hover:bg-gray-50" role="button" tabindex="0" aria-label="${dashboardText('quickLookHint')}" onclick="openDashboardInsightModal('${card.key}')" onkeydown="handleDashboardInsightCardKeydown(event, '${card.key}')">
           <div class="flex items-start justify-between gap-3">
             <div>
               <p class="text-sm font-medium text-gray-500">${card.title}</p>
               <p class="mt-4 text-3xl font-semibold ${card.valueClass}">${card.value}</p>
               <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.subtext}</p>
+              <p class="mt-3 text-xs font-medium text-gray-400">${dashboardText('quickLookHint')}</p>
             </div>
             <div class="rounded-2xl px-3 py-2 ${card.tone}">
               <i class="${card.icon} text-xl"></i>
             </div>
           </div>
-        </div>`).join('');
+        </article>`).join('');
     }
 
     function renderDashboardMeta(meta = {}, today = {}, generatedAt = '') {
@@ -1013,6 +1212,7 @@
     }
 
     function renderAdminDashboard(data) {
+      adminDashboardData = data;
       renderDashboardMeta(data.meta || {}, data.today || {}, data.generatedAt || '');
       renderDashboardCards(data.today || {});
       renderDashboardRecentSubmissions(data.recentSubmissions || []);
