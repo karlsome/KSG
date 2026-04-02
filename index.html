@@ -368,6 +368,50 @@
       return value ? new Date(value).toLocaleString('ja-JP') : '—';
     }
 
+    function formatDashboardPercent(value, digits = 1) {
+      const number = Number(value ?? 0);
+      if (!Number.isFinite(number)) return '0%';
+
+      return `${number.toLocaleString('ja-JP', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      })}%`;
+    }
+
+    function getDashboardTotalCreated(goodCount, totalDefects) {
+      return Math.max(0, (Number(goodCount ?? 0) || 0) + (Number(totalDefects ?? 0) || 0));
+    }
+
+    function getDashboardDefectRate(goodCount, totalDefects) {
+      const createdTotal = getDashboardTotalCreated(goodCount, totalDefects);
+      if (createdTotal <= 0) return 0;
+      return ((Number(totalDefects ?? 0) || 0) / createdTotal) * 100;
+    }
+
+    function formatDashboardRelativeTime(value) {
+      if (!value) return '—';
+
+      const timestamp = new Date(value);
+      if (Number.isNaN(timestamp.getTime())) return '—';
+
+      const diffMs = Date.now() - timestamp.getTime();
+      const minutes = Math.floor(diffMs / 60000);
+      const hours = Math.floor(diffMs / 3600000);
+      const days = Math.floor(diffMs / 86400000);
+      const isJapanese = String(currentLanguage || '').toLowerCase().startsWith('ja');
+
+      if (diffMs < 60000) {
+        return dashboardText('justNow');
+      }
+      if (minutes < 60) {
+        return isJapanese ? `${minutes}分前` : `${minutes} min ago`;
+      }
+      if (hours < 24) {
+        return isJapanese ? `${hours}時間前` : `${hours} hr ago`;
+      }
+      return isJapanese ? `${days}日前` : `${days} d ago`;
+    }
+
     function formatDashboardOperators(operators = []) {
       if (!Array.isArray(operators) || operators.length === 0) return '—';
       return operators.map(name => escapeDashboardHtml(name)).join(' / ');
@@ -982,18 +1026,19 @@
       container.innerHTML = records.map(record => {
         const recordId = escapeDashboardHtml(record.id || '');
         const productLine = [record.hinban, record.kanbanId].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ');
+        const totalCreated = getDashboardTotalCreated(record.goodCount, record.totalDefects);
+        const defectRate = getDashboardDefectRate(record.goodCount, record.totalDefects);
+        const relativeTime = formatDashboardRelativeTime(record.timestamp);
         const defectBadge = record.totalDefects > 0
-          ? `<span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('defects')}: ${formatDashboardNumber(record.totalDefects)}</span>`
-          : '';
-        const troubleBadge = record.troubleTime > 0
-          ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>`
-          : '';
+          ? `<span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('ngCount')}: ${formatDashboardNumber(record.totalDefects)}</span>`
+          : `<span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('ngCount')}: 0</span>`;
 
         return `
           <article class="flex cursor-pointer flex-col gap-4 px-6 py-4 transition hover:bg-gray-50 focus-within:bg-gray-50 lg:flex-row lg:items-center lg:justify-between" role="button" tabindex="0" aria-label="${dashboardText('clickToView')}" onclick="openDashboardSubmissionDetail('${recordId}')" onkeydown="handleDashboardSubmissionCardKeydown(event, '${recordId}')">
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
                 <span>${formatDashboardDateTime(record.timestamp)}</span>
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700">${relativeTime}</span>
                 <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.source || '—')}</span>
                 <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.lhRh || '—')}</span>
               </div>
@@ -1001,12 +1046,12 @@
               <p class="mt-1 truncate text-sm text-gray-500">${productLine || '—'}</p>
               <p class="mt-2 text-sm text-gray-600">${formatDashboardOperators(record.operators)}</p>
             </div>
-            <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(record.goodCount)}</span>
-              <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+            <div class="flex flex-wrap items-center gap-2 lg:max-w-md lg:justify-end">
+              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('createdTotal')}: ${formatDashboardNumber(totalCreated)}</span>
               ${defectBadge}
-              ${troubleBadge}
-              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">${dashboardText('clickToView')}</span>
+              <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('defectRate')}: ${formatDashboardPercent(defectRate, 1)}</span>
+              <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+              ${record.troubleTime > 0 ? `<span class="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>` : ''}
             </div>
           </article>`;
       }).join('');
