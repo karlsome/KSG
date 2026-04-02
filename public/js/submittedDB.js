@@ -15,6 +15,8 @@ let _sdbSelectedIds = new Set();
 let _sdbSelectedRecords = new Map();
 let _sdbCounts = { active: 0, trash: 0 };
 let _sdbCanPermanentDelete = false;
+let _sdbModalRecordId = '';
+let _sdbModalEditMode = false;
 
 const SDB_FIXED_KEYS = new Set([
   '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
@@ -32,6 +34,15 @@ const SDB_EXPORT_ORDER = [
   'start_time', 'end_time', 'break_time', 'trouble_time',
   'other_description', 'remarks', 'excluded_man_hours', 'submitted_from', 'is_deleted'
 ];
+
+const SDB_MODAL_STRING_FIELDS = new Set([
+  'hinban', 'product_name', 'kanban_id', 'lh_rh',
+  'operator1', 'operator2', 'other_description', 'start_time', 'end_time', 'remarks'
+]);
+
+const SDB_MODAL_INTEGER_FIELDS = new Set([
+  'good_count', 'hako_iresu'
+]);
 
 function sdbDebouncedLoad() {
   clearTimeout(_sdbDebounceTimer);
@@ -690,62 +701,222 @@ function sdbEscapeCSV(value) {
     : stringValue;
 }
 
-function openSdbDetail(idx) {
-  const record = _sdbAllData[idx];
-  if (!record) return;
+function sdbIsModalEditableRecord(record) {
+  return !!record && _sdbView === 'active' && !record.is_deleted;
+}
 
-  const timestamp = record.timestamp ? new Date(record.timestamp).toLocaleString('ja-JP') : '';
+function sdbGetModalRecord() {
+  if (!_sdbModalRecordId) return null;
+  return _sdbAllData.find(record => sdbGetRecordId(record) === _sdbModalRecordId) || null;
+}
 
-  document.getElementById('sdbModalDate').textContent = timestamp;
-  document.getElementById('sdbModalTitle').textContent = record.product_name || '—';
-  document.getElementById('sdbModalSub').textContent = [record.hinban, record.kanban_id].filter(Boolean).join('  /  ');
+function sdbSetModalElementContent(elementId, value, { html = false } = {}) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
 
-  document.getElementById('sdbModalGood').textContent = record.good_count ?? '—';
-  document.getElementById('sdbModalManHours').textContent = record.man_hours != null ? Number(record.man_hours).toFixed(2) : '—';
-  document.getElementById('sdbModalCT').textContent = record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—';
-  document.getElementById('sdbModalLhRh').textContent = record.lh_rh || '—';
+  if (html) {
+    element.innerHTML = value;
+  } else {
+    element.textContent = value;
+  }
+}
 
-  document.getElementById('sdbModalOp1').textContent = record.operator1 || '—';
-  document.getElementById('sdbModalOp2').textContent = record.operator2 || '';
+function sdbBuildModalInput(fieldKey, value, options = {}) {
+  const {
+    type = 'text',
+    placeholder = '',
+    step,
+    min,
+    integer = false,
+    className = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100'
+  } = options;
 
-  document.getElementById('sdbModalStart').textContent = record.start_time || '—';
-  document.getElementById('sdbModalEnd').textContent = record.end_time || '—';
-  document.getElementById('sdbModalBreak').textContent = record.break_time != null ? `${record.break_time} h` : '—';
-  document.getElementById('sdbModalTrouble').textContent = record.trouble_time != null ? `${record.trouble_time} h` : '—';
+  const attrs = [
+    `type="${type}"`,
+    `data-sdb-field="${sdbEscapeHtml(fieldKey)}"`,
+    `data-sdb-value-type="${type === 'number' ? 'number' : 'text'}"`,
+    `class="${className}"`,
+    `value="${sdbEscapeHtml(value ?? '')}"`,
+    `placeholder="${sdbEscapeHtml(placeholder)}"`
+  ];
 
+  if (step != null) attrs.push(`step="${step}"`);
+  if (min != null) attrs.push(`min="${min}"`);
+  if (integer) attrs.push('data-sdb-integer="true"');
+
+  return `<input ${attrs.join(' ')}>`;
+}
+
+function sdbBuildModalTextarea(fieldKey, value, options = {}) {
+  const {
+    rows = 3,
+    placeholder = '',
+    className = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 resize-y'
+  } = options;
+
+  return `<textarea data-sdb-field="${sdbEscapeHtml(fieldKey)}" data-sdb-value-type="text" rows="${rows}" placeholder="${sdbEscapeHtml(placeholder)}" class="${className}">${sdbEscapeHtml(value ?? '')}</textarea>`;
+}
+
+function sdbBuildModalSelect(fieldKey, value, choices, options = {}) {
+  const className = options.className || 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100';
+  const selectValue = String(value ?? '');
+  const choiceMarkup = choices.map(choice => {
+    const optionValue = String(choice.value ?? '');
+    const selected = optionValue === selectValue ? 'selected' : '';
+    return `<option value="${sdbEscapeHtml(optionValue)}" ${selected}>${sdbEscapeHtml(choice.label)}</option>`;
+  }).join('');
+
+  return `<select data-sdb-field="${sdbEscapeHtml(fieldKey)}" data-sdb-value-type="text" class="${className}">${choiceMarkup}</select>`;
+}
+
+function sdbUpdateModalActions(record) {
+  const editBtn = document.getElementById('sdbModalEditBtn');
+  const saveBtn = document.getElementById('sdbModalSaveBtn');
+  const cancelBtn = document.getElementById('sdbModalCancelBtn');
+  const deleteBtn = document.getElementById('sdbModalDeleteBtn');
+  const editableRecord = sdbIsModalEditableRecord(record);
+  const isEditing = editableRecord && _sdbModalEditMode;
+
+  if (editBtn) editBtn.classList.toggle('hidden', !editableRecord || isEditing);
+  if (saveBtn) saveBtn.classList.toggle('hidden', !isEditing);
+  if (cancelBtn) cancelBtn.classList.toggle('hidden', !isEditing);
+  if (deleteBtn) deleteBtn.classList.toggle('hidden', !isEditing);
+}
+
+function sdbRenderModalDefects(record, isEditing) {
   const defectsEl = document.getElementById('sdbModalDefects');
+  const defectSection = document.getElementById('sdbModalDefectsSection');
   const defectEntries = Object.entries(record)
     .filter(([key]) => !SDB_FIXED_KEYS.has(key))
     .sort((a, b) => a[0].localeCompare(b[0]));
 
+  if (!defectSection || !defectsEl) return;
+
   if (defectEntries.length === 0) {
-    document.getElementById('sdbModalDefectsSection').classList.add('hidden');
-  } else {
-    document.getElementById('sdbModalDefectsSection').classList.remove('hidden');
-    defectsEl.innerHTML = defectEntries.map(([key, value]) => {
-      const defectCount = Number(value ?? 0);
-      const hasDefect = defectCount > 0;
-      return `<div class="rounded-xl border p-3 text-center ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
-        <p class="text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-400'} mb-1 truncate" title="${sdbEscapeHtml(key)}">${sdbEscapeHtml(key)}</p>
-        <p class="text-2xl font-bold ${hasDefect ? 'text-red-600' : 'text-gray-300'}">${defectCount}</p>
-      </div>`;
-    }).join('');
+    defectSection.classList.add('hidden');
+    defectsEl.innerHTML = '';
+    return;
   }
 
-  const remarksSection = document.getElementById('sdbModalRemarksSection');
-  if (record.remarks) {
-    document.getElementById('sdbModalRemarks').textContent = record.remarks;
-    remarksSection.classList.remove('hidden');
+  defectSection.classList.remove('hidden');
+  defectsEl.innerHTML = defectEntries.map(([key, value]) => {
+    const defectCount = Number(value ?? 0);
+    const hasDefect = defectCount > 0;
+
+    if (isEditing) {
+      return `<label class="rounded-xl border p-3 ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+        <span class="mb-2 block truncate text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-500'}" title="${sdbEscapeHtml(key)}">${sdbEscapeHtml(key)}</span>
+        ${sdbBuildModalInput(key, defectCount, {
+          type: 'number',
+          min: '0',
+          step: '1',
+          integer: true,
+          className: `w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-center text-2xl font-bold shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 ${hasDefect ? 'text-red-600' : 'text-gray-500'}`
+        })}
+      </label>`;
+    }
+
+    return `<div class="rounded-xl border p-3 text-center ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+      <p class="text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-400'} mb-1 truncate" title="${sdbEscapeHtml(key)}">${sdbEscapeHtml(key)}</p>
+      <p class="text-2xl font-bold ${hasDefect ? 'text-red-600' : 'text-gray-300'}">${defectCount}</p>
+    </div>`;
+  }).join('');
+}
+
+function sdbRenderModal(record) {
+  if (!record) return;
+
+  const editableRecord = sdbIsModalEditableRecord(record);
+  const isEditing = editableRecord && _sdbModalEditMode;
+  const timestamp = record.timestamp ? new Date(record.timestamp).toLocaleString('ja-JP') : '';
+  const textInputClass = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100';
+  const metricInputClass = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-center text-2xl font-bold shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100';
+
+  sdbSetModalElementContent('sdbModalDate', timestamp);
+
+  if (isEditing) {
+    sdbSetModalElementContent('sdbModalTitle', sdbBuildModalInput('product_name', record.product_name, {
+      placeholder: '製品名',
+      className: 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xl font-bold text-gray-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100'
+    }), { html: true });
+    sdbSetModalElementContent('sdbModalSub', `
+      <span class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <label class="text-xs text-gray-400">
+          <span class="mb-1 block">品番</span>
+          ${sdbBuildModalInput('hinban', record.hinban, { placeholder: '品番', className: textInputClass })}
+        </label>
+        <label class="text-xs text-gray-400">
+          <span class="mb-1 block">看板ID</span>
+          ${sdbBuildModalInput('kanban_id', record.kanban_id, { placeholder: '看板ID', className: textInputClass })}
+        </label>
+      </span>
+    `, { html: true });
   } else {
-    remarksSection.classList.add('hidden');
+    sdbSetModalElementContent('sdbModalTitle', record.product_name || '—');
+    sdbSetModalElementContent('sdbModalSub', [record.hinban, record.kanban_id].filter(Boolean).join('  /  '));
+  }
+
+  sdbSetModalElementContent('sdbModalGood', isEditing
+    ? sdbBuildModalInput('good_count', record.good_count ?? 0, { type: 'number', min: '0', step: '1', integer: true, className: `${metricInputClass} text-green-600` })
+    : String(record.good_count ?? '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalManHours', isEditing
+    ? sdbBuildModalInput('man_hours', record.man_hours ?? 0, { type: 'number', min: '0', step: '0.01', className: `${metricInputClass} text-blue-600` })
+    : (record.man_hours != null ? Number(record.man_hours).toFixed(2) : '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalCT', isEditing
+    ? sdbBuildModalInput('cycle_time', record.cycle_time ?? 0, { type: 'number', min: '0', step: '0.01', className: `${metricInputClass} text-purple-600` })
+    : (record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalLhRh', isEditing
+    ? sdbBuildModalSelect('lh_rh', record.lh_rh, [
+        { value: '', label: '—' },
+        { value: 'LH', label: 'LH' },
+        { value: 'RH', label: 'RH' }
+      ], { className: `${metricInputClass} text-gray-700` })
+    : (record.lh_rh || '—'), { html: isEditing });
+
+  sdbSetModalElementContent('sdbModalOp1', isEditing
+    ? sdbBuildModalInput('operator1', record.operator1, { placeholder: '作業者①', className: textInputClass })
+    : (record.operator1 || '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalOp2', isEditing
+    ? sdbBuildModalInput('operator2', record.operator2, { placeholder: '作業者②', className: textInputClass })
+    : (record.operator2 || ''), { html: isEditing });
+
+  sdbSetModalElementContent('sdbModalStart', isEditing
+    ? sdbBuildModalInput('start_time', record.start_time, { placeholder: 'HH:MM', className: textInputClass })
+    : (record.start_time || '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalEnd', isEditing
+    ? sdbBuildModalInput('end_time', record.end_time, { placeholder: 'HH:MM', className: textInputClass })
+    : (record.end_time || '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalBreak', isEditing
+    ? sdbBuildModalInput('break_time', record.break_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
+    : (record.break_time != null ? `${record.break_time} h` : '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalTrouble', isEditing
+    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
+    : (record.trouble_time != null ? `${record.trouble_time} h` : '—'), { html: isEditing });
+
+  sdbRenderModalDefects(record, isEditing);
+
+  const remarksSection = document.getElementById('sdbModalRemarksSection');
+  if (remarksSection) {
+    if (isEditing || record.remarks) {
+      remarksSection.classList.remove('hidden');
+      sdbSetModalElementContent('sdbModalRemarks', isEditing
+        ? sdbBuildModalTextarea('remarks', record.remarks, { rows: 3, placeholder: '備考を入力', className: textInputClass })
+        : (record.remarks || ''), { html: isEditing });
+    } else {
+      remarksSection.classList.add('hidden');
+    }
   }
 
   const otherSection = document.getElementById('sdbModalOtherSection');
-  if (record.other_description) {
-    document.getElementById('sdbModalOther').textContent = record.other_description;
-    otherSection.classList.remove('hidden');
-  } else {
-    otherSection.classList.add('hidden');
+  if (otherSection) {
+    if (isEditing || record.other_description) {
+      otherSection.classList.remove('hidden');
+      sdbSetModalElementContent('sdbModalOther', isEditing
+        ? sdbBuildModalTextarea('other_description', record.other_description, { rows: 3, placeholder: 'その他詳細を入力', className: textInputClass })
+        : (record.other_description || ''), { html: isEditing });
+    } else {
+      otherSection.classList.add('hidden');
+    }
   }
 
   const footerBits = [];
@@ -757,14 +928,218 @@ function openSdbDetail(idx) {
       footerBits.push(`自動削除: ${new Date(record.trash_expires_at).toLocaleString('ja-JP')}`);
     }
   }
-  document.getElementById('sdbModalFrom').textContent = footerBits.join('  |  ');
+  sdbSetModalElementContent('sdbModalFrom', footerBits.join('  |  '));
 
+  sdbUpdateModalActions(record);
   document.getElementById('sdbDetailModal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
 
+function sdbCollectModalUpdates() {
+  const modal = document.getElementById('sdbDetailModal');
+  const fields = modal ? modal.querySelectorAll('[data-sdb-field]') : [];
+  const updates = {};
+
+  fields.forEach(field => {
+    const key = field.dataset.sdbField;
+    if (!key) return;
+
+    if ((field.dataset.sdbValueType || 'text') === 'number' && !SDB_MODAL_STRING_FIELDS.has(key)) {
+      const rawValue = field.value.trim();
+      if (rawValue === '') {
+        updates[key] = 0;
+        return;
+      }
+
+      const parsedValue = Number(rawValue);
+      if (!Number.isFinite(parsedValue)) {
+        throw new Error(`${key} の値が不正です`);
+      }
+
+      updates[key] = field.dataset.sdbInteger === 'true' || SDB_MODAL_INTEGER_FIELDS.has(key)
+        ? Math.trunc(parsedValue)
+        : parsedValue;
+      return;
+    }
+
+    updates[key] = field.value.trim();
+  });
+
+  return updates;
+}
+
+function sdbReplaceCachedRecord(updatedRecord) {
+  const recordId = sdbGetRecordId(updatedRecord);
+  if (!recordId) return;
+
+  const recordIndex = _sdbAllData.findIndex(record => sdbGetRecordId(record) === recordId);
+  if (recordIndex !== -1) {
+    _sdbAllData[recordIndex] = updatedRecord;
+  }
+
+  if (_sdbSelectedRecords.has(recordId)) {
+    _sdbSelectedRecords.set(recordId, updatedRecord);
+  }
+}
+
+function openSdbDetail(idx) {
+  const record = _sdbAllData[idx];
+  if (!record) return;
+
+  _sdbModalRecordId = sdbGetRecordId(record);
+  _sdbModalEditMode = false;
+  sdbRenderModal(record);
+}
+
+function handleSdbModalEdit() {
+  const record = sdbGetModalRecord();
+  if (!sdbIsModalEditableRecord(record)) return;
+
+  _sdbModalEditMode = true;
+  sdbRenderModal(record);
+}
+
+function handleSdbModalCancel() {
+  const record = sdbGetModalRecord();
+  if (!record) return;
+
+  _sdbModalEditMode = false;
+  sdbRenderModal(record);
+}
+
+async function handleSdbModalSave() {
+  const record = sdbGetModalRecord();
+  if (!sdbIsModalEditableRecord(record) || !_sdbModalEditMode) return;
+
+  const recordId = sdbGetRecordId(record);
+  if (!recordId) return;
+
+  let updates;
+  try {
+    updates = sdbCollectModalUpdates();
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+
+  const saveBtn = document.getElementById('sdbModalSaveBtn');
+  const cancelBtn = document.getElementById('sdbModalCancelBtn');
+  const deleteBtn = document.getElementById('sdbModalDeleteBtn');
+  const previousSaveLabel = saveBtn ? saveBtn.textContent : '';
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中...';
+  }
+  if (cancelBtn) cancelBtn.disabled = true;
+  if (deleteBtn) deleteBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_URL}/api/admin/submitted-db/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...sdbGetAuthHeaders()
+      },
+      body: JSON.stringify({ updates })
+    });
+
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || 'Update failed');
+    }
+
+    if (result.data) {
+      sdbReplaceCachedRecord(result.data);
+    }
+
+    _sdbModalEditMode = false;
+    await loadSubmittedDB();
+
+    const refreshedRecord = sdbGetModalRecord();
+    if (refreshedRecord) {
+      sdbRenderModal(refreshedRecord);
+    } else {
+      closeSdbDetail();
+    }
+
+    alert('データを更新しました');
+  } catch (error) {
+    console.error('submittedDB update error:', error);
+    alert(`更新エラー: ${error.message}`);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = previousSaveLabel || '保存';
+    }
+    if (cancelBtn) cancelBtn.disabled = false;
+    if (deleteBtn) deleteBtn.disabled = false;
+  }
+}
+
+async function handleSdbModalDelete() {
+  const record = sdbGetModalRecord();
+  if (!sdbIsModalEditableRecord(record) || !_sdbModalEditMode) return;
+
+  const recordId = sdbGetRecordId(record);
+  if (!recordId) return;
+
+  const confirmed = confirm('このデータをゴミ箱へ移動しますか?');
+  if (!confirmed) return;
+
+  const deleteBtn = document.getElementById('sdbModalDeleteBtn');
+  const saveBtn = document.getElementById('sdbModalSaveBtn');
+  const cancelBtn = document.getElementById('sdbModalCancelBtn');
+  const previousDeleteLabel = deleteBtn ? deleteBtn.textContent : '';
+
+  if (deleteBtn) {
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '移動中...';
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_URL}/api/admin/submitted-db/soft-delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...sdbGetAuthHeaders()
+      },
+      body: JSON.stringify({ ids: [recordId] })
+    });
+
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || 'Delete failed');
+    }
+
+    _sdbSelectedIds.delete(recordId);
+    _sdbSelectedRecords.delete(recordId);
+    _sdbModalEditMode = false;
+    closeSdbDetail();
+    await loadSubmittedDB();
+    updateSubmittedDBToolbar();
+    alert('データをゴミ箱へ移動しました');
+  } catch (error) {
+    console.error('submittedDB modal delete error:', error);
+    alert(`削除エラー: ${error.message}`);
+  } finally {
+    if (deleteBtn) {
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = previousDeleteLabel || '削除';
+    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+  }
+}
+
 function closeSdbDetail(e) {
   if (e && e.target !== document.getElementById('sdbDetailModal')) return;
+  if (_sdbModalEditMode && !confirm('編集中の変更を破棄して閉じますか?')) return;
+
+  _sdbModalEditMode = false;
+  _sdbModalRecordId = '';
   document.getElementById('sdbDetailModal').classList.add('hidden');
   document.body.style.overflow = '';
 }
@@ -777,6 +1152,8 @@ function initializeSubmittedDB() {
   _sdbAllData = [];
   _sdbCounts = { active: 0, trash: 0 };
   _sdbCanPermanentDelete = false;
+  _sdbModalRecordId = '';
+  _sdbModalEditMode = false;
   sdbResetSelection();
   updateSubmittedDBTabs();
   updateSubmittedDBToolbar();
@@ -793,6 +1170,10 @@ window.sdbToggleRecordSelection = sdbToggleRecordSelection;
 window.handleSubmittedDBRestore = handleSubmittedDBRestore;
 window.handleSubmittedDBDelete = handleSubmittedDBDelete;
 window.exportSubmittedDBCSV = exportSubmittedDBCSV;
+window.handleSdbModalEdit = handleSdbModalEdit;
+window.handleSdbModalCancel = handleSdbModalCancel;
+window.handleSdbModalSave = handleSdbModalSave;
+window.handleSdbModalDelete = handleSdbModalDelete;
 window.openSdbDetail = openSdbDetail;
 window.closeSdbDetail = closeSdbDetail;
 window.initializeSubmittedDB = initializeSubmittedDB;

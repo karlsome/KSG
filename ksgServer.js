@@ -1547,6 +1547,44 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
 // ============================================================
 
+const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
+    '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
+    'submitted_from', 'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
+]);
+const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
+    'hinban', 'product_name', 'kanban_id', 'lh_rh',
+    'operator1', 'operator2', 'other_description', 'start_time', 'end_time', 'remarks'
+]);
+
+function normalizeSubmittedDBUpdates(source = {}) {
+    const updates = {};
+
+    for (const [key, rawValue] of Object.entries(source)) {
+        if (!key || SUBMITTED_DB_NON_EDITABLE_FIELDS.has(key) || key.includes('.') || key.startsWith('$')) {
+            continue;
+        }
+
+        if (SUBMITTED_DB_EDITABLE_STRING_FIELDS.has(key)) {
+            updates[key] = String(rawValue ?? '').trim();
+            continue;
+        }
+
+        const normalizedValue = rawValue === '' || rawValue === null || rawValue === undefined
+            ? 0
+            : Number(rawValue);
+
+        if (!Number.isFinite(normalizedValue)) {
+            const error = new Error(`Invalid numeric value for ${key}`);
+            error.statusCode = 400;
+            throw error;
+        }
+
+        updates[key] = normalizedValue;
+    }
+
+    return updates;
+}
+
 // GET /api/admin/submitted-db  — Fetch submittedDB records with filtering, sorting, pagination
 app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) => {
     try {
@@ -1685,6 +1723,43 @@ app.post('/api/admin/submitted-db/soft-delete', validateSubmittedDBAccess, async
     } catch (error) {
         console.error('❌ [ADMIN] Error soft-deleting submittedDB records:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const recordId = req.params?.id;
+        if (!ObjectId.isValid(recordId)) {
+            return res.status(400).json({ success: false, error: 'Invalid submitted data ID' });
+        }
+
+        const updates = normalizeSubmittedDBUpdates(req.body?.updates || {});
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ success: false, error: 'No editable fields provided' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const _id = new ObjectId(recordId);
+        const result = await collection.updateOne(
+            { _id, is_deleted: { $ne: true } },
+            { $set: updates }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, error: 'Submitted data not found' });
+        }
+
+        const data = await collection.findOne({ _id });
+        res.json({ success: true, data });
+    } catch (error) {
+        const statusCode = error.statusCode || 500;
+        if (statusCode === 500) {
+            console.error('❌ [ADMIN] Error updating submittedDB record:', error);
+        }
+        res.status(statusCode).json({ success: false, error: error.message || 'Failed to update submitted data' });
     }
 });
 
