@@ -158,17 +158,14 @@
     // Page loading functionality
     function loadPage(page) {
       const mainContent = document.getElementById('mainContent');
+      disposeAdminDashboardChart();
       
       handleNavClick(); // Close sidebar on mobile
       
       switch(page) {
         case 'dashboard':
-          mainContent.innerHTML = `
-            <h2 class="text-2xl font-semibold mb-4">${t('dashboard.title')}</h2>
-            <div class="bg-white p-6 rounded-lg shadow">
-              <p class="text-gray-600">${t('dashboard.welcome')}</p>
-            </div>
-          `;
+          mainContent.innerHTML = buildAdminDashboardShell();
+          setTimeout(() => loadAdminDashboard(), 0);
           break;
           
         case 'user-management':
@@ -326,6 +323,554 @@
           `;
       }
     }
+
+    let adminDashboardTrendChart = null;
+    let adminDashboardRequestId = 0;
+
+    function dashboardText(key) {
+      return t(`dashboard.${key}`);
+    }
+
+    function escapeDashboardHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDashboardNumber(value, digits = 0) {
+      const number = Number(value ?? 0);
+      if (!Number.isFinite(number)) return '0';
+
+      return number.toLocaleString('ja-JP', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    }
+
+    function formatDashboardDateTime(value) {
+      return value ? new Date(value).toLocaleString('ja-JP') : '—';
+    }
+
+    function formatDashboardOperators(operators = []) {
+      if (!Array.isArray(operators) || operators.length === 0) return '—';
+      return operators.map(name => escapeDashboardHtml(name)).join(' / ');
+    }
+
+    function getDashboardAuthHeaders() {
+      const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+      const token = localStorage.getItem('ksgToken') || '';
+      const headers = {};
+
+      if (currentUser.username) headers['x-session-user'] = currentUser.username;
+      if (currentUser.role) headers['x-session-role'] = currentUser.role;
+      if (currentUser.dbName) headers['x-session-db-name'] = currentUser.dbName;
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      return headers;
+    }
+
+    function disposeAdminDashboardChart() {
+      if (adminDashboardTrendChart) {
+        adminDashboardTrendChart.dispose();
+        adminDashboardTrendChart = null;
+      }
+    }
+
+    function buildAdminDashboardShell() {
+      const loadingCard = `
+        <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+          <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
+          <div class="mt-3 h-3 w-28 animate-pulse rounded bg-gray-100"></div>
+        </div>`;
+
+      return `
+        <div id="dashboardRoot" class="space-y-6">
+          <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 class="text-3xl font-semibold tracking-tight text-gray-900">${dashboardText('title')}</h2>
+                <p class="mt-2 max-w-3xl text-sm text-gray-500">${dashboardText('welcome')}</p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                  <span class="text-gray-500">${dashboardText('lastUpdated')}:</span>
+                  <span id="dashboardLastUpdated">-</span>
+                </div>
+                <button id="dashboardRefreshBtn" onclick="loadAdminDashboard()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100">
+                  <i class="ri-refresh-line"></i>
+                  <span id="dashboardRefreshLabel">${dashboardText('refresh')}</span>
+                </button>
+              </div>
+            </div>
+            <div id="dashboardMetaChips" class="mt-5 flex flex-wrap gap-2"></div>
+          </section>
+
+          <div id="dashboardError" class="hidden rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"></div>
+
+          <section>
+            <div class="mb-3 flex items-center justify-between">
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900">${dashboardText('todayOverview')}</h3>
+              </div>
+            </div>
+            <div id="dashboardCards" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+              ${Array.from({ length: 6 }, () => loadingCard).join('')}
+            </div>
+          </section>
+
+          <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <div class="space-y-6 xl:col-span-2">
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="text-lg font-semibold text-gray-900">${dashboardText('recentSubmissions')}</h3>
+                  </div>
+                  <button onclick="loadPage('submitted-db')" class="inline-flex items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200">
+                    <i class="ri-file-list-3-line"></i>
+                    ${dashboardText('viewSubmittedData')}
+                  </button>
+                </div>
+                <div id="dashboardRecentSubmissions" class="divide-y divide-gray-100">
+                  <div class="px-6 py-10 text-sm text-gray-400">${t('common.loading')}</div>
+                </div>
+              </section>
+
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="border-b border-gray-100 px-6 py-4">
+                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('dailyTrend')}</h3>
+                </div>
+                <div id="dashboardTrendChart" class="h-80 px-2 py-4"></div>
+              </section>
+            </div>
+
+            <div class="space-y-6">
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="border-b border-gray-100 px-6 py-4">
+                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('problemsToday')}</h3>
+                </div>
+                <div id="dashboardProblemsToday" class="p-6">
+                  <p class="text-sm text-gray-400">${t('common.loading')}</p>
+                </div>
+              </section>
+
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="border-b border-gray-100 px-6 py-4">
+                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('topProductsToday')}</h3>
+                </div>
+                <div id="dashboardTopProducts" class="p-6">
+                  <p class="text-sm text-gray-400">${t('common.loading')}</p>
+                </div>
+              </section>
+
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="border-b border-gray-100 px-6 py-4">
+                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('topOperatorsToday')}</h3>
+                </div>
+                <div id="dashboardTopOperators" class="p-6">
+                  <p class="text-sm text-gray-400">${t('common.loading')}</p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function renderDashboardCards(today = {}) {
+      const cardsEl = document.getElementById('dashboardCards');
+      if (!cardsEl) return;
+
+      const cards = [
+        {
+          title: dashboardText('todaySubmissions'),
+          value: formatDashboardNumber(today.submissions || 0),
+          subtext: dashboardText('submissions'),
+          icon: 'ri-file-chart-line',
+          tone: 'bg-slate-50 text-slate-700',
+          valueClass: 'text-slate-900'
+        },
+        {
+          title: dashboardText('goodPiecesToday'),
+          value: formatDashboardNumber(today.totalGoodCount || 0),
+          subtext: dashboardText('goodPieces'),
+          icon: 'ri-checkbox-circle-line',
+          tone: 'bg-emerald-50 text-emerald-700',
+          valueClass: 'text-emerald-600'
+        },
+        {
+          title: dashboardText('defectsToday'),
+          value: formatDashboardNumber(today.totalDefectCount || 0),
+          subtext: dashboardText('defects'),
+          icon: 'ri-error-warning-line',
+          tone: 'bg-rose-50 text-rose-700',
+          valueClass: 'text-rose-600'
+        },
+        {
+          title: dashboardText('issueCasesToday'),
+          value: formatDashboardNumber(today.issueCount || 0),
+          subtext: dashboardText('problemCount'),
+          icon: 'ri-alarm-warning-line',
+          tone: 'bg-amber-50 text-amber-700',
+          valueClass: 'text-amber-600'
+        },
+        {
+          title: dashboardText('activeOperators'),
+          value: formatDashboardNumber(today.activeOperators || 0),
+          subtext: dashboardText('operators'),
+          icon: 'ri-user-star-line',
+          tone: 'bg-sky-50 text-sky-700',
+          valueClass: 'text-sky-600'
+        },
+        {
+          title: dashboardText('avgCycleTime'),
+          value: formatDashboardNumber(today.averageCycleTime || 0, 2),
+          subtext: `${dashboardText('cycleTimeShort')} min`,
+          icon: 'ri-timer-2-line',
+          tone: 'bg-violet-50 text-violet-700',
+          valueClass: 'text-violet-600'
+        }
+      ];
+
+      cardsEl.innerHTML = cards.map(card => `
+        <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium text-gray-500">${card.title}</p>
+              <p class="mt-4 text-3xl font-semibold ${card.valueClass}">${card.value}</p>
+              <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.subtext}</p>
+            </div>
+            <div class="rounded-2xl px-3 py-2 ${card.tone}">
+              <i class="${card.icon} text-xl"></i>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+
+    function renderDashboardMeta(meta = {}, today = {}, generatedAt = '') {
+      const metaEl = document.getElementById('dashboardMetaChips');
+      const lastUpdatedEl = document.getElementById('dashboardLastUpdated');
+      if (lastUpdatedEl) {
+        lastUpdatedEl.textContent = formatDashboardDateTime(generatedAt);
+      }
+      if (!metaEl) return;
+
+      const chips = [
+        { label: dashboardText('activeKanbans'), value: formatDashboardNumber(today.activeKanbans || 0), tone: 'border-sky-100 bg-sky-50' },
+        { label: dashboardText('troubleHours'), value: `${formatDashboardNumber(today.totalTroubleHours || 0, 2)} h`, tone: 'border-amber-100 bg-amber-50' },
+        { label: dashboardText('activeRecords'), value: formatDashboardNumber(meta.activeRecords || 0), tone: 'border-emerald-100 bg-emerald-50' },
+        { label: dashboardText('trashItems'), value: formatDashboardNumber(meta.trashRecords || 0), tone: 'border-rose-100 bg-rose-50' }
+      ];
+
+      metaEl.innerHTML = chips.map(chip => `
+        <div class="rounded-xl border px-3 py-2 text-sm ${chip.tone}">
+          <span class="text-gray-600">${chip.label}:</span>
+          <strong class="ml-2 font-semibold text-gray-900">${chip.value}</strong>
+        </div>`).join('');
+    }
+
+    function renderDashboardRecentSubmissions(records = []) {
+      const container = document.getElementById('dashboardRecentSubmissions');
+      if (!container) return;
+
+      if (!Array.isArray(records) || records.length === 0) {
+        container.innerHTML = `<div class="px-6 py-10 text-sm text-gray-400">${dashboardText('noRecentSubmissions')}</div>`;
+        return;
+      }
+
+      container.innerHTML = records.map(record => {
+        const productLine = [record.hinban, record.kanbanId].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ');
+        const defectBadge = record.totalDefects > 0
+          ? `<span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('defects')}: ${formatDashboardNumber(record.totalDefects)}</span>`
+          : '';
+        const troubleBadge = record.troubleTime > 0
+          ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>`
+          : '';
+
+        return `
+          <article class="flex flex-col gap-4 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span>${formatDashboardDateTime(record.timestamp)}</span>
+                <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.source || '—')}</span>
+                <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.lhRh || '—')}</span>
+              </div>
+              <h4 class="mt-2 truncate text-base font-semibold text-gray-900">${escapeDashboardHtml(record.productName || '—')}</h4>
+              <p class="mt-1 truncate text-sm text-gray-500">${productLine || '—'}</p>
+              <p class="mt-2 text-sm text-gray-600">${formatDashboardOperators(record.operators)}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(record.goodCount)}</span>
+              <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+              ${defectBadge}
+              ${troubleBadge}
+            </div>
+          </article>`;
+      }).join('');
+    }
+
+    function renderDashboardProblems(problemData = {}) {
+      const container = document.getElementById('dashboardProblemsToday');
+      if (!container) return;
+
+      const topDefects = Array.isArray(problemData.topDefects) ? problemData.topDefects : [];
+      const issueRecords = Array.isArray(problemData.issueRecords) ? problemData.issueRecords : [];
+
+      if (topDefects.length === 0 && issueRecords.length === 0) {
+        container.innerHTML = `
+          <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-700">
+            ${dashboardText('noProblemsToday')}
+          </div>`;
+        return;
+      }
+
+      const defectsMarkup = topDefects.length > 0
+        ? `
+          <div>
+            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('topDefects')}</p>
+            <div class="space-y-2">
+              ${topDefects.map(defect => `
+                <div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                  <span class="truncate pr-4">${escapeDashboardHtml(defect.name)}</span>
+                  <strong>${formatDashboardNumber(defect.count)}</strong>
+                </div>`).join('')}
+            </div>
+          </div>`
+        : '';
+
+      const issuesMarkup = issueRecords.length > 0
+        ? `
+          <div class="mt-6">
+            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('latestIssueCases')}</p>
+            <div class="space-y-3">
+              ${issueRecords.map(record => {
+                const issueSummary = record.topDefects && record.topDefects.length > 0
+                  ? record.topDefects.map(defect => `${escapeDashboardHtml(defect.name)} ${formatDashboardNumber(defect.count)}`).join(' / ')
+                  : '—';
+                const note = record.remarks || record.otherDescription || '';
+
+                return `
+                  <div class="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <p class="text-xs text-amber-700">${formatDashboardDateTime(record.timestamp)}</p>
+                        <h4 class="mt-1 truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(record.productName || '—')}</h4>
+                        <p class="mt-1 truncate text-xs text-gray-500">${[record.hinban, record.kanbanId].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ') || '—'}</p>
+                        <p class="mt-2 text-xs text-gray-600">${formatDashboardOperators(record.operators)}</p>
+                      </div>
+                      <div class="rounded-xl bg-white px-3 py-2 text-right shadow-sm">
+                        <p class="text-xs text-gray-400">${dashboardText('defects')}</p>
+                        <p class="text-lg font-semibold text-rose-600">${formatDashboardNumber(record.totalDefects)}</p>
+                      </div>
+                    </div>
+                    <p class="mt-3 text-xs text-gray-600">${issueSummary}</p>
+                    ${record.troubleTime > 0 ? `<p class="mt-2 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</p>` : ''}
+                    ${note ? `<p class="mt-2 line-clamp-2 text-xs text-gray-600">${escapeDashboardHtml(note)}</p>` : ''}
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>`
+        : '';
+
+      container.innerHTML = `${defectsMarkup}${issuesMarkup}`;
+    }
+
+    function renderDashboardTopProducts(products = []) {
+      const container = document.getElementById('dashboardTopProducts');
+      if (!container) return;
+
+      if (!Array.isArray(products) || products.length === 0) {
+        container.innerHTML = `<p class="text-sm text-gray-400">${dashboardText('noTopProducts')}</p>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-3">
+          ${products.map((product, index) => `
+            <div class="flex items-start gap-3 rounded-2xl bg-gray-50 px-4 py-3">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-semibold text-white">${index + 1}</div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(product.productName || '—')}</p>
+                <p class="truncate text-xs text-gray-500">${[product.hinban, product.lhRh].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ') || '—'}</p>
+              </div>
+              <div class="text-right text-xs text-gray-500">
+                <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(product.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
+                <p>${dashboardText('submissions')}: ${formatDashboardNumber(product.submissions)}</p>
+                <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(product.averageCycleTime || 0, 2)}</p>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    function renderDashboardTopOperators(operators = []) {
+      const container = document.getElementById('dashboardTopOperators');
+      if (!container) return;
+
+      if (!Array.isArray(operators) || operators.length === 0) {
+        container.innerHTML = `<p class="text-sm text-gray-400">${dashboardText('noTopOperators')}</p>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-3">
+          ${operators.map((operator, index) => `
+            <div class="flex items-center gap-3 rounded-2xl bg-gray-50 px-4 py-3">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white">${index + 1}</div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(operator.name || '—')}</p>
+                <p class="text-xs text-gray-500">${dashboardText('submissions')}: ${formatDashboardNumber(operator.submissions)}</p>
+              </div>
+              <div class="text-right text-xs text-gray-500">
+                <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(operator.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
+                <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</p>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    function renderDashboardTrendChart(trend = []) {
+      const container = document.getElementById('dashboardTrendChart');
+      if (!container) return;
+
+      const hasData = Array.isArray(trend) && trend.some(item => (item.submissions || item.goodCount || item.defectCount));
+      if (!hasData) {
+        disposeAdminDashboardChart();
+        container.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-gray-400">${dashboardText('noTrendData')}</div>`;
+        return;
+      }
+
+      if (typeof echarts === 'undefined') {
+        container.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-gray-400">Chart library not available</div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      disposeAdminDashboardChart();
+      adminDashboardTrendChart = echarts.init(container);
+      adminDashboardTrendChart.setOption({
+        color: ['#334155', '#10b981', '#ef4444'],
+        tooltip: {
+          trigger: 'axis'
+        },
+        legend: {
+          top: 0,
+          data: [dashboardText('submissions'), dashboardText('goodPieces'), dashboardText('defects')]
+        },
+        grid: {
+          left: 24,
+          right: 24,
+          top: 48,
+          bottom: 24,
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: trend.map(item => item.label),
+          axisTick: { show: false },
+          axisLine: { lineStyle: { color: '#cbd5e1' } }
+        },
+        yAxis: [
+          {
+            type: 'value',
+            splitLine: { lineStyle: { color: '#e5e7eb' } }
+          },
+          {
+            type: 'value',
+            splitLine: { show: false }
+          }
+        ],
+        series: [
+          {
+            name: dashboardText('submissions'),
+            type: 'bar',
+            barMaxWidth: 26,
+            data: trend.map(item => item.submissions || 0),
+            yAxisIndex: 0,
+            itemStyle: { borderRadius: [8, 8, 0, 0] }
+          },
+          {
+            name: dashboardText('goodPieces'),
+            type: 'line',
+            smooth: true,
+            symbolSize: 8,
+            data: trend.map(item => item.goodCount || 0),
+            yAxisIndex: 1
+          },
+          {
+            name: dashboardText('defects'),
+            type: 'line',
+            smooth: true,
+            symbolSize: 8,
+            data: trend.map(item => item.defectCount || 0),
+            yAxisIndex: 1
+          }
+        ]
+      });
+    }
+
+    function renderAdminDashboard(data) {
+      renderDashboardMeta(data.meta || {}, data.today || {}, data.generatedAt || '');
+      renderDashboardCards(data.today || {});
+      renderDashboardRecentSubmissions(data.recentSubmissions || []);
+      renderDashboardProblems(data.problemsToday || {});
+      renderDashboardTopProducts(data.topProducts || []);
+      renderDashboardTopOperators(data.topOperators || []);
+      renderDashboardTrendChart(data.dailyTrend || []);
+    }
+
+    async function loadAdminDashboard() {
+      const root = document.getElementById('dashboardRoot');
+      if (!root) return;
+
+      const requestId = ++adminDashboardRequestId;
+      const refreshBtn = document.getElementById('dashboardRefreshBtn');
+      const refreshLabel = document.getElementById('dashboardRefreshLabel');
+      const errorEl = document.getElementById('dashboardError');
+      const previousLabel = refreshLabel ? refreshLabel.textContent : '';
+
+      if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+      }
+      if (refreshBtn) refreshBtn.disabled = true;
+      if (refreshLabel) refreshLabel.textContent = `${dashboardText('refresh')}...`;
+
+      try {
+        const response = await fetch(`${API_URL}/api/admin/dashboard-summary`, {
+          headers: getDashboardAuthHeaders()
+        });
+        const result = await response.json();
+
+        if (requestId !== adminDashboardRequestId || currentPage !== 'dashboard') {
+          return;
+        }
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || 'Failed to load dashboard');
+        }
+
+        renderAdminDashboard(result);
+      } catch (error) {
+        console.error('dashboard load error:', error);
+        if (errorEl) {
+          errorEl.textContent = error.message || 'Failed to load dashboard';
+          errorEl.classList.remove('hidden');
+        }
+      } finally {
+        if (requestId === adminDashboardRequestId && currentPage === 'dashboard') {
+          if (refreshBtn) refreshBtn.disabled = false;
+          if (refreshLabel) refreshLabel.textContent = previousLabel || dashboardText('refresh');
+        }
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      if (adminDashboardTrendChart) {
+        adminDashboardTrendChart.resize();
+      }
+    });
 
     // Add click handlers to nav items
     document.querySelectorAll('#dynamicNav a').forEach(link => {

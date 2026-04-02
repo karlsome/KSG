@@ -1547,6 +1547,14 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
 // ============================================================
 
+const SUBMITTED_DB_FIXED_FIELDS = new Set([
+    '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
+    'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
+    'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+    'other_description', 'start_time', 'end_time', 'break_time',
+    'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+    'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
+]);
 const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     'submitted_from', 'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
@@ -1584,6 +1592,274 @@ function normalizeSubmittedDBUpdates(source = {}) {
 
     return updates;
 }
+
+function getJapanCalendarDate(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== 'literal') {
+            acc[part.type] = part.value;
+        }
+        return acc;
+    }, {});
+
+    return {
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+        key: `${parts.year}-${parts.month}-${parts.day}`,
+        label: `${Number(parts.month)}/${Number(parts.day)}`
+    };
+}
+
+function getSubmittedDBRecordDefects(record = {}) {
+    return Object.entries(record)
+        .filter(([key]) => !SUBMITTED_DB_FIXED_FIELDS.has(key))
+        .map(([name, rawValue]) => ({
+            name,
+            count: Number(rawValue ?? 0)
+        }))
+        .filter(defect => Number.isFinite(defect.count) && defect.count > 0);
+}
+
+function getSubmittedDBTotalDefects(record = {}) {
+    return getSubmittedDBRecordDefects(record).reduce((sum, defect) => sum + defect.count, 0);
+}
+
+app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const today = getJapanCalendarDate();
+        const last7Days = Array.from({ length: 7 }, (_, index) => {
+            const date = new Date();
+            date.setDate(date.getDate() - (6 - index));
+            return getJapanCalendarDate(date);
+        });
+        const last7DayFilters = last7Days.map(day => ({
+            date_year: day.year,
+            date_month: day.month,
+            date_day: day.day
+        }));
+
+        const activeFilter = { is_deleted: { $ne: true } };
+        const todayFilter = {
+            ...activeFilter,
+            date_year: today.year,
+            date_month: today.month,
+            date_day: today.day
+        };
+
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords] = await Promise.all([
+            collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
+            collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
+            collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
+            collection.countDocuments(activeFilter),
+            collection.countDocuments({ is_deleted: true })
+        ]);
+
+        const operatorMap = new Map();
+        const productMap = new Map();
+        const defectMap = new Map();
+        const issueRecords = [];
+        const activeOperators = new Set();
+        const activeKanbans = new Set();
+
+        let totalGoodCount = 0;
+        let totalDefectCount = 0;
+        let totalTroubleHours = 0;
+        let cycleTimeTotal = 0;
+        let cycleTimeSamples = 0;
+
+        todayRecords.forEach(record => {
+            const goodCount = Number(record.good_count ?? 0) || 0;
+            const troubleTime = Number(record.trouble_time ?? 0) || 0;
+            const cycleTime = Number(record.cycle_time ?? 0);
+            const operatorNames = [record.operator1, record.operator2]
+                .map(name => String(name ?? '').trim())
+                .filter(Boolean);
+            const kanbanId = String(record.kanban_id ?? '').trim();
+            const defectEntries = getSubmittedDBRecordDefects(record);
+            const totalDefects = defectEntries.reduce((sum, defect) => sum + defect.count, 0);
+            const hasIssue = totalDefects > 0
+                || troubleTime > 0
+                || String(record.remarks ?? '').trim() !== ''
+                || String(record.other_description ?? '').trim() !== '';
+
+            totalGoodCount += goodCount;
+            totalDefectCount += totalDefects;
+            totalTroubleHours += troubleTime;
+
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                cycleTimeTotal += cycleTime;
+                cycleTimeSamples += 1;
+            }
+
+            if (kanbanId) {
+                activeKanbans.add(kanbanId);
+            }
+
+            operatorNames.forEach(name => {
+                activeOperators.add(name);
+                const operatorEntry = operatorMap.get(name) || {
+                    name,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    cycleTimeTotal: 0,
+                    cycleTimeSamples: 0
+                };
+
+                operatorEntry.submissions += 1;
+                operatorEntry.totalGoodCount += goodCount;
+                if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                    operatorEntry.cycleTimeTotal += cycleTime;
+                    operatorEntry.cycleTimeSamples += 1;
+                }
+                operatorMap.set(name, operatorEntry);
+            });
+
+            const productKey = [record.hinban, record.product_name, record.lh_rh]
+                .map(value => String(value ?? '').trim())
+                .join('||');
+            const productEntry = productMap.get(productKey) || {
+                hinban: record.hinban || '',
+                productName: record.product_name || '',
+                lhRh: record.lh_rh || '',
+                submissions: 0,
+                totalGoodCount: 0,
+                cycleTimeTotal: 0,
+                cycleTimeSamples: 0
+            };
+
+            productEntry.submissions += 1;
+            productEntry.totalGoodCount += goodCount;
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                productEntry.cycleTimeTotal += cycleTime;
+                productEntry.cycleTimeSamples += 1;
+            }
+            productMap.set(productKey, productEntry);
+
+            defectEntries.forEach(defect => {
+                defectMap.set(defect.name, (defectMap.get(defect.name) || 0) + defect.count);
+            });
+
+            if (hasIssue) {
+                issueRecords.push({
+                    id: record._id,
+                    timestamp: record.timestamp,
+                    productName: record.product_name || '',
+                    hinban: record.hinban || '',
+                    kanbanId: record.kanban_id || '',
+                    operators: operatorNames,
+                    totalDefects,
+                    troubleTime,
+                    remarks: String(record.remarks ?? '').trim(),
+                    otherDescription: String(record.other_description ?? '').trim(),
+                    topDefects: defectEntries
+                        .sort((a, b) => b.count - a.count)
+                        .slice(0, 2)
+                });
+            }
+        });
+
+        const trendMap = new Map(last7Days.map(day => [day.key, {
+            date: day.key,
+            label: day.label,
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0
+        }]));
+
+        trendRecords.forEach(record => {
+            const key = `${record.date_year}-${String(record.date_month).padStart(2, '0')}-${String(record.date_day).padStart(2, '0')}`;
+            const trendEntry = trendMap.get(key);
+            if (!trendEntry) return;
+
+            trendEntry.submissions += 1;
+            trendEntry.goodCount += Number(record.good_count ?? 0) || 0;
+            trendEntry.defectCount += getSubmittedDBTotalDefects(record);
+        });
+
+        const topDefects = [...defectMap.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 6);
+
+        const topProducts = [...productMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions)
+            .slice(0, 5)
+            .map(product => ({
+                ...product,
+                averageCycleTime: product.cycleTimeSamples > 0
+                    ? product.cycleTimeTotal / product.cycleTimeSamples
+                    : 0
+            }));
+
+        const topOperators = [...operatorMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions)
+            .slice(0, 5)
+            .map(operator => ({
+                ...operator,
+                averageCycleTime: operator.cycleTimeSamples > 0
+                    ? operator.cycleTimeTotal / operator.cycleTimeSamples
+                    : 0
+            }));
+
+        const mappedRecentRecords = recentRecords.map(record => ({
+            id: record._id,
+            timestamp: record.timestamp,
+            productName: record.product_name || '',
+            hinban: record.hinban || '',
+            kanbanId: record.kanban_id || '',
+            operators: [record.operator1, record.operator2]
+                .map(name => String(name ?? '').trim())
+                .filter(Boolean),
+            goodCount: Number(record.good_count ?? 0) || 0,
+            totalDefects: getSubmittedDBTotalDefects(record),
+            troubleTime: Number(record.trouble_time ?? 0) || 0,
+            cycleTime: Number(record.cycle_time ?? 0) || 0,
+            source: record.submitted_from || '',
+            lhRh: record.lh_rh || ''
+        }));
+
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            today: {
+                date: today.key,
+                submissions: todayRecords.length,
+                totalGoodCount,
+                totalDefectCount,
+                totalTroubleHours,
+                issueCount: issueRecords.length,
+                activeOperators: activeOperators.size,
+                activeKanbans: activeKanbans.size,
+                averageCycleTime: cycleTimeSamples > 0 ? cycleTimeTotal / cycleTimeSamples : 0
+            },
+            meta: {
+                activeRecords,
+                trashRecords
+            },
+            recentSubmissions: mappedRecentRecords,
+            problemsToday: {
+                topDefects,
+                totalIssueRecords: issueRecords.length,
+                issueRecords: issueRecords.slice(0, 6)
+            },
+            topProducts,
+            topOperators,
+            dailyTrend: last7Days.map(day => trendMap.get(day.key))
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching dashboard summary:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load dashboard summary' });
+    }
+});
 
 // GET /api/admin/submitted-db  — Fetch submittedDB records with filtering, sorting, pagination
 app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) => {
