@@ -1615,6 +1615,74 @@ function getJapanCalendarDate(date = new Date()) {
     };
 }
 
+function parseSubmittedDBCalendarDate(value) {
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim().replace(/\//g, '-');
+    if (!normalized) return null;
+
+    const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+        !Number.isInteger(year) ||
+        !Number.isInteger(month) ||
+        !Number.isInteger(day) ||
+        parsedDate.getUTCFullYear() !== year ||
+        parsedDate.getUTCMonth() + 1 !== month ||
+        parsedDate.getUTCDate() !== day
+    ) {
+        return null;
+    }
+
+    return {
+        year,
+        month,
+        day,
+        key: (year * 10000) + (month * 100) + day
+    };
+}
+
+function buildSubmittedDBDateRangeExpr(startDateValue, endDateValue) {
+    const startDate = parseSubmittedDBCalendarDate(startDateValue);
+    const endDate = parseSubmittedDBCalendarDate(endDateValue);
+
+    if (startDateValue && !startDate) {
+        throw new Error(`Invalid startDate: ${startDateValue}`);
+    }
+    if (endDateValue && !endDate) {
+        throw new Error(`Invalid endDate: ${endDateValue}`);
+    }
+    if (startDate && endDate && startDate.key > endDate.key) {
+        return { $eq: [1, 0] };
+    }
+
+    const yearExpr = { $convert: { input: '$date_year', to: 'int', onError: 0, onNull: 0 } };
+    const monthExpr = { $convert: { input: '$date_month', to: 'int', onError: 0, onNull: 0 } };
+    const dayExpr = { $convert: { input: '$date_day', to: 'int', onError: 0, onNull: 0 } };
+    const dateKeyExpr = {
+        $add: [
+            { $multiply: [yearExpr, 10000] },
+            { $multiply: [monthExpr, 100] },
+            dayExpr
+        ]
+    };
+
+    const rangeExpr = [];
+    if (startDate) rangeExpr.push({ $gte: [dateKeyExpr, startDate.key] });
+    if (endDate) rangeExpr.push({ $lte: [dateKeyExpr, endDate.key] });
+
+    if (rangeExpr.length === 0) return null;
+    if (rangeExpr.length === 1) return rangeExpr[0];
+
+    return { $and: rangeExpr };
+}
+
 function getSubmittedDBRecordDefects(record = {}) {
     return Object.entries(record)
         .filter(([key]) => !SUBMITTED_DB_FIXED_FIELDS.has(key))
@@ -1913,15 +1981,10 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
         // --- Build MongoDB filter ---
         const baseFilter = {};
 
-        // Date range (ISO date strings or YYYY-MM-DD)
-        if (req.query.startDate || req.query.endDate) {
-            baseFilter.timestamp = {};
-            if (req.query.startDate) baseFilter.timestamp.$gte = new Date(req.query.startDate);
-            if (req.query.endDate) {
-                const end = new Date(req.query.endDate);
-                end.setHours(23, 59, 59, 999);
-                baseFilter.timestamp.$lte = end;
-            }
+        // Date range uses the stored calendar fields because timestamp is saved as an ISO string.
+        const dateRangeExpr = buildSubmittedDBDateRangeExpr(req.query.startDate, req.query.endDate);
+        if (dateRangeExpr) {
+            baseFilter.$expr = dateRangeExpr;
         }
 
         // Text filters (case-insensitive)
