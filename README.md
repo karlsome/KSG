@@ -11,7 +11,7 @@ OPC UA Machine
      │
      ▼
 Raspberry Pi (opcua_client.py)
-     │  polls OPC UA nodes
+     │  subscribes to OPC UA node changes
      ▼
 ksgServer.js  (Node.js / Express / Socket.IO)
      │
@@ -155,12 +155,29 @@ Tablets are stored in MongoDB under `[CompanyDB].tabletDB`. Each tablet document
 ### Raspberry Pi Setup
 
 The Pi runs `raspberry_pi/opcua_client.py` which:
+- Fetches its OPC UA configuration from `/api/opcua/config/:raspberryId`.
 - Connects to the OPC UA server on the factory machine.
-- Polls configured datapoints and POSTs data to `/api/opcua/data`.
+- Creates OPC UA subscriptions for configured datapoints.
+- Uploads changed values to `/api/opcua/data` using WebSocket first, with HTTP fallback if needed.
 - Sends heartbeats to `/api/opcua/heartbeat`.
 - Discovers and uploads node structure to `/api/opcua/discovered-nodes`.
 
 See `raspberry_pi/requirements.txt` for Python dependencies.
+
+### OPC UA Subscription Flow
+
+The Raspberry Pi client is subscription-based. It does not continuously read every configured node and compare snapshots in the main loop.
+
+1. On startup, the Pi fetches its assigned OPC UA server settings and datapoint list from the backend.
+2. It connects to the OPC UA server and creates a subscription with a short publish interval.
+3. It subscribes to each configured datapoint. After node discovery runs, it can also subscribe to discovered nodes so their value changes can be monitored in real time.
+4. When the OPC UA server reports a monitored item update, the Python OPC UA library calls the client's data-change callback.
+5. That callback identifies the node, reads the new value and OPC UA quality/status, and compares the value against the last value seen for that node.
+6. For configured datapoints, the client builds a payload with `datapointId`, `equipmentId`, `opcNodeId`, `value`, `quality`, and `timestamp`, then places it into an in-memory buffer.
+7. The main loop checks that buffer and pushes changed data to the backend in near real time. WebSocket is the primary transport; HTTP POST to `/api/opcua/data` is the fallback.
+8. Heartbeats and connection-health checks run separately so the server can still track whether the Pi and OPC UA session are alive even when no values are changing.
+
+In practice, this means the server is notified when the OPC UA server emits a data-change event for a subscribed node, rather than because the Pi is repeatedly polling all values in a tight loop.
 
 ### Adding a new Raspberry Pi
 
