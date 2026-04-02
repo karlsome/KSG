@@ -119,6 +119,10 @@ let variableMappings = {
 };
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
 const IGNORED_KANBAN_NOISE_VALUES = new Set(['9999']);
+const kanbanProductCache = new Map();
+const invalidKanbanCache = new Set();
+let latestObservedKanbanValue = null;
+let latestKanbanValidationRequestId = 0;
 
 function normalizeKanbanValue(rawValue) {
   if (rawValue === null || rawValue === undefined) {
@@ -137,6 +141,10 @@ function isIgnoredKanbanNoise(kanbanId) {
 function isUsableKanbanValue(kanbanId) {
   const normalizedKanban = normalizeKanbanValue(kanbanId);
   return !!normalizedKanban && !isIgnoredKanbanNoise(normalizedKanban);
+}
+
+function isProductNotFoundError(error) {
+  return !!error && (error.isNotFound || error.status === 404);
 }
 
 function persistLastKnownKanban(kanbanId) {
@@ -158,32 +166,6 @@ function getLastKnownKanban() {
   return isUsableKanbanValue(cachedKanban) ? cachedKanban : null;
 }
 
-function resolveKanbanValueForActiveWork(rawKanbanValue) {
-  const normalizedKanban = normalizeKanbanValue(rawKanbanValue);
-  if (isUsableKanbanValue(normalizedKanban)) {
-    return normalizedKanban;
-  }
-
-  if (isIgnoredKanbanNoise(normalizedKanban)) {
-    const fallbackKanban = getLastKnownKanban();
-    if (fallbackKanban) {
-      console.warn(`⚠️ Ignoring noisy kanban value "${normalizedKanban}" during active work; continuing with last known kanban "${fallbackKanban}"`);
-      return fallbackKanban;
-    }
-  }
-
-  return null;
-}
-
-function resolveKanbanValueForSubmit(currentKanbanValue) {
-  const normalizedKanban = normalizeKanbanValue(currentKanbanValue);
-  if (isUsableKanbanValue(normalizedKanban)) {
-    return normalizedKanban;
-  }
-
-  return getLastKnownKanban();
-}
-
 async function fetchProductByKanbanID(kanbanId) {
   const normalizedKanban = normalizeKanbanValue(kanbanId);
   if (!normalizedKanban) {
@@ -194,10 +176,154 @@ async function fetchProductByKanbanID(kanbanId) {
   const data = await response.json();
 
   if (!response.ok || !data.success || !data.product) {
-    throw new Error(data.error || `Failed to load product for kanban ${normalizedKanban}`);
+    const error = new Error(data.error || `Failed to load product for kanban ${normalizedKanban}`);
+    error.status = response.status;
+    error.kanbanId = normalizedKanban;
+    error.isNotFound = response.status === 404 || data.error === 'Product not found';
+    throw error;
   }
 
   return data.product;
+}
+
+async function fetchValidatedProductByKanban(kanbanId) {
+  const normalizedKanban = normalizeKanbanValue(kanbanId);
+  if (!normalizedKanban) {
+    return null;
+  }
+
+  if (kanbanProductCache.has(normalizedKanban)) {
+    return kanbanProductCache.get(normalizedKanban);
+  }
+
+  if (isIgnoredKanbanNoise(normalizedKanban) || invalidKanbanCache.has(normalizedKanban)) {
+    const error = new Error(`Product not found for kanban ${normalizedKanban}`);
+    error.status = 404;
+    error.kanbanId = normalizedKanban;
+    error.isNotFound = true;
+    throw error;
+  }
+
+  try {
+    const product = await fetchProductByKanbanID(normalizedKanban);
+    kanbanProductCache.set(normalizedKanban, product);
+    invalidKanbanCache.delete(normalizedKanban);
+    return product;
+  } catch (error) {
+    if (isProductNotFoundError(error)) {
+      invalidKanbanCache.add(normalizedKanban);
+    }
+    throw error;
+  }
+}
+
+function applyProductContext(product, options = {}) {
+  if (!product) {
+    return;
+  }
+
+  const acceptedKanban = normalizeKanbanValue(options.kanbanId || product.kanbanID);
+  currentProductId = product.品番 || '';
+  currentProductName = product['製品名'] || '';
+
+  if (acceptedKanban) {
+    kenyokiRHKanbanValue = acceptedKanban;
+    persistLastKnownKanban(acceptedKanban);
+  }
+
+  if (currentProductName) {
+    localStorage.setItem('tablet_currentProductName', currentProductName);
+  } else {
+    localStorage.removeItem('tablet_currentProductName');
+  }
+
+  const productNameDisplay = document.getElementById('productNameDisplay');
+  const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+  if (productNameDisplay) {
+    productNameDisplay.textContent = options.preserveMissingTitle ? '看板なし' : (currentProductName || '看板なし');
+  }
+  if (kanbanIdDisplay) {
+    kanbanIdDisplay.textContent = options.preserveMissingTitle ? '' : (acceptedKanban ? ', ' + acceptedKanban : '');
+  }
+
+  // Remarks are user-only; do not auto-fill from product data.
+
+  if (product['LH/RH']) {
+    const lhRhDropdown = document.getElementById('lhRh');
+    if (lhRhDropdown) {
+      lhRhDropdown.value = product['LH/RH'];
+      saveFieldToLocalStorage('lhRh', product['LH/RH']);
+      console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
+    }
+  }
+
+  const kensaMembers = product.kensaMembers || 2;
+  console.log(`👥 KensaMembers: ${kensaMembers}`);
+  localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
+  updateKensaMembersDisplay(kensaMembers);
+  renderNGButtons(product.ngGroup || null);
+  updateInlineInfo();
+}
+
+function clearCurrentProductContext() {
+  currentProductId = '';
+  currentProductName = '';
+  kenyokiRHKanbanValue = null;
+  localStorage.removeItem('tablet_currentProductName');
+  localStorage.removeItem('tablet_kanbanID');
+
+  const productNameDisplay = document.getElementById('productNameDisplay');
+  const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+  if (productNameDisplay) {
+    productNameDisplay.textContent = '看板なし';
+  }
+  if (kanbanIdDisplay) {
+    kanbanIdDisplay.textContent = '';
+  }
+
+  updateKensaMembersDisplay(2);
+  renderNGButtons(null);
+  updateInlineInfo();
+}
+
+async function resolveProductContextForSubmit() {
+  const observedKanban = normalizeKanbanValue(latestObservedKanbanValue);
+
+  if (observedKanban) {
+    if (isIgnoredKanbanNoise(observedKanban)) {
+      console.warn(`⚠️ Submit ignoring noisy kanban value "${observedKanban}"`);
+    } else {
+      try {
+        const product = await fetchValidatedProductByKanban(observedKanban);
+        return {
+          kanbanId: normalizeKanbanValue(product.kanbanID) || observedKanban,
+          product
+        };
+      } catch (error) {
+        if (isProductNotFoundError(error)) {
+          console.warn(`⚠️ Submit ignoring kanban "${observedKanban}" because it does not exist in masterDB`);
+        } else {
+          console.error(`❌ Failed to validate kanban "${observedKanban}" before submit:`, error);
+        }
+      }
+    }
+  }
+
+  const fallbackKanban = getLastKnownKanban() || (isUsableKanbanValue(kenyokiRHKanbanValue) ? normalizeKanbanValue(kenyokiRHKanbanValue) : null);
+  if (!fallbackKanban) {
+    return { kanbanId: null, product: null };
+  }
+
+  try {
+    const product = await fetchValidatedProductByKanban(fallbackKanban);
+    return {
+      kanbanId: normalizeKanbanValue(product.kanbanID) || fallbackKanban,
+      product
+    };
+  } catch (error) {
+    console.error(`❌ Failed to resolve fallback kanban "${fallbackKanban}" before submit:`, error);
+    return { kanbanId: fallbackKanban, product: null };
+  }
 }
 
 async function hydrateInProgressProductContextFromFallback(options = {}) {
@@ -210,33 +336,90 @@ async function hydrateInProgressProductContextFromFallback(options = {}) {
   }
 
   try {
-    const product = await fetchProductByKanbanID(fallbackKanban);
-    currentProductId = product.品番 || currentProductId;
-    currentProductName = product['製品名'] || currentProductName;
-    localStorage.setItem('tablet_currentProductName', currentProductName);
-    persistLastKnownKanban(product.kanbanID || fallbackKanban);
-
-    const kensaMembers = product.kensaMembers || 2;
-    localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
-    updateKensaMembersDisplay(kensaMembers);
-
-    if (!currentNGGroup || !currentNGGroup.items || currentNGGroup.items.length === 0) {
-      renderNGButtons(product.ngGroup || null);
-    }
-
-    if (preserveMissingTitle) {
-      const productNameDisplay = document.getElementById('productNameDisplay');
-      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-      if (productNameDisplay) productNameDisplay.textContent = '看板なし';
-      if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
-    }
-
-    updateInlineInfo();
+    const product = await fetchValidatedProductByKanban(fallbackKanban);
+    applyProductContext(product, {
+      kanbanId: normalizeKanbanValue(product.kanbanID) || fallbackKanban,
+      preserveMissingTitle
+    });
     console.log('♻️ Restored in-progress product context from fallback kanban:', fallbackKanban);
     return true;
   } catch (error) {
     console.error('❌ Failed to restore in-progress product context from fallback kanban:', error);
     return false;
+  }
+}
+
+async function handleObservedKanbanValue(rawKanbanValue) {
+  const requestId = ++latestKanbanValidationRequestId;
+  const normalizedKanban = normalizeKanbanValue(rawKanbanValue);
+  const workInProgress = !!document.getElementById('startTime')?.value;
+
+  if (!normalizedKanban) {
+    if (workInProgress) {
+      console.warn('⚠️ Blank kanban signal during active work ignored; keeping last valid product context');
+      if (!kenyokiRHKanbanValue) {
+        await hydrateInProgressProductContextFromFallback();
+      }
+    } else {
+      console.log('🧹 Clearing product info and NG buttons (kanban blank, not in progress)');
+      clearCurrentProductContext();
+    }
+
+    if (requestId === latestKanbanValidationRequestId) {
+      checkStartButtonState();
+    }
+    return;
+  }
+
+  if (isIgnoredKanbanNoise(normalizedKanban)) {
+    if (workInProgress) {
+      console.warn(`⚠️ Ignoring noisy kanban value "${normalizedKanban}" during active work; keeping current valid kanban`);
+      if (!kenyokiRHKanbanValue) {
+        await hydrateInProgressProductContextFromFallback();
+      }
+    } else {
+      console.warn(`⚠️ Ignoring noisy kanban value "${normalizedKanban}" while idle`);
+      clearCurrentProductContext();
+    }
+
+    if (requestId === latestKanbanValidationRequestId) {
+      checkStartButtonState();
+    }
+    return;
+  }
+
+  try {
+    const product = await fetchValidatedProductByKanban(normalizedKanban);
+    if (requestId !== latestKanbanValidationRequestId) {
+      return;
+    }
+
+    console.log(`✅ Kanban accepted from masterDB: ${normalizedKanban}`);
+    applyProductContext(product, {
+      kanbanId: normalizeKanbanValue(product.kanbanID) || normalizedKanban
+    });
+  } catch (error) {
+    if (requestId !== latestKanbanValidationRequestId) {
+      return;
+    }
+
+    if (isProductNotFoundError(error)) {
+      if (workInProgress) {
+        console.warn(`⚠️ Ignoring kanban "${normalizedKanban}" because it does not exist in masterDB; keeping current valid kanban`);
+        if (!kenyokiRHKanbanValue) {
+          await hydrateInProgressProductContextFromFallback();
+        }
+      } else {
+        console.warn(`⚠️ Kanban "${normalizedKanban}" does not exist in masterDB; treating it as noise`);
+        clearCurrentProductContext();
+      }
+    } else {
+      console.error(`❌ Failed to validate kanban "${normalizedKanban}" against masterDB:`, error);
+    }
+  } finally {
+    if (requestId === latestKanbanValidationRequestId) {
+      checkStartButtonState();
+    }
   }
 }
 
@@ -1195,72 +1378,14 @@ async function loadProductByKanbanID(kanbanId) {
   
   try {
     console.log(`📦 Fetching product for kanbanID: ${normalizedKanban}`);
-    const product = await fetchProductByKanbanID(normalizedKanban);
+    const product = await fetchValidatedProductByKanban(normalizedKanban);
     console.log('✅ Loaded product info:', product);
-      
-    // Update current product ID and name
-    currentProductId = product.品番;
-    currentProductName = product['製品名'] || '';
-      
-    // Save to localStorage for persistence across page reloads
-    localStorage.setItem('tablet_currentProductName', currentProductName);
-    persistLastKnownKanban(product.kanbanID || normalizedKanban);
-      
-    // Set product name and kanbanID in header title
-    const productNameDisplay = document.getElementById('productNameDisplay');
-    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-    if (productNameDisplay && product['製品名']) {
-      productNameDisplay.textContent = product['製品名'];
-      console.log(`✅ Set product name in title to: ${product['製品名']}`);
-    }
-    if (kanbanIdDisplay) {
-      kanbanIdDisplay.textContent = product.kanbanID ? ', ' + product.kanbanID : '';
-      if (product.kanbanID) {
-        console.log(`✅ Set kanbanID in title to: ${product.kanbanID}`);
-      }
-    }
-      
-    // Remarks are user-only; do not auto-fill from product data.
-      
-    // Set LH/RH dropdown based on product data
-    if (product['LH/RH']) {
-      const lhRhDropdown = document.getElementById('lhRh');
-      if (lhRhDropdown) {
-        lhRhDropdown.value = product['LH/RH'];
-        saveFieldToLocalStorage('lhRh', product['LH/RH']);
-        console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
-      }
-    }
-      
-    // Set kensaMembers (default to 2 if not specified)
-    const kensaMembers = product.kensaMembers || 2;
-    console.log(`👥 KensaMembers: ${kensaMembers}`);
-      
-    // Save kensaMembers to localStorage for persistence
-    localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
-      
-    // Show/hide columns based on kensaMembers
-    updateKensaMembersDisplay(kensaMembers);
-
-    // Render NG buttons from assigned NG group
-    renderNGButtons(product.ngGroup || null);
+    applyProductContext(product, {
+      kanbanId: normalizeKanbanValue(product.kanbanID) || normalizedKanban
+    });
   } catch (error) {
     console.error('❌ Error loading product info:', error);
-    // Clear product info on error
-    currentProductId = '';
-    currentProductName = '';
-    const productNameDisplay = document.getElementById('productNameDisplay');
-    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-    if (productNameDisplay) {
-      productNameDisplay.textContent = '看板なし';
-    }
-    if (kanbanIdDisplay) {
-      kanbanIdDisplay.textContent = '';
-    }
-    // Default to 2 members on error
-    updateKensaMembersDisplay(2);
-    renderNGButtons(null);
-    updateInlineInfo();
+    clearCurrentProductContext();
   }
 }
 
@@ -1494,71 +1619,14 @@ function updateUIWithVariables(variables) {
   const boxQtyVarName = variableMappings.boxQuantity;
   
   // Check kanban variable for start button validation AND product loading
-  if (variables[kanbanVarName] !== undefined) {
-    const value = variables[kanbanVarName].value;
-    const rawKanbanValue = normalizeKanbanValue(value);
-    const workInProgress = !!(document.getElementById('startTime')?.value);
-    const newKanbanValue = workInProgress
-      ? resolveKanbanValueForActiveWork(rawKanbanValue)
-      : (isUsableKanbanValue(rawKanbanValue) ? rawKanbanValue : null);
-    
-    // Check if value changed
-    if (newKanbanValue !== kenyokiRHKanbanValue) {
-      kenyokiRHKanbanValue = newKanbanValue;
-      console.log(`📊 ${kanbanVarName} value updated:`, kenyokiRHKanbanValue);
-      
-      // Load product info when kanban ID changes (and has a value)
-      if (kenyokiRHKanbanValue) {
-        persistLastKnownKanban(kenyokiRHKanbanValue);
-        loadProductByKanbanID(kenyokiRHKanbanValue);
-      } else {
-        // Kanban went blank
-        console.log('🧹 Kanban is blank');
+  const observedKanbanValue = variables[kanbanVarName] !== undefined
+    ? normalizeKanbanValue(variables[kanbanVarName].value)
+    : null;
 
-        if (workInProgress) {
-          // Work is still in progress — keep NG buttons, just show 看板なし and lock defects
-          console.log('⚠️ Work in progress — keeping NG buttons, locking defect area');
-
-          const productNameDisplay = document.getElementById('productNameDisplay');
-          const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-          if (productNameDisplay) productNameDisplay.textContent = '看板なし';
-          if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
-          void hydrateInProgressProductContextFromFallback({ preserveMissingTitle: true });
-          // kenyokiRHKanbanValue is already null, so updateDefectCounterState (called via
-          // checkStartButtonState below) will lock the defect card automatically.
-        } else {
-          // No work in progress — fully reset product info and clear NG buttons
-          console.log('🧹 Clearing product info and NG buttons (kanban blank, not in progress)');
-          currentProductId = '';
-          currentProductName = '';
-          localStorage.removeItem('tablet_currentProductName');
-          localStorage.removeItem('tablet_kanbanID');
-
-          const productNameDisplay = document.getElementById('productNameDisplay');
-          const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-          if (productNameDisplay) productNameDisplay.textContent = '看板なし';
-          if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
-
-          renderNGButtons(null);
-        }
-
-        updateInlineInfo();
-      }
-    }
-    
-    checkStartButtonState();
-  } else {
-    kenyokiRHKanbanValue = null;
-    console.warn(`⚠️ ${kanbanVarName} variable not found`);
-    if (document.getElementById('startTime')?.value) {
-      const productNameDisplay = document.getElementById('productNameDisplay');
-      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-      if (productNameDisplay) productNameDisplay.textContent = '看板なし';
-      if (kanbanIdDisplay) kanbanIdDisplay.textContent = '';
-      void hydrateInProgressProductContextFromFallback({ preserveMissingTitle: true });
-      updateInlineInfo();
-    }
-    checkStartButtonState();
+  if (observedKanbanValue !== latestObservedKanbanValue) {
+    latestObservedKanbanValue = observedKanbanValue;
+    console.log(`📊 ${kanbanVarName} raw value updated:`, observedKanbanValue);
+    void handleObservedKanbanValue(observedKanbanValue);
   }
   
   // Track production count variable for work count calculation
@@ -1910,27 +1978,22 @@ async function sendData() {
     // Force recalculate work duration so manHours is up to date
     updateWorkDuration();
 
-    const resolvedKanbanID = resolveKanbanValueForSubmit(kenyokiRHKanbanValue);
-    let resolvedProductId = currentProductId || '';
-    let resolvedProductName = currentProductName || '';
+    const { kanbanId: resolvedKanbanID, product: resolvedProduct } = await resolveProductContextForSubmit();
+    let resolvedProductId = resolvedProduct?.品番 || currentProductId || '';
+    let resolvedProductName = resolvedProduct?.['製品名'] || currentProductName || '';
 
-    if (resolvedKanbanID) {
-      try {
-        const product = await fetchProductByKanbanID(resolvedKanbanID);
-        resolvedProductId = product.品番 || '';
-        resolvedProductName = product['製品名'] || '';
-        currentProductId = resolvedProductId;
-        currentProductName = resolvedProductName;
+    if (resolvedProduct) {
+      currentProductId = resolvedProductId;
+      currentProductName = resolvedProductName;
+      if (resolvedProductName) {
         localStorage.setItem('tablet_currentProductName', resolvedProductName);
-        persistLastKnownKanban(product.kanbanID || resolvedKanbanID);
-        console.log('✅ Resolved product data from master before submit:', {
-          kanbanID: product.kanbanID || resolvedKanbanID,
-          品番: resolvedProductId,
-          製品名: resolvedProductName
-        });
-      } catch (productError) {
-        console.error('❌ Failed to resolve product from master before submit:', productError);
       }
+      persistLastKnownKanban(resolvedProduct.kanbanID || resolvedKanbanID);
+      console.log('✅ Resolved product data from master before submit:', {
+        kanbanID: resolvedProduct.kanbanID || resolvedKanbanID,
+        品番: resolvedProductId,
+        製品名: resolvedProductName
+      });
     }
 
     // Gather all defect data with proper names
