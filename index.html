@@ -158,6 +158,7 @@
     // Page loading functionality
     function loadPage(page) {
       const mainContent = document.getElementById('mainContent');
+      closeDashboardSubmissionDetail(null, true);
       disposeAdminDashboardChart();
       
       handleNavClick(); // Close sidebar on mobile
@@ -326,6 +327,16 @@
 
     let adminDashboardTrendChart = null;
     let adminDashboardRequestId = 0;
+    let adminDashboardDetailRequestId = 0;
+    let adminDashboardOpenRecordId = '';
+    const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
+      '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
+      'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
+      'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+      'other_description', 'start_time', 'end_time', 'break_time',
+      'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+      'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
+    ]);
 
     function dashboardText(key) {
       return t(`dashboard.${key}`);
@@ -377,6 +388,16 @@
         adminDashboardTrendChart.dispose();
         adminDashboardTrendChart = null;
       }
+    }
+
+    function closeDashboardSubmissionDetail(e, force = false) {
+      const modal = document.getElementById('dashboardSubmissionModal');
+      if (!modal) return;
+      if (!force && e && e.target !== modal) return;
+
+      adminDashboardOpenRecordId = '';
+      modal.classList.add('hidden');
+      document.body.style.overflow = '';
     }
 
     function buildAdminDashboardShell() {
@@ -476,7 +497,186 @@
               </section>
             </div>
           </div>
+
+          <div id="dashboardSubmissionModal" class="fixed inset-0 z-50 hidden bg-black/40 p-4" onclick="closeDashboardSubmissionDetail(event)">
+            <div class="mx-auto flex h-full max-w-3xl items-center justify-center">
+              <div class="flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+                <div class="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+                  <div>
+                    <p id="dashboardSubmissionDate" class="text-xs text-gray-400"></p>
+                    <h3 id="dashboardSubmissionTitle" class="mt-1 text-xl font-semibold text-gray-900">${dashboardText('detailTitle')}</h3>
+                    <p id="dashboardSubmissionSub" class="mt-1 text-sm text-gray-500"></p>
+                  </div>
+                  <button onclick="closeDashboardSubmissionDetail(null, true)" class="rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">${t('common.close')}</button>
+                </div>
+                <div id="dashboardSubmissionBody" class="overflow-y-auto px-6 py-5 text-sm text-gray-600">${dashboardText('loadingDetails')}</div>
+                <div class="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50 px-6 py-4">
+                  <span id="dashboardSubmissionFooter" class="text-xs text-gray-400"></span>
+                  <button onclick="closeDashboardSubmissionDetail(null, true)" class="rounded-xl bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300">${t('common.close')}</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>`;
+    }
+
+    function getDashboardSubmissionDefects(record = {}) {
+      return Object.entries(record)
+        .filter(([key]) => !DASHBOARD_SUBMITTED_FIXED_KEYS.has(key))
+        .map(([name, rawValue]) => ({
+          name,
+          count: Number(rawValue ?? 0)
+        }))
+        .filter(item => Number.isFinite(item.count) && item.count > 0)
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'));
+    }
+
+    function renderDashboardSubmissionLoading() {
+      const body = document.getElementById('dashboardSubmissionBody');
+      const footer = document.getElementById('dashboardSubmissionFooter');
+      const date = document.getElementById('dashboardSubmissionDate');
+      const title = document.getElementById('dashboardSubmissionTitle');
+      const sub = document.getElementById('dashboardSubmissionSub');
+      if (date) date.textContent = '';
+      if (title) title.textContent = dashboardText('detailTitle');
+      if (sub) sub.textContent = '';
+      if (body) body.innerHTML = `<div class="py-12 text-center text-sm text-gray-400">${dashboardText('loadingDetails')}</div>`;
+      if (footer) footer.textContent = '';
+    }
+
+    function renderDashboardSubmissionDetail(record) {
+      const body = document.getElementById('dashboardSubmissionBody');
+      const footer = document.getElementById('dashboardSubmissionFooter');
+      const date = document.getElementById('dashboardSubmissionDate');
+      const title = document.getElementById('dashboardSubmissionTitle');
+      const sub = document.getElementById('dashboardSubmissionSub');
+      if (!body || !footer || !date || !title || !sub) return;
+
+      const operators = [record.operator1, record.operator2].map(name => String(name ?? '').trim()).filter(Boolean);
+      const defects = getDashboardSubmissionDefects(record);
+      const totalDefects = defects.reduce((sum, item) => sum + item.count, 0);
+
+      date.textContent = formatDashboardDateTime(record.timestamp);
+      title.textContent = record.product_name || dashboardText('detailTitle');
+      sub.textContent = [record.hinban, record.kanban_id].filter(Boolean).join(' / ');
+      footer.textContent = `${dashboardText('source')}: ${record.submitted_from || '—'}`;
+
+      body.innerHTML = `
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
+            <p class="text-xs text-emerald-700">${dashboardText('goodPieces')}</p>
+            <p class="mt-2 text-2xl font-semibold text-emerald-600">${formatDashboardNumber(record.good_count || 0)}</p>
+          </div>
+          <div class="rounded-2xl bg-violet-50 px-4 py-3 text-center">
+            <p class="text-xs text-violet-700">${dashboardText('cycleTimeShort')}</p>
+            <p class="mt-2 text-2xl font-semibold text-violet-600">${formatDashboardNumber(record.cycle_time || 0, 2)}</p>
+          </div>
+          <div class="rounded-2xl bg-rose-50 px-4 py-3 text-center">
+            <p class="text-xs text-rose-700">${dashboardText('defects')}</p>
+            <p class="mt-2 text-2xl font-semibold text-rose-600">${formatDashboardNumber(totalDefects)}</p>
+          </div>
+          <div class="rounded-2xl bg-amber-50 px-4 py-3 text-center">
+            <p class="text-xs text-amber-700">${dashboardText('troubleHours')}</p>
+            <p class="mt-2 text-2xl font-semibold text-amber-600">${formatDashboardNumber(record.trouble_time || 0, 2)} h</p>
+          </div>
+        </div>
+
+        <div class="mt-5 grid gap-4 lg:grid-cols-2">
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('product')}</p>
+            <div class="mt-3 space-y-2 text-sm text-gray-700">
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('hinban')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.hinban || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('kanbanId')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.kanban_id || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('lhRh')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.lh_rh || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('operators')}</span><span class="text-right font-medium">${formatDashboardOperators(operators)}</span></div>
+            </div>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('time')}</p>
+            <div class="mt-3 space-y-2 text-sm text-gray-700">
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('start')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.start_time || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('end')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.end_time || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('breakTime')}</span><span class="text-right font-medium">${formatDashboardNumber(record.break_time || 0, 2)} h</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('troubleHours')}</span><span class="text-right font-medium">${formatDashboardNumber(record.trouble_time || 0, 2)} h</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-5 rounded-2xl border border-gray-100 bg-white">
+          <div class="border-b border-gray-100 px-4 py-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('defectBreakdown')}</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+            ${defects.length > 0
+              ? defects.map(defect => `
+                <div class="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-4 text-center">
+                  <p class="truncate text-xs font-medium text-rose-700" title="${escapeDashboardHtml(defect.name)}">${escapeDashboardHtml(defect.name)}</p>
+                  <p class="mt-2 text-2xl font-semibold text-rose-600">${formatDashboardNumber(defect.count)}</p>
+                </div>`).join('')
+              : `<div class="col-span-full rounded-2xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-400">${dashboardText('noDefects')}</div>`}
+          </div>
+        </div>
+
+        ${record.remarks ? `
+          <div class="mt-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">${dashboardText('remarks')}</p>
+            <p class="mt-2 whitespace-pre-wrap text-sm text-gray-700">${escapeDashboardHtml(record.remarks)}</p>
+          </div>` : ''}
+
+        ${record.other_description ? `
+          <div class="mt-5 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">${dashboardText('otherDescription')}</p>
+            <p class="mt-2 whitespace-pre-wrap text-sm text-gray-700">${escapeDashboardHtml(record.other_description)}</p>
+          </div>` : ''}`;
+    }
+
+    async function openDashboardSubmissionDetail(recordId) {
+      if (!recordId) return;
+
+      const modal = document.getElementById('dashboardSubmissionModal');
+      if (!modal) return;
+
+      adminDashboardOpenRecordId = recordId;
+      const requestId = ++adminDashboardDetailRequestId;
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      renderDashboardSubmissionLoading();
+
+      try {
+        const response = await fetch(`${API_URL}/api/admin/submitted-db/${encodeURIComponent(recordId)}`, {
+          headers: getDashboardAuthHeaders()
+        });
+        const result = await response.json();
+
+        if (requestId !== adminDashboardDetailRequestId || adminDashboardOpenRecordId !== recordId) {
+          return;
+        }
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || dashboardText('failedToLoadDetails'));
+        }
+
+        renderDashboardSubmissionDetail(result.data || {});
+      } catch (error) {
+        const body = document.getElementById('dashboardSubmissionBody');
+        const footer = document.getElementById('dashboardSubmissionFooter');
+        const title = document.getElementById('dashboardSubmissionTitle');
+        const sub = document.getElementById('dashboardSubmissionSub');
+        const date = document.getElementById('dashboardSubmissionDate');
+        if (title) title.textContent = dashboardText('detailTitle');
+        if (sub) sub.textContent = '';
+        if (date) date.textContent = '';
+        if (body) {
+          body.innerHTML = `<div class="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-sm text-red-700">${escapeDashboardHtml(error.message || dashboardText('failedToLoadDetails'))}</div>`;
+        }
+        if (footer) footer.textContent = '';
+      }
+    }
+
+    function handleDashboardSubmissionCardKeydown(event, recordId) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openDashboardSubmissionDetail(recordId);
     }
 
     function renderDashboardCards(today = {}) {
@@ -581,6 +781,7 @@
       }
 
       container.innerHTML = records.map(record => {
+        const recordId = escapeDashboardHtml(record.id || '');
         const productLine = [record.hinban, record.kanbanId].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ');
         const defectBadge = record.totalDefects > 0
           ? `<span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('defects')}: ${formatDashboardNumber(record.totalDefects)}</span>`
@@ -590,7 +791,7 @@
           : '';
 
         return `
-          <article class="flex flex-col gap-4 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <article class="flex cursor-pointer flex-col gap-4 px-6 py-4 transition hover:bg-gray-50 focus-within:bg-gray-50 lg:flex-row lg:items-center lg:justify-between" role="button" tabindex="0" aria-label="${dashboardText('clickToView')}" onclick="openDashboardSubmissionDetail('${recordId}')" onkeydown="handleDashboardSubmissionCardKeydown(event, '${recordId}')">
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
                 <span>${formatDashboardDateTime(record.timestamp)}</span>
@@ -606,6 +807,7 @@
               <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
               ${defectBadge}
               ${troubleBadge}
+              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">${dashboardText('clickToView')}</span>
             </div>
           </article>`;
       }).join('');

@@ -2002,6 +2002,33 @@ app.post('/api/admin/submitted-db/soft-delete', validateSubmittedDBAccess, async
     }
 });
 
+app.get('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const recordId = req.params?.id;
+        if (!ObjectId.isValid(recordId)) {
+            return res.status(400).json({ success: false, error: 'Invalid submitted data ID' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const data = await collection.findOne({
+            _id: new ObjectId(recordId),
+            is_deleted: { $ne: true }
+        });
+
+        if (!data) {
+            return res.status(404).json({ success: false, error: 'Submitted data not found' });
+        }
+
+        res.json({ success: true, data });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching submittedDB record:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to fetch submitted data' });
+    }
+});
+
 app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
