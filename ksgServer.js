@@ -687,7 +687,7 @@ async function authenticateTablet(req, res, next) {
 
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const requestedTabletName = String(req.headers['x-tablet-name'] || '').trim();
+        const requestedTabletName = decodeURIComponent(String(req.headers['x-tablet-name'] || '').trim());
         
         // Get user from database to check current enable status
         if (!mongoClient) {

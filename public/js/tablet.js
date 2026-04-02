@@ -2053,7 +2053,7 @@ async function sendData() {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
-        'X-Tablet-Name': tabletName
+        'X-Tablet-Name': encodeURIComponent(tabletName)
       },
       body: JSON.stringify(submissionData)
     });
