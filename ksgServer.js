@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID, X-Tablet-Name, X-Session-User, X-Session-Role, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Device-ID, X-Tablet-Name, X-Session-User, X-Session-Role, X-Session-DB-Name, Authorization');
     
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
@@ -135,10 +135,98 @@ async function connectToMongoDB() {
         
         // Setup TTL index for event log collection (2-year retention)
         await setupEventLogTTLIndex();
+        await setupSubmittedDBTrashIndexes();
         
         return true;
     } catch (error) {
         console.error('❌ MongoDB connection failed:', error.message);
+        return false;
+    }
+}
+
+async function setupSubmittedDBTrashIndexes() {
+    try {
+        if (!mongoClient) {
+            console.log('⚠️  MongoDB not connected, skipping submittedDB trash index setup');
+            return false;
+        }
+
+        console.log('🗑️ Setting up submittedDB trash indexes...');
+
+        const db = mongoClient.db(DB_NAME);
+        const masterUsers = await db.collection(COLLECTION_NAME).find({
+            role: 'masterUser'
+        }).project({ company: 1, dbName: 1 }).toArray();
+
+        const targetDatabases = new Set(['KSG']);
+        masterUsers.forEach(user => {
+            const dbName = user.dbName || user.company;
+            if (dbName) targetDatabases.add(dbName);
+        });
+
+        let configuredCount = 0;
+
+        for (const dbName of targetDatabases) {
+            try {
+                const companyDb = mongoClient.db(dbName);
+                const collection = companyDb.collection('submittedDB');
+
+                await Promise.all([
+                    collection.createIndex(
+                        { trash_expires_at: 1 },
+                        {
+                            expireAfterSeconds: 0,
+                            name: 'submitted_db_trash_ttl_idx',
+                            background: true
+                        }
+                    ),
+                    collection.createIndex(
+                        { is_deleted: 1, timestamp: -1 },
+                        {
+                            name: 'submitted_db_deleted_timestamp_idx',
+                            background: true
+                        }
+                    )
+                ]);
+
+                const trashDocs = await collection.find({
+                    is_deleted: true,
+                    $or: [
+                        { trash_expires_at: { $exists: false } },
+                        { trash_expires_at: null }
+                    ]
+                }).project({ _id: 1, deleted_at: 1, timestamp: 1 }).toArray();
+
+                for (const doc of trashDocs) {
+                    const baseDate = new Date(doc.deleted_at || doc.timestamp || Date.now());
+                    if (Number.isNaN(baseDate.getTime())) {
+                        continue;
+                    }
+
+                    const expiresAt = new Date(baseDate);
+                    expiresAt.setMonth(expiresAt.getMonth() + 2);
+
+                    await collection.updateOne(
+                        { _id: doc._id },
+                        { $set: { trash_expires_at: expiresAt } }
+                    );
+                }
+
+                configuredCount += 1;
+                console.log(`  ✓ submittedDB trash indexes ready for ${dbName}`);
+            } catch (error) {
+                if (error.code === 85 || error.codeName === 'IndexOptionsConflict') {
+                    console.log(`  ℹ️  submittedDB trash indexes already exist for ${dbName}`);
+                } else {
+                    console.error(`  ❌ Failed to configure submittedDB trash indexes for ${dbName}:`, error.message);
+                }
+            }
+        }
+
+        console.log(`✅ submittedDB trash index setup complete (${configuredCount} databases)`);
+        return true;
+    } catch (error) {
+        console.error('❌ Failed to setup submittedDB trash indexes:', error.message);
         return false;
     }
 }
@@ -1460,36 +1548,43 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 // ============================================================
 
 // GET /api/admin/submitted-db  — Fetch submittedDB records with filtering, sorting, pagination
-app.get('/api/admin/submitted-db', validateAdminUser, async (req, res) => {
+app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
 
-        const db = mongoClient.db('KSG');
+        const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
+        const view = req.query.view === 'trash' ? 'trash' : 'active';
+        const exportAll = req.query.all === 'true' || req.query.all === '1';
 
         // --- Build MongoDB filter ---
-        const filter = {};
+        const baseFilter = {};
 
         // Date range (ISO date strings or YYYY-MM-DD)
         if (req.query.startDate || req.query.endDate) {
-            filter.timestamp = {};
-            if (req.query.startDate) filter.timestamp.$gte = new Date(req.query.startDate);
+            baseFilter.timestamp = {};
+            if (req.query.startDate) baseFilter.timestamp.$gte = new Date(req.query.startDate);
             if (req.query.endDate) {
                 const end = new Date(req.query.endDate);
                 end.setHours(23, 59, 59, 999);
-                filter.timestamp.$lte = end;
+                baseFilter.timestamp.$lte = end;
             }
         }
 
         // Text filters (case-insensitive)
-        if (req.query.hinban)      filter.hinban      = { $regex: req.query.hinban,      $options: 'i' };
-        if (req.query.productName) filter.product_name = { $regex: req.query.productName, $options: 'i' };
-        if (req.query.operator)    filter.$or = [
+        if (req.query.hinban)      baseFilter.hinban      = { $regex: req.query.hinban,      $options: 'i' };
+        if (req.query.productName) baseFilter.product_name = { $regex: req.query.productName, $options: 'i' };
+        if (req.query.operator)    baseFilter.$or = [
             { operator1: { $regex: req.query.operator, $options: 'i' } },
             { operator2: { $regex: req.query.operator, $options: 'i' } }
         ];
-        if (req.query.lhRh && req.query.lhRh !== 'all') filter.lh_rh = req.query.lhRh;
-        if (req.query.kanbanId)    filter.kanban_id   = { $regex: req.query.kanbanId,    $options: 'i' };
+        if (req.query.lhRh && req.query.lhRh !== 'all') baseFilter.lh_rh = req.query.lhRh;
+        if (req.query.kanbanId)    baseFilter.kanban_id   = { $regex: req.query.kanbanId,    $options: 'i' };
+
+        const filter = {
+            ...baseFilter,
+            ...(view === 'trash' ? { is_deleted: true } : { is_deleted: { $ne: true } })
+        };
 
         // --- Sorting ---
         const sortField = req.query.sortField || 'timestamp';
@@ -1497,14 +1592,21 @@ app.get('/api/admin/submitted-db', validateAdminUser, async (req, res) => {
         const sort = { [sortField]: sortDir };
 
         // --- Pagination ---
-        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
-        const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+        const limit = exportAll ? 0 : Math.min(parseInt(req.query.limit) || 100, 500);
+        const page  = exportAll ? 1 : Math.max(parseInt(req.query.page)  || 1, 1);
         const skip  = (page - 1) * limit;
 
+        const findCursor = collection.find(filter).sort(sort);
+        if (!exportAll) {
+            findCursor.skip(skip).limit(limit);
+        }
+
         // --- Execute ---
-        const [data, total] = await Promise.all([
-            collection.find(filter).sort(sort).skip(skip).limit(limit).toArray(),
-            collection.countDocuments(filter)
+        const [data, total, activeCount, trashCount] = await Promise.all([
+            findCursor.toArray(),
+            collection.countDocuments(filter),
+            collection.countDocuments({ ...baseFilter, is_deleted: { $ne: true } }),
+            collection.countDocuments({ ...baseFilter, is_deleted: true })
         ]);
 
         // --- Aggregate summary ---
@@ -1527,12 +1629,134 @@ app.get('/api/admin/submitted-db', validateAdminUser, async (req, res) => {
             data,
             total,
             page,
-            limit,
-            totalPages: Math.ceil(total / limit),
-            summary
+            limit: exportAll ? total : limit,
+            totalPages: exportAll ? 1 : Math.ceil(total / limit),
+            summary,
+            view,
+            counts: {
+                active: activeCount,
+                trash: trashCount
+            },
+            canPermanentDelete: !!req.canPermanentDelete
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching submittedDB:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/submitted-db/soft-delete', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'No submitted data selected' });
+        }
+
+        const validIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+        if (validIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'No valid submitted data IDs provided' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const deletedAt = new Date();
+        const trashExpiresAt = new Date(deletedAt);
+        trashExpiresAt.setMonth(trashExpiresAt.getMonth() + 2);
+        const result = await collection.updateMany(
+            { _id: { $in: validIds }, is_deleted: { $ne: true } },
+            {
+                $set: {
+                    is_deleted: true,
+                    deleted_at: deletedAt,
+                    deleted_by: req.username,
+                    deleted_by_role: req.userRole,
+                    trash_expires_at: trashExpiresAt
+                }
+            }
+        );
+
+        res.json({
+            success: true,
+            matchedCount: result.matchedCount,
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error soft-deleting submittedDB records:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/submitted-db/restore', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'No submitted data selected' });
+        }
+
+        const validIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+        if (validIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'No valid submitted data IDs provided' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const result = await collection.updateMany(
+            { _id: { $in: validIds }, is_deleted: true },
+            {
+                $set: {
+                    is_deleted: false
+                },
+                $unset: {
+                    deleted_at: '',
+                    deleted_by: '',
+                    deleted_by_role: '',
+                    trash_expires_at: ''
+                }
+            }
+        );
+
+        res.json({
+            success: true,
+            matchedCount: result.matchedCount,
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error restoring submittedDB records:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/submitted-db/permanent-delete', validateSubmittedDBPermanentDelete, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'No submitted data selected' });
+        }
+
+        const validIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+        if (validIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'No valid submitted data IDs provided' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const result = await collection.deleteMany({
+            _id: { $in: validIds },
+            is_deleted: true
+        });
+
+        res.json({
+            success: true,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error permanently deleting submittedDB records:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -3260,6 +3484,113 @@ async function validateAdminUser(req, res, next) {
     } catch (error) {
         console.error('❌ Admin validation error:', error);
         res.status(500).json({ error: 'Validation failed' });
+    }
+}
+
+function extractSubmittedDBSessionContext(req) {
+    const context = {
+        username: String(req.headers['x-session-user'] || '').trim(),
+        role: String(req.headers['x-session-role'] || '').trim(),
+        dbName: String(req.headers['x-session-db-name'] || '').trim()
+    };
+
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+        context.username = decoded.username || context.username;
+        context.role = decoded.role || context.role;
+        context.dbName = decoded.dbName || context.dbName;
+    }
+
+    return context;
+}
+
+async function resolveSubmittedDBUser(req) {
+    if (!mongoClient) {
+        const error = new Error('Database not connected');
+        error.statusCode = 503;
+        throw error;
+    }
+
+    const session = extractSubmittedDBSessionContext(req);
+    if (!session.username) {
+        const error = new Error('Authentication required');
+        error.statusCode = 401;
+        throw error;
+    }
+
+    const masterDB = mongoClient.db(DB_NAME);
+    const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({ username: session.username });
+
+    if (masterUser && masterUser.role === 'masterUser') {
+        return {
+            username: masterUser.username,
+            company: masterUser.company,
+            dbName: masterUser.dbName || session.dbName || 'KSG',
+            userRole: 'masterUser',
+            canPermanentDelete: true
+        };
+    }
+
+    if (!session.dbName) {
+        const error = new Error('Unauthorized: Admin access required');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    const user = await mongoClient.db(session.dbName).collection('users').findOne({ username: session.username });
+    if (!user || user.enable !== 'enabled' || user.role !== 'admin') {
+        const error = new Error('Unauthorized: Admin access required');
+        error.statusCode = 403;
+        throw error;
+    }
+
+    return {
+        username: user.username,
+        company: session.dbName,
+        dbName: session.dbName,
+        userRole: user.role,
+        canPermanentDelete: true
+    };
+}
+
+async function validateSubmittedDBAccess(req, res, next) {
+    try {
+        const userContext = await resolveSubmittedDBUser(req);
+        req.username = userContext.username;
+        req.company = userContext.company;
+        req.dbName = userContext.dbName;
+        req.userRole = userContext.userRole;
+        req.canPermanentDelete = userContext.canPermanentDelete;
+        next();
+    } catch (error) {
+        const statusCode = error.statusCode || 500;
+        if (statusCode === 500) {
+            console.error('❌ SubmittedDB validation error:', error);
+        }
+        res.status(statusCode).json({ success: false, error: error.message || 'Validation failed' });
+    }
+}
+
+async function validateSubmittedDBPermanentDelete(req, res, next) {
+    try {
+        const userContext = await resolveSubmittedDBUser(req);
+        if (!userContext.canPermanentDelete) {
+            return res.status(403).json({ success: false, error: 'Only admin and masterUser users can permanently delete submitted data' });
+        }
+
+        req.username = userContext.username;
+        req.company = userContext.company;
+        req.dbName = userContext.dbName;
+        req.userRole = userContext.userRole;
+        req.canPermanentDelete = true;
+        next();
+    } catch (error) {
+        const statusCode = error.statusCode || 500;
+        if (statusCode === 500) {
+            console.error('❌ SubmittedDB permanent-delete validation error:', error);
+        }
+        res.status(statusCode).json({ success: false, error: error.message || 'Validation failed' });
     }
 }
 
