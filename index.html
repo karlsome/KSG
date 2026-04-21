@@ -23,6 +23,84 @@
   
   <!-- Global Configuration -->
   <script src="/js/config.js"></script>
+
+  <style>
+    #dashboardRoot,
+    #analyticsRoot {
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #dashboardRoot .tracking-tight,
+    #dashboardRoot .tracking-wide,
+    #dashboardRoot [class*="tracking-["],
+    #analyticsRoot .tracking-tight,
+    #analyticsRoot .tracking-wide,
+    #analyticsRoot [class*="tracking-["] {
+      letter-spacing: 0;
+    }
+
+    #dashboardRoot .uppercase,
+    #analyticsRoot .uppercase {
+      text-transform: none;
+    }
+
+    #dashboardRoot h2.text-3xl,
+    #analyticsRoot h2.text-3xl,
+    #dashboardRoot h3.text-xl.font-semibold,
+    #analyticsRoot h3.text-xl.font-semibold,
+    #dashboardRoot .text-2xl.font-semibold,
+    #analyticsRoot .text-2xl.font-semibold {
+      font-weight: 700;
+    }
+
+    #dashboardRoot h3.text-lg.font-semibold,
+    #analyticsRoot h3.text-lg.font-semibold,
+    #dashboardRoot h4.text-base.font-semibold,
+    #analyticsRoot h4.text-base.font-semibold,
+    #dashboardRoot p.text-sm.font-semibold,
+    #analyticsRoot p.text-sm.font-semibold,
+    #dashboardRoot .text-xs.font-semibold,
+    #analyticsRoot .text-xs.font-semibold {
+      font-weight: 500;
+    }
+
+    #dashboardCards .text-3xl.font-semibold,
+    #analyticsKpiGrid .text-3xl.font-semibold,
+    #analyticsOverviewHighlights .text-3xl.font-semibold,
+    #analyticsWorkerSummary .text-3xl.font-semibold,
+    #analyticsMachineSummary .text-3xl.font-semibold,
+    #analyticsQualitySummary .text-3xl.font-semibold,
+    #analyticsProductSummary .text-3xl.font-semibold {
+      font-size: 1.5rem;
+      line-height: 2rem;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    #dashboardCards .text-xs.uppercase,
+    #dashboardSubmissionBody .text-xs.uppercase,
+    #dashboardProblemsToday .text-xs.uppercase,
+    #dashboardInsightBody .text-xs.uppercase,
+    #analyticsRoot .text-xs.uppercase {
+      font-size: 0.75rem;
+      line-height: 1rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    #analyticsRoot label.block.text-sm.font-medium,
+    #dashboardRoot .text-sm.font-medium.text-gray-500,
+    #analyticsRoot .text-sm.font-medium.text-slate-500 {
+      font-size: 0.75rem;
+      line-height: 1rem;
+    }
+
+    #analyticsRoot thead.text-xs {
+      letter-spacing: 0;
+      text-transform: none;
+    }
+  </style>
 </head>
 
 <body class="bg-gray-50">
@@ -44,6 +122,12 @@
             <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
               <i class="ri-dashboard-line text-xl"></i>
               <span data-nav="dashboard"></span>
+            </a>
+          </li>
+          <li>
+            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-line-chart-line text-xl"></i>
+              <span data-nav="analytics"></span>
             </a>
           </li>
           <li>
@@ -161,6 +245,9 @@
       closeDashboardSubmissionDetail(null, true);
       closeDashboardInsightModal(null, true);
       disposeAdminDashboardChart();
+      if (typeof disposeAnalyticsCharts === 'function') {
+        disposeAnalyticsCharts();
+      }
       
       handleNavClick(); // Close sidebar on mobile
       
@@ -168,6 +255,33 @@
         case 'dashboard':
           mainContent.innerHTML = buildAdminDashboardShell();
           setTimeout(() => loadAdminDashboard(), 0);
+          break;
+
+        case 'analytics':
+          fetch('/analytics.html')
+            .then(response => response.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const container = doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.outerHTML : html;
+
+              const existingScript = document.querySelector('script[src="/js/analytics.js"]');
+              if (existingScript) {
+                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                return;
+              }
+
+              const script = document.createElement('script');
+              script.src = '/js/analytics.js';
+              script.onload = () => {
+                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+              };
+              document.body.appendChild(script);
+            })
+            .catch(err => {
+              mainContent.innerHTML = `<div class="bg-white p-6 rounded-lg shadow"><p class="text-red-600">Failed to load analytics: ${err.message}</p></div>`;
+            });
           break;
           
         case 'user-management':

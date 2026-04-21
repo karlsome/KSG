@@ -1697,6 +1697,479 @@ function getSubmittedDBTotalDefects(record = {}) {
     return getSubmittedDBRecordDefects(record).reduce((sum, defect) => sum + defect.count, 0);
 }
 
+function getSubmittedDBCreatedTotal(goodCount, defectCount) {
+    return Math.max(0, (Number(goodCount ?? 0) || 0) + (Number(defectCount ?? 0) || 0));
+}
+
+function getSubmittedDBDefectRate(goodCount, defectCount) {
+    const createdTotal = getSubmittedDBCreatedTotal(goodCount, defectCount);
+    if (createdTotal <= 0) return 0;
+
+    return ((Number(defectCount ?? 0) || 0) / createdTotal) * 100;
+}
+
+function escapeSubmittedDBRegex(value = '') {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSubmittedDBAnalyticsFilter(query = {}) {
+    const filter = {
+        is_deleted: { $ne: true }
+    };
+
+    const dateRangeExpr = buildSubmittedDBDateRangeExpr(query.startDate, query.endDate);
+    if (dateRangeExpr) {
+        filter.$expr = dateRangeExpr;
+    }
+
+    const hinban = String(query.hinban ?? '').trim();
+    const productName = String(query.productName ?? '').trim();
+    const operator = String(query.operator ?? '').trim();
+    const kanbanId = String(query.kanbanId ?? '').trim();
+    const source = String(query.source ?? '').trim();
+    const lhRh = String(query.lhRh ?? '').trim();
+
+    if (hinban) {
+        filter.hinban = { $regex: escapeSubmittedDBRegex(hinban), $options: 'i' };
+    }
+    if (productName) {
+        filter.product_name = { $regex: escapeSubmittedDBRegex(productName), $options: 'i' };
+    }
+    if (operator) {
+        const safeOperator = escapeSubmittedDBRegex(operator);
+        filter.$or = [
+            { operator1: { $regex: safeOperator, $options: 'i' } },
+            { operator2: { $regex: safeOperator, $options: 'i' } }
+        ];
+    }
+    if (kanbanId) {
+        filter.kanban_id = { $regex: escapeSubmittedDBRegex(kanbanId), $options: 'i' };
+    }
+    if (source && source !== 'all') {
+        filter.submitted_from = source;
+    }
+    if (lhRh && lhRh !== 'all') {
+        filter.lh_rh = lhRh;
+    }
+
+    return filter;
+}
+
+function getSubmittedDBRecordOperators(record = {}) {
+    return [record.operator1, record.operator2]
+        .map(name => String(name ?? '').trim())
+        .filter(Boolean);
+}
+
+function getSubmittedDBRecordDateInfo(record = {}) {
+    const year = Number(record.date_year ?? 0);
+    const month = Number(record.date_month ?? 0);
+    const day = Number(record.date_day ?? 0);
+
+    if (year > 0 && month > 0 && day > 0) {
+        return {
+            key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            label: `${month}/${day}`
+        };
+    }
+
+    const fallbackDate = new Date(record.timestamp || Date.now());
+    if (!Number.isNaN(fallbackDate.getTime())) {
+        const calendarDate = getJapanCalendarDate(fallbackDate);
+        return {
+            key: calendarDate.key,
+            label: calendarDate.label
+        };
+    }
+
+    return {
+        key: 'Unknown',
+        label: 'Unknown'
+    };
+}
+
+function normalizeSubmittedDBOptionList(values = [], limit = 250) {
+    return [...new Set(
+        values
+            .map(value => String(value ?? '').trim())
+            .filter(Boolean)
+    )]
+        .sort((a, b) => a.localeCompare(b, 'ja'))
+        .slice(0, limit);
+}
+
+app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const activeFilter = { is_deleted: { $ne: true } };
+
+        const [optionsDoc = {}] = await collection.aggregate([
+            { $match: activeFilter },
+            {
+                $group: {
+                    _id: null,
+                    sources: { $addToSet: '$submitted_from' },
+                    lhRh: { $addToSet: '$lh_rh' },
+                    hinban: { $addToSet: '$hinban' },
+                    productNames: { $addToSet: '$product_name' },
+                    operator1Values: { $addToSet: '$operator1' },
+                    operator2Values: { $addToSet: '$operator2' }
+                }
+            }
+        ]).toArray();
+
+        res.json({
+            success: true,
+            options: {
+                sources: normalizeSubmittedDBOptionList(optionsDoc.sources || []),
+                lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
+                hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
+                productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
+                operators: normalizeSubmittedDBOptionList([
+                    ...(optionsDoc.operator1Values || []),
+                    ...(optionsDoc.operator2Values || [])
+                ])
+            }
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching analytics filter options:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load analytics filter options' });
+    }
+});
+
+app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const filter = buildSubmittedDBAnalyticsFilter(req.query);
+        const records = await collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray();
+
+        const dailyMap = new Map();
+        const defectMap = new Map();
+        const operatorMap = new Map();
+        const productMap = new Map();
+        const sourceMap = new Map();
+        const qualityHotspots = [];
+        const uniqueOperators = new Set();
+        const uniqueProducts = new Set();
+        const uniqueSources = new Set();
+        const uniqueKanbans = new Set();
+
+        let totalGoodCount = 0;
+        let totalDefectCount = 0;
+        let totalManHours = 0;
+        let totalBreakTime = 0;
+        let totalTroubleTime = 0;
+        let totalIssueRecords = 0;
+        let cycleTimeTotal = 0;
+        let cycleTimeSamples = 0;
+
+        records.forEach(record => {
+            const goodCount = Number(record.good_count ?? 0) || 0;
+            const manHours = Number(record.man_hours ?? 0) || 0;
+            const breakTime = Number(record.break_time ?? 0) || 0;
+            const troubleTime = Number(record.trouble_time ?? 0) || 0;
+            const cycleTime = Number(record.cycle_time ?? 0);
+            const defects = getSubmittedDBRecordDefects(record);
+            const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+            const dateInfo = getSubmittedDBRecordDateInfo(record);
+            const operators = getSubmittedDBRecordOperators(record);
+            const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+            const kanbanId = String(record.kanban_id ?? '').trim();
+            const hasIssue = totalDefects > 0 || troubleTime > 0 || String(record.remarks ?? '').trim() !== '';
+
+            totalGoodCount += goodCount;
+            totalDefectCount += totalDefects;
+            totalManHours += manHours;
+            totalBreakTime += breakTime;
+            totalTroubleTime += troubleTime;
+            if (hasIssue) {
+                totalIssueRecords += 1;
+            }
+
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                cycleTimeTotal += cycleTime;
+                cycleTimeSamples += 1;
+            }
+
+            if (kanbanId) uniqueKanbans.add(kanbanId);
+            uniqueSources.add(source);
+            if (record.hinban || record.product_name || record.lh_rh) {
+                uniqueProducts.add([
+                    String(record.hinban ?? '').trim(),
+                    String(record.product_name ?? '').trim(),
+                    String(record.lh_rh ?? '').trim()
+                ].join('||'));
+            }
+            operators.forEach(name => uniqueOperators.add(name));
+
+            const dailyEntry = dailyMap.get(dateInfo.key) || {
+                date: dateInfo.key,
+                label: dateInfo.label,
+                submissions: 0,
+                goodCount: 0,
+                defectCount: 0,
+                issueCount: 0,
+                manHours: 0,
+                breakTime: 0,
+                troubleTime: 0
+            };
+            dailyEntry.submissions += 1;
+            dailyEntry.goodCount += goodCount;
+            dailyEntry.defectCount += totalDefects;
+            if (hasIssue) {
+                dailyEntry.issueCount += 1;
+            }
+            dailyEntry.manHours += manHours;
+            dailyEntry.breakTime += breakTime;
+            dailyEntry.troubleTime += troubleTime;
+            dailyMap.set(dateInfo.key, dailyEntry);
+
+            defects.forEach(defect => {
+                defectMap.set(defect.name, (defectMap.get(defect.name) || 0) + defect.count);
+            });
+
+            const sourceEntry = sourceMap.get(source) || {
+                source,
+                submissions: 0,
+                totalGoodCount: 0,
+                totalDefectCount: 0,
+                issueCount: 0,
+                totalManHours: 0,
+                totalTroubleTime: 0
+            };
+            sourceEntry.submissions += 1;
+            sourceEntry.totalGoodCount += goodCount;
+            sourceEntry.totalDefectCount += totalDefects;
+            if (hasIssue) {
+                sourceEntry.issueCount += 1;
+            }
+            sourceEntry.totalManHours += manHours;
+            sourceEntry.totalTroubleTime += troubleTime;
+            sourceMap.set(source, sourceEntry);
+
+            const productKey = [
+                String(record.hinban ?? '').trim(),
+                String(record.product_name ?? '').trim(),
+                String(record.lh_rh ?? '').trim()
+            ].join('||');
+            const productEntry = productMap.get(productKey) || {
+                hinban: String(record.hinban ?? '').trim(),
+                productName: String(record.product_name ?? '').trim(),
+                lhRh: String(record.lh_rh ?? '').trim(),
+                submissions: 0,
+                totalGoodCount: 0,
+                totalDefectCount: 0,
+                issueCount: 0,
+                totalManHours: 0,
+                cycleTimeTotal: 0,
+                cycleTimeSamples: 0
+            };
+            productEntry.submissions += 1;
+            productEntry.totalGoodCount += goodCount;
+            productEntry.totalDefectCount += totalDefects;
+            if (hasIssue) {
+                productEntry.issueCount += 1;
+            }
+            productEntry.totalManHours += manHours;
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                productEntry.cycleTimeTotal += cycleTime;
+                productEntry.cycleTimeSamples += 1;
+            }
+            productMap.set(productKey, productEntry);
+
+            operators.forEach(name => {
+                const operatorEntry = operatorMap.get(name) || {
+                    name,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    issueCount: 0,
+                    totalManHours: 0,
+                    totalBreakTime: 0,
+                    totalTroubleTime: 0,
+                    cycleTimeTotal: 0,
+                    cycleTimeSamples: 0
+                };
+                operatorEntry.submissions += 1;
+                operatorEntry.totalGoodCount += goodCount;
+                operatorEntry.totalDefectCount += totalDefects;
+                if (hasIssue) {
+                    operatorEntry.issueCount += 1;
+                }
+                operatorEntry.totalManHours += manHours;
+                operatorEntry.totalBreakTime += breakTime;
+                operatorEntry.totalTroubleTime += troubleTime;
+                if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                    operatorEntry.cycleTimeTotal += cycleTime;
+                    operatorEntry.cycleTimeSamples += 1;
+                }
+                operatorMap.set(name, operatorEntry);
+            });
+
+            qualityHotspots.push({
+                id: record._id,
+                timestamp: record.timestamp,
+                date: dateInfo.key,
+                productName: String(record.product_name ?? '').trim(),
+                hinban: String(record.hinban ?? '').trim(),
+                kanbanId,
+                source,
+                operators,
+                goodCount,
+                totalDefects,
+                manHours,
+                breakTime,
+                troubleTime,
+                defectRate: getSubmittedDBDefectRate(goodCount, totalDefects),
+                remarks: String(record.remarks ?? '').trim(),
+                topDefects: defects
+                    .slice()
+                    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
+                    .slice(0, 3),
+                hasIssue
+            });
+        });
+
+        const summary = {
+            submissions: records.length,
+            totalGoodCount,
+            totalDefectCount,
+            defectRate: getSubmittedDBDefectRate(totalGoodCount, totalDefectCount),
+            totalManHours,
+            totalBreakTime,
+            totalTroubleTime,
+            totalIssueRecords,
+            averageCycleTime: cycleTimeSamples > 0 ? cycleTimeTotal / cycleTimeSamples : 0,
+            uniqueOperators: uniqueOperators.size,
+            uniqueProducts: uniqueProducts.size,
+            uniqueSources: uniqueSources.size,
+            uniqueKanbans: uniqueKanbans.size
+        };
+
+        const dailyTrend = [...dailyMap.values()]
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(entry => ({
+                ...entry,
+                defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount)
+            }));
+
+        const topDefects = [...defectMap.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
+            .slice(0, 10);
+
+        const operatorComparison = [...operatorMap.values()]
+            .sort((a, b) => b.totalManHours - a.totalManHours || b.totalGoodCount - a.totalGoodCount || a.name.localeCompare(b.name, 'ja'))
+            .slice(0, 20)
+            .map(entry => ({
+                ...entry,
+                averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
+                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
+            }));
+
+        const topProducts = [...productMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.productName.localeCompare(b.productName, 'ja'))
+            .slice(0, 20)
+            .map(entry => ({
+                ...entry,
+                averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
+                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
+            }));
+
+        const sourceBreakdown = [...sourceMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.source.localeCompare(b.source, 'ja'))
+            .map(entry => ({
+                ...entry,
+                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
+            }));
+
+        const requestedFocusOperator = String(req.query.focusOperator ?? '').trim();
+        const resolvedFocusOperator = requestedFocusOperator || operatorComparison[0]?.name || '';
+        let operatorFocus = null;
+
+        if (resolvedFocusOperator) {
+            const operatorFocusMap = new Map();
+
+            records.forEach(record => {
+                const operators = getSubmittedDBRecordOperators(record);
+                if (!operators.includes(resolvedFocusOperator)) return;
+
+                const dateInfo = getSubmittedDBRecordDateInfo(record);
+                const goodCount = Number(record.good_count ?? 0) || 0;
+                const breakTime = Number(record.break_time ?? 0) || 0;
+                const troubleTime = Number(record.trouble_time ?? 0) || 0;
+                const manHours = Number(record.man_hours ?? 0) || 0;
+                const totalDefects = getSubmittedDBTotalDefects(record);
+
+                const focusEntry = operatorFocusMap.get(dateInfo.key) || {
+                    date: dateInfo.key,
+                    label: dateInfo.label,
+                    submissions: 0,
+                    manHours: 0,
+                    breakTime: 0,
+                    troubleTime: 0,
+                    goodCount: 0,
+                    defectCount: 0
+                };
+
+                focusEntry.submissions += 1;
+                focusEntry.manHours += manHours;
+                focusEntry.breakTime += breakTime;
+                focusEntry.troubleTime += troubleTime;
+                focusEntry.goodCount += goodCount;
+                focusEntry.defectCount += totalDefects;
+                operatorFocusMap.set(dateInfo.key, focusEntry);
+            });
+
+            operatorFocus = {
+                name: resolvedFocusOperator,
+                points: [...operatorFocusMap.values()]
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(entry => ({
+                        ...entry,
+                        defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount)
+                    }))
+            };
+        }
+
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            filters: {
+                startDate: String(req.query.startDate ?? '').trim(),
+                endDate: String(req.query.endDate ?? '').trim(),
+                hinban: String(req.query.hinban ?? '').trim(),
+                productName: String(req.query.productName ?? '').trim(),
+                operator: String(req.query.operator ?? '').trim(),
+                kanbanId: String(req.query.kanbanId ?? '').trim(),
+                source: String(req.query.source ?? '').trim(),
+                lhRh: String(req.query.lhRh ?? '').trim(),
+                focusOperator: resolvedFocusOperator
+            },
+            summary,
+            dailyTrend,
+            topDefects,
+            operatorComparison,
+            operatorFocus,
+            topProducts,
+            sourceBreakdown,
+            qualityHotspots: qualityHotspots
+                .filter(entry => entry.hasIssue)
+                .sort((a, b) => b.totalDefects - a.totalDefects || b.troubleTime - a.troubleTime || String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')))
+                .slice(0, 20)
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load analytics' });
+    }
+});
+
 app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
