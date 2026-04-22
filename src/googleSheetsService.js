@@ -415,13 +415,30 @@ function formatTimestampForSheet(value) {
   return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-function formatFieldValue(fieldKey, value) {
+function formatFieldValue(field = {}, value) {
+  const fieldKey = String(field?.key || '');
+
   if (fieldKey === 'timestamp') {
     return formatTimestampForSheet(value);
   }
 
   if (value === null || value === undefined) {
     return '';
+  }
+
+  if (field?.kind === 'defect') {
+    if (typeof value === 'string' && value.trim() === '') {
+      return '';
+    }
+
+    if (typeof value === 'number') {
+      return value === 0 ? '' : value;
+    }
+
+    const normalized = String(value).trim();
+    if (/^-?\d+(\.\d+)?$/.test(normalized) && Number(normalized) === 0) {
+      return '';
+    }
   }
 
   return value;
@@ -505,7 +522,7 @@ async function appendSubmissionToSheet({ spreadsheetId, sheetName, expectedField
     }
 
     const rawValue = submission[field.key];
-    rowValues[columnIndex - 1] = formatFieldValue(field.key, rawValue);
+    rowValues[columnIndex - 1] = formatFieldValue(field, rawValue);
   });
 
   const quotedSheetName = sheetName.replace(/'/g, "''");
