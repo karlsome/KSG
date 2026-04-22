@@ -14,8 +14,9 @@ let analyticsCharts = {};
 let analyticsActiveTab = 'overview';
 let analyticsData = null;
 const ANALYTICS_SHIFT_STORAGE_KEY = 'analyticsWorkerShiftProfile';
+const ANALYTICS_DEFAULT_SHIFT_LABEL = '__analytics_default_shift__';
 const analyticsDefaultShiftProfile = Object.freeze({
-  label: 'Morning shift',
+  label: ANALYTICS_DEFAULT_SHIFT_LABEL,
   start: '08:30',
   end: '17:00',
   hours: 8.5
@@ -75,7 +76,7 @@ function analyticsFormatPercent(value) {
 }
 
 function analyticsFormatHours(value) {
-  return `${analyticsFormatNumber(value, 2)} h`;
+  return `${analyticsFormatNumber(value, 2)} ${t('analytics.common.hoursUnit')}`;
 }
 
 function analyticsFormatCount(value) {
@@ -85,7 +86,16 @@ function analyticsFormatCount(value) {
 }
 
 function analyticsFormatPiecesPerHour(value) {
-  return `${analyticsFormatNumber(value, 2)} pcs/h`;
+  return `${analyticsFormatNumber(value, 2)} ${t('analytics.common.piecesPerHourUnit')}`;
+}
+
+function analyticsGetShiftLabel(label) {
+  const normalized = String(label ?? '').trim();
+  if (!normalized || normalized === ANALYTICS_DEFAULT_SHIFT_LABEL || normalized.toLowerCase() === 'morning shift') {
+    return t('analytics.shift.defaultLabel');
+  }
+
+  return normalized;
 }
 
 function analyticsFormatSignedPercent(value) {
@@ -129,7 +139,7 @@ function analyticsBuildShiftProfile(source = {}) {
   const start = analyticsNormalizeShiftTime(source.start, analyticsDefaultShiftProfile.start);
   const end = analyticsNormalizeShiftTime(source.end, analyticsDefaultShiftProfile.end);
   return {
-    label: source.label || analyticsDefaultShiftProfile.label,
+    label: analyticsGetShiftLabel(source.label || analyticsDefaultShiftProfile.label),
     start,
     end,
     hours: analyticsCalculateShiftHours(start, end)
@@ -186,7 +196,7 @@ function analyticsSyncShiftControls(shiftProfileInput = null) {
     shiftSummaryEl.textContent = t('analytics.shift.shiftPattern')
       .replace('{start}', shiftProfile.start)
       .replace('{end}', shiftProfile.end)
-      .replace('{hours}', analyticsFormatNumber(shiftProfile.hours, 2));
+      .replace('{hours}', analyticsFormatHours(shiftProfile.hours));
   }
 
   return shiftProfile;
@@ -224,7 +234,7 @@ function analyticsFormatTooltipMetric(seriesName, value) {
   }
 
   if (/(hour|time)/i.test(seriesName)) {
-    return `${analyticsFormatNumber(number, 2)} h`;
+    return analyticsFormatHours(number);
   }
 
   if (/(rate|%|utilization)/i.test(seriesName)) {
@@ -241,7 +251,7 @@ function analyticsAxisTooltipFormatter(params) {
   const axisLabel = analyticsEscapeHtml(items[0].axisValueLabel || items[0].name || '');
   const rows = items.map(item => {
     const marker = item.marker || '';
-    const seriesName = analyticsEscapeHtml(item.seriesName || 'Value');
+    const seriesName = analyticsEscapeHtml(item.seriesName || t('analytics.common.value'));
     const formattedValue = analyticsFormatTooltipMetric(item.seriesName || '', item.value);
     return `${marker}${seriesName}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${formattedValue}</span>`;
   }).join('<br>');
@@ -259,7 +269,7 @@ function analyticsFormatDateTime(value) {
 }
 
 function analyticsGetProductLabel(item = {}) {
-  const bits = [item.productName || item.product_name || item.hinban || 'Unknown'];
+  const bits = [item.productName || item.product_name || item.hinban || t('analytics.common.unknown')];
   if (item.hinban && item.productName && item.hinban !== item.productName) bits.push(item.hinban);
   if (item.lhRh || item.lh_rh) bits.push(item.lhRh || item.lh_rh);
   return bits.filter(Boolean).join(' / ');
@@ -489,7 +499,9 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
   const chips = [
     {
       label: t('analytics.meta.range'),
-      value: `${analyticsEscapeHtml(filters.startDate || 'All')} to ${analyticsEscapeHtml(filters.endDate || 'All')}`,
+      value: t('analytics.meta.rangeValuePattern')
+        .replace('{start}', analyticsEscapeHtml(filters.startDate || t('analytics.meta.all')))
+        .replace('{end}', analyticsEscapeHtml(filters.endDate || t('analytics.meta.all'))),
       tone: 'border-slate-100 bg-slate-50'
     },
     {
@@ -514,7 +526,14 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
   if (filters.hinban) chips.push({ label: t('analytics.meta.hinban'), value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
   if (filters.productName) chips.push({ label: t('analytics.meta.product'), value: analyticsEscapeHtml(filters.productName), tone: 'border-gray-200 bg-white' });
   if (filters.operator) chips.push({ label: t('analytics.meta.worker'), value: analyticsEscapeHtml(filters.operator), tone: 'border-gray-200 bg-white' });
-  chips.push({ label: t('analytics.meta.shift'), value: `${analyticsEscapeHtml(shiftProfile.start)} to ${analyticsEscapeHtml(shiftProfile.end)} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`, tone: 'border-gray-200 bg-white' });
+  chips.push({
+    label: t('analytics.meta.shift'),
+    value: t('analytics.meta.shiftValuePattern')
+      .replace('{start}', analyticsEscapeHtml(shiftProfile.start))
+      .replace('{end}', analyticsEscapeHtml(shiftProfile.end))
+      .replace('{hours}', analyticsFormatHours(shiftProfile.hours)),
+    tone: 'border-gray-200 bg-white'
+  });
 
   metaEl.innerHTML = chips.map(chip => `
     <div class="rounded-xl border px-3 py-2 text-sm ${chip.tone}">
@@ -528,7 +547,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
           .replace('{name}', filters.focusOperator)
           .replace('{start}', shiftProfile.start)
           .replace('{end}', shiftProfile.end)
-          .replace('{label}', shiftProfile.label.toLowerCase())
+          .replace('{label}', shiftProfile.label)
       : t('analytics.shift.autoSelectText');
   }
 
@@ -1032,7 +1051,7 @@ function analyticsWorkerSkillTooltipFormatter(params) {
   const scopeLabel = context.scope === 'source' ? t('analytics.worker.scopeMachine') : t('analytics.worker.scopeProduct');
   return [
     `<strong>${analyticsEscapeHtml(scopeLabel)}</strong>`,
-    analyticsEscapeHtml(context.label || 'Unknown'),
+    analyticsEscapeHtml(context.label || t('analytics.common.unknown')),
     `${analyticsEscapeHtml(t('analytics.worker.tooltipOutputHour'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.outputPerHour)}</span>`,
     `${analyticsEscapeHtml(t('analytics.worker.tooltipBaselineHour'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.benchmarkOutputPerHour)}</span>`,
     `${analyticsEscapeHtml(t('analytics.worker.tooltipDelta'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatSignedPercent(context.deltaPercent)}</span>`,
@@ -1522,7 +1541,7 @@ function renderAnalyticsHotspots(qualityHotspots) {
             : '-';
           return `
             <tr>
-              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-slate-400">${analyticsEscapeHtml(item.source || 'Unknown')}</div></td>
+              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-slate-400">${analyticsEscapeHtml(item.source || t('analytics.common.unknown'))}</div></td>
               <td class="px-6 py-4 align-top font-medium text-slate-900">${productMarkup}</td>
               <td class="px-6 py-4 align-top">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
               <td class="px-6 py-4 align-top"><div class="font-medium text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-slate-500">${issueSummary}</div></td>
@@ -1859,13 +1878,13 @@ async function loadAnalytics() {
     }
 
     if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Failed to load analytics');
+      throw new Error(result.error || t('analytics.errors.loadFailed'));
     }
 
     renderAnalytics(result);
   } catch (error) {
     console.error('analytics load error:', error);
-    analyticsSetError(error.message || 'Failed to load analytics');
+    analyticsSetError(error.message || t('analytics.errors.loadFailed'));
   } finally {
     if (requestId === analyticsRequestId && document.getElementById('analyticsRoot')) {
       if (refreshBtn) refreshBtn.disabled = false;
@@ -1954,7 +1973,9 @@ function analyticsUpdateFilterOptionLabels() {
 }
 
 function initializeAnalytics() {
-  if (!document.getElementById('analyticsRoot')) return;
+  const root = document.getElementById('analyticsRoot');
+  if (!root) return;
+  if (typeof applyTranslations === 'function') applyTranslations(root);
   analyticsSetDefaultFilters();
   analyticsSyncShiftControls();
   analyticsUpdateTabState();

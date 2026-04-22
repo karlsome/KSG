@@ -625,12 +625,23 @@ const translations = {
         hinban: "Hinban",
         product: "Product",
         worker: "Worker",
-        shift: "Shift"
+        shift: "Shift",
+        all: "All",
+        rangeValuePattern: "{start} to {end}",
+        shiftValuePattern: "{start} to {end} ({hours})"
+      },
+
+      common: {
+        value: "Value",
+        unknown: "Unknown",
+        hoursUnit: "h",
+        piecesPerHourUnit: "pcs/h"
       },
 
       shift: {
-        shiftPattern: "Shift: {start} to {end} ({hours} h)",
-        focusedOnText: "Focused on {name}. Daily output is treated as one {start}-{end} {label}, while hours remain full participation time.",
+        defaultLabel: "Morning shift",
+        shiftPattern: "Shift: {start} to {end} ({hours})",
+        focusedOnText: "Focused on {name}. Daily output is treated as one {label} ({start}-{end}), while hours remain full participation time.",
         autoSelectText: "Auto-selecting the busiest worker in the current filter.",
         focusedSkillText: "Focused on {name}. Benchmarks compare that worker against all workers on the same machine and product contexts.",
         autoSkillText: "Comparing the focused worker against the same machine and product contexts."
@@ -880,6 +891,10 @@ const translations = {
         chartDefectRate: "Defect Rate",
         yAxisPieces: "Pieces",
         yAxisPercent: "%"
+      },
+
+      errors: {
+        loadFailed: "Failed to load analytics"
       },
 
       empty: {
@@ -1513,12 +1528,23 @@ const translations = {
         hinban: "品番",
         product: "製品",
         worker: "作業者",
-        shift: "シフト"
+        shift: "シフト",
+        all: "全期間",
+        rangeValuePattern: "{start}〜{end}",
+        shiftValuePattern: "{start}〜{end} ({hours})"
+      },
+
+      common: {
+        value: "値",
+        unknown: "不明",
+        hoursUnit: "時間",
+        piecesPerHourUnit: "個/時"
       },
 
       shift: {
-        shiftPattern: "シフト: {start}〜{end} ({hours} h)",
-        focusedOnText: "{name}にフォーカス中。日別出力は{start}〜{end}の{label}として計算し、時間は実参加時間を使用します。",
+        defaultLabel: "日勤シフト",
+        shiftPattern: "シフト: {start}〜{end} ({hours})",
+        focusedOnText: "{name}にフォーカス中。日別出力は{label}（{start}〜{end}）として計算し、時間は実参加時間を使用します。",
         autoSelectText: "現在のフィルター内で最も稼働の多い作業者を自動選択しています。",
         focusedSkillText: "{name}にフォーカス中。同じ設備・製品条件の全作業者と比較します。",
         autoSkillText: "フォーカス作業者を同じ設備・製品条件と比較しています。"
@@ -1768,6 +1794,10 @@ const translations = {
         chartDefectRate: "不良率",
         yAxisPieces: "個数",
         yAxisPercent: "%"
+      },
+
+      errors: {
+        loadFailed: "分析データを読み込めませんでした"
       },
 
       empty: {
