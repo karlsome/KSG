@@ -1,5 +1,14 @@
 'use strict';
 
+window.addEventListener('languageChanged', () => {
+  const root = document.getElementById('analyticsRoot');
+  if (!root) return;
+  if (typeof applyTranslations === 'function') applyTranslations(root);
+  analyticsSyncShiftControls();
+  if (analyticsData) renderAnalytics(analyticsData);
+  analyticsUpdateFilterOptionLabels();
+});
+
 let analyticsRequestId = 0;
 let analyticsCharts = {};
 let analyticsActiveTab = 'overview';
@@ -174,7 +183,10 @@ function analyticsSyncShiftControls(shiftProfileInput = null) {
   if (shiftStartEl) shiftStartEl.value = shiftProfile.start;
   if (shiftEndEl) shiftEndEl.value = shiftProfile.end;
   if (shiftSummaryEl) {
-    shiftSummaryEl.textContent = `Shift: ${shiftProfile.start} to ${shiftProfile.end} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`;
+    shiftSummaryEl.textContent = t('analytics.shift.shiftPattern')
+      .replace('{start}', shiftProfile.start)
+      .replace('{end}', shiftProfile.end)
+      .replace('{hours}', analyticsFormatNumber(shiftProfile.hours, 2));
   }
 
   return shiftProfile;
@@ -313,7 +325,7 @@ function analyticsRenderCardGrid(containerId, cards = []) {
   if (!container) return;
   container.innerHTML = cards.length
     ? analyticsGetSummaryCardsMarkup(cards)
-    : '<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-sm text-gray-400">No data for this section.</div>';
+    : `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.empty.noData'))}</div>`;
 }
 
 function analyticsRenderTableState(containerId, message) {
@@ -339,7 +351,7 @@ function analyticsRenderChart(containerId, option) {
   if (!container) return;
 
   if (typeof echarts === 'undefined') {
-    analyticsShowChartEmpty(containerId, 'Chart library not available');
+    analyticsShowChartEmpty(containerId, t('analytics.empty.chartNotAvailable'));
     return;
   }
 
@@ -476,33 +488,33 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
 
   const chips = [
     {
-      label: 'Range',
+      label: t('analytics.meta.range'),
       value: `${analyticsEscapeHtml(filters.startDate || 'All')} to ${analyticsEscapeHtml(filters.endDate || 'All')}`,
       tone: 'border-slate-100 bg-slate-50'
     },
     {
-      label: 'Records',
+      label: t('analytics.meta.records'),
       value: analyticsFormatNumber(summary.submissions),
       tone: 'border-emerald-100 bg-emerald-50'
     },
     {
-      label: 'Workers',
+      label: t('analytics.meta.workers'),
       value: analyticsFormatNumber(summary.uniqueOperators),
       tone: 'border-sky-100 bg-sky-50'
     },
     {
-      label: 'Machines',
+      label: t('analytics.meta.machines'),
       value: analyticsFormatNumber(summary.uniqueSources),
       tone: 'border-violet-100 bg-violet-50'
     }
   ];
 
-  if (filters.source) chips.push({ label: 'Machine', value: analyticsEscapeHtml(filters.source), tone: 'border-gray-200 bg-white' });
-  if (filters.lhRh) chips.push({ label: 'Direction', value: analyticsEscapeHtml(filters.lhRh), tone: 'border-gray-200 bg-white' });
-  if (filters.hinban) chips.push({ label: 'Hinban', value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
-  if (filters.productName) chips.push({ label: 'Product', value: analyticsEscapeHtml(filters.productName), tone: 'border-gray-200 bg-white' });
-  if (filters.operator) chips.push({ label: 'Worker', value: analyticsEscapeHtml(filters.operator), tone: 'border-gray-200 bg-white' });
-  chips.push({ label: 'Shift', value: `${analyticsEscapeHtml(shiftProfile.start)} to ${analyticsEscapeHtml(shiftProfile.end)} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`, tone: 'border-gray-200 bg-white' });
+  if (filters.source) chips.push({ label: t('analytics.meta.machine'), value: analyticsEscapeHtml(filters.source), tone: 'border-gray-200 bg-white' });
+  if (filters.lhRh) chips.push({ label: t('analytics.meta.direction'), value: analyticsEscapeHtml(filters.lhRh), tone: 'border-gray-200 bg-white' });
+  if (filters.hinban) chips.push({ label: t('analytics.meta.hinban'), value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
+  if (filters.productName) chips.push({ label: t('analytics.meta.product'), value: analyticsEscapeHtml(filters.productName), tone: 'border-gray-200 bg-white' });
+  if (filters.operator) chips.push({ label: t('analytics.meta.worker'), value: analyticsEscapeHtml(filters.operator), tone: 'border-gray-200 bg-white' });
+  chips.push({ label: t('analytics.meta.shift'), value: `${analyticsEscapeHtml(shiftProfile.start)} to ${analyticsEscapeHtml(shiftProfile.end)} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`, tone: 'border-gray-200 bg-white' });
 
   metaEl.innerHTML = chips.map(chip => `
     <div class="rounded-xl border px-3 py-2 text-sm ${chip.tone}">
@@ -512,58 +524,62 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
 
   if (focusMetaEl) {
     focusMetaEl.textContent = filters.focusOperator
-      ? `Focused on ${filters.focusOperator}. Daily output is treated as one ${shiftProfile.start}-${shiftProfile.end} ${shiftProfile.label.toLowerCase()}, while hours remain full participation time.`
-      : 'Auto-selecting the busiest worker in the current filter.';
+      ? t('analytics.shift.focusedOnText')
+          .replace('{name}', filters.focusOperator)
+          .replace('{start}', shiftProfile.start)
+          .replace('{end}', shiftProfile.end)
+          .replace('{label}', shiftProfile.label.toLowerCase())
+      : t('analytics.shift.autoSelectText');
   }
 
   if (skillMetaEl) {
     skillMetaEl.textContent = filters.focusOperator
-      ? `Focused on ${filters.focusOperator}. Benchmarks compare that worker against all workers on the same machine and product contexts.`
-      : 'Comparing the focused worker against the same machine and product contexts.';
+      ? t('analytics.shift.focusedSkillText').replace('{name}', filters.focusOperator)
+      : t('analytics.shift.autoSkillText');
   }
 }
 
 function renderAnalyticsKpis(summary) {
   const cards = [
     {
-      eyebrow: 'Good Pieces',
+      eyebrow: t('analytics.kpi.goodPieces'),
       value: analyticsFormatNumber(summary.totalGoodCount),
-      detail: `${analyticsFormatNumber(summary.submissions)} records in scope`,
+      detail: t('analytics.kpi.recordsInScope').replace('{n}', analyticsFormatNumber(summary.submissions)),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-checkbox-circle-line'
     },
     {
-      eyebrow: 'Defect Rate',
+      eyebrow: t('analytics.kpi.defectRate'),
       value: analyticsFormatPercent(summary.defectRate),
-      detail: `${analyticsFormatNumber(summary.totalDefectCount)} total defects`,
+      detail: t('analytics.kpi.totalDefects').replace('{n}', analyticsFormatNumber(summary.totalDefectCount)),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Issue Records',
+      eyebrow: t('analytics.kpi.issueRecords'),
       value: analyticsFormatNumber(summary.totalIssueRecords),
-      detail: 'Records with defects, trouble, or remarks',
+      detail: t('analytics.kpi.recordsWithIssues'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-alarm-warning-line'
     },
     {
-      eyebrow: 'Man Hours',
+      eyebrow: t('analytics.kpi.manHours'),
       value: analyticsFormatHours(summary.totalManHours),
-      detail: `${analyticsFormatHours(summary.totalTroubleTime)} trouble time`,
+      detail: t('analytics.kpi.troubleTime').replace('{n}', analyticsFormatHours(summary.totalTroubleTime)),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-time-line'
     },
     {
-      eyebrow: 'Active Workers',
+      eyebrow: t('analytics.kpi.activeWorkers'),
       value: analyticsFormatNumber(summary.uniqueOperators),
-      detail: `${analyticsFormatNumber(summary.uniqueKanbans)} kanbans`,
+      detail: t('analytics.kpi.kanbans').replace('{n}', analyticsFormatNumber(summary.uniqueKanbans)),
       tone: 'bg-violet-50 text-violet-700',
       icon: 'ri-team-line'
     },
     {
-      eyebrow: 'Active Machines',
+      eyebrow: t('analytics.kpi.activeMachines'),
       value: analyticsFormatNumber(summary.uniqueSources),
-      detail: `${analyticsFormatNumber(summary.uniqueProducts)} products`,
+      detail: t('analytics.kpi.products').replace('{n}', analyticsFormatNumber(summary.uniqueProducts)),
       tone: 'bg-cyan-50 text-cyan-700',
       icon: 'ri-cpu-line'
     }
@@ -574,14 +590,19 @@ function renderAnalyticsKpis(summary) {
 
 function renderAnalyticsOverviewTrendChart(dailyTrend) {
   if (!Array.isArray(dailyTrend) || dailyTrend.length === 0) {
-    analyticsShowChartEmpty('analyticsTrendChart', 'No trend data for the selected filters.');
+    analyticsShowChartEmpty('analyticsTrendChart', t('analytics.overview.noTrendData'));
     return;
   }
+
+  const lgGoodPieces = t('analytics.kpi.goodPieces');
+  const lgManHours = t('analytics.kpi.manHours');
+  const lgIssueRecords = t('analytics.kpi.issueRecords');
+  const lgDefectRate = t('analytics.kpi.defectRate');
 
   analyticsRenderChart('analyticsTrendChart', {
     color: ['#0f172a', '#14b8a6', '#f59e0b', '#ef4444'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Good Pieces', 'Man Hours', 'Issue Records', 'Defect Rate'] },
+    legend: { top: 0, data: [lgGoodPieces, lgManHours, lgIssueRecords, lgDefectRate] },
     grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
     xAxis: {
       type: 'category',
@@ -592,7 +613,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces / Hours',
+        name: t('analytics.machine.yAxisPiecesHours'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
@@ -603,7 +624,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
     ],
     series: [
       {
-        name: 'Good Pieces',
+        name: lgGoodPieces,
         type: 'bar',
         barMaxWidth: 24,
         data: dailyTrend.map(item => Number(item.goodCount || 0)),
@@ -611,7 +632,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
         yAxisIndex: 0
       },
       {
-        name: 'Man Hours',
+        name: lgManHours,
         type: 'line',
         smooth: true,
         symbolSize: 7,
@@ -619,7 +640,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
         yAxisIndex: 0
       },
       {
-        name: 'Issue Records',
+        name: lgIssueRecords,
         type: 'line',
         smooth: true,
         symbolSize: 7,
@@ -627,7 +648,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
         yAxisIndex: 1
       },
       {
-        name: 'Defect Rate',
+        name: lgDefectRate,
         type: 'line',
         smooth: true,
         symbolSize: 7,
@@ -648,30 +669,44 @@ function renderAnalyticsOverview(data) {
 
   analyticsRenderCardGrid('analyticsOverviewHighlights', [
     {
-      eyebrow: 'Main Defect Driver',
-      value: topDefect ? analyticsEscapeHtml(topDefect.name) : 'No defects',
-      detail: topDefect ? `${analyticsFormatNumber(topDefect.count)} defect hits in scope` : 'No quality loss in the current filter',
+      eyebrow: t('analytics.overview.mainDefectDriver'),
+      value: topDefect ? analyticsEscapeHtml(topDefect.name) : t('analytics.overview.noDefects'),
+      detail: topDefect
+        ? t('analytics.overview.defectHits').replace('{n}', analyticsFormatNumber(topDefect.count))
+        : t('analytics.overview.noQualityLoss'),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Most Loaded Worker',
-      value: busiestWorker ? analyticsEscapeHtml(busiestWorker.name) : 'No worker data',
-      detail: busiestWorker ? `${analyticsFormatHours(busiestWorker.totalManHours)} across ${analyticsFormatNumber(busiestWorker.submissions)} records` : 'No worker activity for the current filter',
+      eyebrow: t('analytics.overview.mostLoadedWorker'),
+      value: busiestWorker ? analyticsEscapeHtml(busiestWorker.name) : t('analytics.overview.noWorkerData'),
+      detail: busiestWorker
+        ? t('analytics.overview.workerHoursRecords')
+            .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
+            .replace('{records}', analyticsFormatNumber(busiestWorker.submissions))
+        : t('analytics.overview.noWorkerActivity'),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-user-star-line'
     },
     {
-      eyebrow: 'Most Unstable Machine',
-      value: unstableMachine ? analyticsEscapeHtml(unstableMachine.source) : 'No machine data',
-      detail: unstableMachine ? `${analyticsFormatHours(unstableMachine.totalTroubleTime)} trouble time, ${analyticsFormatPercent(unstableMachine.defectRate)} defect rate` : 'No machine activity for the current filter',
+      eyebrow: t('analytics.overview.mostUnstableMachine'),
+      value: unstableMachine ? analyticsEscapeHtml(unstableMachine.source) : t('analytics.overview.noMachineData'),
+      detail: unstableMachine
+        ? t('analytics.overview.machineTroubleRate')
+            .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
+            .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
+        : t('analytics.overview.noMachineActivity'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-cpu-line'
     },
     {
-      eyebrow: 'Lead Product',
-      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : 'No product data',
-      detail: leadProduct ? `${analyticsFormatNumber(leadProduct.totalGoodCount)} good pieces, ${analyticsFormatPercent(leadProduct.defectRate)} defect rate` : 'No product activity for the current filter',
+      eyebrow: t('analytics.overview.leadProduct'),
+      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : t('analytics.overview.noProductData'),
+      detail: leadProduct
+        ? t('analytics.overview.productGoodDefect')
+            .replace('{good}', analyticsFormatNumber(leadProduct.totalGoodCount))
+            .replace('{rate}', analyticsFormatPercent(leadProduct.defectRate))
+        : t('analytics.overview.noProductActivity'),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-box-3-line'
     }
@@ -682,31 +717,46 @@ function renderAnalyticsOverview(data) {
   const overviewDrivers = document.getElementById('analyticsOverviewDrivers');
   if (overviewDrivers) {
     const machineAlert = unstableMachine
-      ? `${analyticsEscapeHtml(unstableMachine.source)} is carrying ${analyticsFormatHours(unstableMachine.totalTroubleTime)} of trouble time with ${analyticsFormatPercent(unstableMachine.defectRate)} defect rate.`
-      : 'No machine alerts for the selected filter.';
+      ? t('analytics.overview.machineAlertText')
+          .replace('{source}', analyticsEscapeHtml(unstableMachine.source))
+          .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
+          .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
+      : t('analytics.overview.noMachineAlert');
     const workerAlert = busiestWorker
-      ? `${analyticsEscapeHtml(busiestWorker.name)} logged ${analyticsFormatHours(busiestWorker.totalManHours)} with ${analyticsFormatNumber(busiestWorker.issueCount)} issue records.`
-      : 'No worker alerts for the selected filter.';
+      ? t('analytics.overview.workerAlertText')
+          .replace('{name}', analyticsEscapeHtml(busiestWorker.name))
+          .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
+          .replace('{issues}', analyticsFormatNumber(busiestWorker.issueCount))
+      : t('analytics.overview.noWorkerAlert');
     const dayAlert = worstDay
-      ? `${analyticsEscapeHtml(worstDay.label)} had ${analyticsFormatNumber(worstDay.issueCount)} issue records and ${analyticsFormatPercent(worstDay.defectRate)} defect rate.`
-      : 'No daily issue pattern available.';
+      ? t('analytics.overview.dayAlertText')
+          .replace('{day}', analyticsEscapeHtml(worstDay.label))
+          .replace('{issues}', analyticsFormatNumber(worstDay.issueCount))
+          .replace('{rate}', analyticsFormatPercent(worstDay.defectRate))
+      : t('analytics.overview.noDayPattern');
+
+    const qualitySignalText = topDefect
+      ? t('analytics.overview.qualitySignalText')
+          .replace('{name}', analyticsEscapeHtml(topDefect.name))
+          .replace('{count}', analyticsFormatNumber(topDefect.count))
+      : t('analytics.overview.noDefectSignal');
 
     overviewDrivers.innerHTML = `
       <div class="space-y-4">
         <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Quality signal</p>
-          <p class="mt-2 text-sm text-slate-700">${topDefect ? `${analyticsEscapeHtml(topDefect.name)} is the leading defect with ${analyticsFormatNumber(topDefect.count)} hits.` : 'No defect signal in the current filter.'}</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.qualitySignal'))}</p>
+          <p class="mt-2 text-sm text-slate-700">${qualitySignalText}</p>
         </div>
         <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Machine signal</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.machineSignal'))}</p>
           <p class="mt-2 text-sm text-slate-700">${machineAlert}</p>
         </div>
         <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Labor signal</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.laborSignal'))}</p>
           <p class="mt-2 text-sm text-slate-700">${workerAlert}</p>
         </div>
         <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Daily pattern</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.dailyPattern'))}</p>
           <p class="mt-2 text-sm text-slate-700">${dayAlert}</p>
         </div>
       </div>`;
@@ -720,14 +770,17 @@ function renderAnalyticsWorkerProductivityChart(operatorComparison, shiftProfile
     .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
-    analyticsShowChartEmpty('analyticsWorkerProductivityChart', 'No worker productivity data for the selected filters.');
+    analyticsShowChartEmpty('analyticsWorkerProductivityChart', t('analytics.worker.noProductivityData'));
     return;
   }
+
+  const lgAvgOutput = t('analytics.worker.chartAvgOutputShift');
+  const lgOutputHour = t('analytics.worker.chartOutputHour');
 
   analyticsRenderChart('analyticsWorkerProductivityChart', {
     color: ['#0f766e', '#0284c7'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Avg Output/Shift', 'Output/Hour'] },
+    legend: { top: 0, data: [lgAvgOutput, lgOutputHour] },
     grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -742,25 +795,25 @@ function renderAnalyticsWorkerProductivityChart(operatorComparison, shiftProfile
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces/shift',
+        name: t('analytics.worker.yAxisPiecesShift'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: 'pcs/h',
+        name: t('analytics.worker.yAxisPcsH'),
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Avg Output/Shift',
+        name: lgAvgOutput,
         type: 'bar',
         barMaxWidth: 30,
         data: rankedWorkers.map(item => analyticsGetWorkerAverageShiftOutput(item, shiftProfile)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Output/Hour',
+        name: lgOutputHour,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -778,14 +831,17 @@ function renderAnalyticsWorkerQualityChart(operatorComparison) {
     .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
-    analyticsShowChartEmpty('analyticsWorkerQualityChart', 'No worker quality data for the selected filters.');
+    analyticsShowChartEmpty('analyticsWorkerQualityChart', t('analytics.worker.noQualityData'));
     return;
   }
+
+  const lgAttributedDefects = t('analytics.worker.chartAttributedDefects');
+  const lgDefectRate = t('analytics.worker.chartDefectRate');
 
   analyticsRenderChart('analyticsWorkerQualityChart', {
     color: ['#dc2626', '#f59e0b'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Attributed Defects', 'Defect Rate'] },
+    legend: { top: 0, data: [lgAttributedDefects, lgDefectRate] },
     grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -800,25 +856,25 @@ function renderAnalyticsWorkerQualityChart(operatorComparison) {
     yAxis: [
       {
         type: 'value',
-        name: 'Defects',
+        name: t('analytics.worker.yAxisDefects'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: '%',
+        name: t('analytics.worker.yAxisPercent'),
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Attributed Defects',
+        name: lgAttributedDefects,
         type: 'bar',
         barMaxWidth: 30,
         data: rankedWorkers.map(item => Number(item.totalDefectCount || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Defect Rate',
+        name: lgDefectRate,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -836,14 +892,18 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) 
     .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
-    analyticsShowChartEmpty('analyticsWorkerEfficiencyChart', 'No worker time-efficiency data for the selected filters.');
+    analyticsShowChartEmpty('analyticsWorkerEfficiencyChart', t('analytics.worker.noEfficiencyData'));
     return;
   }
+
+  const lgBreakTime = t('analytics.worker.chartBreakTime');
+  const lgTroubleTime = t('analytics.worker.chartTroubleTime');
+  const lgShiftUtil = t('analytics.worker.chartShiftUtil');
 
   analyticsRenderChart('analyticsWorkerEfficiencyChart', {
     color: ['#fbbf24', '#ef4444', '#1d4ed8'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Break Time', 'Trouble Time', 'Shift Utilization'] },
+    legend: { top: 0, data: [lgBreakTime, lgTroubleTime, lgShiftUtil] },
     grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -858,18 +918,18 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) 
     yAxis: [
       {
         type: 'value',
-        name: 'Hours',
+        name: t('analytics.worker.yAxisHours'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: '% of shift',
+        name: t('analytics.worker.yAxisPercentShift'),
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Break Time',
+        name: lgBreakTime,
         type: 'bar',
         stack: 'downtime',
         barMaxWidth: 28,
@@ -877,7 +937,7 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) 
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Trouble Time',
+        name: lgTroubleTime,
         type: 'bar',
         stack: 'downtime',
         barMaxWidth: 28,
@@ -885,7 +945,7 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) 
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Shift Utilization',
+        name: lgShiftUtil,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -898,14 +958,18 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) 
 
 function renderAnalyticsWorkerConsistencyChart(operatorFocus, shiftProfile) {
   if (!operatorFocus || !Array.isArray(operatorFocus.points) || operatorFocus.points.length === 0) {
-    analyticsShowChartEmpty('analyticsWorkerConsistencyChart', 'No daily worker history for the selected focus worker.');
+    analyticsShowChartEmpty('analyticsWorkerConsistencyChart', t('analytics.worker.noConsistencyData'));
     return;
   }
+
+  const lgShiftOutput = t('analytics.worker.chartShiftOutput');
+  const lgOutputHour2 = t('analytics.worker.chartOutputHour');
+  const lgShiftUtil2 = t('analytics.worker.chartShiftUtil');
 
   analyticsRenderChart('analyticsWorkerConsistencyChart', {
     color: ['#0f766e', '#1d4ed8', '#dc2626'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Shift Output', 'Output/Hour', 'Shift Utilization'] },
+    legend: { top: 0, data: [lgShiftOutput, lgOutputHour2, lgShiftUtil2] },
     grid: { left: 48, right: 84, top: 56, bottom: 32, containLabel: true },
     xAxis: {
       type: 'category',
@@ -915,18 +979,18 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus, shiftProfile) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces/shift',
+        name: t('analytics.worker.yAxisPiecesShift'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: 'pcs/h',
+        name: t('analytics.worker.yAxisPcsH'),
         position: 'right',
         splitLine: { show: false }
       },
       {
         type: 'value',
-        name: '% of shift',
+        name: t('analytics.worker.yAxisPercentShift'),
         position: 'right',
         offset: 56,
         splitLine: { show: false }
@@ -934,14 +998,14 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus, shiftProfile) {
     ],
     series: [
       {
-        name: 'Shift Output',
+        name: lgShiftOutput,
         type: 'bar',
         barMaxWidth: 24,
         data: operatorFocus.points.map(item => Number(item.goodCount || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Output/Hour',
+        name: lgOutputHour2,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -949,7 +1013,7 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus, shiftProfile) {
         data: operatorFocus.points.map(item => Number(item.outputPerHour || 0))
       },
       {
-        name: 'Shift Utilization',
+        name: lgShiftUtil2,
         type: 'line',
         yAxisIndex: 2,
         smooth: true,
@@ -965,15 +1029,15 @@ function analyticsWorkerSkillTooltipFormatter(params) {
   const context = item?.data?.context;
   if (!context) return '';
 
-  const scopeLabel = context.scope === 'source' ? 'Machine' : 'Product';
+  const scopeLabel = context.scope === 'source' ? t('analytics.worker.scopeMachine') : t('analytics.worker.scopeProduct');
   return [
     `<strong>${analyticsEscapeHtml(scopeLabel)}</strong>`,
     analyticsEscapeHtml(context.label || 'Unknown'),
-    `Worker output/hour<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.outputPerHour)}</span>`,
-    `Baseline output/hour<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.benchmarkOutputPerHour)}</span>`,
-    `Delta vs baseline<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatSignedPercent(context.deltaPercent)}</span>`,
-    `Worker defect rate<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.defectRate)}</span>`,
-    `Baseline defect rate<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.benchmarkDefectRate)}</span>`
+    `${analyticsEscapeHtml(t('analytics.worker.tooltipOutputHour'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.outputPerHour)}</span>`,
+    `${analyticsEscapeHtml(t('analytics.worker.tooltipBaselineHour'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.benchmarkOutputPerHour)}</span>`,
+    `${analyticsEscapeHtml(t('analytics.worker.tooltipDelta'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatSignedPercent(context.deltaPercent)}</span>`,
+    `${analyticsEscapeHtml(t('analytics.worker.tooltipDefectRate'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.defectRate)}</span>`,
+    `${analyticsEscapeHtml(t('analytics.worker.tooltipBaselineDefect'))}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.benchmarkDefectRate)}</span>`
   ].join('<br>');
 }
 
@@ -983,7 +1047,7 @@ function renderAnalyticsWorkerSkillChart(operatorSkillProfile) {
     .sort((a, b) => Number(b.deltaPercent || 0) - Number(a.deltaPercent || 0));
 
   if (contexts.length === 0) {
-    analyticsShowChartEmpty('analyticsWorkerSkillChart', 'No worker skill-fit contexts for the selected focus worker.');
+    analyticsShowChartEmpty('analyticsWorkerSkillChart', t('analytics.worker.noSkillData'));
     return;
   }
 
@@ -992,18 +1056,18 @@ function renderAnalyticsWorkerSkillChart(operatorSkillProfile) {
     grid: { left: 220, right: 32, top: 24, bottom: 32, containLabel: false },
     xAxis: {
       type: 'value',
-      name: '% vs baseline',
+      name: t('analytics.worker.yAxisVsBaseline'),
       splitLine: { lineStyle: { color: '#e2e8f0' } }
     },
     yAxis: {
       type: 'category',
-      data: contexts.map(item => analyticsShortenLabel(`${item.scope === 'source' ? 'Machine' : 'Product'} · ${item.label}`, 34)),
+      data: contexts.map(item => analyticsShortenLabel(`${item.scope === 'source' ? t('analytics.worker.scopeMachine') : t('analytics.worker.scopeProduct')} · ${item.label}`, 34)),
       axisTick: { show: false },
       axisLine: { show: false }
     },
     series: [
       {
-        name: 'Skill Delta',
+        name: t('analytics.worker.chartSkillDelta'),
         type: 'bar',
         barMaxWidth: 28,
         data: contexts.map(item => ({
@@ -1038,7 +1102,7 @@ function renderAnalyticsWorkerTable(operatorComparison, shiftProfile) {
     .sort((a, b) => Number(b.totalGoodCount || 0) - Number(a.totalGoodCount || 0));
 
   if (rankedWorkers.length === 0) {
-    analyticsRenderTableState('analyticsWorkerTable', 'No worker data for the selected filters.');
+    analyticsRenderTableState('analyticsWorkerTable', t('analytics.worker.noWorkerTableData'));
     return;
   }
 
@@ -1046,18 +1110,18 @@ function renderAnalyticsWorkerTable(operatorComparison, shiftProfile) {
     <table class="min-w-full divide-y divide-slate-200 text-sm">
       <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-6 py-3 font-medium">Worker</th>
-          <th class="px-6 py-3 font-medium">Records</th>
-          <th class="px-6 py-3 font-medium">Shared</th>
-          <th class="px-6 py-3 font-medium">Days</th>
-          <th class="px-6 py-3 font-medium">Avg/Shift</th>
-          <th class="px-6 py-3 font-medium">Output/Hour</th>
-          <th class="px-6 py-3 font-medium">Shift Util.</th>
-          <th class="px-6 py-3 font-medium">Hours</th>
-          <th class="px-6 py-3 font-medium">Issues</th>
-          <th class="px-6 py-3 font-medium">Downtime</th>
-          <th class="px-6 py-3 font-medium">Defect Rate</th>
-          <th class="px-6 py-3 font-medium">Avg CT</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableWorker'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableRecords'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShared'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDays'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgShift'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableOutputHour'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShiftUtil'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableHours'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableIssues'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDowntime'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgCT'))}</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
@@ -1098,30 +1162,47 @@ function renderAnalyticsWorkerTab(data) {
 
   analyticsRenderCardGrid('analyticsWorkerSummary', [
     {
-      eyebrow: 'Highest Avg Shift Output',
-      value: topOutputWorker ? analyticsEscapeHtml(topOutputWorker.name) : 'No worker data',
-      detail: topOutputWorker ? `${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(topOutputWorker, shiftProfile))} pieces per ${shiftProfile.start}-${shiftProfile.end} shift` : 'No output signal in this filter',
+      eyebrow: t('analytics.worker.highestAvgOutput'),
+      value: topOutputWorker ? analyticsEscapeHtml(topOutputWorker.name) : t('analytics.worker.noData'),
+      detail: topOutputWorker
+        ? t('analytics.worker.detailHighestOutput')
+            .replace('{count}', analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(topOutputWorker, shiftProfile)))
+            .replace('{start}', shiftProfile.start)
+            .replace('{end}', shiftProfile.end)
+        : t('analytics.worker.detailNoOutput'),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-medal-line'
     },
     {
-      eyebrow: 'Best Output / Hour',
-      value: bestThroughputWorker ? analyticsEscapeHtml(bestThroughputWorker.name) : 'No candidate',
-      detail: bestThroughputWorker ? `${analyticsFormatPiecesPerHour(bestThroughputWorker.outputPerHour)} or ${analyticsFormatCount(bestThroughputWorker.outputPerHour * shiftProfile.hours)} pieces per configured shift` : 'Need at least 2 records and 1 active hour',
+      eyebrow: t('analytics.worker.bestOutputHour'),
+      value: bestThroughputWorker ? analyticsEscapeHtml(bestThroughputWorker.name) : t('analytics.worker.noCandidate'),
+      detail: bestThroughputWorker
+        ? t('analytics.worker.detailBestThroughput')
+            .replace('{pph}', analyticsFormatPiecesPerHour(bestThroughputWorker.outputPerHour))
+            .replace('{pieces}', analyticsFormatCount(bestThroughputWorker.outputPerHour * shiftProfile.hours))
+        : t('analytics.worker.detailNeedMoreRecords'),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-speed-up-line'
     },
     {
-      eyebrow: 'Highest Defect Load',
-      value: topDefectWorker ? analyticsEscapeHtml(topDefectWorker.name) : 'No worker data',
-      detail: topDefectWorker ? `${analyticsFormatCount(topDefectWorker.totalDefectCount)} attributed defects at ${analyticsFormatPercent(topDefectWorker.defectRate)}` : 'No quality loss in this filter',
+      eyebrow: t('analytics.worker.highestDefectLoad'),
+      value: topDefectWorker ? analyticsEscapeHtml(topDefectWorker.name) : t('analytics.worker.noData'),
+      detail: topDefectWorker
+        ? t('analytics.worker.detailHighestDefect')
+            .replace('{count}', analyticsFormatCount(topDefectWorker.totalDefectCount))
+            .replace('{rate}', analyticsFormatPercent(topDefectWorker.defectRate))
+        : t('analytics.worker.detailNoQualityLoss'),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Most Consistent Worker',
-      value: mostConsistentWorker ? analyticsEscapeHtml(mostConsistentWorker.name) : 'No candidate',
-      detail: mostConsistentWorker ? `${analyticsFormatPercent(mostConsistentWorker.consistencyScore)} consistency score across ${analyticsFormatNumber(mostConsistentWorker.activeDays)} configured shifts` : 'Need at least 3 active shifts to compare stability',
+      eyebrow: t('analytics.worker.mostConsistent'),
+      value: mostConsistentWorker ? analyticsEscapeHtml(mostConsistentWorker.name) : t('analytics.worker.noCandidate'),
+      detail: mostConsistentWorker
+        ? t('analytics.worker.detailConsistency')
+            .replace('{score}', analyticsFormatPercent(mostConsistentWorker.consistencyScore))
+            .replace('{days}', analyticsFormatNumber(mostConsistentWorker.activeDays))
+        : t('analytics.worker.detailNeedMoreShifts'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-line-chart-line'
     }
@@ -1142,14 +1223,18 @@ function renderAnalyticsMachineChart(sourceBreakdown) {
     .slice(0, 10);
 
   if (rankedSources.length === 0) {
-    analyticsShowChartEmpty('analyticsSourceChart', 'No machine data for the selected filters.');
+    analyticsShowChartEmpty('analyticsSourceChart', t('analytics.machine.noMachineData'));
     return;
   }
+
+  const lgGoodPieces = t('analytics.machine.chartGoodPieces');
+  const lgTroubleTime = t('analytics.machine.chartTroubleTime');
+  const lgDefectRate = t('analytics.machine.chartDefectRate');
 
   analyticsRenderChart('analyticsSourceChart', {
     color: ['#06b6d4', '#f59e0b', '#ef4444'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Good Pieces', 'Trouble Time', 'Defect Rate'] },
+    legend: { top: 0, data: [lgGoodPieces, lgTroubleTime, lgDefectRate] },
     grid: { left: 40, right: 40, top: 48, bottom: 48, containLabel: true },
     xAxis: {
       type: 'category',
@@ -1160,25 +1245,25 @@ function renderAnalyticsMachineChart(sourceBreakdown) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces / Hours',
+        name: t('analytics.machine.yAxisPiecesHours'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: '%',
+        name: t('analytics.machine.yAxisPercent'),
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Good Pieces',
+        name: lgGoodPieces,
         type: 'bar',
         barMaxWidth: 26,
         data: rankedSources.map(item => Number(item.totalGoodCount || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Trouble Time',
+        name: lgTroubleTime,
         type: 'line',
         smooth: true,
         symbolSize: 8,
@@ -1186,7 +1271,7 @@ function renderAnalyticsMachineChart(sourceBreakdown) {
         yAxisIndex: 0
       },
       {
-        name: 'Defect Rate',
+        name: lgDefectRate,
         type: 'line',
         smooth: true,
         symbolSize: 8,
@@ -1207,7 +1292,7 @@ function renderAnalyticsMachineCards(sourceBreakdown) {
     .slice(0, 4);
 
   if (topSources.length === 0) {
-    container.innerHTML = '<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-sm text-slate-400">No machine/source records for the selected filters.</div>';
+    container.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.machine.noMachineCards'))}</div>`;
     return;
   }
 
@@ -1216,13 +1301,13 @@ function renderAnalyticsMachineCards(sourceBreakdown) {
       <div class="flex items-start justify-between gap-4">
         <div>
           <p class="text-sm font-semibold text-slate-900">${analyticsEscapeHtml(source.source)}</p>
-          <p class="mt-1 text-xs text-slate-500">${analyticsFormatNumber(source.submissions)} records, ${analyticsFormatNumber(source.issueCount)} issue records</p>
+          <p class="mt-1 text-xs text-slate-500">${analyticsEscapeHtml(t('analytics.machine.cardSubtext').replace('{records}', analyticsFormatNumber(source.submissions)).replace('{issues}', analyticsFormatNumber(source.issueCount)))}</p>
         </div>
         <span class="rounded-full bg-white px-2 py-1 text-xs font-medium text-slate-600">${analyticsFormatPercent(source.defectRate)}</span>
       </div>
       <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">Good</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">Trouble</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
+        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardGood'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
+        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardTrouble'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
       </div>
     </article>`).join('')}</div>`;
 }
@@ -1236,7 +1321,7 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
     .sort((a, b) => Number(b.totalGoodCount || 0) - Number(a.totalGoodCount || 0));
 
   if (rankedSources.length === 0) {
-    analyticsRenderTableState('analyticsMachineTable', 'No machine data for the selected filters.');
+    analyticsRenderTableState('analyticsMachineTable', t('analytics.machine.noMachineData'));
     return;
   }
 
@@ -1244,13 +1329,13 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
     <table class="min-w-full divide-y divide-slate-200 text-sm">
       <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-6 py-3 font-medium">Machine Source</th>
-          <th class="px-6 py-3 font-medium">Records</th>
-          <th class="px-6 py-3 font-medium">Good</th>
-          <th class="px-6 py-3 font-medium">Hours</th>
-          <th class="px-6 py-3 font-medium">Trouble</th>
-          <th class="px-6 py-3 font-medium">Issues</th>
-          <th class="px-6 py-3 font-medium">Defect Rate</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableSource'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableRecords'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableGood'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableHours'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableIssues'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableDefectRate'))}</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
@@ -1277,30 +1362,38 @@ function renderAnalyticsMachineTab(data) {
 
   analyticsRenderCardGrid('analyticsMachineSummary', [
     {
-      eyebrow: 'Highest Output Machine',
-      value: topOutputSource ? analyticsEscapeHtml(topOutputSource.source) : 'No machine data',
-      detail: topOutputSource ? `${analyticsFormatNumber(topOutputSource.totalGoodCount)} good pieces` : 'No machine output data',
+      eyebrow: t('analytics.machine.highestOutput'),
+      value: topOutputSource ? analyticsEscapeHtml(topOutputSource.source) : t('analytics.machine.noData'),
+      detail: topOutputSource
+        ? t('analytics.machine.detailGoodPieces').replace('{n}', analyticsFormatNumber(topOutputSource.totalGoodCount))
+        : t('analytics.machine.noOutputData'),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-cpu-line'
     },
     {
-      eyebrow: 'Most Trouble Time',
-      value: topTroubleSource ? analyticsEscapeHtml(topTroubleSource.source) : 'No machine data',
-      detail: topTroubleSource ? `${analyticsFormatHours(topTroubleSource.totalTroubleTime)} trouble time` : 'No trouble signal',
+      eyebrow: t('analytics.machine.mostTrouble'),
+      value: topTroubleSource ? analyticsEscapeHtml(topTroubleSource.source) : t('analytics.machine.noData'),
+      detail: topTroubleSource
+        ? t('analytics.machine.detailTroubleTime').replace('{n}', analyticsFormatHours(topTroubleSource.totalTroubleTime))
+        : t('analytics.machine.noTroubleSignal'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-alarm-warning-line'
     },
     {
-      eyebrow: 'Most Issue Records',
-      value: topIssueSource ? analyticsEscapeHtml(topIssueSource.source) : 'No machine data',
-      detail: topIssueSource ? `${analyticsFormatNumber(topIssueSource.issueCount)} issue records` : 'No issue signal',
+      eyebrow: t('analytics.machine.mostIssues'),
+      value: topIssueSource ? analyticsEscapeHtml(topIssueSource.source) : t('analytics.machine.noData'),
+      detail: topIssueSource
+        ? t('analytics.machine.detailIssueRecords').replace('{n}', analyticsFormatNumber(topIssueSource.issueCount))
+        : t('analytics.machine.noIssueSignal'),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Highest Defect Rate',
-      value: worstQualitySource ? analyticsEscapeHtml(worstQualitySource.source) : 'No machine data',
-      detail: worstQualitySource ? `${analyticsFormatPercent(worstQualitySource.defectRate)} defect rate` : 'No quality signal',
+      eyebrow: t('analytics.machine.highestDefect'),
+      value: worstQualitySource ? analyticsEscapeHtml(worstQualitySource.source) : t('analytics.machine.noData'),
+      detail: worstQualitySource
+        ? t('analytics.machine.detailDefectRate').replace('{n}', analyticsFormatPercent(worstQualitySource.defectRate))
+        : t('analytics.machine.noQualitySignal'),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-focus-3-line'
     }
@@ -1314,7 +1407,7 @@ function renderAnalyticsMachineTab(data) {
 function renderAnalyticsDefectsChart(topDefects) {
   const rankedDefects = (topDefects || []).slice(0, 10);
   if (rankedDefects.length === 0) {
-    analyticsShowChartEmpty('analyticsDefectsChart', 'No defect records for the selected filters.');
+    analyticsShowChartEmpty('analyticsDefectsChart', t('analytics.quality.noDefectRecords'));
     return;
   }
 
@@ -1354,23 +1447,45 @@ function renderAnalyticsQualityAlerts(data) {
   const riskiestMachine = analyticsGetHighestBy(data.sourceBreakdown || [], item => Number(item.defectRate || 0));
   const riskiestProduct = analyticsGetHighestBy(data.topProducts || [], item => Number(item.defectRate || 0));
 
+  const topDefectText = topDefect
+    ? t('analytics.quality.alertTopDefectText')
+        .replace('{name}', analyticsEscapeHtml(topDefect.name))
+        .replace('{n}', analyticsFormatNumber(topDefect.count))
+    : t('analytics.quality.alertNoDefectSignal');
+  const worstDayText = worstDay
+    ? t('analytics.quality.alertWorstDayText')
+        .replace('{day}', analyticsEscapeHtml(worstDay.label))
+        .replace('{rate}', analyticsFormatPercent(worstDay.defectRate))
+        .replace('{n}', analyticsFormatNumber(worstDay.issueCount))
+    : t('analytics.quality.alertNoWorstDay');
+  const machineInspectText = riskiestMachine
+    ? t('analytics.quality.alertMachineText')
+        .replace('{machine}', analyticsEscapeHtml(riskiestMachine.source))
+        .replace('{rate}', analyticsFormatPercent(riskiestMachine.defectRate))
+    : t('analytics.quality.alertNoMachineSignal');
+  const productInspectText = riskiestProduct
+    ? t('analytics.quality.alertProductText')
+        .replace('{product}', analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct)))
+        .replace('{rate}', analyticsFormatPercent(riskiestProduct.defectRate))
+    : t('analytics.quality.alertNoProductSignal');
+
   container.innerHTML = `
     <div class="space-y-4">
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Top defect</p>
-        <p class="mt-2 text-sm text-slate-700">${topDefect ? `${analyticsEscapeHtml(topDefect.name)} accounts for ${analyticsFormatNumber(topDefect.count)} counted defects.` : 'No defect signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertTopDefect'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${topDefectText}</p>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Worst day</p>
-        <p class="mt-2 text-sm text-slate-700">${worstDay ? `${analyticsEscapeHtml(worstDay.label)} reached ${analyticsFormatPercent(worstDay.defectRate)} defect rate with ${analyticsFormatNumber(worstDay.issueCount)} issue records.` : 'No day-level quality signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertWorstDay'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${worstDayText}</p>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Machine to inspect</p>
-        <p class="mt-2 text-sm text-slate-700">${riskiestMachine ? `${analyticsEscapeHtml(riskiestMachine.source)} is running at ${analyticsFormatPercent(riskiestMachine.defectRate)} defect rate.` : 'No machine quality signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertMachineInspect'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${machineInspectText}</p>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Product to inspect</p>
-        <p class="mt-2 text-sm text-slate-700">${riskiestProduct ? `${analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct))} is running at ${analyticsFormatPercent(riskiestProduct.defectRate)} defect rate.` : 'No product quality signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertProductInspect'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${productInspectText}</p>
       </div>
     </div>`;
 }
@@ -1380,7 +1495,7 @@ function renderAnalyticsHotspots(qualityHotspots) {
   if (!container) return;
 
   if (!Array.isArray(qualityHotspots) || qualityHotspots.length === 0) {
-    container.innerHTML = '<div class="px-6 py-10 text-sm text-slate-400">No issue-heavy records for the selected filters.</div>';
+    container.innerHTML = `<div class="px-6 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.quality.noHotspots'))}</div>`;
     return;
   }
 
@@ -1388,19 +1503,19 @@ function renderAnalyticsHotspots(qualityHotspots) {
     <table class="min-w-full divide-y divide-slate-200 text-sm">
       <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-6 py-3 font-medium">Timestamp</th>
-          <th class="px-6 py-3 font-medium">Product</th>
-          <th class="px-6 py-3 font-medium">Worker</th>
-          <th class="px-6 py-3 font-medium">Defect Focus</th>
-          <th class="px-6 py-3 font-medium">Trouble</th>
-          <th class="px-6 py-3 font-medium">Remarks</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTimestamp'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableProduct'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableWorker'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableDefectFocus'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableRemarks'))}</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
         ${qualityHotspots.map(item => {
           const issueSummary = item.topDefects && item.topDefects.length
             ? item.topDefects.map(defect => `${analyticsEscapeHtml(defect.name)} (${analyticsFormatNumber(defect.count)})`).join(', ')
-            : 'No defect detail';
+            : analyticsEscapeHtml(t('analytics.quality.tableNoDefectDetail'));
           const productBits = [item.productName, item.hinban, item.kanbanId].filter(Boolean).map(analyticsEscapeHtml);
           const productMarkup = productBits.length
             ? productBits.map((bit, index) => `<div class="${index === 0 ? '' : 'mt-1 text-xs text-slate-500'}">${bit}</div>`).join('')
@@ -1410,7 +1525,7 @@ function renderAnalyticsHotspots(qualityHotspots) {
               <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-slate-400">${analyticsEscapeHtml(item.source || 'Unknown')}</div></td>
               <td class="px-6 py-4 align-top font-medium text-slate-900">${productMarkup}</td>
               <td class="px-6 py-4 align-top">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
-              <td class="px-6 py-4 align-top"><div class="font-medium text-rose-700">${analyticsFormatNumber(item.totalDefects)} defects</div><div class="mt-1 text-xs text-slate-500">${issueSummary}</div></td>
+              <td class="px-6 py-4 align-top"><div class="font-medium text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-slate-500">${issueSummary}</div></td>
               <td class="px-6 py-4 align-top">${analyticsFormatHours(item.troubleTime)}</td>
               <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(item.remarks || '-')}</td>
             </tr>`;
@@ -1427,30 +1542,34 @@ function renderAnalyticsQualityTab(data) {
 
   analyticsRenderCardGrid('analyticsQualitySummary', [
     {
-      eyebrow: 'Defect Rate',
+      eyebrow: t('analytics.quality.kpiDefectRate'),
       value: analyticsFormatPercent(data.summary?.defectRate || 0),
-      detail: `${analyticsFormatNumber(data.summary?.totalDefectCount || 0)} total defects`,
+      detail: t('analytics.quality.detailTotalDefects').replace('{n}', analyticsFormatNumber(data.summary?.totalDefectCount || 0)),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Issue Records',
+      eyebrow: t('analytics.quality.kpiIssueRecords'),
       value: analyticsFormatNumber(data.summary?.totalIssueRecords || 0),
-      detail: 'Records needing review',
+      detail: t('analytics.quality.kpiRecordsReview'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-alarm-warning-line'
     },
     {
-      eyebrow: 'Top Defect',
-      value: topDefect ? analyticsEscapeHtml(topDefect.name) : 'No defects',
-      detail: topDefect ? `${analyticsFormatNumber(topDefect.count)} counted events` : 'No defect activity in this filter',
+      eyebrow: t('analytics.quality.kpiTopDefect'),
+      value: topDefect ? analyticsEscapeHtml(topDefect.name) : t('analytics.quality.kpiNoDefects'),
+      detail: topDefect
+        ? t('analytics.quality.detailCountedEvents').replace('{n}', analyticsFormatNumber(topDefect.count))
+        : t('analytics.quality.kpiNoDefectActivity'),
       tone: 'bg-slate-100 text-slate-700',
       icon: 'ri-bug-line'
     },
     {
-      eyebrow: 'Highest-Risk Product',
-      value: worstProduct ? analyticsEscapeHtml(analyticsGetProductLabel(worstProduct)) : 'No product data',
-      detail: worstProduct ? `${analyticsFormatPercent(worstProduct.defectRate)} defect rate` : 'No product quality signal',
+      eyebrow: t('analytics.quality.kpiHighestRisk'),
+      value: worstProduct ? analyticsEscapeHtml(analyticsGetProductLabel(worstProduct)) : t('analytics.quality.kpiNoProductData'),
+      detail: worstProduct
+        ? t('analytics.quality.detailDefectRate').replace('{n}', analyticsFormatPercent(worstProduct.defectRate))
+        : t('analytics.quality.kpiNoProductSignal'),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-box-3-line'
     }
@@ -1471,14 +1590,17 @@ function renderAnalyticsQualityTab(data) {
 function renderAnalyticsProductsChart(topProducts) {
   const rankedProducts = (topProducts || []).slice(0, 10);
   if (rankedProducts.length === 0) {
-    analyticsShowChartEmpty('analyticsProductsChart', 'No product data for the selected filters.');
+    analyticsShowChartEmpty('analyticsProductsChart', t('analytics.product.noProductData'));
     return;
   }
+
+  const lgGoodPiecesP = t('analytics.product.chartGoodPieces');
+  const lgDefectRateP = t('analytics.product.chartDefectRate');
 
   analyticsRenderChart('analyticsProductsChart', {
     color: ['#0ea5e9', '#ef4444'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Good Pieces', 'Defect Rate'] },
+    legend: { top: 0, data: [lgGoodPiecesP, lgDefectRateP] },
     grid: { left: 40, right: 40, top: 48, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -1489,25 +1611,25 @@ function renderAnalyticsProductsChart(topProducts) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces',
+        name: t('analytics.product.yAxisPieces'),
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
         type: 'value',
-        name: '%',
+        name: t('analytics.product.yAxisPercent'),
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Good Pieces',
+        name: lgGoodPiecesP,
         type: 'bar',
         barMaxWidth: 26,
         data: rankedProducts.map(item => Number(item.totalGoodCount || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Defect Rate',
+        name: lgDefectRateP,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -1526,19 +1648,35 @@ function renderAnalyticsProductHighlights(topProducts) {
   const riskiestProduct = analyticsGetHighestBy(topProducts || [], item => Number(item.defectRate || 0));
   const slowestProduct = analyticsGetHighestBy(topProducts || [], item => Number(item.averageCycleTime || 0));
 
+  const leadText = leadProduct
+    ? t('analytics.product.highlightLeadText')
+        .replace('{name}', analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)))
+        .replace('{n}', analyticsFormatNumber(leadProduct.totalGoodCount))
+    : t('analytics.product.highlightNoLead');
+  const riskText = riskiestProduct
+    ? t('analytics.product.highlightRiskiestText')
+        .replace('{name}', analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct)))
+        .replace('{rate}', analyticsFormatPercent(riskiestProduct.defectRate))
+    : t('analytics.product.highlightNoRiskiest');
+  const slowText = slowestProduct
+    ? t('analytics.product.highlightSlowestText')
+        .replace('{name}', analyticsEscapeHtml(analyticsGetProductLabel(slowestProduct)))
+        .replace('{ct}', analyticsFormatNumber(slowestProduct.averageCycleTime, 2))
+    : t('analytics.product.highlightNoSlowest');
+
   container.innerHTML = `
     <div class="space-y-4">
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Lead product</p>
-        <p class="mt-2 text-sm text-slate-700">${leadProduct ? `${analyticsEscapeHtml(analyticsGetProductLabel(leadProduct))} produced ${analyticsFormatNumber(leadProduct.totalGoodCount)} good pieces.` : 'No lead product in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteLead'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${leadText}</p>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Riskiest product</p>
-        <p class="mt-2 text-sm text-slate-700">${riskiestProduct ? `${analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct))} is running at ${analyticsFormatPercent(riskiestProduct.defectRate)} defect rate.` : 'No product quality signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteRiskiest'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${riskText}</p>
       </div>
       <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">Slowest cycle</p>
-        <p class="mt-2 text-sm text-slate-700">${slowestProduct ? `${analyticsEscapeHtml(analyticsGetProductLabel(slowestProduct))} is averaging ${analyticsFormatNumber(slowestProduct.averageCycleTime, 2)} cycle time.` : 'No cycle-time signal in the current filter.'}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteSlowest'))}</p>
+        <p class="mt-2 text-sm text-slate-700">${slowText}</p>
       </div>
     </div>`;
 }
@@ -1552,7 +1690,7 @@ function renderAnalyticsProductTable(topProducts) {
     .sort((a, b) => Number(b.totalGoodCount || 0) - Number(a.totalGoodCount || 0));
 
   if (rankedProducts.length === 0) {
-    analyticsRenderTableState('analyticsProductTable', 'No product data for the selected filters.');
+    analyticsRenderTableState('analyticsProductTable', t('analytics.product.noProductData'));
     return;
   }
 
@@ -1560,13 +1698,13 @@ function renderAnalyticsProductTable(topProducts) {
     <table class="min-w-full divide-y divide-slate-200 text-sm">
       <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-6 py-3 font-medium">Product</th>
-          <th class="px-6 py-3 font-medium">Records</th>
-          <th class="px-6 py-3 font-medium">Good</th>
-          <th class="px-6 py-3 font-medium">Hours</th>
-          <th class="px-6 py-3 font-medium">Issues</th>
-          <th class="px-6 py-3 font-medium">Defect Rate</th>
-          <th class="px-6 py-3 font-medium">Avg CT</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableProduct'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableRecords'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableGood'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableHours'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableIssues'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableAvgCT'))}</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
@@ -1593,30 +1731,38 @@ function renderAnalyticsProductTab(data) {
 
   analyticsRenderCardGrid('analyticsProductSummary', [
     {
-      eyebrow: 'Lead Product',
-      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : 'No product data',
-      detail: leadProduct ? `${analyticsFormatNumber(leadProduct.totalGoodCount)} good pieces` : 'No product output data',
+      eyebrow: t('analytics.product.leadProduct'),
+      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : t('analytics.product.noData'),
+      detail: leadProduct
+        ? t('analytics.product.detailGoodPieces').replace('{n}', analyticsFormatNumber(leadProduct.totalGoodCount))
+        : t('analytics.product.noOutputData'),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-box-3-line'
     },
     {
-      eyebrow: 'Highest Defect Rate',
-      value: riskiestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct)) : 'No product data',
-      detail: riskiestProduct ? `${analyticsFormatPercent(riskiestProduct.defectRate)} defect rate` : 'No quality signal',
+      eyebrow: t('analytics.product.highestDefect'),
+      value: riskiestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct)) : t('analytics.product.noData'),
+      detail: riskiestProduct
+        ? t('analytics.product.detailDefectRate').replace('{n}', analyticsFormatPercent(riskiestProduct.defectRate))
+        : t('analytics.product.noQualitySignal'),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Slowest Cycle',
-      value: slowestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(slowestProduct)) : 'No product data',
-      detail: slowestProduct ? `${analyticsFormatNumber(slowestProduct.averageCycleTime, 2)} average cycle time` : 'No cycle-time signal',
+      eyebrow: t('analytics.product.slowestCycle'),
+      value: slowestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(slowestProduct)) : t('analytics.product.noData'),
+      detail: slowestProduct
+        ? t('analytics.product.detailAvgCycleTime').replace('{n}', analyticsFormatNumber(slowestProduct.averageCycleTime, 2))
+        : t('analytics.product.noCycleSignal'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-timer-2-line'
     },
     {
-      eyebrow: 'Most Issue Records',
-      value: issueHeavyProduct ? analyticsEscapeHtml(analyticsGetProductLabel(issueHeavyProduct)) : 'No product data',
-      detail: issueHeavyProduct ? `${analyticsFormatNumber(issueHeavyProduct.issueCount)} issue records` : 'No issue signal',
+      eyebrow: t('analytics.product.mostIssues'),
+      value: issueHeavyProduct ? analyticsEscapeHtml(analyticsGetProductLabel(issueHeavyProduct)) : t('analytics.product.noData'),
+      detail: issueHeavyProduct
+        ? t('analytics.product.detailIssueRecords').replace('{n}', analyticsFormatNumber(issueHeavyProduct.issueCount))
+        : t('analytics.product.noIssueSignal'),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-alarm-warning-line'
     }
@@ -1669,8 +1815,8 @@ async function loadAnalyticsFilterOptions() {
     }
 
     const options = result.options || {};
-    analyticsPopulateSelect('analyticsSource', options.sources || [], 'All sources');
-    analyticsPopulateSelect('analyticsFocusOperator', options.operators || [], 'Auto (top worker)', true);
+    analyticsPopulateSelect('analyticsSource', options.sources || [], t('analytics.filters.allSources'));
+    analyticsPopulateSelect('analyticsFocusOperator', options.operators || [], t('analytics.filters.autoTopWorker'), true);
     analyticsPopulateDatalist('analyticsHinbanList', options.hinban || []);
     analyticsPopulateDatalist('analyticsProductList', options.productNames || []);
     analyticsPopulateDatalist('analyticsOperatorList', options.operators || []);
@@ -1679,7 +1825,7 @@ async function loadAnalyticsFilterOptions() {
     if (lhRhSelect && Array.isArray(options.lhRh) && options.lhRh.length > 0) {
       const currentValue = lhRhSelect.value;
       const values = [...new Set(options.lhRh.filter(Boolean))];
-      lhRhSelect.innerHTML = ['<option value="all">All directions</option>']
+      lhRhSelect.innerHTML = [`<option value="all">${analyticsEscapeHtml(t('analytics.filters.allDirections'))}</option>`]
         .concat(values.map(value => `<option value="${analyticsEscapeHtml(value)}">${analyticsEscapeHtml(value)}</option>`))
         .join('');
       lhRhSelect.value = values.includes(currentValue) ? currentValue : 'all';
@@ -1696,11 +1842,11 @@ async function loadAnalytics() {
   const requestId = ++analyticsRequestId;
   const refreshBtn = document.getElementById('analyticsRefreshBtn');
   const refreshLabel = document.getElementById('analyticsRefreshLabel');
-  const previousLabel = refreshLabel ? refreshLabel.textContent : 'Refresh';
+  const previousLabel = t('analytics.refresh');
   analyticsSetError('');
 
   if (refreshBtn) refreshBtn.disabled = true;
-  if (refreshLabel) refreshLabel.textContent = 'Refreshing...';
+  if (refreshLabel) refreshLabel.textContent = t('analytics.refreshing');
 
   try {
     const response = await fetch(`${API_URL}/api/admin/analytics?${analyticsBuildParams().toString()}`, {
@@ -1787,6 +1933,26 @@ function disposeAnalyticsCharts() {
   analyticsData = null;
 }
 
+function analyticsUpdateFilterOptionLabels() {
+  const sourceSelect = document.getElementById('analyticsSource');
+  if (sourceSelect) {
+    const allOpt = sourceSelect.querySelector('option[value="all"]');
+    if (allOpt) allOpt.textContent = t('analytics.filters.allSources');
+  }
+
+  const lhRhSelect = document.getElementById('analyticsLhRh');
+  if (lhRhSelect) {
+    const allOpt = lhRhSelect.querySelector('option[value="all"]');
+    if (allOpt) allOpt.textContent = t('analytics.filters.allDirections');
+  }
+
+  const focusSelect = document.getElementById('analyticsFocusOperator');
+  if (focusSelect) {
+    const blankOpt = focusSelect.querySelector('option[value=""]');
+    if (blankOpt) blankOpt.textContent = t('analytics.filters.autoTopWorker');
+  }
+}
+
 function initializeAnalytics() {
   if (!document.getElementById('analyticsRoot')) return;
   analyticsSetDefaultFilters();
@@ -1810,3 +1976,4 @@ window.resetAnalyticsShift = resetAnalyticsShift;
 window.handleAnalyticsFilterKeydown = handleAnalyticsFilterKeydown;
 window.disposeAnalyticsCharts = disposeAnalyticsCharts;
 window.setAnalyticsTab = setAnalyticsTab;
+window.analyticsUpdateFilterOptionLabels = analyticsUpdateFilterOptionLabels;
