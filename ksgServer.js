@@ -7,6 +7,15 @@ const bcrypt = require('bcrypt');
 const admin = require('firebase-admin');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
+const {
+    DEFAULT_HEADER_ROW,
+    hasGoogleServiceAccountCredentials,
+    getGoogleServiceAccountEmail,
+    buildExpectedFields,
+    analyzeSheetTarget,
+    appendSubmissionToSheet,
+    inspectSpreadsheet,
+} = require('./src/googleSheetsService');
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -88,6 +97,7 @@ let mongoClient = null;
 let AUTHORIZED_DEVICES = {};
 let lastDeviceFetch = 0;
 const DEVICE_CACHE_DURATION = parseInt(process.env.DEVICE_CACHE_DURATION) || 300000; // 5 minutes
+const GOOGLE_SHEET_TARGETS_COLLECTION = 'googleSheetTargets';
 
 // � FIREBASE CONFIGURATION
 const serviceAccount = {
@@ -110,6 +120,269 @@ if (serviceAccount.private_key && serviceAccount.client_email) {
   console.log('🔥 Firebase Admin SDK initialized successfully!');
 } else {
   console.error('❌ Firebase Admin SDK initialization failed. Ensure FIREBASE_PRIVATE_KEY and FIREBASE_CLIENT_EMAIL are set in .env file.');
+}
+
+function normalizeGoogleSheetString(value = '') {
+    return String(value ?? '').trim();
+}
+
+function normalizeGoogleSheetObjectIdString(value = '') {
+    const normalized = normalizeGoogleSheetString(value);
+    return ObjectId.isValid(normalized) ? normalized : '';
+}
+
+function normalizeGoogleSheetStringList(values = []) {
+    return [...new Set((Array.isArray(values) ? values : [values])
+        .map(normalizeGoogleSheetString)
+        .filter(Boolean))];
+}
+
+function normalizeGoogleSheetFieldMappings(values = []) {
+    return (Array.isArray(values) ? values : [])
+        .map(mapping => ({
+            fieldKey: normalizeGoogleSheetString(mapping?.fieldKey),
+            headerName: normalizeGoogleSheetString(mapping?.headerName),
+            action: mapping?.action === 'map' ? 'map' : 'create',
+        }))
+        .filter(mapping => mapping.fieldKey && mapping.headerName);
+}
+
+async function logGoogleSheetTargetActivity(db, username, action, details) {
+    try {
+        await db.collection('activityLogs').insertOne({
+            collection: GOOGLE_SHEET_TARGETS_COLLECTION,
+            action,
+            timestamp: new Date(),
+            user: username,
+            details,
+        });
+    } catch (error) {
+        console.warn('⚠️ Failed to log Google Sheet target activity:', error.message);
+    }
+}
+
+async function resolveGoogleSheetTargetProducts(db, masterRecordIds = []) {
+    const normalizedIds = normalizeGoogleSheetStringList(masterRecordIds)
+        .filter(id => ObjectId.isValid(id));
+
+    if (normalizedIds.length === 0) {
+        return [];
+    }
+
+    const records = await db.collection('masterDB').find(
+        { _id: { $in: normalizedIds.map(id => new ObjectId(id)) } },
+        { projection: { 品番: 1, 製品名: 1, kanbanID: 1, ngGroupId: 1 } }
+    ).toArray();
+
+    const recordMap = new Map(records.map(record => [String(record._id), record]));
+    return normalizedIds.map(id => recordMap.get(id)).filter(Boolean);
+}
+
+function buildGoogleSheetTargetProductSnapshots(records = []) {
+    return records.map(record => ({
+        recordId: String(record._id),
+        hinban: normalizeGoogleSheetString(record.品番),
+        productName: normalizeGoogleSheetString(record.製品名),
+        kanbanId: normalizeGoogleSheetString(record.kanbanID),
+        ngGroupId: normalizeGoogleSheetObjectIdString(record.ngGroupId),
+    }));
+}
+
+function deriveGoogleSheetNgGroupIdFromProducts(records = []) {
+    const uniqueGroupIds = [...new Set(records
+        .map(record => normalizeGoogleSheetObjectIdString(record.ngGroupId))
+        .filter(Boolean))];
+
+    if (uniqueGroupIds.length !== 1) {
+        const error = new Error('Selected products must belong to exactly one defect group');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return uniqueGroupIds[0];
+}
+
+async function resolveGoogleSheetNgGroup(db, ngGroupId = '') {
+    const normalizedNgGroupId = normalizeGoogleSheetObjectIdString(ngGroupId);
+    if (!normalizedNgGroupId) {
+        return null;
+    }
+
+    return db.collection('ngGroups').findOne({ _id: new ObjectId(normalizedNgGroupId) });
+}
+
+function buildResolvedGoogleSheetFieldMappings(analysisFields = [], requestedMappings = [], existingHeaders = []) {
+    const requestedMap = new Map(
+        normalizeGoogleSheetFieldMappings(requestedMappings).map(mapping => [mapping.fieldKey, mapping])
+    );
+    const existingHeaderSet = new Set(existingHeaders.map(header => normalizeGoogleSheetString(header)));
+    const usedHeaderNames = new Set();
+
+    return analysisFields.map(field => {
+        const requested = requestedMap.get(field.fieldKey);
+        let headerName = normalizeGoogleSheetString(requested?.headerName || field.headerName || field.fieldLabel);
+        let action = requested?.action || (field.status === 'matched' ? 'map' : 'create');
+
+        if (action === 'map' && !existingHeaderSet.has(headerName)) {
+            const error = new Error(`Mapped header not found in sheet: ${headerName}`);
+            error.statusCode = 400;
+            throw error;
+        }
+
+        if (action === 'create' && existingHeaderSet.has(headerName)) {
+            action = 'map';
+        }
+
+        if (!headerName) {
+            headerName = field.fieldLabel;
+        }
+
+        if (usedHeaderNames.has(headerName)) {
+            const error = new Error(`Header is assigned to multiple fields: ${headerName}`);
+            error.statusCode = 400;
+            throw error;
+        }
+
+        usedHeaderNames.add(headerName);
+
+        return {
+            fieldKey: field.fieldKey,
+            fieldLabel: field.fieldLabel,
+            kind: field.kind,
+            countUp: field.countUp !== false,
+            headerName,
+            action,
+        };
+    });
+}
+
+async function resolveTabletSubmissionMasterRecord(db, submissionData = {}) {
+    const masterRecordId = normalizeGoogleSheetObjectIdString(submissionData.masterRecordId || submissionData.master_record_id);
+    if (masterRecordId) {
+        const record = await db.collection('masterDB').findOne({ _id: new ObjectId(masterRecordId) });
+        if (record) {
+            return record;
+        }
+    }
+
+    const kanbanId = normalizeGoogleSheetString(submissionData.kanbanID || submissionData.kanban_id);
+    if (kanbanId) {
+        const record = await db.collection('masterDB').findOne({ kanbanID: kanbanId });
+        if (record) {
+            return record;
+        }
+    }
+
+    const hinban = normalizeGoogleSheetString(submissionData.品番 || submissionData.hinban);
+    if (hinban) {
+        return db.collection('masterDB').findOne({ 品番: hinban });
+    }
+
+    return null;
+}
+
+function resolveSubmissionNonCountUpDefectKeys(submissionData = {}, ngGroup = null) {
+    const requestedKeys = normalizeGoogleSheetStringList(submissionData.nonCountUpDefectKeys);
+    if (requestedKeys.length > 0) {
+        return requestedKeys;
+    }
+
+    return Array.isArray(ngGroup?.items)
+        ? ngGroup.items
+                .filter(item => item?.countUp === false)
+                .map(item => normalizeGoogleSheetString(item?.name))
+                .filter(Boolean)
+        : [];
+}
+
+async function submitTabletDataToRegisteredGoogleSheets(db, submission = {}) {
+    if (!hasGoogleServiceAccountCredentials()) {
+        return [{ success: false, skipped: true, error: 'Google service account credentials are not configured' }];
+    }
+
+    const masterRecordId = normalizeGoogleSheetString(submission.master_record_id);
+    const ngGroupId = normalizeGoogleSheetString(submission.ng_group_id);
+    if (!masterRecordId && !ngGroupId) {
+        return [];
+    }
+
+    const query = { isActive: { $ne: false } };
+    if (masterRecordId) {
+        query.masterRecordIds = masterRecordId;
+    } else {
+        query.ngGroupId = ngGroupId;
+    }
+
+    const targets = await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).find(query).toArray();
+    if (targets.length === 0) {
+        return [];
+    }
+
+    const ngGroupCache = new Map();
+    const results = [];
+
+    for (const target of targets) {
+        try {
+            const targetNgGroupId = normalizeGoogleSheetObjectIdString(target.ngGroupId || submission.ng_group_id);
+            let ngGroup = ngGroupCache.get(targetNgGroupId);
+            if (!ngGroup && targetNgGroupId) {
+                ngGroup = await resolveGoogleSheetNgGroup(db, targetNgGroupId);
+                ngGroupCache.set(targetNgGroupId, ngGroup || null);
+            }
+
+            const expectedFields = buildExpectedFields({ ngGroup });
+            const appendResult = await appendSubmissionToSheet({
+                spreadsheetId: target.spreadsheetId,
+                sheetName: target.sheetName,
+                expectedFields,
+                fieldMappings: target.fieldMappings,
+                submission,
+                headerRow: Number(target.headerRow) || DEFAULT_HEADER_ROW,
+            });
+
+            await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).updateOne(
+                { _id: target._id },
+                {
+                    $set: {
+                        lastUsedAt: new Date(),
+                        lastSyncStatus: 'success',
+                        lastSyncError: '',
+                    }
+                }
+            );
+
+            results.push({
+                success: true,
+                targetId: String(target._id),
+                label: target.label || `${target.spreadsheetTitle} / ${target.sheetName}`,
+                sheetName: target.sheetName,
+                spreadsheetTitle: target.spreadsheetTitle || '',
+                ...appendResult,
+            });
+        } catch (error) {
+            await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).updateOne(
+                { _id: target._id },
+                {
+                    $set: {
+                        lastUsedAt: new Date(),
+                        lastSyncStatus: 'error',
+                        lastSyncError: String(error.message || 'Unknown error'),
+                    }
+                }
+            );
+
+            results.push({
+                success: false,
+                targetId: String(target._id),
+                label: target.label || `${target.spreadsheetTitle} / ${target.sheetName}`,
+                sheetName: target.sheetName,
+                spreadsheetTitle: target.spreadsheetTitle || '',
+                error: String(error.message || 'Unknown error'),
+            });
+        }
+    }
+
+    return results;
 }
 
 // Multer configuration for file uploads (memory storage)
@@ -1403,6 +1676,7 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
         res.json({
             success: true,
             product: {
+                _id: String(product._id),
                 品番: product.品番,
                 製品名: product.製品名,
                 'LH/RH': product['LH/RH'],
@@ -1651,11 +1925,21 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             }
         }
 
+        const dbName = req.user?.dbName || 'KSG';
+        const db = mongoClient ? mongoClient.db(dbName) : null;
+        const masterRecord = db ? await resolveTabletSubmissionMasterRecord(db, submissionData) : null;
+        const resolvedNgGroupId = normalizeGoogleSheetObjectIdString(submissionData.ngGroupId || masterRecord?.ngGroupId);
+        const ngGroup = (db && resolvedNgGroupId)
+            ? await resolveGoogleSheetNgGroup(db, resolvedNgGroupId)
+            : null;
+        const nonCountUpDefectKeys = resolveSubmissionNonCountUpDefectKeys(submissionData, ngGroup);
+
         // Known fixed keys — everything else is a dynamic defect field
         const KNOWN_KEYS = new Set([
             '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH',
             '技能員①', '技能員②', '良品数', '工数',
-            'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）'
+            'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
+            'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -1700,7 +1984,10 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             trouble_time: parseFloat(submissionData['機械トラブル時間']) || 0,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,
-            submitted_from: submittedFrom
+            submitted_from: submittedFrom,
+            master_record_id: normalizeGoogleSheetObjectIdString(submissionData.masterRecordId || masterRecord?._id),
+            ng_group_id: resolvedNgGroupId,
+            non_countup_defect_keys: nonCountUpDefectKeys
         };
         
         let mongoResult = null;
@@ -1711,7 +1998,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             if (!mongoClient) {
                 console.log('⚠️  [TABLET] MongoDB not connected, skipping database save');
             } else {
-                const db = mongoClient.db('KSG');
+                const db = mongoClient.db(dbName);
                 const collection = db.collection('submittedDB');
                 mongoResult = await collection.insertOne(finalData);
                 console.log(`📊 [TABLET] Data submitted to MongoDB: ${finalData.hinban}`);
@@ -1721,28 +2008,29 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             // Continue with Google Sheets even if MongoDB fails
         }
         
-        // 2. Submit to Google Sheets
-        const GOOGLE_SHEETS_URL = process.env.GOOGLE_SHEETS_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbycrj9KY5aJMYe0kJl7MLQZ-bGvRMxrNIDJ4HXZB7QYvNI3iy3MzC2d92lkKpHzMx1u/exec';
-        
+        // 2. Submit to registered Google Sheets targets
         try {
-            const response = await fetch(GOOGLE_SHEETS_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(finalData)
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                googleSheetsResult = result;
-                console.log(`📊 [TABLET] Data submitted to Google Sheets: ${finalData.hinban}`);
+            if (!db) {
+                console.log('⚠️  [TABLET] MongoDB not connected, skipping Google Sheets target lookup');
             } else {
-                throw new Error(result.error || 'Google Sheets submission failed');
+                const targetResults = await submitTabletDataToRegisteredGoogleSheets(db, finalData);
+                googleSheetsResult = {
+                    success: targetResults.some(result => result.success),
+                    targets: targetResults,
+                };
+
+                if (targetResults.length === 0) {
+                    console.log(`ℹ️ [TABLET] No registered Google Sheets targets matched ${finalData.hinban}`);
+                } else {
+                    console.log(`📊 [TABLET] Google Sheets target results for ${finalData.hinban}:`, targetResults);
+                }
             }
         } catch (googleError) {
             console.error('❌ [TABLET] Google Sheets submission error:', googleError);
+            googleSheetsResult = {
+                success: false,
+                targets: [{ success: false, error: googleError.message || 'Unknown error' }]
+            };
             // Continue even if Google Sheets fails (MongoDB might have succeeded)
         }
         
@@ -1770,8 +2058,9 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
                     insertedId: mongoResult?.insertedId || null
                 },
                 googleSheets: {
-                    success: !!googleSheetsResult,
-                    rowNumber: googleSheetsResult?.rowNumber || null
+                    success: !!googleSheetsResult?.success,
+                    targetCount: Array.isArray(googleSheetsResult?.targets) ? googleSheetsResult.targets.length : 0,
+                    targets: googleSheetsResult?.targets || []
                 },
                 submitted_at: finalData.timestamp
             });
@@ -1800,11 +2089,13 @@ const SUBMITTED_DB_FIXED_FIELDS = new Set([
     'good_count', 'man_hours', 'cycle_time',
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+    'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
-    'submitted_from', 'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
+    'submitted_from', 'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
     'hinban', 'product_name', 'kanban_id', 'lh_rh',
@@ -1839,6 +2130,14 @@ function normalizeSubmittedDBUpdates(source = {}) {
     }
 
     return updates;
+}
+
+function getSubmittedDBNonCountUpDefectKeySet(record = {}) {
+    return new Set(
+        (Array.isArray(record.non_countup_defect_keys) ? record.non_countup_defect_keys : [])
+            .map(key => String(key ?? '').trim())
+            .filter(Boolean)
+    );
 }
 
 function getJapanCalendarDate(date = new Date()) {
@@ -1931,9 +2230,12 @@ function buildSubmittedDBDateRangeExpr(startDateValue, endDateValue) {
     return { $and: rangeExpr };
 }
 
-function getSubmittedDBRecordDefects(record = {}) {
+function getSubmittedDBRecordDefects(record = {}, options = {}) {
+    const includeNonCountUp = Boolean(options.includeNonCountUp);
+    const excludedDefectKeys = includeNonCountUp ? new Set() : getSubmittedDBNonCountUpDefectKeySet(record);
+
     return Object.entries(record)
-        .filter(([key]) => !SUBMITTED_DB_FIXED_FIELDS.has(key))
+        .filter(([key]) => !SUBMITTED_DB_FIXED_FIELDS.has(key) && !excludedDefectKeys.has(String(key ?? '').trim()))
         .map(([name, rawValue]) => ({
             name,
             count: Number(rawValue ?? 0)
@@ -7866,6 +8168,278 @@ app.post("/getMasterDB", async (req, res) => {
     console.error("Error fetching masterDB:", err);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+app.post('/getGoogleSheetServiceAccountInfo', async (_req, res) => {
+    res.json({
+        configured: hasGoogleServiceAccountCredentials(),
+        serviceAccountEmail: getGoogleServiceAccountEmail(),
+    });
+});
+
+app.post('/getGoogleSheetTargets', async (req, res) => {
+    const { dbName } = req.body;
+
+    if (!dbName) {
+        return res.status(400).json({ error: 'dbName is required' });
+    }
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+
+        const db = mongoClient.db(dbName);
+        const targets = await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION)
+            .find({})
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .toArray();
+
+        res.json(targets);
+    } catch (err) {
+        console.error('Error fetching Google Sheet targets:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/inspectGoogleSheet', async (req, res) => {
+    const { spreadsheetUrl } = req.body;
+
+    if (!spreadsheetUrl) {
+        return res.status(400).json({ error: 'spreadsheetUrl is required' });
+    }
+
+    try {
+        if (!hasGoogleServiceAccountCredentials()) {
+            return res.status(503).json({
+                error: 'Google service account credentials are not configured',
+                serviceAccountEmail: getGoogleServiceAccountEmail(),
+            });
+        }
+
+        const inspection = await inspectSpreadsheet(spreadsheetUrl);
+        res.json({
+            success: true,
+            spreadsheetId: inspection.spreadsheetId,
+            spreadsheetTitle: inspection.spreadsheetTitle,
+            sheets: inspection.sheets,
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        });
+    } catch (error) {
+        console.error('Error inspecting Google Sheet:', error);
+        res.status(400).json({
+            success: false,
+            error: error.message || 'Failed to inspect Google Sheet',
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        });
+    }
+});
+
+app.post('/analyzeGoogleSheetTarget', async (req, res) => {
+    const { dbName, spreadsheetUrl, sheetName, masterRecordIds, ngGroupId, fieldMappings } = req.body;
+
+    if (!dbName || !spreadsheetUrl || !sheetName) {
+        return res.status(400).json({ error: 'dbName, spreadsheetUrl, and sheetName are required' });
+    }
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+
+        if (!hasGoogleServiceAccountCredentials()) {
+            return res.status(503).json({
+                error: 'Google service account credentials are not configured',
+                serviceAccountEmail: getGoogleServiceAccountEmail(),
+            });
+        }
+
+        const db = mongoClient.db(dbName);
+        const products = await resolveGoogleSheetTargetProducts(db, masterRecordIds);
+        const resolvedNgGroupId = normalizeGoogleSheetObjectIdString(ngGroupId || deriveGoogleSheetNgGroupIdFromProducts(products));
+        const ngGroup = await resolveGoogleSheetNgGroup(db, resolvedNgGroupId);
+
+        if (!ngGroup) {
+            return res.status(404).json({ error: 'Defect group not found for selected products' });
+        }
+
+        const analysis = await analyzeSheetTarget({
+            spreadsheetUrlOrId: spreadsheetUrl,
+            sheetName,
+            ngGroup,
+            storedMappings: fieldMappings,
+            headerRow: DEFAULT_HEADER_ROW,
+        });
+
+        res.json({
+            success: true,
+            spreadsheetId: analysis.spreadsheetId,
+            spreadsheetTitle: analysis.spreadsheetTitle,
+            sheetName: analysis.selectedSheet.sheetName,
+            sheetId: analysis.selectedSheet.sheetId,
+            headers: analysis.headers,
+            fields: analysis.analysis.fields,
+            unusedHeaders: analysis.analysis.unusedHeaders,
+            ngGroup: {
+                _id: String(ngGroup._id),
+                groupName: ngGroup.groupName || '',
+            },
+            products: buildGoogleSheetTargetProductSnapshots(products),
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        });
+    } catch (error) {
+        console.error('Error analyzing Google Sheet target:', error);
+        res.status(error.statusCode || 400).json({
+            success: false,
+            error: error.message || 'Failed to analyze Google Sheet target',
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        });
+    }
+});
+
+app.post('/saveGoogleSheetTarget', async (req, res) => {
+    const { dbName, username, targetId, target = {} } = req.body;
+
+    if (!dbName || !username) {
+        return res.status(400).json({ error: 'dbName and username are required' });
+    }
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+
+        if (!hasGoogleServiceAccountCredentials()) {
+            return res.status(503).json({
+                error: 'Google service account credentials are not configured',
+                serviceAccountEmail: getGoogleServiceAccountEmail(),
+            });
+        }
+
+        const db = mongoClient.db(dbName);
+        const products = await resolveGoogleSheetTargetProducts(db, target.masterRecordIds);
+        if (products.length === 0) {
+            return res.status(400).json({ error: 'At least one product must be selected' });
+        }
+
+        const ngGroupId = normalizeGoogleSheetObjectIdString(target.ngGroupId || deriveGoogleSheetNgGroupIdFromProducts(products));
+        const ngGroup = await resolveGoogleSheetNgGroup(db, ngGroupId);
+        if (!ngGroup) {
+            return res.status(404).json({ error: 'Defect group not found for selected products' });
+        }
+
+        const analysis = await analyzeSheetTarget({
+            spreadsheetUrlOrId: target.spreadsheetUrl || target.spreadsheetId,
+            sheetName: normalizeGoogleSheetString(target.sheetName),
+            ngGroup,
+            storedMappings: target.fieldMappings,
+            headerRow: DEFAULT_HEADER_ROW,
+        });
+
+        const fieldMappings = buildResolvedGoogleSheetFieldMappings(
+            analysis.analysis.fields,
+            target.fieldMappings,
+            analysis.headers
+        );
+
+        const now = new Date();
+        const productSnapshots = buildGoogleSheetTargetProductSnapshots(products);
+        const document = {
+            label: normalizeGoogleSheetString(target.label) || `${analysis.spreadsheetTitle} / ${analysis.selectedSheet.sheetName}`,
+            spreadsheetId: analysis.spreadsheetId,
+            spreadsheetUrl: normalizeGoogleSheetString(target.spreadsheetUrl),
+            spreadsheetTitle: analysis.spreadsheetTitle,
+            sheetId: analysis.selectedSheet.sheetId,
+            sheetName: analysis.selectedSheet.sheetName,
+            headerRow: DEFAULT_HEADER_ROW,
+            ngGroupId,
+            ngGroupName: normalizeGoogleSheetString(ngGroup.groupName),
+            masterRecordIds: productSnapshots.map(product => product.recordId),
+            masterRecords: productSnapshots,
+            fieldMappings,
+            isActive: target.isActive !== false,
+            updatedAt: now,
+            updatedBy: username,
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        };
+
+        const collection = db.collection(GOOGLE_SHEET_TARGETS_COLLECTION);
+        let savedId = '';
+        const normalizedTargetId = normalizeGoogleSheetObjectIdString(targetId || target._id);
+
+        if (normalizedTargetId) {
+            await collection.updateOne(
+                { _id: new ObjectId(normalizedTargetId) },
+                {
+                    $set: document,
+                    $setOnInsert: { createdAt: now, createdBy: username }
+                },
+                { upsert: true }
+            );
+            savedId = normalizedTargetId;
+            await logGoogleSheetTargetActivity(db, username, 'update', `Google Sheet連携「${document.label}」を更新しました`);
+        } else {
+            const result = await collection.insertOne({
+                ...document,
+                createdAt: now,
+                createdBy: username,
+            });
+            savedId = String(result.insertedId);
+            await logGoogleSheetTargetActivity(db, username, 'create', `Google Sheet連携「${document.label}」を登録しました`);
+        }
+
+        res.json({
+            success: true,
+            savedId,
+            target: {
+                _id: savedId,
+                ...document,
+            },
+        });
+    } catch (error) {
+        console.error('Error saving Google Sheet target:', error);
+        res.status(error.statusCode || 400).json({
+            success: false,
+            error: error.message || 'Failed to save Google Sheet target',
+            serviceAccountEmail: getGoogleServiceAccountEmail(),
+        });
+    }
+});
+
+app.post('/deleteGoogleSheetTarget', async (req, res) => {
+    const { dbName, username, targetId } = req.body;
+
+    if (!dbName || !username || !targetId) {
+        return res.status(400).json({ error: 'dbName, username, and targetId are required' });
+    }
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ error: 'Database not connected' });
+        }
+
+        const normalizedTargetId = normalizeGoogleSheetObjectIdString(targetId);
+        if (!normalizedTargetId) {
+            return res.status(400).json({ error: 'Invalid targetId' });
+        }
+
+        const db = mongoClient.db(dbName);
+        const collection = db.collection(GOOGLE_SHEET_TARGETS_COLLECTION);
+        const existing = await collection.findOne({ _id: new ObjectId(normalizedTargetId) });
+        const result = await collection.deleteOne({ _id: new ObjectId(normalizedTargetId) });
+
+        await logGoogleSheetTargetActivity(
+            db,
+            username,
+            'delete',
+            `Google Sheet連携「${existing?.label || normalizedTargetId}」を削除しました`
+        );
+
+        res.json({ success: true, deletedCount: result.deletedCount || 0 });
+    } catch (error) {
+        console.error('Error deleting Google Sheet target:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete Google Sheet target' });
+    }
 });
 
 // Create Master DB record with image upload
