@@ -3044,13 +3044,32 @@ async function ensureGoogleSheetReferenceData() {
   allNGGroups = await ngGroupsResponse.json();
 }
 
+function gsText(key, replacements = {}) {
+  const template = String(t(`masterDB.googleSheets.${key}`));
+
+  return template.replace(/\{(\w+)\}/g, (match, token) => {
+    if (Object.prototype.hasOwnProperty.call(replacements, token)) {
+      return replacements[token];
+    }
+    return match;
+  });
+}
+
+function getGoogleSheetsLocale() {
+  return typeof getCurrentLanguage === 'function' && getCurrentLanguage() === 'ja' ? 'ja-JP' : 'en-US';
+}
+
+function formatGoogleSheetsDate(value) {
+  return value ? new Date(value).toLocaleString(getGoogleSheetsLocale()) : '';
+}
+
 async function loadGoogleSheetTargets() {
   const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
   const dbName = currentUser.dbName || 'KSG';
   const container = document.getElementById('googleSheetsTargetContainer');
 
   if (!container) return;
-  container.innerHTML = '<p class="text-gray-500">読み込み中...</p>';
+  container.innerHTML = `<p class="text-gray-500">${t('common.loading')}</p>`;
 
   try {
     const [infoRes, targetsRes] = await Promise.all([
@@ -3071,14 +3090,14 @@ async function loadGoogleSheetTargets() {
       : { configured: false, serviceAccountEmail: '' };
 
     if (!targetsRes.ok) {
-      throw new Error('Google Sheets targets could not be loaded');
+      throw new Error(gsText('loadTargetsFailed'));
     }
 
     allGoogleSheetTargets = await targetsRes.json();
     renderGoogleSheetTargets(allGoogleSheetTargets);
   } catch (error) {
     console.error('Failed to load Google Sheet targets:', error);
-    container.innerHTML = `<p class="text-red-600">読み込みに失敗しました: ${escapeHtml(error.message)}</p>`;
+    container.innerHTML = `<p class="text-red-600">${gsText('loadFailed', { message: escapeHtml(error.message) })}</p>`;
   }
 }
 
@@ -3086,33 +3105,39 @@ function renderGoogleSheetTargets(targets = []) {
   const container = document.getElementById('googleSheetsTargetContainer');
   if (!container) return;
 
-  const serviceEmail = escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || '未設定');
+  const serviceEmail = escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || gsText('serviceAccountNotConfigured'));
   const configured = Boolean(googleSheetServiceAccountInfo.configured);
 
   const statusBadge = configured
-    ? '<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">設定済み</span>'
-    : '<span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">未設定</span>';
+    ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('configured')}</span>`
+    : `<span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">${gsText('notConfigured')}</span>`;
 
   const rowsHtml = targets.length === 0
     ? `
       <tr>
         <td colspan="7" class="px-4 py-10 text-center text-gray-500">
-          登録された Google Sheets 連携はまだありません。
+          ${gsText('emptyState')}
         </td>
       </tr>
     `
     : targets.map(target => {
+        const productCount = Array.isArray(target.masterRecords) ? target.masterRecords.length : 0;
         const productNames = Array.isArray(target.masterRecords)
           ? target.masterRecords.slice(0, 3).map(product => escapeHtml(product.hinban || product.productName)).join(' / ')
           : '';
-        const remainingProducts = Array.isArray(target.masterRecords) && target.masterRecords.length > 3
-          ? ` +${target.masterRecords.length - 3}`
+        const remainingProducts = productCount > 3
+          ? ` +${productCount - 3}`
           : '';
         const syncBadge = target.lastSyncStatus === 'success'
-          ? '<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">同期OK</span>'
+          ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('statusSyncOk')}</span>`
           : target.lastSyncStatus === 'error'
-            ? '<span class="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">同期エラー</span>'
-            : '<span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">未実行</span>';
+            ? `<span class="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">${gsText('statusSyncError')}</span>`
+            : `<span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">${gsText('statusNotRun')}</span>`;
+        const lastStatusText = target.lastSyncError
+          ? escapeHtml(target.lastSyncError)
+          : target.lastUsedAt
+            ? escapeHtml(formatGoogleSheetsDate(target.lastUsedAt))
+            : gsText('notSentYet');
 
         return `
           <tr class="hover:bg-gray-50">
@@ -3125,19 +3150,19 @@ function renderGoogleSheetTargets(targets = []) {
             <td class="px-4 py-3">${escapeHtml(target.ngGroupName || '')}</td>
             <td class="px-4 py-3">
               <div class="text-sm text-gray-900">${productNames || '-'}</div>
-              <div class="text-xs text-gray-500">${(target.masterRecords || []).length} 製品${remainingProducts}</div>
+              <div class="text-xs text-gray-500">${gsText('productCount', { count: productCount })}${remainingProducts}</div>
             </td>
             <td class="px-4 py-3">
               ${syncBadge}
-              <div class="mt-1 text-xs text-gray-500">${target.lastSyncError ? escapeHtml(target.lastSyncError) : (target.lastUsedAt ? new Date(target.lastUsedAt).toLocaleString('ja-JP') : 'まだ送信されていません')}</div>
+              <div class="mt-1 text-xs text-gray-500">${lastStatusText}</div>
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex justify-end gap-2">
                 <button type="button" class="inline-flex items-center rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50" onclick="showGoogleSheetTargetModal('${escapeHtml(String(target._id))}')">
-                  <i class="ri-edit-line mr-1"></i>編集
+                  <i class="ri-edit-line mr-1"></i>${t('common.edit')}
                 </button>
                 <button type="button" class="inline-flex items-center rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50" onclick="deleteGoogleSheetTarget('${escapeHtml(String(target._id))}')">
-                  <i class="ri-delete-bin-line mr-1"></i>削除
+                  <i class="ri-delete-bin-line mr-1"></i>${t('common.delete')}
                 </button>
               </div>
             </td>
@@ -3150,32 +3175,32 @@ function renderGoogleSheetTargets(targets = []) {
       <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div class="mb-2 flex items-center gap-3">
-            <h2 class="text-xl font-semibold text-slate-900">Google Sheets 連携</h2>
+            <h2 class="text-xl font-semibold text-slate-900">${gsText('title')}</h2>
             ${statusBadge}
           </div>
-          <p class="text-sm text-slate-600">管理者はシートURLを登録し、タブを選び、製品と不良グループを結び付けます。タブレット送信時はここで保存した設定に従って自動追記されます。</p>
+          <p class="text-sm text-slate-600">${gsText('description')}</p>
         </div>
         <button type="button" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700" onclick="showGoogleSheetTargetModal()">
-          <i class="ri-add-line mr-2"></i>Google Sheet を登録
+          <i class="ri-add-line mr-2"></i>${gsText('registerButton')}
         </button>
       </div>
       <div class="mt-4 rounded-xl border border-dashed ${configured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'} p-4 text-sm">
-        <div class="font-semibold text-slate-900">共有先サービスアカウント</div>
+        <div class="font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
         <div class="mt-1 font-mono text-xs text-slate-700">${serviceEmail}</div>
-        <p class="mt-2 text-xs text-slate-600">このメールアドレスを対象の Google Sheet に編集者として共有してください。共有後に「アクセス確認」を押すとタブ一覧を取得できます。</p>
+        <p class="mt-2 text-xs text-slate-600">${gsText('serviceAccountDescription')}</p>
       </div>
     </div>
     <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
       <table class="w-full text-sm">
         <thead class="bg-gray-50">
           <tr>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">連携名</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">Spreadsheet</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">タブ</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">不良グループ</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">対象製品</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">最終状態</th>
-            <th class="px-4 py-3 text-right font-semibold text-gray-600">操作</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLinkName')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSpreadsheet')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSheet')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableNgGroup')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableTargetProducts')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLastStatus')}</th>
+            <th class="px-4 py-3 text-right font-semibold text-gray-600">${t('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white">
@@ -3189,14 +3214,19 @@ function renderGoogleSheetTargets(targets = []) {
 function buildGoogleSheetTargetModalHtml(target = {}) {
   const label = escapeHtml(target.label || '');
   const spreadsheetUrl = escapeHtml(target.spreadsheetUrl || target.spreadsheetId || '');
+  const serviceAccountEmail = escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || gsText('serviceAccountNotConfigured'));
+  const modalTitle = target._id ? gsText('modalEditTitle') : gsText('modalCreateTitle');
+  const serviceAccountStatus = googleSheetServiceAccountInfo.configured
+    ? gsText('serviceAccountConfigured')
+    : gsText('serviceAccountMissing');
 
   return `
     <div id="googleSheetTargetModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div class="flex items-center justify-between border-b px-6 py-4">
           <div>
-            <h2 class="text-2xl font-semibold text-slate-900">${target._id ? 'Google Sheet 連携を編集' : 'Google Sheet 連携を登録'}</h2>
-            <p class="mt-1 text-sm text-slate-500">URLを確認し、タブと不良グループを選択してから列チェックを行います。</p>
+            <h2 class="text-2xl font-semibold text-slate-900">${modalTitle}</h2>
+            <p class="mt-1 text-sm text-slate-500">${gsText('modalDescription')}</p>
           </div>
           <button type="button" class="text-gray-500 hover:text-gray-700" onclick="closeGoogleSheetTargetModal()">
             <i class="ri-close-line text-2xl"></i>
@@ -3205,34 +3235,34 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
         <div class="flex-1 overflow-y-auto px-6 py-6">
           <div class="space-y-6">
             <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div class="text-sm font-semibold text-slate-900">共有先サービスアカウント</div>
-              <div id="gstServiceAccountEmail" class="mt-1 font-mono text-xs text-slate-700">${escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || '未設定')}</div>
-              <div id="gstServiceAccountStatus" class="mt-2 text-xs ${googleSheetServiceAccountInfo.configured ? 'text-emerald-700' : 'text-amber-700'}">${googleSheetServiceAccountInfo.configured ? 'サーバー側のサービスアカウントは設定済みです。' : 'サービスアカウントが未設定です。サーバー環境変数を確認してください。'}</div>
+              <div class="text-sm font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
+              <div id="gstServiceAccountEmail" class="mt-1 font-mono text-xs text-slate-700">${serviceAccountEmail}</div>
+              <div id="gstServiceAccountStatus" class="mt-2 text-xs ${googleSheetServiceAccountInfo.configured ? 'text-emerald-700' : 'text-amber-700'}">${serviceAccountStatus}</div>
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">連携名</label>
-                <input id="gstLabel" type="text" value="${label}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="例: 300D 本社 Google Sheet" />
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('labelField')}</label>
+                <input id="gstLabel" type="text" value="${label}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="${gsText('labelPlaceholder')}" />
               </div>
               <div class="md:col-span-1">
-                <label class="mb-1 block text-sm font-medium text-gray-700">Google Sheet URL</label>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('spreadsheetUrlField')}</label>
                 <div class="flex gap-2">
                   <input id="gstSpreadsheetUrl" type="text" value="${spreadsheetUrl}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="https://docs.google.com/spreadsheets/d/..." />
-                  <button type="button" class="shrink-0 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900" onclick="inspectGoogleSheetFromModal()">アクセス確認</button>
+                  <button type="button" class="shrink-0 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900" onclick="inspectGoogleSheetFromModal()">${gsText('verifyAccess')}</button>
                 </div>
-                <p id="gstInspectStatus" class="mt-2 text-xs text-slate-500">まず URL を確認して、利用可能なタブを取得してください。</p>
+                <p id="gstInspectStatus" class="mt-2 text-xs text-slate-500">${gsText('verifyUrlHint')}</p>
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">タブ</label>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('sheetField')}</label>
                 <select id="gstSheetName" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="resetGoogleSheetAnalysisView()">
-                  <option value="">アクセス確認後に選択</option>
+                  <option value="">${gsText('sheetPlaceholderAfterVerify')}</option>
                 </select>
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">不良グループ</label>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('ngGroupField')}</label>
                 <select id="gstNgGroupId" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetGroupChange()">
-                  <option value="">不良グループを選択</option>
+                  <option value="">${gsText('ngGroupPlaceholder')}</option>
                 </select>
               </div>
             </div>
@@ -3240,27 +3270,27 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
             <div class="rounded-xl border border-gray-200 p-4">
               <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 class="text-base font-semibold text-slate-900">対象製品</h3>
-                  <p class="text-xs text-slate-500">選択した製品IDで連携先を判定します。同じ不良グループ内の製品だけを選んでください。</p>
+                  <h3 class="text-base font-semibold text-slate-900">${gsText('targetProductsTitle')}</h3>
+                  <p class="text-xs text-slate-500">${gsText('targetProductsDescription')}</p>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(true)">すべて選択</button>
-                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(false)">すべて解除</button>
+                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(true)">${gsText('selectAll')}</button>
+                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(false)">${gsText('clearAll')}</button>
                 </div>
               </div>
-              <div id="gstProductCount" class="mb-2 text-xs font-medium text-slate-600">0 件選択中</div>
+              <div id="gstProductCount" class="mb-2 text-xs font-medium text-slate-600">${gsText('selectedCount', { count: 0 })}</div>
               <div id="gstProductList" class="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <p class="text-sm text-gray-500">不良グループを選択すると製品が表示されます。</p>
+                <p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>
               </div>
             </div>
 
             <div class="rounded-xl border border-gray-200 p-4">
               <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 class="text-base font-semibold text-slate-900">列チェック</h3>
-                  <p class="text-xs text-slate-500">既存ヘッダーを自動判定します。曖昧な列だけ管理者が選び、それ以外は自動で新しい列を作成できます。</p>
+                  <h3 class="text-base font-semibold text-slate-900">${gsText('columnCheckTitle')}</h3>
+                  <p class="text-xs text-slate-500">${gsText('columnCheckDescription')}</p>
                 </div>
-                <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="analyzeGoogleSheetModal()">列をチェック</button>
+                <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="analyzeGoogleSheetModal()">${gsText('checkColumns')}</button>
               </div>
               <div id="gstAnalysisSection" class="hidden">
                 <div id="gstAnalysisContainer"></div>
@@ -3269,8 +3299,8 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
           </div>
         </div>
         <div class="flex justify-end gap-3 border-t bg-gray-50 px-6 py-4">
-          <button type="button" class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300" onclick="closeGoogleSheetTargetModal()">キャンセル</button>
-          <button id="gstSaveBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" onclick="saveGoogleSheetTarget()" disabled>保存</button>
+          <button type="button" class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300" onclick="closeGoogleSheetTargetModal()">${t('common.cancel')}</button>
+          <button id="gstSaveBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" onclick="saveGoogleSheetTarget()" disabled>${t('common.save')}</button>
         </div>
       </div>
     </div>
@@ -3321,7 +3351,7 @@ function populateGoogleSheetNgGroupOptions(selectedId = '') {
   if (!select) return;
 
   const sortedGroups = [...allNGGroups].sort((a, b) => String(a.groupName || '').localeCompare(String(b.groupName || ''), 'ja'));
-  select.innerHTML = '<option value="">不良グループを選択</option>' + sortedGroups.map(group => `
+  select.innerHTML = `<option value="">${gsText('ngGroupPlaceholder')}</option>` + sortedGroups.map(group => `
     <option value="${escapeHtml(String(group._id))}" ${String(group._id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(group.groupName || '')}</option>
   `).join('');
 }
@@ -3336,13 +3366,13 @@ function renderGoogleSheetTargetProductChecklist(ngGroupId = '', selectedIds = [
     .sort((a, b) => String(a.品番 || '').localeCompare(String(b.品番 || ''), 'ja'));
 
   if (!ngGroupId) {
-    list.innerHTML = '<p class="text-sm text-gray-500">不良グループを選択すると製品が表示されます。</p>';
+    list.innerHTML = `<p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>`;
     updateGoogleSheetTargetProductCount();
     return;
   }
 
   if (products.length === 0) {
-    list.innerHTML = '<p class="text-sm text-amber-600">この不良グループに紐付いた製品がありません。</p>';
+    list.innerHTML = `<p class="text-sm text-amber-600">${gsText('noProductsForGroup')}</p>`;
     updateGoogleSheetTargetProductCount();
     return;
   }
@@ -3380,7 +3410,7 @@ function updateGoogleSheetTargetProductCount() {
   const selectedCount = document.querySelectorAll('.gst-product-checkbox:checked').length;
   const countEl = document.getElementById('gstProductCount');
   if (countEl) {
-    countEl.textContent = `${selectedCount} 件選択中`;
+    countEl.textContent = gsText('selectedCount', { count: selectedCount });
   }
 }
 
@@ -3406,12 +3436,12 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
   const emailEl = document.getElementById('gstServiceAccountEmail');
 
   if (!spreadsheetUrl) {
-    alert('Google Sheet URL を入力してください。');
+    alert(gsText('enterSpreadsheetUrl'));
     return;
   }
 
   if (statusEl) {
-    statusEl.textContent = 'アクセス確認中...';
+    statusEl.textContent = gsText('verifyingAccess');
     statusEl.className = 'mt-2 text-xs text-slate-500';
   }
 
@@ -3437,11 +3467,11 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
     }
 
     if (!response.ok || !result.success) {
-      const rawError = String(result?.error || 'Google Sheet にアクセスできませんでした');
+      const rawError = String(result?.error || gsText('inspectFailedNoAccess'));
       const normalizedError = rawError.toLowerCase();
 
       if (serviceAccountEmail && (normalizedError.includes('permission') || normalizedError.includes('forbidden') || normalizedError.includes('insufficient'))) {
-        const shareMessage = `この Google Sheet はまだ共有されていません。Google Sheet の共有設定で ${serviceAccountEmail} を編集者として追加してください。`;
+        const shareMessage = gsText('shareSheetMessage', { email: serviceAccountEmail });
 
         if (statusEl) {
           statusEl.textContent = shareMessage;
@@ -3466,21 +3496,24 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
       const sheetOptions = (result.sheets || []).map(sheet => `
         <option value="${escapeHtml(sheet.sheetName)}" ${sheet.sheetName === selectedSheetName ? 'selected' : ''}>${escapeHtml(sheet.sheetName)}</option>
       `).join('');
-      sheetSelect.innerHTML = '<option value="">タブを選択</option>' + sheetOptions;
+      sheetSelect.innerHTML = `<option value="">${gsText('sheetPlaceholderSelect')}</option>` + sheetOptions;
     }
 
     if (statusEl) {
-      statusEl.textContent = `アクセス成功: ${result.spreadsheetTitle} (${(result.sheets || []).length} タブ)`;
+      statusEl.textContent = gsText('accessSuccess', {
+        title: result.spreadsheetTitle,
+        count: (result.sheets || []).length,
+      });
       statusEl.className = 'mt-2 text-xs text-emerald-700';
     }
   } catch (error) {
     console.error('Failed to inspect Google Sheet:', error);
     currentGoogleSheetInspection = null;
     if (sheetSelect) {
-      sheetSelect.innerHTML = '<option value="">アクセス確認後に選択</option>';
+      sheetSelect.innerHTML = `<option value="">${gsText('sheetPlaceholderAfterVerify')}</option>`;
     }
     if (statusEl) {
-      statusEl.textContent = `アクセス失敗: ${error.message}`;
+      statusEl.textContent = gsText('accessFailed', { message: error.message });
       statusEl.className = 'mt-2 text-xs text-red-600';
     }
   }
@@ -3518,14 +3551,14 @@ function buildGoogleSheetFieldSelectOptions(field, analysis) {
 
   const options = [];
   if (field.status === 'review') {
-    options.push('<option value="">列を選択してください</option>');
+    options.push(`<option value="">${gsText('selectColumnPrompt')}</option>`);
   }
 
   candidateHeaders.forEach(headerName => {
-    options.push(`<option value="${escapeHtml(headerName)}">既存列: ${escapeHtml(headerName)}</option>`);
+    options.push(`<option value="${escapeHtml(headerName)}">${gsText('existingColumnOption', { name: escapeHtml(headerName) })}</option>`);
   });
 
-  options.push(`<option value="__create__" ${field.status === 'new' ? 'selected' : ''}>新しい列を作成 (${escapeHtml(field.fieldLabel)})</option>`);
+  options.push(`<option value="__create__" ${field.status === 'new' ? 'selected' : ''}>${gsText('createNewColumnOption', { name: escapeHtml(field.fieldLabel) })}</option>`);
   return options.join('');
 }
 
@@ -3538,13 +3571,13 @@ function renderGoogleSheetAnalysis(analysis) {
   const matchedCount = analysis.fields.filter(field => field.status === 'matched').length;
   const reviewFields = analysis.fields.filter(field => field.status !== 'matched');
   const reviewRows = reviewFields.length === 0
-    ? '<p class="text-sm text-emerald-700">すべての列を自動判定できました。保存すると不足列は初回送信時に自動追加されます。</p>'
+    ? `<p class="text-sm text-emerald-700">${gsText('allColumnsMatched')}</p>`
     : reviewFields.map((field, index) => `
         <div class="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-white p-3 md:grid-cols-[1.2fr_1.5fr]">
           <div>
             <div class="font-medium text-slate-900">${escapeHtml(field.fieldLabel)}</div>
             <div class="mt-1 text-xs ${field.status === 'review' ? 'text-amber-700' : 'text-slate-500'}">
-              ${field.status === 'review' ? '候補が複数あるため管理者の確認が必要です。' : '一致する列が見つからないため、新しい列を作成するか既存列へ割り当ててください。'}
+              ${field.status === 'review' ? gsText('reviewNeededMultiple') : gsText('reviewNeededMissing')}
             </div>
           </div>
           <div>
@@ -3567,21 +3600,21 @@ function renderGoogleSheetAnalysis(analysis) {
   container.innerHTML = `
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <div class="rounded-xl bg-emerald-50 p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-emerald-700">自動一致</div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-emerald-700">${gsText('summaryAutoMatched')}</div>
         <div class="mt-2 text-2xl font-semibold text-emerald-900">${matchedCount}</div>
       </div>
       <div class="rounded-xl bg-amber-50 p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">確認が必要</div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">${gsText('summaryNeedsReview')}</div>
         <div class="mt-2 text-2xl font-semibold text-amber-900">${analysis.fields.filter(field => field.status === 'review').length}</div>
       </div>
       <div class="rounded-xl bg-slate-50 p-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-slate-600">新規列候補</div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-600">${gsText('summaryNewColumns')}</div>
         <div class="mt-2 text-2xl font-semibold text-slate-900">${analysis.fields.filter(field => field.status === 'new').length}</div>
       </div>
     </div>
     <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-      <div class="mb-3 text-sm font-semibold text-slate-900">自動判定済みフィールド</div>
-      <div class="flex flex-wrap gap-2">${matchedRows || '<span class="text-sm text-gray-500">一致した列はありません。</span>'}</div>
+      <div class="mb-3 text-sm font-semibold text-slate-900">${gsText('matchedFieldsTitle')}</div>
+      <div class="flex flex-wrap gap-2">${matchedRows || `<span class="text-sm text-gray-500">${gsText('noMatchedFields')}</span>`}</div>
     </div>
     <div class="mt-4 space-y-3">
       ${reviewRows}
@@ -3606,7 +3639,7 @@ function collectGoogleSheetTargetFieldMappings() {
     const selectedValue = select?.value || '';
 
     if (!selectedValue) {
-      throw new Error(`「${field.fieldLabel}」の割り当て先を選択してください。`);
+      throw new Error(gsText('mappingRequired', { field: field.fieldLabel }));
     }
 
     if (selectedValue === '__create__') {
@@ -3626,12 +3659,12 @@ async function analyzeGoogleSheetModal(initialMappings = null) {
   const selectedProducts = getSelectedGoogleSheetProductIds();
 
   if (!spreadsheetUrl || !sheetName || !ngGroupId) {
-    alert('URL、タブ、不良グループを選択してください。');
+    alert(gsText('selectUrlTabGroup'));
     return;
   }
 
   if (selectedProducts.length === 0) {
-    alert('対象製品を1件以上選択してください。');
+    alert(gsText('selectAtLeastOneProduct'));
     return;
   }
 
@@ -3655,7 +3688,7 @@ async function analyzeGoogleSheetModal(initialMappings = null) {
 
     const result = await response.json();
     if (!response.ok || !result.success) {
-      throw new Error(result.error || '列チェックに失敗しました');
+      throw new Error(result.error || gsText('columnCheckFailed'));
     }
 
     currentGoogleSheetAnalysis = result;
@@ -3666,7 +3699,7 @@ async function analyzeGoogleSheetModal(initialMappings = null) {
     renderGoogleSheetAnalysis(result);
   } catch (error) {
     console.error('Failed to analyze Google Sheet target:', error);
-    alert(`列チェックに失敗しました: ${error.message}`);
+    alert(`${gsText('columnCheckFailed')}: ${error.message}`);
     resetGoogleSheetAnalysisView();
   }
 }
@@ -3682,12 +3715,12 @@ async function saveGoogleSheetTarget() {
   const masterRecordIds = getSelectedGoogleSheetProductIds();
 
   if (!currentGoogleSheetAnalysis) {
-    alert('保存前に「列をチェック」を実行してください。');
+    alert(gsText('runColumnCheckBeforeSave'));
     return;
   }
 
   if (!spreadsheetUrl || !sheetName || !ngGroupId || masterRecordIds.length === 0) {
-    alert('URL、タブ、不良グループ、対象製品を確認してください。');
+    alert(gsText('confirmUrlTabGroupProducts'));
     return;
   }
 
@@ -3715,20 +3748,20 @@ async function saveGoogleSheetTarget() {
 
     const result = await response.json();
     if (!response.ok || !result.success) {
-      throw new Error(result.error || '保存に失敗しました');
+      throw new Error(result.error || gsText('saveFailed'));
     }
 
-    alert('Google Sheet 連携を保存しました。');
+    alert(gsText('saveSuccess'));
     closeGoogleSheetTargetModal();
     loadGoogleSheetTargets();
   } catch (error) {
     console.error('Failed to save Google Sheet target:', error);
-    alert(`保存に失敗しました: ${error.message}`);
+    alert(`${gsText('saveFailed')}: ${error.message}`);
   }
 }
 
 async function deleteGoogleSheetTarget(targetId) {
-  if (!confirm('この Google Sheet 連携を削除しますか？')) {
+  if (!confirm(gsText('deleteConfirm'))) {
     return;
   }
 
@@ -3745,14 +3778,14 @@ async function deleteGoogleSheetTarget(targetId) {
 
     const result = await response.json();
     if (!response.ok || !result.success) {
-      throw new Error(result.error || '削除に失敗しました');
+      throw new Error(result.error || gsText('deleteFailed'));
     }
 
-    alert('Google Sheet 連携を削除しました。');
+    alert(gsText('deleteSuccess'));
     loadGoogleSheetTargets();
   } catch (error) {
     console.error('Failed to delete Google Sheet target:', error);
-    alert(`削除に失敗しました: ${error.message}`);
+    alert(`${gsText('deleteFailed')}: ${error.message}`);
   }
 }
 
