@@ -62,6 +62,36 @@ function analyticsFormatHours(value) {
   return `${analyticsFormatNumber(value, 2)} h`;
 }
 
+function analyticsFormatTooltipMetric(seriesName, value) {
+  const number = Number(Array.isArray(value) ? value[value.length - 1] : value);
+  if (!Number.isFinite(number)) return '-';
+
+  if (/(hour|time)/i.test(seriesName)) {
+    return `${analyticsFormatNumber(number, 2)} h`;
+  }
+
+  if (/(rate|%)/i.test(seriesName)) {
+    return `${analyticsFormatNumber(number, 2)}%`;
+  }
+
+  return analyticsFormatNumber(number, Number.isInteger(number) ? 0 : 2);
+}
+
+function analyticsAxisTooltipFormatter(params) {
+  const items = Array.isArray(params) ? params : [params];
+  if (!items.length) return '';
+
+  const axisLabel = analyticsEscapeHtml(items[0].axisValueLabel || items[0].name || '');
+  const rows = items.map(item => {
+    const marker = item.marker || '';
+    const seriesName = analyticsEscapeHtml(item.seriesName || 'Value');
+    const formattedValue = analyticsFormatTooltipMetric(item.seriesName || '', item.value);
+    return `${marker}${seriesName}<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${formattedValue}</span>`;
+  }).join('<br>');
+
+  return `${axisLabel}<br/>${rows}`;
+}
+
 function analyticsFormatDateTime(value) {
   if (!value) return '-';
 
@@ -386,7 +416,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
 
   analyticsRenderChart('analyticsTrendChart', {
     color: ['#0f172a', '#14b8a6', '#f59e0b', '#ef4444'],
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: ['Good Pieces', 'Man Hours', 'Issue Records', 'Defect Rate'] },
     grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
     xAxis: {
@@ -532,7 +562,7 @@ function renderAnalyticsOperatorsChart(operatorComparison) {
 
   analyticsRenderChart('analyticsOperatorsChart', {
     color: ['#0f766e', '#ea580c'],
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: ['Good Pieces', 'Defect Rate'] },
     grid: { left: 40, right: 40, top: 48, bottom: 48, containLabel: true },
     xAxis: {
@@ -581,7 +611,7 @@ function renderAnalyticsOperatorFocusChart(operatorFocus) {
 
   analyticsRenderChart('analyticsOperatorFocusChart', {
     color: ['#1e293b', '#f59e0b', '#ef4444', '#10b981'],
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: ['Man Hours', 'Break Time', 'Trouble Time', 'Good Pieces'] },
     grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
     xAxis: {
@@ -738,7 +768,7 @@ function renderAnalyticsMachineChart(sourceBreakdown) {
 
   analyticsRenderChart('analyticsSourceChart', {
     color: ['#06b6d4', '#f59e0b', '#ef4444'],
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: ['Good Pieces', 'Trouble Time', 'Defect Rate'] },
     grid: { left: 40, right: 40, top: 48, bottom: 48, containLabel: true },
     xAxis: {
@@ -911,7 +941,7 @@ function renderAnalyticsDefectsChart(topDefects) {
   const reversed = rankedDefects.slice().reverse();
   analyticsRenderChart('analyticsDefectsChart', {
     color: ['#dc2626'],
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: analyticsAxisTooltipFormatter },
     grid: { left: 140, right: 28, top: 20, bottom: 24 },
     xAxis: {
       type: 'value',
@@ -924,6 +954,7 @@ function renderAnalyticsDefectsChart(topDefects) {
     },
     series: [
       {
+        name: 'Count',
         type: 'bar',
         data: reversed.map(item => Number(item.count || 0)),
         barMaxWidth: 22,
@@ -1066,7 +1097,7 @@ function renderAnalyticsProductsChart(topProducts) {
 
   analyticsRenderChart('analyticsProductsChart', {
     color: ['#0ea5e9', '#ef4444'],
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: ['Good Pieces', 'Defect Rate'] },
     grid: { left: 40, right: 40, top: 48, bottom: 60, containLabel: true },
     xAxis: {
