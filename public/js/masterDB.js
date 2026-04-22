@@ -3403,6 +3403,7 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
   const spreadsheetUrl = document.getElementById('gstSpreadsheetUrl')?.value?.trim() || '';
   const statusEl = document.getElementById('gstInspectStatus');
   const sheetSelect = document.getElementById('gstSheetName');
+  const emailEl = document.getElementById('gstServiceAccountEmail');
 
   if (!spreadsheetUrl) {
     alert('Google Sheet URL を入力してください。');
@@ -3422,13 +3423,42 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
     });
 
     const result = await response.json();
+    const serviceAccountEmail = result?.serviceAccountEmail || googleSheetServiceAccountInfo.serviceAccountEmail || '';
+
+    if (serviceAccountEmail) {
+      googleSheetServiceAccountInfo = {
+        configured: googleSheetServiceAccountInfo.configured || Boolean(result?.success),
+        serviceAccountEmail,
+      };
+
+      if (emailEl) {
+        emailEl.textContent = serviceAccountEmail;
+      }
+    }
+
     if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Google Sheet にアクセスできませんでした');
+      const rawError = String(result?.error || 'Google Sheet にアクセスできませんでした');
+      const normalizedError = rawError.toLowerCase();
+
+      if (serviceAccountEmail && (normalizedError.includes('permission') || normalizedError.includes('forbidden') || normalizedError.includes('insufficient'))) {
+        const shareMessage = `この Google Sheet はまだ共有されていません。Google Sheet の共有設定で ${serviceAccountEmail} を編集者として追加してください。`;
+
+        if (statusEl) {
+          statusEl.textContent = shareMessage;
+          statusEl.className = 'mt-2 text-xs text-amber-700';
+        }
+
+        alert(shareMessage);
+        resetGoogleSheetAnalysisView();
+        return;
+      }
+
+      throw new Error(rawError);
     }
 
     googleSheetServiceAccountInfo = {
       configured: true,
-      serviceAccountEmail: result.serviceAccountEmail || googleSheetServiceAccountInfo.serviceAccountEmail,
+      serviceAccountEmail,
     };
     currentGoogleSheetInspection = result;
 
@@ -3442,11 +3472,6 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
     if (statusEl) {
       statusEl.textContent = `アクセス成功: ${result.spreadsheetTitle} (${(result.sheets || []).length} タブ)`;
       statusEl.className = 'mt-2 text-xs text-emerald-700';
-    }
-
-    const emailEl = document.getElementById('gstServiceAccountEmail');
-    if (emailEl && result.serviceAccountEmail) {
-      emailEl.textContent = result.serviceAccountEmail;
     }
   } catch (error) {
     console.error('Failed to inspect Google Sheet:', error);
