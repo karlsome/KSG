@@ -123,6 +123,7 @@
   <!-- JS Scripts -->
   <script src="/js/languages.js"></script>
   <script src="/js/userManagement.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     // Toggle dropdown
     function toggleDropdown() {
@@ -368,9 +369,13 @@
     let adminDashboardOpenRecordId = '';
     let adminDashboardData = null;
     let adminDashboardInsightKey = '';
+    let adminDashboardSocket = null;
+    let adminDashboardSocketConnected = false;
+    let adminDashboardRealtimeRefreshTimeout = null;
     const DASHBOARD_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
     const DASHBOARD_WORKDAY_HOURS = 8;
     const DASHBOARD_AUTO_REFRESH_MS = 15000;
+    const DASHBOARD_REALTIME_DEBOUNCE_MS = 250;
     const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
       '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
       'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
@@ -533,6 +538,76 @@
       if (token) headers.Authorization = `Bearer ${token}`;
 
       return headers;
+    }
+
+    function getDashboardSocketSession() {
+      const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+      return {
+        username: currentUser.username || '',
+        role: currentUser.role || '',
+        dbName: currentUser.dbName || '',
+        token: localStorage.getItem('ksgToken') || ''
+      };
+    }
+
+    function scheduleAdminDashboardRealtimeRefresh() {
+      if (currentPage !== 'dashboard') return;
+
+      if (adminDashboardRealtimeRefreshTimeout) {
+        clearTimeout(adminDashboardRealtimeRefreshTimeout);
+      }
+
+      adminDashboardRealtimeRefreshTimeout = window.setTimeout(() => {
+        adminDashboardRealtimeRefreshTimeout = null;
+        if (document.getElementById('dashboardRefreshBtn')?.disabled) return;
+        loadAdminDashboard();
+      }, DASHBOARD_REALTIME_DEBOUNCE_MS);
+    }
+
+    function registerAdminDashboardSocket() {
+      if (!adminDashboardSocket || !adminDashboardSocket.connected) return;
+
+      const session = getDashboardSocketSession();
+      if (!session.token && !session.username) return;
+
+      adminDashboardSocket.emit('admin_dashboard_register', session);
+    }
+
+    function initializeAdminDashboardSocket() {
+      if (typeof io === 'undefined' || adminDashboardSocket) return;
+
+      adminDashboardSocket = io(API_URL || window.location.origin, {
+        transports: ['websocket', 'polling']
+      });
+
+      adminDashboardSocket.on('connect', () => {
+        adminDashboardSocketConnected = false;
+        registerAdminDashboardSocket();
+        scheduleAdminDashboardRealtimeRefresh();
+      });
+
+      adminDashboardSocket.on('disconnect', () => {
+        adminDashboardSocketConnected = false;
+      });
+
+      adminDashboardSocket.on('connect_error', (error) => {
+        adminDashboardSocketConnected = false;
+        console.error('admin dashboard socket connect error:', error);
+      });
+
+      adminDashboardSocket.on('admin_dashboard_registered', () => {
+        adminDashboardSocketConnected = true;
+        scheduleAdminDashboardRealtimeRefresh();
+      });
+
+      adminDashboardSocket.on('admin_dashboard_error', (data) => {
+        adminDashboardSocketConnected = false;
+        console.error('admin dashboard socket registration error:', data?.error || 'unknown error');
+      });
+
+      adminDashboardSocket.on('admin_dashboard_update', () => {
+        scheduleAdminDashboardRealtimeRefresh();
+      });
     }
 
     function disposeAdminDashboardChart() {
@@ -1637,6 +1712,7 @@
 
     window.setInterval(() => {
       if (currentPage !== 'dashboard' || document.visibilityState === 'hidden') return;
+      if (adminDashboardSocketConnected) return;
       if (document.getElementById('dashboardRefreshBtn')?.disabled) return;
       loadAdminDashboard();
     }, DASHBOARD_AUTO_REFRESH_MS);
@@ -1655,6 +1731,8 @@
           console.warn('Failed to parse URL token:', e);
         }
       }
+
+      initializeAdminDashboardSocket();
 
       applyPageTranslations();
       loadPage('dashboard');

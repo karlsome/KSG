@@ -37,6 +37,23 @@ const io = new Server(server, {
 // Make Socket.IO instance available to routes
 app.set('socketio', io);
 
+function getAdminDashboardRoomName(dbName = 'KSG') {
+    const normalizedDbName = String(dbName || 'KSG').trim() || 'KSG';
+    return `admin_dashboard_${normalizedDbName}`;
+}
+
+function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
+    const normalizedDbName = String(dbName || 'KSG').trim() || 'KSG';
+
+    io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
+        dbName: normalizedDbName,
+        reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
+        source: String(update.source || 'server').trim() || 'server',
+        timestamp: update.timestamp || new Date().toISOString(),
+        ...update
+    });
+}
+
 app.use(express.json());
 
 // Serve static files
@@ -1477,9 +1494,16 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
 app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
     try {
         const payload = req.body || {};
+        const dbName = req.user?.dbName || req.company || 'KSG';
 
         if (payload.clear) {
             const cleared = await clearTabletActiveSession(req);
+            emitAdminDashboardRefresh(dbName, {
+                reason: 'tablet-session-cleared',
+                source: 'tablet-session',
+                tabletId: req.tablet?.tabletId || req.user?.tabletId || '',
+                tabletName: req.tablet?.tabletName || req.user?.tabletName || ''
+            });
             return res.json({
                 success: true,
                 cleared: true,
@@ -1492,6 +1516,14 @@ app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
         }
 
         const result = await upsertTabletActiveSession(req, payload);
+        emitAdminDashboardRefresh(dbName, {
+            reason: 'tablet-session-updated',
+            source: 'tablet-session',
+            tabletId: result.document.tabletId,
+            tabletName: result.document.tabletName,
+            equipmentName: result.document.equipmentName,
+            status: result.document.status
+        });
 
         res.json({
             success: true,
@@ -1723,6 +1755,12 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             } catch (sessionError) {
                 console.error('❌ [TABLET] Failed to clear active session after submit:', sessionError);
             }
+
+            emitAdminDashboardRefresh(req.user?.dbName || req.company || 'KSG', {
+                reason: 'tablet-submit-success',
+                source: 'tablet-submit',
+                insertedId: mongoResult?.insertedId ? String(mongoResult.insertedId) : ''
+            });
 
             res.json({
                 success: true,
@@ -4606,6 +4644,39 @@ io.on('connection', (socket) => {
             console.log(`🔗 Client ${socket.id} joined room: ${data.room}`);
         }
     });
+
+    socket.on('admin_dashboard_register', async (data = {}) => {
+        try {
+            const session = extractSubmittedDBSocketContext(data);
+            const userContext = await resolveSubmittedDBUserFromSession(session);
+            const room = getAdminDashboardRoomName(userContext.dbName);
+
+            if (socket.adminDashboardRoom && socket.adminDashboardRoom !== room) {
+                socket.leave(socket.adminDashboardRoom);
+            }
+
+            socket.join(room);
+            socket.adminDashboardRoom = room;
+            socket.clientType = 'admin-dashboard';
+
+            console.log(`📈 Admin dashboard ${socket.id} subscribed to ${room} as ${userContext.username}`);
+            socket.emit('admin_dashboard_registered', {
+                success: true,
+                dbName: userContext.dbName,
+                username: userContext.username,
+                room
+            });
+        } catch (error) {
+            const statusCode = error.statusCode || 500;
+            if (statusCode === 500) {
+                console.error('❌ Admin dashboard socket registration error:', error);
+            }
+            socket.emit('admin_dashboard_error', {
+                error: error.message || 'Dashboard subscription failed',
+                statusCode
+            });
+        }
+    });
     
     // Handle Raspberry Pi registration
     socket.on('raspberry_register', async (data) => {
@@ -5150,14 +5221,31 @@ function extractSubmittedDBSessionContext(req) {
     return context;
 }
 
-async function resolveSubmittedDBUser(req) {
+function extractSubmittedDBSocketContext(payload = {}) {
+    const context = {
+        username: String(payload.username || '').trim(),
+        role: String(payload.role || '').trim(),
+        dbName: String(payload.dbName || '').trim()
+    };
+
+    const token = String(payload.token || '').trim();
+    if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        context.username = decoded.username || context.username;
+        context.role = decoded.role || context.role;
+        context.dbName = decoded.dbName || context.dbName;
+    }
+
+    return context;
+}
+
+async function resolveSubmittedDBUserFromSession(session = {}) {
     if (!mongoClient) {
         const error = new Error('Database not connected');
         error.statusCode = 503;
         throw error;
     }
 
-    const session = extractSubmittedDBSessionContext(req);
     if (!session.username) {
         const error = new Error('Authentication required');
         error.statusCode = 401;
@@ -5197,6 +5285,11 @@ async function resolveSubmittedDBUser(req) {
         userRole: user.role,
         canPermanentDelete: true
     };
+}
+
+async function resolveSubmittedDBUser(req) {
+    const session = extractSubmittedDBSessionContext(req);
+    return resolveSubmittedDBUserFromSession(session);
 }
 
 async function validateSubmittedDBAccess(req, res, next) {
