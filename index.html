@@ -368,10 +368,12 @@
     let adminDashboardOpenRecordId = '';
     let adminDashboardData = null;
     let adminDashboardInsightKey = '';
+    const DASHBOARD_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
+    const DASHBOARD_WORKDAY_HOURS = 8;
     const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
       '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
       'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
-      'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+      ...DASHBOARD_OPERATOR_FIELDS, 'good_count', 'man_hours', 'cycle_time',
       'other_description', 'start_time', 'end_time', 'break_time',
       'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
       'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
@@ -642,6 +644,15 @@
                   <p class="text-sm text-gray-400">${t('common.loading')}</p>
                 </div>
               </section>
+
+              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                <div class="border-b border-gray-100 px-6 py-4">
+                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('workerHoursToday')}</h3>
+                </div>
+                <div id="dashboardWorkerHours" class="p-6">
+                  <p class="text-sm text-gray-400">${t('common.loading')}</p>
+                </div>
+              </section>
             </div>
           </div>
 
@@ -728,7 +739,7 @@
       const sub = document.getElementById('dashboardSubmissionSub');
       if (!body || !footer || !date || !title || !sub) return;
 
-      const operators = [record.operator1, record.operator2].map(name => String(name ?? '').trim()).filter(Boolean);
+      const operators = DASHBOARD_OPERATOR_FIELDS.map(field => record[field]).map(name => String(name ?? '').trim()).filter(Boolean);
       const defects = getDashboardSubmissionDefects(record);
       const totalDefects = defects.reduce((sum, item) => sum + item.count, 0);
 
@@ -1346,6 +1357,68 @@
         </div>`;
     }
 
+    function renderDashboardWorkerHours(workers = []) {
+      const container = document.getElementById('dashboardWorkerHours');
+      if (!container) return;
+
+      if (!Array.isArray(workers) || workers.length === 0) {
+        container.innerHTML = `<p class="text-sm text-gray-400">${dashboardText('noWorkerHoursToday')}</p>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="space-y-3">
+          ${workers.map((worker, index) => {
+            const progress = Math.max(0, Math.min(Number(worker.shiftProgressPercent ?? 0) || 0, 100));
+            const displayHours = Math.max(0, Math.min(Number(worker.displayWorkHours ?? 0) || 0, DASHBOARD_WORKDAY_HOURS));
+            const badgeClass = progress >= 75
+              ? 'bg-emerald-600'
+              : progress >= 50
+                ? 'bg-sky-600'
+                : progress >= 25
+                  ? 'bg-amber-500'
+                  : 'bg-rose-500';
+            const hoursClass = progress >= 75
+              ? 'text-emerald-600'
+              : progress >= 50
+                ? 'text-sky-600'
+                : progress >= 25
+                  ? 'text-amber-600'
+                  : 'text-rose-600';
+            const barClass = progress >= 75
+              ? 'from-emerald-500 to-teal-400'
+              : progress >= 50
+                ? 'from-sky-500 to-cyan-400'
+                : progress >= 25
+                  ? 'from-amber-400 to-orange-400'
+                  : 'from-rose-500 to-orange-400';
+
+            return `
+              <div class="rounded-2xl bg-gray-50 px-4 py-4">
+                <div class="flex items-start gap-3">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${badgeClass} text-sm font-semibold text-white">${index + 1}</div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(worker.name || '—')}</p>
+                        <p class="mt-1 text-xs text-gray-500">${dashboardText('submissions')}: ${formatDashboardNumber(worker.submissions || 0)}</p>
+                      </div>
+                      <div class="shrink-0 text-right">
+                        <p class="text-lg font-semibold ${hoursClass}">${formatDashboardNumber(displayHours, 2)}H</p>
+                        <p class="text-xs text-gray-400">/ ${DASHBOARD_WORKDAY_HOURS}H</p>
+                      </div>
+                    </div>
+                    <div class="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
+                      <div class="h-full rounded-full bg-gradient-to-r ${barClass}" style="width: ${progress}%"></div>
+                    </div>
+                    <p class="mt-2 text-[11px] font-medium ${hoursClass}">${formatDashboardNumber(progress, 0)}%</p>
+                  </div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }
+
     function renderDashboardTrendChart(trend = []) {
       const container = document.getElementById('dashboardTrendChart');
       if (!container) return;
@@ -1434,6 +1507,7 @@
       renderDashboardProblems(data.problemsToday || {});
       renderDashboardTopProducts(data.topProducts || []);
       renderDashboardTopOperators(data.topOperators || []);
+      renderDashboardWorkerHours(data.workerHoursToday || []);
       renderDashboardMachineStatusTable(data.machineStatus || []);
     }
 

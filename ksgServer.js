@@ -2595,6 +2595,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
         const issueRecords = [];
         const activeOperators = new Set();
         const activeKanbans = new Set();
+        const dashboardWorkdayHours = 8;
 
         let totalGoodCount = 0;
         let totalDefectCount = 0;
@@ -2604,9 +2605,11 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
         todayRecords.forEach(record => {
             const goodCount = Number(record.good_count ?? 0) || 0;
+            const manHours = Number(record.man_hours ?? 0) || 0;
             const troubleTime = Number(record.trouble_time ?? 0) || 0;
             const cycleTime = Number(record.cycle_time ?? 0);
-            const operatorNames = [record.operator1, record.operator2]
+            const operatorNames = SUBMITTED_DB_OPERATOR_FIELDS
+                .map(field => record[field])
                 .map(name => String(name ?? '').trim())
                 .filter(Boolean);
             const kanbanId = String(record.kanban_id ?? '').trim();
@@ -2636,6 +2639,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                     name,
                     submissions: 0,
                     totalGoodCount: 0,
+                    totalManHours: 0,
                     totalTroubleHours: 0,
                     cycleTimeTotal: 0,
                     cycleTimeSamples: 0
@@ -2643,6 +2647,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
                 operatorEntry.submissions += 1;
                 operatorEntry.totalGoodCount += goodCount;
+                operatorEntry.totalManHours += manHours;
                 operatorEntry.totalTroubleHours += troubleTime;
                 if (Number.isFinite(cycleTime) && cycleTime > 0) {
                     operatorEntry.cycleTimeTotal += cycleTime;
@@ -2738,6 +2743,23 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                     : 0
             }));
 
+        const workerHoursToday = [...operatorMap.values()]
+            .sort((a, b) => b.totalManHours - a.totalManHours || b.submissions - a.submissions || a.name.localeCompare(b.name, 'ja'))
+            .map(operator => {
+                const displayWorkHours = Math.min(operator.totalManHours, dashboardWorkdayHours);
+                return {
+                    name: operator.name,
+                    submissions: operator.submissions,
+                    totalManHours: operator.totalManHours,
+                    displayWorkHours,
+                    shiftProgressPercent: dashboardWorkdayHours > 0
+                        ? Math.min((displayWorkHours / dashboardWorkdayHours) * 100, 100)
+                        : 0,
+                    totalGoodCount: operator.totalGoodCount,
+                    totalTroubleHours: operator.totalTroubleHours
+                };
+            });
+
         const activeOperatorList = [...operatorMap.values()]
             .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.name.localeCompare(b.name, 'ja'))
             .map(operator => ({
@@ -2757,7 +2779,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                 productName: record.product_name || '',
                 hinban: record.hinban || '',
                 kanbanId: record.kanban_id || '',
-                operators: [record.operator1, record.operator2]
+                operators: SUBMITTED_DB_OPERATOR_FIELDS
+                    .map(field => record[field])
                     .map(name => String(name ?? '').trim())
                     .filter(Boolean),
                 goodCount: Number(record.good_count ?? 0) || 0,
@@ -2778,7 +2801,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             productName: record.product_name || '',
             hinban: record.hinban || '',
             kanbanId: record.kanban_id || '',
-            operators: [record.operator1, record.operator2]
+            operators: SUBMITTED_DB_OPERATOR_FIELDS
+                .map(field => record[field])
                 .map(name => String(name ?? '').trim())
                 .filter(Boolean),
             goodCount: Number(record.good_count ?? 0) || 0,
@@ -2818,6 +2842,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             },
             topProducts,
             topOperators,
+            workerHoursToday,
             dailyTrend: last7Days.map(day => trendMap.get(day.key))
         });
     } catch (error) {

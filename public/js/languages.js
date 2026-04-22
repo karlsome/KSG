@@ -88,6 +88,7 @@ const translations = {
       latestIssueCases: "Latest Issue Cases",
       topProductsToday: "Top Products Today",
       topOperatorsToday: "Top Operators Today",
+      workerHoursToday: "Worker Hours Today",
       dailyTrend: "7-Day Trend",
       viewSubmittedData: "Open Submitted Data",
       clickToView: "Click to view details",
@@ -129,6 +130,7 @@ const translations = {
       noDefects: "No defects recorded.",
       noTopProducts: "No product data for today.",
       noTopOperators: "No operator data for today.",
+      noWorkerHoursToday: "No worker-hour data for today.",
       noTrendData: "No trend data for the last 7 days."
     },
 
@@ -991,6 +993,7 @@ const translations = {
       latestIssueCases: "最新の問題データ",
       topProductsToday: "本日の上位製品",
       topOperatorsToday: "本日の上位作業者",
+      workerHoursToday: "本日の作業時間",
       dailyTrend: "直近7日トレンド",
       viewSubmittedData: "提出データを開く",
       clickToView: "クリックして詳細を表示",
@@ -1032,6 +1035,7 @@ const translations = {
       noDefects: "不良データはありません。",
       noTopProducts: "本日の製品データはありません。",
       noTopOperators: "本日の作業者データはありません。",
+      noWorkerHoursToday: "本日の作業時間データはありません。",
       noTrendData: "直近7日分のデータはありません。"
     },
 
