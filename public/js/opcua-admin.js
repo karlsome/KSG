@@ -71,7 +71,7 @@ function initializeNavigation() {
     
     document.getElementById('logout-btn').addEventListener('click', () => {
         localStorage.removeItem('opcua_username');
-        location.reload();
+        window.location.href = 'https://www.freyaaccess.com/';
     });
 }
 
