@@ -198,9 +198,16 @@ function analyticsRenderChart(containerId, option) {
     return;
   }
 
-  container.innerHTML = '';
   let chart = analyticsCharts[containerId];
+
+  if (chart && container.childElementCount === 0) {
+    chart.dispose();
+    delete analyticsCharts[containerId];
+    chart = null;
+  }
+
   if (!chart) {
+    container.innerHTML = '';
     chart = echarts.init(container);
     analyticsCharts[containerId] = chart;
   }
