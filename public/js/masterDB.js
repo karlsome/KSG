@@ -3255,7 +3255,7 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
               </div>
               <div>
                 <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('sheetField')}</label>
-                <select id="gstSheetName" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="resetGoogleSheetAnalysisView()">
+                <select id="gstSheetName" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetSheetChange()">
                   <option value="">${gsText('sheetPlaceholderAfterVerify')}</option>
                 </select>
               </div>
@@ -3283,6 +3283,8 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
                 <p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>
               </div>
             </div>
+
+            <div id="gstDuplicateWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4"></div>
 
             <div class="rounded-xl border border-gray-200 p-4">
               <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -3320,6 +3322,7 @@ async function showGoogleSheetTargetModal(targetId = '') {
 
   populateGoogleSheetNgGroupOptions(target?.ngGroupId || '');
   renderGoogleSheetTargetProductChecklist(target?.ngGroupId || '', target?.masterRecordIds || []);
+  renderGoogleSheetTargetDuplicateWarning();
 
   if (target?.spreadsheetUrl || target?.spreadsheetId) {
     await inspectGoogleSheetFromModal(target?.sheetName || '');
@@ -3329,6 +3332,8 @@ async function showGoogleSheetTargetModal(targetId = '') {
         sheetSelect.value = target.sheetName;
       }
     }
+
+    renderGoogleSheetTargetDuplicateWarning();
 
     if ((target?.masterRecordIds || []).length > 0 && target?.ngGroupId) {
       await analyzeGoogleSheetModal(target.fieldMappings || []);
@@ -3399,6 +3404,11 @@ function handleGoogleSheetTargetGroupChange() {
   resetGoogleSheetAnalysisView();
 }
 
+function handleGoogleSheetTargetSheetChange() {
+  resetGoogleSheetAnalysisView();
+  renderGoogleSheetTargetDuplicateWarning();
+}
+
 function toggleAllGoogleSheetTargetProducts(checked) {
   document.querySelectorAll('.gst-product-checkbox').forEach(checkbox => {
     checkbox.checked = Boolean(checked);
@@ -3412,10 +3422,91 @@ function updateGoogleSheetTargetProductCount() {
   if (countEl) {
     countEl.textContent = gsText('selectedCount', { count: selectedCount });
   }
+
+  renderGoogleSheetTargetDuplicateWarning();
 }
 
 function getSelectedGoogleSheetProductIds() {
   return Array.from(document.querySelectorAll('.gst-product-checkbox:checked')).map(checkbox => checkbox.value);
+}
+
+function getGoogleSheetTargetOverlapInfo() {
+  const selectedIds = new Set(getSelectedGoogleSheetProductIds().map(id => String(id)));
+  const spreadsheetId = String(currentGoogleSheetAnalysis?.spreadsheetId || currentGoogleSheetInspection?.spreadsheetId || '').trim();
+  const sheetName = String(document.getElementById('gstSheetName')?.value || '').trim();
+
+  if (selectedIds.size === 0) {
+    return {
+      overlaps: [],
+      overlappingProductIds: [],
+      hasSameDestinationOverlap: false,
+    };
+  }
+
+  const overlaps = allGoogleSheetTargets
+    .filter(target => target?.isActive !== false && String(target?._id || '') !== String(currentGoogleSheetEditTargetId || ''))
+    .map(target => {
+      const targetProductIds = (Array.isArray(target?.masterRecordIds) ? target.masterRecordIds : []).map(id => String(id));
+      const overlappingProductIds = targetProductIds.filter(id => selectedIds.has(id));
+      const targetSpreadsheetId = String(target?.spreadsheetId || '').trim();
+      const targetSheetName = String(target?.sheetName || '').trim();
+      const sheetLabel = [String(target?.spreadsheetTitle || '').trim(), targetSheetName].filter(Boolean).join(' / ');
+
+      return {
+        targetId: String(target?._id || ''),
+        label: String(target?.label || sheetLabel).trim() || '-',
+        sheetLabel,
+        overlappingProductIds,
+        sameDestination: Boolean(spreadsheetId && sheetName && spreadsheetId === targetSpreadsheetId && sheetName === targetSheetName),
+      };
+    })
+    .filter(target => target.overlappingProductIds.length > 0);
+
+  return {
+    overlaps,
+    overlappingProductIds: [...new Set(overlaps.flatMap(target => target.overlappingProductIds))],
+    hasSameDestinationOverlap: overlaps.some(target => target.sameDestination),
+  };
+}
+
+function renderGoogleSheetTargetDuplicateWarning() {
+  const warningEl = document.getElementById('gstDuplicateWarning');
+  if (!warningEl) return;
+
+  const { overlaps, overlappingProductIds, hasSameDestinationOverlap } = getGoogleSheetTargetOverlapInfo();
+  if (overlaps.length === 0) {
+    warningEl.className = 'hidden rounded-xl border border-amber-200 bg-amber-50 p-4';
+    warningEl.innerHTML = '';
+    return;
+  }
+
+  const overlapItems = overlaps.map(target => `
+      <li class="text-xs text-amber-800">
+        ${escapeHtml(gsText('duplicateWarningItem', {
+          label: target.label,
+          sheet: target.sheetLabel || '-',
+          count: target.overlappingProductIds.length,
+        }))}
+      </li>
+    `).join('');
+
+  warningEl.className = 'rounded-xl border border-amber-200 bg-amber-50 p-4';
+  warningEl.innerHTML = `
+    <div class="flex items-start gap-3">
+      <i class="ri-alert-line mt-0.5 text-lg text-amber-700"></i>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-semibold text-amber-900">${gsText('duplicateWarningTitle')}</div>
+        <p class="mt-1 text-xs text-amber-800">${gsText('duplicateWarningDescription')}</p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">${gsText('duplicateWarningOverlapCount', { count: overlappingProductIds.length })}</span>
+          <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">${gsText('duplicateWarningTargetCount', { count: overlaps.length })}</span>
+        </div>
+        ${hasSameDestinationOverlap ? `<p class="mt-3 text-xs font-medium text-red-700">${gsText('duplicateWarningSameDestination')}</p>` : ''}
+        <div class="mt-3 text-xs font-semibold text-amber-900">${gsText('duplicateWarningListTitle')}</div>
+        <ul class="mt-2 space-y-1">${overlapItems}</ul>
+      </div>
+    </div>
+  `;
 }
 
 function resetGoogleSheetAnalysisView() {
@@ -3518,6 +3609,8 @@ async function inspectGoogleSheetFromModal(selectedSheetName = '') {
     }
   }
 
+  renderGoogleSheetTargetDuplicateWarning();
+
   resetGoogleSheetAnalysisView();
 }
 
@@ -3569,10 +3662,12 @@ function renderGoogleSheetAnalysis(analysis) {
   if (!section || !container) return;
 
   const matchedCount = analysis.fields.filter(field => field.status === 'matched').length;
-  const reviewFields = analysis.fields.filter(field => field.status !== 'matched');
+  const reviewFields = analysis.fields
+    .map((field, index) => ({ field, index }))
+    .filter(({ field }) => field.status !== 'matched');
   const reviewRows = reviewFields.length === 0
     ? `<p class="text-sm text-emerald-700">${gsText('allColumnsMatched')}</p>`
-    : reviewFields.map((field, index) => `
+    : reviewFields.map(({ field, index }) => `
         <div class="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-white p-3 md:grid-cols-[1.2fr_1.5fr]">
           <div>
             <div class="font-medium text-slate-900">${escapeHtml(field.fieldLabel)}</div>
@@ -3722,6 +3817,22 @@ async function saveGoogleSheetTarget() {
   if (!spreadsheetUrl || !sheetName || !ngGroupId || masterRecordIds.length === 0) {
     alert(gsText('confirmUrlTabGroupProducts'));
     return;
+  }
+
+  const overlapInfo = getGoogleSheetTargetOverlapInfo();
+  if (overlapInfo.overlaps.length > 0) {
+    let confirmationMessage = gsText('duplicateConfirm', {
+      targetCount: overlapInfo.overlaps.length,
+      productCount: overlapInfo.overlappingProductIds.length,
+    });
+
+    if (overlapInfo.hasSameDestinationOverlap) {
+      confirmationMessage += `\n\n${gsText('duplicateConfirmSameDestination')}`;
+    }
+
+    if (!confirm(confirmationMessage)) {
+      return;
+    }
   }
 
   try {
