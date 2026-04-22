@@ -120,6 +120,14 @@
               <option value="">Auto (top worker)</option>
             </select>
           </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Shift start
+            <input id="analyticsShiftStart" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Shift end
+            <input id="analyticsShiftEnd" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
+          </label>
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -131,6 +139,11 @@
             <i class="ri-restart-line"></i>
             Reset
           </button>
+          <button onclick="resetAnalyticsShift()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+            <i class="ri-time-line"></i>
+            Reset shift
+          </button>
+          <div id="analyticsShiftSummary" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shift: 08:30 to 17:00 (8.50 h)</div>
           <div id="analyticsMetaChips" class="flex flex-wrap gap-2"></div>
         </div>
       </div>
@@ -224,7 +237,7 @@
 
     <section id="analyticsPanelWorker" data-analytics-panel="worker" class="hidden space-y-6">
       <div class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Shared records split output and defect counts evenly across listed operators. Time-based metrics use full participation hours for each worker.
+        Shared records split output and defect counts evenly across listed operators. Time-based metrics use full participation hours for each worker, and shift-normalized views follow the admin-configured shift window.
       </div>
 
       <div id="analyticsWorkerSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
@@ -232,7 +245,7 @@
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
           <h3 class="text-lg font-semibold text-gray-900">Productivity</h3>
-          <p class="mt-1 text-sm text-gray-500">Rank workers by attributed output and compare how much output they generate per active hour.</p>
+          <p class="mt-1 text-sm text-gray-500">Rank workers by average output per configured shift and compare how much output they generate per active hour.</p>
         </div>
         <div id="analyticsWorkerProductivityChart" class="h-[360px] px-2 py-4"></div>
       </section>
@@ -248,7 +261,7 @@
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
           <h3 class="text-lg font-semibold text-gray-900">Time Efficiency</h3>
-          <p class="mt-1 text-sm text-gray-500">Track downtime behavior with break time, trouble time, and downtime rate by worker.</p>
+          <p class="mt-1 text-sm text-gray-500">Track downtime behavior with break time, trouble time, and how much of each configured shift is actually occupied by work.</p>
         </div>
         <div id="analyticsWorkerEfficiencyChart" class="h-[360px] px-2 py-4"></div>
       </section>

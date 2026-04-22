@@ -4,6 +4,13 @@ let analyticsRequestId = 0;
 let analyticsCharts = {};
 let analyticsActiveTab = 'overview';
 let analyticsData = null;
+const ANALYTICS_SHIFT_STORAGE_KEY = 'analyticsWorkerShiftProfile';
+const analyticsDefaultShiftProfile = Object.freeze({
+  label: 'Morning shift',
+  start: '08:30',
+  end: '17:00',
+  hours: 8.5
+});
 
 function analyticsGetAuthHeaders() {
   const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
@@ -85,6 +92,113 @@ function analyticsShortenLabel(value, maxLength = 40) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function analyticsNormalizeShiftTime(value, fallback) {
+  const normalized = String(value ?? '').trim();
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(normalized) ? normalized : fallback;
+}
+
+function analyticsCalculateShiftHours(startTime, endTime) {
+  const [startHour, startMinute] = String(startTime).split(':').map(Number);
+  const [endHour, endMinute] = String(endTime).split(':').map(Number);
+
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) {
+    return analyticsDefaultShiftProfile.hours;
+  }
+
+  const startTotalMinutes = (startHour * 60) + startMinute;
+  const endTotalMinutes = (endHour * 60) + endMinute;
+  let durationMinutes = endTotalMinutes - startTotalMinutes;
+
+  if (durationMinutes <= 0) {
+    durationMinutes += 24 * 60;
+  }
+
+  return durationMinutes / 60;
+}
+
+function analyticsBuildShiftProfile(source = {}) {
+  const start = analyticsNormalizeShiftTime(source.start, analyticsDefaultShiftProfile.start);
+  const end = analyticsNormalizeShiftTime(source.end, analyticsDefaultShiftProfile.end);
+  return {
+    label: source.label || analyticsDefaultShiftProfile.label,
+    start,
+    end,
+    hours: analyticsCalculateShiftHours(start, end)
+  };
+}
+
+function analyticsReadStoredShiftProfile() {
+  try {
+    const storedValue = localStorage.getItem(ANALYTICS_SHIFT_STORAGE_KEY);
+    if (!storedValue) return null;
+    return JSON.parse(storedValue);
+  } catch (error) {
+    console.warn('analytics shift profile storage read error:', error);
+    return null;
+  }
+}
+
+function analyticsSaveShiftProfile(shiftProfile) {
+  try {
+    localStorage.setItem(ANALYTICS_SHIFT_STORAGE_KEY, JSON.stringify({
+      start: shiftProfile.start,
+      end: shiftProfile.end
+    }));
+  } catch (error) {
+    console.warn('analytics shift profile storage write error:', error);
+  }
+}
+
+function analyticsClearShiftProfile() {
+  try {
+    localStorage.removeItem(ANALYTICS_SHIFT_STORAGE_KEY);
+  } catch (error) {
+    console.warn('analytics shift profile storage clear error:', error);
+  }
+}
+
+function analyticsGetShiftProfile(source = null) {
+  if (source && typeof source === 'object') {
+    return analyticsBuildShiftProfile(source);
+  }
+
+  return analyticsBuildShiftProfile(analyticsReadStoredShiftProfile() || analyticsDefaultShiftProfile);
+}
+
+function analyticsSyncShiftControls(shiftProfileInput = null) {
+  const shiftProfile = analyticsGetShiftProfile(shiftProfileInput);
+  const shiftStartEl = document.getElementById('analyticsShiftStart');
+  const shiftEndEl = document.getElementById('analyticsShiftEnd');
+  const shiftSummaryEl = document.getElementById('analyticsShiftSummary');
+
+  if (shiftStartEl) shiftStartEl.value = shiftProfile.start;
+  if (shiftEndEl) shiftEndEl.value = shiftProfile.end;
+  if (shiftSummaryEl) {
+    shiftSummaryEl.textContent = `Shift: ${shiftProfile.start} to ${shiftProfile.end} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`;
+  }
+
+  return shiftProfile;
+}
+
+function analyticsGetWorkerAverageShiftOutput(worker, shiftProfile) {
+  const activeDays = Number(worker?.activeDays || 0);
+  if (activeDays <= 0) return 0;
+  return Number(worker?.totalGoodCount || 0) / activeDays;
+}
+
+function analyticsGetWorkerShiftUtilization(worker, shiftProfile) {
+  const shiftHours = Number(shiftProfile?.hours || 0);
+  const activeDays = Number(worker?.activeDays || 0);
+  if (shiftHours <= 0 || activeDays <= 0) return 0;
+  return (Number(worker?.totalManHours || 0) / (activeDays * shiftHours)) * 100;
+}
+
+function analyticsGetFocusShiftUtilization(point, shiftProfile) {
+  const shiftHours = Number(shiftProfile?.hours || 0);
+  if (shiftHours <= 0) return 0;
+  return (Number(point?.manHours || 0) / shiftHours) * 100;
+}
+
 function analyticsFormatTooltipMetric(seriesName, value) {
   const number = Number(Array.isArray(value) ? value[value.length - 1] : value);
   if (!Number.isFinite(number)) return '-';
@@ -101,7 +215,7 @@ function analyticsFormatTooltipMetric(seriesName, value) {
     return `${analyticsFormatNumber(number, 2)} h`;
   }
 
-  if (/(rate|%)/i.test(seriesName)) {
+  if (/(rate|%|utilization)/i.test(seriesName)) {
     return `${analyticsFormatNumber(number, 2)}%`;
   }
 
@@ -350,12 +464,13 @@ function analyticsGetHighestBy(items = [], valueSelector, filterSelector = null)
   return filtered.slice().sort((a, b) => valueSelector(b) - valueSelector(a))[0] || null;
 }
 
-function renderAnalyticsMeta(filters, summary, generatedAt) {
+function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
   const metaEl = document.getElementById('analyticsMetaChips');
   const updatedEl = document.getElementById('analyticsLastUpdated');
   const focusMetaEl = document.getElementById('analyticsOperatorFocusMeta');
   const skillMetaEl = document.getElementById('analyticsOperatorSkillMeta');
   if (!metaEl || !updatedEl) return;
+  const shiftProfile = analyticsSyncShiftControls(shiftProfileInput);
 
   updatedEl.textContent = analyticsFormatDateTime(generatedAt);
 
@@ -387,6 +502,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt) {
   if (filters.hinban) chips.push({ label: 'Hinban', value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
   if (filters.productName) chips.push({ label: 'Product', value: analyticsEscapeHtml(filters.productName), tone: 'border-gray-200 bg-white' });
   if (filters.operator) chips.push({ label: 'Worker', value: analyticsEscapeHtml(filters.operator), tone: 'border-gray-200 bg-white' });
+  chips.push({ label: 'Shift', value: `${analyticsEscapeHtml(shiftProfile.start)} to ${analyticsEscapeHtml(shiftProfile.end)} (${analyticsFormatNumber(shiftProfile.hours, 2)} h)`, tone: 'border-gray-200 bg-white' });
 
   metaEl.innerHTML = chips.map(chip => `
     <div class="rounded-xl border px-3 py-2 text-sm ${chip.tone}">
@@ -396,7 +512,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt) {
 
   if (focusMetaEl) {
     focusMetaEl.textContent = filters.focusOperator
-      ? `Focused on ${filters.focusOperator}. Daily output uses attributed pieces, while hours remain full participation time.`
+      ? `Focused on ${filters.focusOperator}. Daily output is treated as one ${shiftProfile.start}-${shiftProfile.end} ${shiftProfile.label.toLowerCase()}, while hours remain full participation time.`
       : 'Auto-selecting the busiest worker in the current filter.';
   }
 
@@ -597,10 +713,10 @@ function renderAnalyticsOverview(data) {
   }
 }
 
-function renderAnalyticsWorkerProductivityChart(operatorComparison) {
+function renderAnalyticsWorkerProductivityChart(operatorComparison, shiftProfile) {
   const rankedWorkers = (operatorComparison || [])
     .slice()
-    .sort((a, b) => Number(b.totalGoodCount || 0) - Number(a.totalGoodCount || 0))
+    .sort((a, b) => analyticsGetWorkerAverageShiftOutput(b, shiftProfile) - analyticsGetWorkerAverageShiftOutput(a, shiftProfile) || Number(b.outputPerHour || 0) - Number(a.outputPerHour || 0))
     .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
@@ -611,7 +727,7 @@ function renderAnalyticsWorkerProductivityChart(operatorComparison) {
   analyticsRenderChart('analyticsWorkerProductivityChart', {
     color: ['#0f766e', '#0284c7'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Attributed Good Pieces', 'Output/Hour'] },
+    legend: { top: 0, data: ['Avg Output/Shift', 'Output/Hour'] },
     grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -626,7 +742,7 @@ function renderAnalyticsWorkerProductivityChart(operatorComparison) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces',
+        name: 'Pieces/shift',
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
@@ -637,10 +753,10 @@ function renderAnalyticsWorkerProductivityChart(operatorComparison) {
     ],
     series: [
       {
-        name: 'Attributed Good Pieces',
+        name: 'Avg Output/Shift',
         type: 'bar',
         barMaxWidth: 30,
-        data: rankedWorkers.map(item => Number(item.totalGoodCount || 0)),
+        data: rankedWorkers.map(item => analyticsGetWorkerAverageShiftOutput(item, shiftProfile)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
@@ -713,10 +829,10 @@ function renderAnalyticsWorkerQualityChart(operatorComparison) {
   });
 }
 
-function renderAnalyticsWorkerEfficiencyChart(operatorComparison) {
+function renderAnalyticsWorkerEfficiencyChart(operatorComparison, shiftProfile) {
   const rankedWorkers = (operatorComparison || [])
     .slice()
-    .sort((a, b) => Number((b.totalBreakTime || 0) + (b.totalTroubleTime || 0)) - Number((a.totalBreakTime || 0) + (a.totalTroubleTime || 0)) || Number(b.downtimeRate || 0) - Number(a.downtimeRate || 0))
+    .sort((a, b) => analyticsGetWorkerShiftUtilization(a, shiftProfile) - analyticsGetWorkerShiftUtilization(b, shiftProfile) || Number((b.totalBreakTime || 0) + (b.totalTroubleTime || 0)) - Number((a.totalBreakTime || 0) + (a.totalTroubleTime || 0)))
     .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
@@ -727,7 +843,7 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison) {
   analyticsRenderChart('analyticsWorkerEfficiencyChart', {
     color: ['#fbbf24', '#ef4444', '#1d4ed8'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Break Time', 'Trouble Time', 'Downtime Rate'] },
+    legend: { top: 0, data: ['Break Time', 'Trouble Time', 'Shift Utilization'] },
     grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
@@ -747,7 +863,7 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison) {
       },
       {
         type: 'value',
-        name: '%',
+        name: '% of shift',
         splitLine: { show: false }
       }
     ],
@@ -769,18 +885,18 @@ function renderAnalyticsWorkerEfficiencyChart(operatorComparison) {
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Downtime Rate',
+        name: 'Shift Utilization',
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
         symbolSize: 8,
-        data: rankedWorkers.map(item => Number(item.downtimeRate || 0))
+        data: rankedWorkers.map(item => analyticsGetWorkerShiftUtilization(item, shiftProfile))
       }
     ]
   });
 }
 
-function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
+function renderAnalyticsWorkerConsistencyChart(operatorFocus, shiftProfile) {
   if (!operatorFocus || !Array.isArray(operatorFocus.points) || operatorFocus.points.length === 0) {
     analyticsShowChartEmpty('analyticsWorkerConsistencyChart', 'No daily worker history for the selected focus worker.');
     return;
@@ -789,7 +905,7 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
   analyticsRenderChart('analyticsWorkerConsistencyChart', {
     color: ['#0f766e', '#1d4ed8', '#dc2626'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Attributed Good Pieces', 'Output/Hour', 'Defect Rate'] },
+    legend: { top: 0, data: ['Shift Output', 'Output/Hour', 'Shift Utilization'] },
     grid: { left: 48, right: 84, top: 56, bottom: 32, containLabel: true },
     xAxis: {
       type: 'category',
@@ -799,7 +915,7 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
     yAxis: [
       {
         type: 'value',
-        name: 'Pieces',
+        name: 'Pieces/shift',
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
@@ -810,7 +926,7 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
       },
       {
         type: 'value',
-        name: '%',
+        name: '% of shift',
         position: 'right',
         offset: 56,
         splitLine: { show: false }
@@ -818,7 +934,7 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
     ],
     series: [
       {
-        name: 'Attributed Good Pieces',
+        name: 'Shift Output',
         type: 'bar',
         barMaxWidth: 24,
         data: operatorFocus.points.map(item => Number(item.goodCount || 0)),
@@ -833,12 +949,12 @@ function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
         data: operatorFocus.points.map(item => Number(item.outputPerHour || 0))
       },
       {
-        name: 'Defect Rate',
+        name: 'Shift Utilization',
         type: 'line',
         yAxisIndex: 2,
         smooth: true,
         symbolSize: 8,
-        data: operatorFocus.points.map(item => Number(item.defectRate || 0))
+        data: operatorFocus.points.map(item => analyticsGetFocusShiftUtilization(item, shiftProfile))
       }
     ]
   });
@@ -913,7 +1029,7 @@ function renderAnalyticsWorkerSkillChart(operatorSkillProfile) {
   });
 }
 
-function renderAnalyticsWorkerTable(operatorComparison) {
+function renderAnalyticsWorkerTable(operatorComparison, shiftProfile) {
   const container = document.getElementById('analyticsWorkerTable');
   if (!container) return;
 
@@ -934,8 +1050,9 @@ function renderAnalyticsWorkerTable(operatorComparison) {
           <th class="px-6 py-3 font-medium">Records</th>
           <th class="px-6 py-3 font-medium">Shared</th>
           <th class="px-6 py-3 font-medium">Days</th>
-          <th class="px-6 py-3 font-medium">Good</th>
+          <th class="px-6 py-3 font-medium">Avg/Shift</th>
           <th class="px-6 py-3 font-medium">Output/Hour</th>
+          <th class="px-6 py-3 font-medium">Shift Util.</th>
           <th class="px-6 py-3 font-medium">Hours</th>
           <th class="px-6 py-3 font-medium">Issues</th>
           <th class="px-6 py-3 font-medium">Downtime</th>
@@ -950,8 +1067,9 @@ function renderAnalyticsWorkerTable(operatorComparison) {
             <td class="px-6 py-4">${analyticsFormatNumber(worker.submissions)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.activeDays)}</td>
-            <td class="px-6 py-4">${analyticsFormatCount(worker.totalGoodCount)}</td>
+            <td class="px-6 py-4">${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(worker, shiftProfile))}</td>
             <td class="px-6 py-4">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
+            <td class="px-6 py-4">${analyticsFormatPercent(analyticsGetWorkerShiftUtilization(worker, shiftProfile))}</td>
             <td class="px-6 py-4">${analyticsFormatHours(worker.totalManHours)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.issueCount)}</td>
             <td class="px-6 py-4">${analyticsFormatPercent(worker.downtimeRate)}</td>
@@ -964,7 +1082,8 @@ function renderAnalyticsWorkerTable(operatorComparison) {
 
 function renderAnalyticsWorkerTab(data) {
   const workers = data.operatorComparison || [];
-  const topOutputWorker = analyticsGetHighestBy(workers, item => Number(item.totalGoodCount || 0));
+  const shiftProfile = analyticsGetShiftProfile();
+  const topOutputWorker = analyticsGetHighestBy(workers, item => analyticsGetWorkerAverageShiftOutput(item, shiftProfile));
   const bestThroughputWorker = analyticsGetHighestBy(
     workers,
     item => Number(item.outputPerHour || 0),
@@ -979,16 +1098,16 @@ function renderAnalyticsWorkerTab(data) {
 
   analyticsRenderCardGrid('analyticsWorkerSummary', [
     {
-      eyebrow: 'Highest Attributed Output',
+      eyebrow: 'Highest Avg Shift Output',
       value: topOutputWorker ? analyticsEscapeHtml(topOutputWorker.name) : 'No worker data',
-      detail: topOutputWorker ? `${analyticsFormatCount(topOutputWorker.totalGoodCount)} attributed pieces across ${analyticsFormatNumber(topOutputWorker.submissions)} records` : 'No output signal in this filter',
+      detail: topOutputWorker ? `${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(topOutputWorker, shiftProfile))} pieces per ${shiftProfile.start}-${shiftProfile.end} shift` : 'No output signal in this filter',
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-medal-line'
     },
     {
       eyebrow: 'Best Output / Hour',
       value: bestThroughputWorker ? analyticsEscapeHtml(bestThroughputWorker.name) : 'No candidate',
-      detail: bestThroughputWorker ? `${analyticsFormatPiecesPerHour(bestThroughputWorker.outputPerHour)} with ${analyticsFormatHours(bestThroughputWorker.totalManHours)} participation time` : 'Need at least 2 records and 1 active hour',
+      detail: bestThroughputWorker ? `${analyticsFormatPiecesPerHour(bestThroughputWorker.outputPerHour)} or ${analyticsFormatCount(bestThroughputWorker.outputPerHour * shiftProfile.hours)} pieces per configured shift` : 'Need at least 2 records and 1 active hour',
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-speed-up-line'
     },
@@ -1002,18 +1121,18 @@ function renderAnalyticsWorkerTab(data) {
     {
       eyebrow: 'Most Consistent Worker',
       value: mostConsistentWorker ? analyticsEscapeHtml(mostConsistentWorker.name) : 'No candidate',
-      detail: mostConsistentWorker ? `${analyticsFormatPercent(mostConsistentWorker.consistencyScore)} consistency score across ${analyticsFormatNumber(mostConsistentWorker.activeDays)} active days` : 'Need at least 3 active days to compare stability',
+      detail: mostConsistentWorker ? `${analyticsFormatPercent(mostConsistentWorker.consistencyScore)} consistency score across ${analyticsFormatNumber(mostConsistentWorker.activeDays)} configured shifts` : 'Need at least 3 active shifts to compare stability',
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-line-chart-line'
     }
   ]);
 
-  renderAnalyticsWorkerProductivityChart(workers);
+  renderAnalyticsWorkerProductivityChart(workers, shiftProfile);
   renderAnalyticsWorkerQualityChart(workers);
-  renderAnalyticsWorkerEfficiencyChart(workers);
-  renderAnalyticsWorkerConsistencyChart(data.operatorFocus || null);
+  renderAnalyticsWorkerEfficiencyChart(workers, shiftProfile);
+  renderAnalyticsWorkerConsistencyChart(data.operatorFocus || null, shiftProfile);
   renderAnalyticsWorkerSkillChart(data.operatorSkillProfile || null);
-  renderAnalyticsWorkerTable(workers);
+  renderAnalyticsWorkerTable(workers, shiftProfile);
 }
 
 function renderAnalyticsMachineChart(sourceBreakdown) {
@@ -1627,6 +1746,32 @@ function resetAnalyticsFilters() {
   loadAnalytics();
 }
 
+function handleAnalyticsShiftChange() {
+  const shiftStartEl = document.getElementById('analyticsShiftStart');
+  const shiftEndEl = document.getElementById('analyticsShiftEnd');
+  const shiftProfile = analyticsGetShiftProfile({
+    start: shiftStartEl?.value,
+    end: shiftEndEl?.value
+  });
+
+  analyticsSaveShiftProfile(shiftProfile);
+  analyticsSyncShiftControls(shiftProfile);
+
+  if (analyticsData) {
+    renderAnalytics(analyticsData);
+  }
+}
+
+function resetAnalyticsShift() {
+  analyticsClearShiftProfile();
+  const shiftProfile = analyticsGetShiftProfile(analyticsDefaultShiftProfile);
+  analyticsSyncShiftControls(shiftProfile);
+
+  if (analyticsData) {
+    renderAnalytics(analyticsData);
+  }
+}
+
 function handleAnalyticsFilterKeydown(event) {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -1645,6 +1790,7 @@ function disposeAnalyticsCharts() {
 function initializeAnalytics() {
   if (!document.getElementById('analyticsRoot')) return;
   analyticsSetDefaultFilters();
+  analyticsSyncShiftControls();
   analyticsUpdateTabState();
   loadAnalyticsFilterOptions();
   loadAnalytics();
@@ -1659,6 +1805,8 @@ window.addEventListener('resize', () => {
 window.initializeAnalytics = initializeAnalytics;
 window.loadAnalytics = loadAnalytics;
 window.resetAnalyticsFilters = resetAnalyticsFilters;
+window.handleAnalyticsShiftChange = handleAnalyticsShiftChange;
+window.resetAnalyticsShift = resetAnalyticsShift;
 window.handleAnalyticsFilterKeydown = handleAnalyticsFilterKeydown;
 window.disposeAnalyticsCharts = disposeAnalyticsCharts;
 window.setAnalyticsTab = setAnalyticsTab;
