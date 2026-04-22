@@ -744,6 +744,164 @@ async function authenticateTablet(req, res, next) {
     }
 }
 
+const TABLET_ACTIVE_SESSION_COLLECTION = 'tabletActiveSessions';
+
+function normalizeTabletSessionString(value = '') {
+    return String(value ?? '').trim();
+}
+
+function normalizeTabletSessionNumber(value, fallback = 0) {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) ? normalized : fallback;
+}
+
+function normalizeTabletSessionDate(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeTabletSessionOperators(values = []) {
+    const seen = new Set();
+
+    return (Array.isArray(values) ? values : [values])
+        .map(normalizeTabletSessionString)
+        .filter(name => {
+            if (!name || seen.has(name)) return false;
+            seen.add(name);
+            return true;
+        })
+        .slice(0, 4);
+}
+
+function resolveTabletSessionQuery(req) {
+    const company = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const tabletId = normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || '');
+    const tabletName = normalizeTabletSessionString(req.tablet?.tabletName || req.user?.tabletName || '');
+
+    if (tabletId) {
+        return {
+            company,
+            tabletId
+        };
+    }
+
+    if (tabletName) {
+        return {
+            company,
+            tabletName
+        };
+    }
+
+    throw new Error('Unable to resolve tablet identity for active session');
+}
+
+function buildTabletActiveSessionDocument(req, payload = {}, now = new Date()) {
+    const workStartTime = normalizeTabletSessionDate(payload.workStartTime || payload.startedAt);
+    const breakStartTime = normalizeTabletSessionDate(payload.breakStartTime);
+    const troubleStartTime = normalizeTabletSessionDate(payload.troubleStartTime);
+    const isStarted = Boolean(payload.isStarted && workStartTime);
+    const breakActive = Boolean(payload.breakActive && breakStartTime);
+    const troubleActive = Boolean(payload.troubleActive && troubleStartTime);
+    const operators = normalizeTabletSessionOperators(payload.operators);
+    const totalBreakHours = Math.max(0, normalizeTabletSessionNumber(payload.totalBreakHours, 0));
+    const totalTroubleHours = Math.max(0, normalizeTabletSessionNumber(payload.totalTroubleHours, 0));
+    let status = 'idle';
+
+    if (troubleActive) {
+        status = 'trouble';
+    } else if (breakActive) {
+        status = 'break';
+    } else if (isStarted) {
+        status = 'running';
+    }
+
+    return {
+        company: normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG',
+        tabletId: normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || ''),
+        tabletName: normalizeTabletSessionString(req.tablet?.tabletName || req.user?.tabletName || ''),
+        tabletKey: normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || req.tablet?.tabletName || req.user?.tabletName || ''),
+        factoryLocation: normalizeTabletSessionString(req.tablet?.factoryLocation || ''),
+        equipmentName: normalizeTabletSessionString(req.tablet?.equipmentName || ''),
+        username: normalizeTabletSessionString(req.user?.username || ''),
+        userId: normalizeTabletSessionString(req.user?.userId || ''),
+        userRole: normalizeTabletSessionString(req.user?.role || ''),
+        operators,
+        status,
+        isStarted,
+        breakActive,
+        troubleActive,
+        startTime: normalizeTabletSessionString(payload.startTime),
+        workStartTime,
+        breakStartTime,
+        troubleStartTime,
+        totalBreakHours,
+        totalTroubleHours,
+        stopTimeHours: Math.max(0, normalizeTabletSessionNumber(payload.stopTimeHours, totalBreakHours + totalTroubleHours)),
+        manHours: Math.max(0, normalizeTabletSessionNumber(payload.manHours, 0)),
+        currentCount: Math.max(0, normalizeTabletSessionNumber(payload.currentCount, 0)),
+        goodCount: Math.max(0, normalizeTabletSessionNumber(payload.goodCount, 0)),
+        seisanSuStartValue: normalizeTabletSessionNumber(payload.seisanSuStartValue, 0),
+        currentSeisanSuValue: normalizeTabletSessionNumber(payload.currentSeisanSuValue, 0),
+        kanbanId: normalizeTabletSessionString(payload.kanbanId),
+        productId: normalizeTabletSessionString(payload.productId),
+        productName: normalizeTabletSessionString(payload.productName),
+        lhRh: normalizeTabletSessionString(payload.lhRh),
+        hakoIresu: Math.max(0, normalizeTabletSessionNumber(payload.hakoIresu, 0)),
+        remarks: normalizeTabletSessionString(payload.remarks),
+        otherDetails: normalizeTabletSessionString(payload.otherDetails),
+        updatedAt: now
+    };
+}
+
+async function upsertTabletActiveSession(req, payload = {}) {
+    if (!mongoClient) {
+        throw new Error('Database not connected');
+    }
+
+    const dbName = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const db = mongoClient.db(dbName);
+    const collection = db.collection(TABLET_ACTIVE_SESSION_COLLECTION);
+    const query = resolveTabletSessionQuery(req);
+    const now = new Date();
+
+    const document = buildTabletActiveSessionDocument(req, payload, now);
+
+    await collection.updateOne(
+        query,
+        {
+            $set: document,
+            $setOnInsert: { createdAt: now }
+        },
+        { upsert: true }
+    );
+
+    return {
+        query,
+        document
+    };
+}
+
+async function clearTabletActiveSession(req) {
+    if (!mongoClient) {
+        throw new Error('Database not connected');
+    }
+
+    const dbName = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const db = mongoClient.db(dbName);
+    const collection = db.collection(TABLET_ACTIVE_SESSION_COLLECTION);
+    const query = resolveTabletSessionQuery(req);
+    const result = await collection.deleteOne(query);
+
+    return {
+        query,
+        deletedCount: result.deletedCount || 0
+    };
+}
+
 // � Device Authentication Middleware
 async function authenticateDevice(req, res, next) {
     const deviceId = req.headers['x-device-id'];
@@ -1315,6 +1473,48 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
     const tabletName = decodeURIComponent(req.params.tabletName);
     
     try {
+
+app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
+    try {
+        const payload = req.body || {};
+
+        if (payload.clear) {
+            const cleared = await clearTabletActiveSession(req);
+            return res.json({
+                success: true,
+                cleared: true,
+                deletedCount: cleared.deletedCount,
+                tablet: {
+                    tabletId: req.tablet?.tabletId || req.user?.tabletId || '',
+                    tabletName: req.tablet?.tabletName || req.user?.tabletName || ''
+                }
+            });
+        }
+
+        const result = await upsertTabletActiveSession(req, payload);
+
+        res.json({
+            success: true,
+            session: {
+                tabletId: result.document.tabletId,
+                tabletName: result.document.tabletName,
+                equipmentName: result.document.equipmentName,
+                status: result.document.status,
+                updatedAt: result.document.updatedAt,
+                operators: result.document.operators,
+                currentCount: result.document.currentCount,
+                startTime: result.document.startTime
+            }
+        });
+    } catch (error) {
+        console.error('❌ [TABLET] Error syncing active session:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to sync tablet session',
+            details: error.message
+        });
+    }
+});
         if (!mongoClient) {
             return res.status(503).json({ 
                 success: false, 
@@ -1518,6 +1718,12 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         const success = mongoResult || googleSheetsResult;
         
         if (success) {
+            try {
+                await clearTabletActiveSession(req);
+            } catch (sessionError) {
+                console.error('❌ [TABLET] Failed to clear active session after submit:', sessionError);
+            }
+
             res.json({
                 success: true,
                 message: 'Data submitted successfully',
@@ -2617,6 +2823,210 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to load dashboard summary' });
+    }
+});
+
+function normalizeMachineStatusStringList(values = []) {
+    return (Array.isArray(values) ? values : [values])
+        .map(value => String(value ?? '').trim())
+        .filter(Boolean);
+}
+
+function getMachineStatusDurationMetrics(session = {}, now = new Date()) {
+    const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+    const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+    const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+
+    if (!workStartTime) {
+        return {
+            elapsedMinutes: 0,
+            stoppedMinutes: 0,
+            netRunMinutes: 0
+        };
+    }
+
+    const elapsedMinutes = Math.max(0, (now.getTime() - workStartTime.getTime()) / 60000);
+    let stoppedMinutes = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60)
+        + Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+
+    if (session.breakActive && breakStartTime) {
+        stoppedMinutes += Math.max(0, (now.getTime() - breakStartTime.getTime()) / 60000);
+    }
+
+    if (session.troubleActive && troubleStartTime) {
+        stoppedMinutes += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
+    }
+
+    return {
+        elapsedMinutes,
+        stoppedMinutes,
+        netRunMinutes: Math.max(0, elapsedMinutes - stoppedMinutes)
+    };
+}
+
+app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const now = new Date();
+        const [equipmentRecords, tabletRecords, sessionRecords] = await Promise.all([
+            db.collection('equipment')
+                .find({}, { projection: { _id: 1, 設備名: 1, 工場: 1, description: 1 } })
+                .sort({ 設備名: 1 })
+                .toArray(),
+            db.collection('tabletDB')
+                .find({ enabled: { $ne: false } }, { projection: { _id: 1, tabletName: 1, 設備名: 1, factoryLocation: 1 } })
+                .sort({ 設備名: 1, tabletName: 1 })
+                .toArray(),
+            db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
+                .find({})
+                .sort({ updatedAt: -1 })
+                .toArray()
+        ]);
+
+        const machineMap = new Map();
+
+        const ensureMachineEntry = (machineKey, seed = {}) => {
+            if (!machineMap.has(machineKey)) {
+                machineMap.set(machineKey, {
+                    machineKey,
+                    machineName: '',
+                    factoryLocations: [],
+                    tabletId: '',
+                    tabletName: '',
+                    description: '',
+                    session: null
+                });
+            }
+
+            const current = machineMap.get(machineKey);
+            if (seed.machineName) current.machineName = seed.machineName;
+            if (seed.tabletId) current.tabletId = seed.tabletId;
+            if (seed.tabletName) current.tabletName = seed.tabletName;
+            if (seed.description) current.description = seed.description;
+            if (Array.isArray(seed.factoryLocations) && seed.factoryLocations.length > 0) {
+                current.factoryLocations = [...new Set([...current.factoryLocations, ...seed.factoryLocations])];
+            }
+            if (seed.session) current.session = seed.session;
+
+            return current;
+        };
+
+        equipmentRecords.forEach(record => {
+            const machineName = String(record.設備名 ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                description: String(record.description ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.工場)
+            });
+        });
+
+        tabletRecords.forEach(record => {
+            const machineName = String(record.設備名 ?? '').trim() || String(record.tabletName ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                tabletId: record._id ? String(record._id) : '',
+                tabletName: String(record.tabletName ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.factoryLocation)
+            });
+        });
+
+        sessionRecords.forEach(record => {
+            const machineName = String(record.equipmentName ?? '').trim() || String(record.tabletName ?? '').trim() || String(record.tabletId ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                tabletId: String(record.tabletId ?? '').trim(),
+                tabletName: String(record.tabletName ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.factoryLocation),
+                session: record
+            });
+        });
+
+        const machineEntries = [...machineMap.values()];
+        const kanbanIds = [...new Set(machineEntries.map(entry => String(entry.session?.kanbanId ?? '').trim()).filter(Boolean))];
+        const productIds = [...new Set(machineEntries.map(entry => String(entry.session?.productId ?? '').trim()).filter(Boolean))];
+
+        let productRecords = [];
+        if (kanbanIds.length > 0 || productIds.length > 0) {
+            const productFilters = [];
+            if (kanbanIds.length > 0) productFilters.push({ kanbanID: { $in: kanbanIds } });
+            if (productIds.length > 0) productFilters.push({ 品番: { $in: productIds } });
+
+            productRecords = await db.collection('masterDB')
+                .find({ $or: productFilters }, { projection: { _id: 1, 品番: 1, 製品名: 1, kanbanID: 1, cycleTime: 1 } })
+                .toArray();
+        }
+
+        const productByKanban = new Map();
+        const productById = new Map();
+        productRecords.forEach(record => {
+            const kanbanId = String(record.kanbanID ?? '').trim();
+            const productId = String(record.品番 ?? '').trim();
+            if (kanbanId && !productByKanban.has(kanbanId)) productByKanban.set(kanbanId, record);
+            if (productId && !productById.has(productId)) productById.set(productId, record);
+        });
+
+        const rows = machineEntries
+            .map(entry => {
+                const session = entry.session || null;
+                const sessionKanbanId = String(session?.kanbanId ?? '').trim();
+                const sessionProductId = String(session?.productId ?? '').trim();
+                const matchedProduct = productByKanban.get(sessionKanbanId) || productById.get(sessionProductId) || null;
+                const cycleTime = Math.max(0, normalizeTabletSessionNumber(matchedProduct?.cycleTime, 0));
+                const durations = getMachineStatusDurationMetrics(session || {}, now);
+                const currentCount = session?.isStarted ? Math.max(0, normalizeTabletSessionNumber(session.currentCount, 0)) : null;
+                const expectedCount = cycleTime > 0 && durations.netRunMinutes > 0
+                    ? durations.netRunMinutes / cycleTime
+                    : 0;
+                const efficiency = currentCount !== null && expectedCount > 0
+                    ? (currentCount / expectedCount) * 100
+                    : null;
+
+                return {
+                    machineKey: entry.machineKey,
+                    machineName: entry.machineName || '—',
+                    machineDescription: entry.description || '',
+                    factory: entry.factoryLocations.join(', '),
+                    tabletId: entry.tabletId || '',
+                    tabletName: entry.tabletName || '',
+                    status: String(session?.status ?? '').trim() || 'idle',
+                    isStarted: Boolean(session?.isStarted),
+                    productId: String(matchedProduct?.品番 ?? session?.productId ?? '').trim(),
+                    productName: String(matchedProduct?.製品名 ?? session?.productName ?? '').trim(),
+                    kanbanId: String(matchedProduct?.kanbanID ?? sessionKanbanId).trim(),
+                    operators: normalizeMachineStatusStringList(session?.operators),
+                    targetQuantity: null,
+                    startTime: String(session?.startTime ?? '').trim(),
+                    elapsedMinutes: Math.round(durations.elapsedMinutes),
+                    stoppedMinutes: Math.round(durations.stoppedMinutes),
+                    netRunMinutes: Math.round(durations.netRunMinutes),
+                    currentCount,
+                    efficiency,
+                    cycleTime,
+                    updatedAt: session?.updatedAt || null
+                };
+            })
+            .sort((a, b) => {
+                const startedDiff = Number(b.isStarted) - Number(a.isStarted);
+                if (startedDiff !== 0) return startedDiff;
+                return a.machineName.localeCompare(b.machineName, 'ja');
+            });
+
+        res.json({
+            success: true,
+            generatedAt: now.toISOString(),
+            rows
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching machine status dashboard:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load machine status dashboard' });
     }
 });
 

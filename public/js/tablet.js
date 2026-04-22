@@ -123,6 +123,9 @@ const kanbanProductCache = new Map();
 const invalidKanbanCache = new Set();
 let latestObservedKanbanValue = null;
 let latestKanbanValidationRequestId = 0;
+let tabletSessionSyncTimeout = null;
+let tabletSessionSyncPromise = null;
+let tabletSessionSyncQueuedOptions = null;
 
 function normalizeKanbanValue(rawValue) {
   if (rawValue === null || rawValue === undefined) {
@@ -164,6 +167,161 @@ function getLastKnownKanban() {
   );
 
   return isUsableKanbanValue(cachedKanban) ? cachedKanban : null;
+}
+
+function getTabletSessionAuthContext() {
+  try {
+    const authData = localStorage.getItem('tabletAuth');
+    if (!authData) return null;
+
+    const auth = JSON.parse(authData);
+    const token = auth?.token || '';
+    const tabletName = auth?.tablet?.tabletName || auth?.tabletName || '';
+
+    if (!token || !tabletName) {
+      return null;
+    }
+
+    return { token, tabletName };
+  } catch (error) {
+    console.error('Failed to parse tablet auth context for session sync:', error);
+    return null;
+  }
+}
+
+function getTabletSelectedOperators() {
+  const dropdownIds = ['poster1', 'poster2', 'poster3', 'poster4'];
+
+  return dropdownIds
+    .map(id => document.getElementById(id))
+    .filter(select => select && select.value && select.selectedIndex > 0 && select.closest('.info-cell')?.style.display !== 'none')
+    .map(select => select.value)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .slice(0, 4);
+}
+
+function hasActiveTabletSession() {
+  const startTimeValue = document.getElementById('startTime')?.value || '';
+  return Boolean(workStartTime || startTimeValue);
+}
+
+function buildTabletSessionPayload() {
+  if (!hasActiveTabletSession()) {
+    return null;
+  }
+
+  const startTimeValue = document.getElementById('startTime')?.value || '';
+  const workCountValue = parseInt(document.getElementById('workCount')?.value, 10) || 0;
+  const passCountValue = parseInt(document.getElementById('passCount')?.value, 10) || 0;
+  const stopTimeValue = parseFloat(document.getElementById('stopTime')?.value) || 0;
+  const manHoursValue = parseFloat(document.getElementById('manHours')?.value) || 0;
+  const productNameDisplay = document.getElementById('productNameDisplay');
+  const currentKanban = getLastKnownKanban()
+    || normalizeKanbanValue(latestObservedKanbanValue)
+    || normalizeKanbanValue(kenyokiRHKanbanValue);
+
+  return {
+    isStarted: Boolean(workStartTime && startTimeValue),
+    startTime: startTimeValue,
+    workStartTime: workStartTime ? workStartTime.toISOString() : null,
+    breakActive: Boolean(breakStartTime),
+    breakStartTime: breakStartTime ? breakStartTime.toISOString() : null,
+    troubleActive: Boolean(troubleStartTime),
+    troubleStartTime: troubleStartTime ? troubleStartTime.toISOString() : null,
+    totalBreakHours,
+    totalTroubleHours,
+    stopTimeHours: stopTimeValue,
+    manHours: manHoursValue,
+    currentCount: workCountValue,
+    goodCount: passCountValue,
+    seisanSuStartValue,
+    currentSeisanSuValue,
+    operators: getTabletSelectedOperators(),
+    kanbanId: currentKanban || '',
+    productId: currentProductId || '',
+    productName: currentProductName || productNameDisplay?.textContent || '',
+    lhRh: document.getElementById('lhRh')?.value || '',
+    hakoIresu: hakoIresuValue || 0,
+    remarks: document.getElementById('remarks')?.textContent || '',
+    otherDetails: document.getElementById('otherDetails')?.textContent || ''
+  };
+}
+
+async function syncTabletSession(options = {}) {
+  const authContext = getTabletSessionAuthContext();
+  if (!authContext) {
+    return;
+  }
+
+  const syncOptions = {
+    clear: Boolean(options.clear)
+  };
+
+  if (tabletSessionSyncPromise) {
+    tabletSessionSyncQueuedOptions = {
+      clear: syncOptions.clear || tabletSessionSyncQueuedOptions?.clear || false
+    };
+    return tabletSessionSyncPromise;
+  }
+
+  const payload = syncOptions.clear ? { clear: true } : buildTabletSessionPayload();
+  if (!payload) {
+    return;
+  }
+
+  tabletSessionSyncPromise = (async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/tablet/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authContext.token}`,
+          'X-Tablet-Name': encodeURIComponent(authContext.tabletName)
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Tablet session sync failed');
+      }
+    } catch (error) {
+      console.error('❌ Failed to sync tablet session:', error);
+    } finally {
+      tabletSessionSyncPromise = null;
+      if (tabletSessionSyncQueuedOptions) {
+        const queuedOptions = tabletSessionSyncQueuedOptions;
+        tabletSessionSyncQueuedOptions = null;
+        scheduleTabletSessionSync({
+          clear: queuedOptions.clear,
+          immediate: true
+        });
+      }
+    }
+  })();
+
+  return tabletSessionSyncPromise;
+}
+
+function scheduleTabletSessionSync(options = {}) {
+  const syncOptions = {
+    clear: Boolean(options.clear),
+    immediate: Boolean(options.immediate)
+  };
+
+  if (!syncOptions.clear && !hasActiveTabletSession()) {
+    return;
+  }
+
+  if (tabletSessionSyncTimeout) {
+    clearTimeout(tabletSessionSyncTimeout);
+  }
+
+  const delay = syncOptions.immediate ? 0 : 800;
+  tabletSessionSyncTimeout = setTimeout(() => {
+    tabletSessionSyncTimeout = null;
+    syncTabletSession(syncOptions);
+  }, delay);
 }
 
 async function fetchProductByKanbanID(kanbanId) {
@@ -519,6 +677,7 @@ function startBreakTimer() {
   breakStartTime = new Date();
   localStorage.setItem('breakStartTime', breakStartTime.getTime().toString());
   console.log('⏸️ Break timer started at:', breakStartTime.toLocaleTimeString());
+  scheduleTabletSessionSync({ immediate: true });
   
   // Show modal
   const modalOverlay = document.getElementById('breakModalOverlay');
@@ -623,6 +782,7 @@ function completeBreak() {
 
   // Re-evaluate defect counter lock state
   updateDefectCounterState();
+  scheduleTabletSessionSync({ immediate: true });
   
   console.log('✅ Break modal closed');
 }
@@ -640,6 +800,7 @@ function startTroubleTimer() {
   troubleStartTime = new Date();
   localStorage.setItem('troubleStartTime', troubleStartTime.getTime().toString());
   console.log('🔧 Machine trouble timer started at:', troubleStartTime.toLocaleTimeString());
+  scheduleTabletSessionSync({ immediate: true });
   
   // Show modal
   const modalOverlay = document.getElementById('troubleModalOverlay');
@@ -744,6 +905,7 @@ function completeTrouble() {
 
   // Re-evaluate defect counter lock state
   updateDefectCounterState();
+  scheduleTabletSessionSync({ immediate: true });
   
   console.log('✅ Machine trouble modal closed');
 }
@@ -1200,6 +1362,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveFieldToLocalStorage('poster1', poster1Select.value);
       checkStartButtonState();
       checkBasicSettingsAttention(); // Check attention state
+      if (hasActiveTabletSession()) {
+        scheduleTabletSessionSync();
+      }
     });
   }
   
@@ -1218,6 +1383,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         // Update inline info when any dropdown changes
         updateInlineInfo();
+        if (hasActiveTabletSession()) {
+          scheduleTabletSessionSync();
+        }
       });
     }
   });
@@ -1229,6 +1397,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (field) {
       field.addEventListener('input', () => {
         saveFieldToLocalStorage(fieldId, field.value);
+        if (hasActiveTabletSession()) {
+          scheduleTabletSessionSync();
+        }
       });
     }
   });
@@ -1240,9 +1411,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (field) {
       field.addEventListener('input', () => {
         saveFieldToLocalStorage(fieldId, field.textContent);
+        if (hasActiveTabletSession()) {
+          scheduleTabletSessionSync();
+        }
       });
     }
   });
+
+  if (hasActiveTabletSession()) {
+    scheduleTabletSessionSync({ immediate: true });
+  }
 });
 
 // ============================================================
@@ -1706,6 +1884,7 @@ function resetBasicSettings() {
     
     // Clear all localStorage
     clearAllLocalStorage();
+    scheduleTabletSessionSync({ clear: true, immediate: true });
     
     // Re-check start button state after reset
     checkStartButtonState();
@@ -1895,6 +2074,7 @@ function startWork() {
   
   // Check basic settings attention state (startTime is now filled)
   checkBasicSettingsAttention();
+  scheduleTabletSessionSync({ immediate: true });
 }
 
 // Placeholder functions for buttons
@@ -2320,6 +2500,10 @@ function updatePassCount() {
   const inlinePassCount = document.getElementById('inlinePassCount');
   if (inlinePassCount) {
     inlinePassCount.textContent = passCount;
+  }
+
+  if (hasActiveTabletSession()) {
+    scheduleTabletSessionSync();
   }
 }
 
