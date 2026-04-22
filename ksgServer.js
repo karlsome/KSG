@@ -1547,10 +1547,13 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
 // ============================================================
 
+const SUBMITTED_DB_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
+
 const SUBMITTED_DB_FIXED_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
-    'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+    ...SUBMITTED_DB_OPERATOR_FIELDS,
+    'good_count', 'man_hours', 'cycle_time',
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
@@ -1561,7 +1564,8 @@ const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
 ]);
 const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
     'hinban', 'product_name', 'kanban_id', 'lh_rh',
-    'operator1', 'operator2', 'other_description', 'start_time', 'end_time', 'remarks'
+    ...SUBMITTED_DB_OPERATOR_FIELDS,
+    'other_description', 'start_time', 'end_time', 'remarks'
 ]);
 
 function normalizeSubmittedDBUpdates(source = {}) {
@@ -1708,6 +1712,24 @@ function getSubmittedDBDefectRate(goodCount, defectCount) {
     return ((Number(defectCount ?? 0) || 0) / createdTotal) * 100;
 }
 
+function getSubmittedDBRate(numerator, denominator) {
+    const safeDenominator = Number(denominator ?? 0) || 0;
+    if (safeDenominator <= 0) return 0;
+
+    return ((Number(numerator ?? 0) || 0) / safeDenominator) * 100;
+}
+
+function getSubmittedDBCoefficientOfVariation(values = []) {
+    const samples = values.filter(value => Number.isFinite(value) && value >= 0);
+    if (samples.length <= 1) return 0;
+
+    const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    if (average <= 0) return 0;
+
+    const variance = samples.reduce((sum, value) => sum + ((value - average) ** 2), 0) / samples.length;
+    return Math.sqrt(variance) / average;
+}
+
 function escapeSubmittedDBRegex(value = '') {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -1737,10 +1759,9 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
     }
     if (operator) {
         const safeOperator = escapeSubmittedDBRegex(operator);
-        filter.$or = [
-            { operator1: { $regex: safeOperator, $options: 'i' } },
-            { operator2: { $regex: safeOperator, $options: 'i' } }
-        ];
+        filter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(field => ({
+            [field]: { $regex: safeOperator, $options: 'i' }
+        }));
     }
     if (kanbanId) {
         filter.kanban_id = { $regex: escapeSubmittedDBRegex(kanbanId), $options: 'i' };
@@ -1756,9 +1777,11 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
 }
 
 function getSubmittedDBRecordOperators(record = {}) {
-    return [record.operator1, record.operator2]
-        .map(name => String(name ?? '').trim())
-        .filter(Boolean);
+    return [...new Set(
+        SUBMITTED_DB_OPERATOR_FIELDS
+            .map(field => String(record[field] ?? '').trim())
+            .filter(Boolean)
+    )];
 }
 
 function getSubmittedDBRecordDateInfo(record = {}) {
@@ -1805,6 +1828,9 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const activeFilter = { is_deleted: { $ne: true } };
+        const operatorValueFields = Object.fromEntries(
+            SUBMITTED_DB_OPERATOR_FIELDS.map(field => [`${field}Values`, { $addToSet: `$${field}` }])
+        );
 
         const [optionsDoc = {}] = await collection.aggregate([
             { $match: activeFilter },
@@ -1815,8 +1841,7 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
                     lhRh: { $addToSet: '$lh_rh' },
                     hinban: { $addToSet: '$hinban' },
                     productNames: { $addToSet: '$product_name' },
-                    operator1Values: { $addToSet: '$operator1' },
-                    operator2Values: { $addToSet: '$operator2' }
+                    ...operatorValueFields
                 }
             }
         ]).toArray();
@@ -1828,10 +1853,9 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
                 lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
                 hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
                 productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
-                operators: normalizeSubmittedDBOptionList([
-                    ...(optionsDoc.operator1Values || []),
-                    ...(optionsDoc.operator2Values || [])
-                ])
+                operators: normalizeSubmittedDBOptionList(
+                    SUBMITTED_DB_OPERATOR_FIELDS.flatMap(field => optionsDoc[`${field}Values`] || [])
+                )
             }
         });
     } catch (error) {
@@ -1852,8 +1876,12 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const dailyMap = new Map();
         const defectMap = new Map();
         const operatorMap = new Map();
+        const operatorProductMap = new Map();
+        const operatorSourceMap = new Map();
         const productMap = new Map();
+        const productWorkerBenchmarkMap = new Map();
         const sourceMap = new Map();
+        const sourceWorkerBenchmarkMap = new Map();
         const qualityHotspots = [];
         const uniqueOperators = new Set();
         const uniqueProducts = new Set();
@@ -1879,9 +1907,13 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
             const dateInfo = getSubmittedDBRecordDateInfo(record);
             const operators = getSubmittedDBRecordOperators(record);
+            const operatorCount = Math.max(operators.length, 1);
             const source = String(record.submitted_from ?? '').trim() || 'Unknown';
             const kanbanId = String(record.kanban_id ?? '').trim();
             const hasIssue = totalDefects > 0 || troubleTime > 0 || String(record.remarks ?? '').trim() !== '';
+            const attributedGoodCount = goodCount / operatorCount;
+            const attributedDefectCount = totalDefects / operatorCount;
+            const attributedIssueCount = hasIssue ? 1 / operatorCount : 0;
 
             totalGoodCount += goodCount;
             totalDefectCount += totalDefects;
@@ -1987,29 +2019,131 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                 const operatorEntry = operatorMap.get(name) || {
                     name,
                     submissions: 0,
+                    sharedSubmissions: 0,
+                    soloSubmissions: 0,
                     totalGoodCount: 0,
                     totalDefectCount: 0,
                     issueCount: 0,
+                    attributedIssueCount: 0,
                     totalManHours: 0,
                     totalBreakTime: 0,
                     totalTroubleTime: 0,
                     cycleTimeTotal: 0,
-                    cycleTimeSamples: 0
+                    cycleTimeSamples: 0,
+                    activeDates: new Set(),
+                    productKeys: new Set(),
+                    sourceKeys: new Set(),
+                    dailyMap: new Map()
                 };
                 operatorEntry.submissions += 1;
-                operatorEntry.totalGoodCount += goodCount;
-                operatorEntry.totalDefectCount += totalDefects;
+                if (operators.length > 1) {
+                    operatorEntry.sharedSubmissions += 1;
+                } else {
+                    operatorEntry.soloSubmissions += 1;
+                }
+                operatorEntry.totalGoodCount += attributedGoodCount;
+                operatorEntry.totalDefectCount += attributedDefectCount;
                 if (hasIssue) {
                     operatorEntry.issueCount += 1;
                 }
+                operatorEntry.attributedIssueCount += attributedIssueCount;
                 operatorEntry.totalManHours += manHours;
                 operatorEntry.totalBreakTime += breakTime;
                 operatorEntry.totalTroubleTime += troubleTime;
+                operatorEntry.activeDates.add(dateInfo.key);
+                operatorEntry.productKeys.add(productKey);
+                operatorEntry.sourceKeys.add(source);
                 if (Number.isFinite(cycleTime) && cycleTime > 0) {
                     operatorEntry.cycleTimeTotal += cycleTime;
                     operatorEntry.cycleTimeSamples += 1;
                 }
+
+                const operatorDailyEntry = operatorEntry.dailyMap.get(dateInfo.key) || {
+                    date: dateInfo.key,
+                    label: dateInfo.label,
+                    submissions: 0,
+                    goodCount: 0,
+                    defectCount: 0,
+                    issueCount: 0,
+                    manHours: 0,
+                    breakTime: 0,
+                    troubleTime: 0
+                };
+                operatorDailyEntry.submissions += 1;
+                operatorDailyEntry.goodCount += attributedGoodCount;
+                operatorDailyEntry.defectCount += attributedDefectCount;
+                if (hasIssue) {
+                    operatorDailyEntry.issueCount += 1;
+                }
+                operatorDailyEntry.manHours += manHours;
+                operatorDailyEntry.breakTime += breakTime;
+                operatorDailyEntry.troubleTime += troubleTime;
+                operatorEntry.dailyMap.set(dateInfo.key, operatorDailyEntry);
                 operatorMap.set(name, operatorEntry);
+
+                const operatorProductKey = `${name}||${productKey}`;
+                const operatorProductEntry = operatorProductMap.get(operatorProductKey) || {
+                    name,
+                    contextKey: productKey,
+                    hinban: String(record.hinban ?? '').trim(),
+                    productName: String(record.product_name ?? '').trim(),
+                    lhRh: String(record.lh_rh ?? '').trim(),
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                operatorProductEntry.submissions += 1;
+                operatorProductEntry.totalGoodCount += attributedGoodCount;
+                operatorProductEntry.totalDefectCount += attributedDefectCount;
+                operatorProductEntry.totalManHours += manHours;
+                operatorProductMap.set(operatorProductKey, operatorProductEntry);
+
+                const productWorkerBenchmark = productWorkerBenchmarkMap.get(productKey) || {
+                    contextKey: productKey,
+                    hinban: String(record.hinban ?? '').trim(),
+                    productName: String(record.product_name ?? '').trim(),
+                    lhRh: String(record.lh_rh ?? '').trim(),
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                productWorkerBenchmark.submissions += 1;
+                productWorkerBenchmark.totalGoodCount += attributedGoodCount;
+                productWorkerBenchmark.totalDefectCount += attributedDefectCount;
+                productWorkerBenchmark.totalManHours += manHours;
+                productWorkerBenchmarkMap.set(productKey, productWorkerBenchmark);
+
+                const operatorSourceKey = `${name}||${source}`;
+                const operatorSourceEntry = operatorSourceMap.get(operatorSourceKey) || {
+                    name,
+                    contextKey: source,
+                    source,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                operatorSourceEntry.submissions += 1;
+                operatorSourceEntry.totalGoodCount += attributedGoodCount;
+                operatorSourceEntry.totalDefectCount += attributedDefectCount;
+                operatorSourceEntry.totalManHours += manHours;
+                operatorSourceMap.set(operatorSourceKey, operatorSourceEntry);
+
+                const sourceWorkerBenchmark = sourceWorkerBenchmarkMap.get(source) || {
+                    contextKey: source,
+                    source,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                sourceWorkerBenchmark.submissions += 1;
+                sourceWorkerBenchmark.totalGoodCount += attributedGoodCount;
+                sourceWorkerBenchmark.totalDefectCount += attributedDefectCount;
+                sourceWorkerBenchmark.totalManHours += manHours;
+                sourceWorkerBenchmarkMap.set(source, sourceWorkerBenchmark);
             });
 
             qualityHotspots.push({
@@ -2064,14 +2198,51 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
             .slice(0, 10);
 
-        const operatorComparison = [...operatorMap.values()]
-            .sort((a, b) => b.totalManHours - a.totalManHours || b.totalGoodCount - a.totalGoodCount || a.name.localeCompare(b.name, 'ja'))
+        const operatorComparisonAll = [...operatorMap.values()]
+            .map(entry => {
+                const dailyPoints = [...entry.dailyMap.values()]
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(point => ({
+                        ...point,
+                        defectRate: getSubmittedDBDefectRate(point.goodCount, point.defectCount),
+                        outputPerHour: point.manHours > 0 ? point.goodCount / point.manHours : 0,
+                        downtimeRate: getSubmittedDBRate(point.breakTime + point.troubleTime, point.manHours)
+                    }));
+                const outputPerHourSamples = dailyPoints
+                    .map(point => point.outputPerHour)
+                    .filter(value => Number.isFinite(value) && value > 0);
+
+                return {
+                    name: entry.name,
+                    submissions: entry.submissions,
+                    sharedSubmissions: entry.sharedSubmissions,
+                    soloSubmissions: entry.soloSubmissions,
+                    totalGoodCount: entry.totalGoodCount,
+                    totalDefectCount: entry.totalDefectCount,
+                    issueCount: entry.issueCount,
+                    attributedIssueCount: entry.attributedIssueCount,
+                    totalManHours: entry.totalManHours,
+                    totalBreakTime: entry.totalBreakTime,
+                    totalTroubleTime: entry.totalTroubleTime,
+                    averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
+                    defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount),
+                    issueRate: getSubmittedDBRate(entry.issueCount, entry.submissions),
+                    outputPerHour: entry.totalManHours > 0 ? entry.totalGoodCount / entry.totalManHours : 0,
+                    downtimeRate: getSubmittedDBRate(entry.totalBreakTime + entry.totalTroubleTime, entry.totalManHours),
+                    troubleRate: getSubmittedDBRate(entry.totalTroubleTime, entry.totalManHours),
+                    activeDays: entry.activeDates.size,
+                    productCount: entry.productKeys.size,
+                    sourceCount: entry.sourceKeys.size,
+                    consistencyScore: Math.max(0, 100 - (getSubmittedDBCoefficientOfVariation(outputPerHourSamples) * 100)),
+                    dailyPoints
+                };
+            })
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.outputPerHour - a.outputPerHour || b.totalManHours - a.totalManHours || a.name.localeCompare(b.name, 'ja'));
+
+        const operatorComparison = operatorComparisonAll
             .slice(0, 20)
-            .map(entry => ({
-                ...entry,
-                averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
-                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
-            }));
+            .map(({ dailyPoints, ...entry }) => entry);
+        const operatorDerivedMap = new Map(operatorComparisonAll.map(entry => [entry.name, entry]));
 
         const topProducts = [...productMap.values()]
             .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.productName.localeCompare(b.productName, 'ja'))
@@ -2091,52 +2262,59 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
 
         const requestedFocusOperator = String(req.query.focusOperator ?? '').trim();
         const resolvedFocusOperator = requestedFocusOperator || operatorComparison[0]?.name || '';
-        let operatorFocus = null;
+        const focusWorker = operatorDerivedMap.get(resolvedFocusOperator);
+        const operatorFocus = focusWorker
+            ? {
+                name: focusWorker.name,
+                points: focusWorker.dailyPoints
+            }
+            : null;
 
-        if (resolvedFocusOperator) {
-            const operatorFocusMap = new Map();
+        const buildFocusSkillContexts = (scope, entries, benchmarks) => {
+            if (!resolvedFocusOperator) return [];
 
-            records.forEach(record => {
-                const operators = getSubmittedDBRecordOperators(record);
-                if (!operators.includes(resolvedFocusOperator)) return;
+            return [...entries.values()]
+                .filter(entry => entry.name === resolvedFocusOperator && entry.totalManHours > 0)
+                .map(entry => {
+                    const benchmark = benchmarks.get(entry.contextKey);
+                    if (!benchmark || benchmark.totalManHours <= 0) return null;
 
-                const dateInfo = getSubmittedDBRecordDateInfo(record);
-                const goodCount = Number(record.good_count ?? 0) || 0;
-                const breakTime = Number(record.break_time ?? 0) || 0;
-                const troubleTime = Number(record.trouble_time ?? 0) || 0;
-                const manHours = Number(record.man_hours ?? 0) || 0;
-                const totalDefects = getSubmittedDBTotalDefects(record);
+                    const outputPerHour = entry.totalGoodCount / entry.totalManHours;
+                    const benchmarkOutputPerHour = benchmark.totalGoodCount / benchmark.totalManHours;
 
-                const focusEntry = operatorFocusMap.get(dateInfo.key) || {
-                    date: dateInfo.key,
-                    label: dateInfo.label,
-                    submissions: 0,
-                    manHours: 0,
-                    breakTime: 0,
-                    troubleTime: 0,
-                    goodCount: 0,
-                    defectCount: 0
-                };
+                    return {
+                        scope,
+                        label: scope === 'source'
+                            ? entry.source
+                            : [entry.productName || entry.hinban || 'Unknown', entry.hinban && entry.productName && entry.hinban !== entry.productName ? entry.hinban : '', entry.lhRh].filter(Boolean).join(' / '),
+                        source: entry.source || '',
+                        hinban: entry.hinban || '',
+                        productName: entry.productName || '',
+                        lhRh: entry.lhRh || '',
+                        submissions: entry.submissions,
+                        totalGoodCount: entry.totalGoodCount,
+                        totalManHours: entry.totalManHours,
+                        outputPerHour,
+                        defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount),
+                        benchmarkOutputPerHour,
+                        benchmarkDefectRate: getSubmittedDBDefectRate(benchmark.totalGoodCount, benchmark.totalDefectCount),
+                        deltaOutputPerHour: outputPerHour - benchmarkOutputPerHour,
+                        deltaPercent: benchmarkOutputPerHour > 0 ? ((outputPerHour / benchmarkOutputPerHour) - 1) * 100 : 0
+                    };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.totalManHours - a.totalManHours || b.submissions - a.submissions || a.label.localeCompare(b.label, 'ja'));
+        };
 
-                focusEntry.submissions += 1;
-                focusEntry.manHours += manHours;
-                focusEntry.breakTime += breakTime;
-                focusEntry.troubleTime += troubleTime;
-                focusEntry.goodCount += goodCount;
-                focusEntry.defectCount += totalDefects;
-                operatorFocusMap.set(dateInfo.key, focusEntry);
-            });
-
-            operatorFocus = {
+        const operatorSkillProfile = resolvedFocusOperator
+            ? {
                 name: resolvedFocusOperator,
-                points: [...operatorFocusMap.values()]
-                    .sort((a, b) => a.date.localeCompare(b.date))
-                    .map(entry => ({
-                        ...entry,
-                        defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount)
-                    }))
-            };
-        }
+                contexts: [
+                    ...buildFocusSkillContexts('source', operatorSourceMap, sourceWorkerBenchmarkMap).slice(0, 4),
+                    ...buildFocusSkillContexts('product', operatorProductMap, productWorkerBenchmarkMap).slice(0, 4)
+                ]
+            }
+            : null;
 
         res.json({
             success: true,
@@ -2157,6 +2335,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             topDefects,
             operatorComparison,
             operatorFocus,
+            operatorSkillProfile,
             topProducts,
             sourceBreakdown,
             qualityHotspots: qualityHotspots

@@ -223,30 +223,56 @@
     </section>
 
     <section id="analyticsPanelWorker" data-analytics-panel="worker" class="hidden space-y-6">
+      <div class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Shared records split output and defect counts evenly across listed operators. Time-based metrics use full participation hours for each worker.
+      </div>
+
       <div id="analyticsWorkerSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
-      <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm xl:col-span-2">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900">Worker output versus defect rate</h3>
-            <p class="mt-1 text-sm text-gray-500">Compare who is producing the most and where quality risk is concentrated.</p>
-          </div>
-          <div id="analyticsOperatorsChart" class="h-[380px] px-2 py-4"></div>
-        </section>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Productivity</h3>
+          <p class="mt-1 text-sm text-gray-500">Rank workers by attributed output and compare how much output they generate per active hour.</p>
+        </div>
+        <div id="analyticsWorkerProductivityChart" class="h-[360px] px-2 py-4"></div>
+      </section>
 
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900">Focused worker timeline</h3>
-            <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500">Auto-selecting the busiest worker in the current filter.</p>
-          </div>
-          <div id="analyticsOperatorFocusChart" class="h-[380px] px-2 py-4"></div>
-        </section>
-      </div>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Quality</h3>
+          <p class="mt-1 text-sm text-gray-500">See which workers accumulate the most attributed defects and where defect rate is persistently high.</p>
+        </div>
+        <div id="analyticsWorkerQualityChart" class="h-[360px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Time Efficiency</h3>
+          <p class="mt-1 text-sm text-gray-500">Track downtime behavior with break time, trouble time, and downtime rate by worker.</p>
+        </div>
+        <div id="analyticsWorkerEfficiencyChart" class="h-[360px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Consistency Over Time</h3>
+          <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500">Auto-selecting the busiest worker in the current filter.</p>
+        </div>
+        <div id="analyticsWorkerConsistencyChart" class="h-[380px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Skill Fit</h3>
+          <p id="analyticsOperatorSkillMeta" class="mt-1 text-sm text-gray-500">Comparing the focused worker against the same machine and product contexts.</p>
+        </div>
+        <div id="analyticsWorkerSkillChart" class="h-[420px] px-2 py-4"></div>
+      </section>
 
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
           <h3 class="text-lg font-semibold text-gray-900">Worker leaderboard</h3>
-          <p class="mt-1 text-sm text-gray-500">Use this table to identify overload, defect-heavy work, and labor balance.</p>
+          <p class="mt-1 text-sm text-gray-500">Use this table to compare attributed output, shared-work mix, downtime, and defect pressure.</p>
         </div>
         <div id="analyticsWorkerTable" class="overflow-x-auto"></div>
       </section>

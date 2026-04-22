@@ -62,9 +62,40 @@ function analyticsFormatHours(value) {
   return `${analyticsFormatNumber(value, 2)} h`;
 }
 
+function analyticsFormatCount(value) {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number)) return '0';
+  return analyticsFormatNumber(number, Number.isInteger(number) ? 0 : 1);
+}
+
+function analyticsFormatPiecesPerHour(value) {
+  return `${analyticsFormatNumber(value, 2)} pcs/h`;
+}
+
+function analyticsFormatSignedPercent(value) {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number)) return '0.0%';
+  const sign = number > 0 ? '+' : '';
+  return `${sign}${analyticsFormatNumber(number, 1)}%`;
+}
+
+function analyticsShortenLabel(value, maxLength = 40) {
+  const text = String(value ?? '').trim();
+  if (!text || text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function analyticsFormatTooltipMetric(seriesName, value) {
   const number = Number(Array.isArray(value) ? value[value.length - 1] : value);
   if (!Number.isFinite(number)) return '-';
+
+  if (/(pieces\/h|output\/hour|per hour|\/h)/i.test(seriesName)) {
+    return analyticsFormatPiecesPerHour(number);
+  }
+
+  if (/delta/i.test(seriesName)) {
+    return analyticsFormatSignedPercent(number);
+  }
 
   if (/(hour|time)/i.test(seriesName)) {
     return `${analyticsFormatNumber(number, 2)} h`;
@@ -323,7 +354,8 @@ function renderAnalyticsMeta(filters, summary, generatedAt) {
   const metaEl = document.getElementById('analyticsMetaChips');
   const updatedEl = document.getElementById('analyticsLastUpdated');
   const focusMetaEl = document.getElementById('analyticsOperatorFocusMeta');
-  if (!metaEl || !updatedEl || !focusMetaEl) return;
+  const skillMetaEl = document.getElementById('analyticsOperatorSkillMeta');
+  if (!metaEl || !updatedEl) return;
 
   updatedEl.textContent = analyticsFormatDateTime(generatedAt);
 
@@ -361,9 +393,18 @@ function renderAnalyticsMeta(filters, summary, generatedAt) {
       <span class="text-gray-600">${chip.label}:</span>
       <strong class="ml-2 font-semibold text-gray-900">${chip.value}</strong>
     </div>`).join('');
-  focusMetaEl.textContent = filters.focusOperator
-    ? `Focused on ${filters.focusOperator} for the worker timeline.`
-    : 'Auto-selecting the busiest worker in the current filter.';
+
+  if (focusMetaEl) {
+    focusMetaEl.textContent = filters.focusOperator
+      ? `Focused on ${filters.focusOperator}. Daily output uses attributed pieces, while hours remain full participation time.`
+      : 'Auto-selecting the busiest worker in the current filter.';
+  }
+
+  if (skillMetaEl) {
+    skillMetaEl.textContent = filters.focusOperator
+      ? `Focused on ${filters.focusOperator}. Benchmarks compare that worker against all workers on the same machine and product contexts.`
+      : 'Comparing the focused worker against the same machine and product contexts.';
+  }
 }
 
 function renderAnalyticsKpis(summary) {
@@ -556,32 +597,94 @@ function renderAnalyticsOverview(data) {
   }
 }
 
-function renderAnalyticsOperatorsChart(operatorComparison) {
+function renderAnalyticsWorkerProductivityChart(operatorComparison) {
   const rankedWorkers = (operatorComparison || [])
     .slice()
     .sort((a, b) => Number(b.totalGoodCount || 0) - Number(a.totalGoodCount || 0))
-    .slice(0, 10);
+    .slice(0, 12);
 
   if (rankedWorkers.length === 0) {
-    analyticsShowChartEmpty('analyticsOperatorsChart', 'No worker data for the selected filters.');
+    analyticsShowChartEmpty('analyticsWorkerProductivityChart', 'No worker productivity data for the selected filters.');
     return;
   }
 
-  analyticsRenderChart('analyticsOperatorsChart', {
-    color: ['#0f766e', '#ea580c'],
+  analyticsRenderChart('analyticsWorkerProductivityChart', {
+    color: ['#0f766e', '#0284c7'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Good Pieces', 'Defect Rate'] },
-    grid: { left: 40, right: 40, top: 48, bottom: 48, containLabel: true },
+    legend: { top: 0, data: ['Attributed Good Pieces', 'Output/Hour'] },
+    grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
       data: rankedWorkers.map(item => item.name),
       axisTick: { show: false },
-      axisLabel: { interval: 0, rotate: 18 }
+      axisLabel: {
+        interval: 0,
+        rotate: 18,
+        formatter: value => analyticsShortenLabel(value, 14)
+      }
     },
     yAxis: [
       {
         type: 'value',
         name: 'Pieces',
+        splitLine: { lineStyle: { color: '#e2e8f0' } }
+      },
+      {
+        type: 'value',
+        name: 'pcs/h',
+        splitLine: { show: false }
+      }
+    ],
+    series: [
+      {
+        name: 'Attributed Good Pieces',
+        type: 'bar',
+        barMaxWidth: 30,
+        data: rankedWorkers.map(item => Number(item.totalGoodCount || 0)),
+        itemStyle: { borderRadius: [8, 8, 0, 0] }
+      },
+      {
+        name: 'Output/Hour',
+        type: 'line',
+        yAxisIndex: 1,
+        smooth: true,
+        symbolSize: 8,
+        data: rankedWorkers.map(item => Number(item.outputPerHour || 0))
+      }
+    ]
+  });
+}
+
+function renderAnalyticsWorkerQualityChart(operatorComparison) {
+  const rankedWorkers = (operatorComparison || [])
+    .slice()
+    .sort((a, b) => Number(b.totalDefectCount || 0) - Number(a.totalDefectCount || 0) || Number(b.defectRate || 0) - Number(a.defectRate || 0))
+    .slice(0, 12);
+
+  if (rankedWorkers.length === 0) {
+    analyticsShowChartEmpty('analyticsWorkerQualityChart', 'No worker quality data for the selected filters.');
+    return;
+  }
+
+  analyticsRenderChart('analyticsWorkerQualityChart', {
+    color: ['#dc2626', '#f59e0b'],
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
+    legend: { top: 0, data: ['Attributed Defects', 'Defect Rate'] },
+    grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: rankedWorkers.map(item => item.name),
+      axisTick: { show: false },
+      axisLabel: {
+        interval: 0,
+        rotate: 18,
+        formatter: value => analyticsShortenLabel(value, 14)
+      }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: 'Defects',
         splitLine: { lineStyle: { color: '#e2e8f0' } }
       },
       {
@@ -592,10 +695,10 @@ function renderAnalyticsOperatorsChart(operatorComparison) {
     ],
     series: [
       {
-        name: 'Good Pieces',
+        name: 'Attributed Defects',
         type: 'bar',
-        barMaxWidth: 28,
-        data: rankedWorkers.map(item => Number(item.totalGoodCount || 0)),
+        barMaxWidth: 30,
+        data: rankedWorkers.map(item => Number(item.totalDefectCount || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
@@ -610,21 +713,31 @@ function renderAnalyticsOperatorsChart(operatorComparison) {
   });
 }
 
-function renderAnalyticsOperatorFocusChart(operatorFocus) {
-  if (!operatorFocus || !Array.isArray(operatorFocus.points) || operatorFocus.points.length === 0) {
-    analyticsShowChartEmpty('analyticsOperatorFocusChart', 'No daily worker history for the selected focus worker.');
+function renderAnalyticsWorkerEfficiencyChart(operatorComparison) {
+  const rankedWorkers = (operatorComparison || [])
+    .slice()
+    .sort((a, b) => Number((b.totalBreakTime || 0) + (b.totalTroubleTime || 0)) - Number((a.totalBreakTime || 0) + (a.totalTroubleTime || 0)) || Number(b.downtimeRate || 0) - Number(a.downtimeRate || 0))
+    .slice(0, 12);
+
+  if (rankedWorkers.length === 0) {
+    analyticsShowChartEmpty('analyticsWorkerEfficiencyChart', 'No worker time-efficiency data for the selected filters.');
     return;
   }
 
-  analyticsRenderChart('analyticsOperatorFocusChart', {
-    color: ['#1e293b', '#f59e0b', '#ef4444', '#10b981'],
+  analyticsRenderChart('analyticsWorkerEfficiencyChart', {
+    color: ['#fbbf24', '#ef4444', '#1d4ed8'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: ['Man Hours', 'Break Time', 'Trouble Time', 'Good Pieces'] },
-    grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
+    legend: { top: 0, data: ['Break Time', 'Trouble Time', 'Downtime Rate'] },
+    grid: { left: 48, right: 52, top: 56, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
-      data: operatorFocus.points.map(item => item.label),
-      axisTick: { show: false }
+      data: rankedWorkers.map(item => item.name),
+      axisTick: { show: false },
+      axisLabel: {
+        interval: 0,
+        rotate: 18,
+        formatter: value => analyticsShortenLabel(value, 14)
+      }
     },
     yAxis: [
       {
@@ -634,39 +747,167 @@ function renderAnalyticsOperatorFocusChart(operatorFocus) {
       },
       {
         type: 'value',
-        name: 'Pieces',
+        name: '%',
         splitLine: { show: false }
       }
     ],
     series: [
       {
-        name: 'Man Hours',
-        type: 'bar',
-        data: operatorFocus.points.map(item => Number(item.manHours || 0)),
-        barMaxWidth: 18,
-        itemStyle: { borderRadius: [8, 8, 0, 0] }
-      },
-      {
         name: 'Break Time',
         type: 'bar',
-        data: operatorFocus.points.map(item => Number(item.breakTime || 0)),
-        barMaxWidth: 18,
+        stack: 'downtime',
+        barMaxWidth: 28,
+        data: rankedWorkers.map(item => Number(item.totalBreakTime || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
         name: 'Trouble Time',
         type: 'bar',
-        data: operatorFocus.points.map(item => Number(item.troubleTime || 0)),
-        barMaxWidth: 18,
+        stack: 'downtime',
+        barMaxWidth: 28,
+        data: rankedWorkers.map(item => Number(item.totalTroubleTime || 0)),
         itemStyle: { borderRadius: [8, 8, 0, 0] }
       },
       {
-        name: 'Good Pieces',
+        name: 'Downtime Rate',
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
         symbolSize: 8,
-        data: operatorFocus.points.map(item => Number(item.goodCount || 0))
+        data: rankedWorkers.map(item => Number(item.downtimeRate || 0))
+      }
+    ]
+  });
+}
+
+function renderAnalyticsWorkerConsistencyChart(operatorFocus) {
+  if (!operatorFocus || !Array.isArray(operatorFocus.points) || operatorFocus.points.length === 0) {
+    analyticsShowChartEmpty('analyticsWorkerConsistencyChart', 'No daily worker history for the selected focus worker.');
+    return;
+  }
+
+  analyticsRenderChart('analyticsWorkerConsistencyChart', {
+    color: ['#0f766e', '#1d4ed8', '#dc2626'],
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
+    legend: { top: 0, data: ['Attributed Good Pieces', 'Output/Hour', 'Defect Rate'] },
+    grid: { left: 48, right: 84, top: 56, bottom: 32, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: operatorFocus.points.map(item => item.label),
+      axisTick: { show: false }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: 'Pieces',
+        splitLine: { lineStyle: { color: '#e2e8f0' } }
+      },
+      {
+        type: 'value',
+        name: 'pcs/h',
+        position: 'right',
+        splitLine: { show: false }
+      },
+      {
+        type: 'value',
+        name: '%',
+        position: 'right',
+        offset: 56,
+        splitLine: { show: false }
+      }
+    ],
+    series: [
+      {
+        name: 'Attributed Good Pieces',
+        type: 'bar',
+        barMaxWidth: 24,
+        data: operatorFocus.points.map(item => Number(item.goodCount || 0)),
+        itemStyle: { borderRadius: [8, 8, 0, 0] }
+      },
+      {
+        name: 'Output/Hour',
+        type: 'line',
+        yAxisIndex: 1,
+        smooth: true,
+        symbolSize: 8,
+        data: operatorFocus.points.map(item => Number(item.outputPerHour || 0))
+      },
+      {
+        name: 'Defect Rate',
+        type: 'line',
+        yAxisIndex: 2,
+        smooth: true,
+        symbolSize: 8,
+        data: operatorFocus.points.map(item => Number(item.defectRate || 0))
+      }
+    ]
+  });
+}
+
+function analyticsWorkerSkillTooltipFormatter(params) {
+  const item = Array.isArray(params) ? params[0] : params;
+  const context = item?.data?.context;
+  if (!context) return '';
+
+  const scopeLabel = context.scope === 'source' ? 'Machine' : 'Product';
+  return [
+    `<strong>${analyticsEscapeHtml(scopeLabel)}</strong>`,
+    analyticsEscapeHtml(context.label || 'Unknown'),
+    `Worker output/hour<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.outputPerHour)}</span>`,
+    `Baseline output/hour<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPiecesPerHour(context.benchmarkOutputPerHour)}</span>`,
+    `Delta vs baseline<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatSignedPercent(context.deltaPercent)}</span>`,
+    `Worker defect rate<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.defectRate)}</span>`,
+    `Baseline defect rate<span style="float:right;margin-left:24px;font-weight:600;color:#111827;">${analyticsFormatPercent(context.benchmarkDefectRate)}</span>`
+  ].join('<br>');
+}
+
+function renderAnalyticsWorkerSkillChart(operatorSkillProfile) {
+  const contexts = (operatorSkillProfile?.contexts || [])
+    .slice()
+    .sort((a, b) => Number(b.deltaPercent || 0) - Number(a.deltaPercent || 0));
+
+  if (contexts.length === 0) {
+    analyticsShowChartEmpty('analyticsWorkerSkillChart', 'No worker skill-fit contexts for the selected focus worker.');
+    return;
+  }
+
+  analyticsRenderChart('analyticsWorkerSkillChart', {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: analyticsWorkerSkillTooltipFormatter },
+    grid: { left: 220, right: 32, top: 24, bottom: 32, containLabel: false },
+    xAxis: {
+      type: 'value',
+      name: '% vs baseline',
+      splitLine: { lineStyle: { color: '#e2e8f0' } }
+    },
+    yAxis: {
+      type: 'category',
+      data: contexts.map(item => analyticsShortenLabel(`${item.scope === 'source' ? 'Machine' : 'Product'} · ${item.label}`, 34)),
+      axisTick: { show: false },
+      axisLine: { show: false }
+    },
+    series: [
+      {
+        name: 'Skill Delta',
+        type: 'bar',
+        barMaxWidth: 28,
+        data: contexts.map(item => ({
+          value: Number(item.deltaPercent || 0),
+          context: item,
+          itemStyle: {
+            color: Number(item.deltaPercent || 0) >= 0 ? '#0f766e' : '#dc2626',
+            borderRadius: 8
+          }
+        })),
+        label: {
+          show: true,
+          position: 'right',
+          formatter: params => analyticsFormatSignedPercent(params.value)
+        },
+        markLine: {
+          symbol: 'none',
+          lineStyle: { color: '#94a3b8', type: 'dashed' },
+          data: [{ xAxis: 0 }]
+        }
       }
     ]
   });
@@ -691,10 +932,13 @@ function renderAnalyticsWorkerTable(operatorComparison) {
         <tr>
           <th class="px-6 py-3 font-medium">Worker</th>
           <th class="px-6 py-3 font-medium">Records</th>
+          <th class="px-6 py-3 font-medium">Shared</th>
+          <th class="px-6 py-3 font-medium">Days</th>
           <th class="px-6 py-3 font-medium">Good</th>
+          <th class="px-6 py-3 font-medium">Output/Hour</th>
           <th class="px-6 py-3 font-medium">Hours</th>
-          <th class="px-6 py-3 font-medium">Trouble</th>
           <th class="px-6 py-3 font-medium">Issues</th>
+          <th class="px-6 py-3 font-medium">Downtime</th>
           <th class="px-6 py-3 font-medium">Defect Rate</th>
           <th class="px-6 py-3 font-medium">Avg CT</th>
         </tr>
@@ -704,10 +948,13 @@ function renderAnalyticsWorkerTable(operatorComparison) {
           <tr>
             <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(worker.name)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.totalGoodCount)}</td>
+            <td class="px-6 py-4">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
+            <td class="px-6 py-4">${analyticsFormatNumber(worker.activeDays)}</td>
+            <td class="px-6 py-4">${analyticsFormatCount(worker.totalGoodCount)}</td>
+            <td class="px-6 py-4">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
             <td class="px-6 py-4">${analyticsFormatHours(worker.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(worker.totalTroubleTime)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.issueCount)}</td>
+            <td class="px-6 py-4">${analyticsFormatPercent(worker.downtimeRate)}</td>
             <td class="px-6 py-4">${analyticsFormatPercent(worker.defectRate)}</td>
             <td class="px-6 py-4">${analyticsFormatNumber(worker.averageCycleTime, 2)}</td>
           </tr>`).join('')}
@@ -718,47 +965,54 @@ function renderAnalyticsWorkerTable(operatorComparison) {
 function renderAnalyticsWorkerTab(data) {
   const workers = data.operatorComparison || [];
   const topOutputWorker = analyticsGetHighestBy(workers, item => Number(item.totalGoodCount || 0));
-  const topTroubleWorker = analyticsGetHighestBy(workers, item => Number(item.totalTroubleTime || 0));
-  const topIssueWorker = analyticsGetHighestBy(workers, item => Number(item.issueCount || 0));
-  const bestQualityWorker = analyticsGetHighestBy(
+  const bestThroughputWorker = analyticsGetHighestBy(
     workers,
-    item => Number(item.totalGoodCount || 0),
-    item => Number(item.issueCount || 0) === 0 && Number(item.totalGoodCount || 0) > 0
+    item => Number(item.outputPerHour || 0),
+    item => Number(item.totalManHours || 0) >= 1 && Number(item.submissions || 0) >= 2
+  );
+  const topDefectWorker = analyticsGetHighestBy(workers, item => Number(item.totalDefectCount || 0));
+  const mostConsistentWorker = analyticsGetHighestBy(
+    workers,
+    item => Number(item.consistencyScore || 0),
+    item => Number(item.activeDays || 0) >= 3 && Number(item.totalManHours || 0) >= 1
   );
 
   analyticsRenderCardGrid('analyticsWorkerSummary', [
     {
-      eyebrow: 'Highest Output Worker',
+      eyebrow: 'Highest Attributed Output',
       value: topOutputWorker ? analyticsEscapeHtml(topOutputWorker.name) : 'No worker data',
-      detail: topOutputWorker ? `${analyticsFormatNumber(topOutputWorker.totalGoodCount)} good pieces` : 'No output signal in this filter',
+      detail: topOutputWorker ? `${analyticsFormatCount(topOutputWorker.totalGoodCount)} attributed pieces across ${analyticsFormatNumber(topOutputWorker.submissions)} records` : 'No output signal in this filter',
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-medal-line'
     },
     {
-      eyebrow: 'Most Trouble Time',
-      value: topTroubleWorker ? analyticsEscapeHtml(topTroubleWorker.name) : 'No worker data',
-      detail: topTroubleWorker ? `${analyticsFormatHours(topTroubleWorker.totalTroubleTime)} trouble time` : 'No trouble signal in this filter',
-      tone: 'bg-amber-50 text-amber-700',
-      icon: 'ri-alarm-warning-line'
+      eyebrow: 'Best Output / Hour',
+      value: bestThroughputWorker ? analyticsEscapeHtml(bestThroughputWorker.name) : 'No candidate',
+      detail: bestThroughputWorker ? `${analyticsFormatPiecesPerHour(bestThroughputWorker.outputPerHour)} with ${analyticsFormatHours(bestThroughputWorker.totalManHours)} participation time` : 'Need at least 2 records and 1 active hour',
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-speed-up-line'
     },
     {
-      eyebrow: 'Most Issue Records',
-      value: topIssueWorker ? analyticsEscapeHtml(topIssueWorker.name) : 'No worker data',
-      detail: topIssueWorker ? `${analyticsFormatNumber(topIssueWorker.issueCount)} issue records` : 'No issue signal in this filter',
+      eyebrow: 'Highest Defect Load',
+      value: topDefectWorker ? analyticsEscapeHtml(topDefectWorker.name) : 'No worker data',
+      detail: topDefectWorker ? `${analyticsFormatCount(topDefectWorker.totalDefectCount)} attributed defects at ${analyticsFormatPercent(topDefectWorker.defectRate)}` : 'No quality loss in this filter',
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
     },
     {
-      eyebrow: 'Cleanest High-Output Worker',
-      value: bestQualityWorker ? analyticsEscapeHtml(bestQualityWorker.name) : 'No candidate',
-      detail: bestQualityWorker ? `${analyticsFormatNumber(bestQualityWorker.totalGoodCount)} good pieces with no issue records` : 'No clean high-output worker in this filter',
-      tone: 'bg-sky-50 text-sky-700',
-      icon: 'ri-shield-check-line'
+      eyebrow: 'Most Consistent Worker',
+      value: mostConsistentWorker ? analyticsEscapeHtml(mostConsistentWorker.name) : 'No candidate',
+      detail: mostConsistentWorker ? `${analyticsFormatPercent(mostConsistentWorker.consistencyScore)} consistency score across ${analyticsFormatNumber(mostConsistentWorker.activeDays)} active days` : 'Need at least 3 active days to compare stability',
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-line-chart-line'
     }
   ]);
 
-  renderAnalyticsOperatorsChart(workers);
-  renderAnalyticsOperatorFocusChart(data.operatorFocus || null);
+  renderAnalyticsWorkerProductivityChart(workers);
+  renderAnalyticsWorkerQualityChart(workers);
+  renderAnalyticsWorkerEfficiencyChart(workers);
+  renderAnalyticsWorkerConsistencyChart(data.operatorFocus || null);
+  renderAnalyticsWorkerSkillChart(data.operatorSkillProfile || null);
   renderAnalyticsWorkerTable(workers);
 }
 
