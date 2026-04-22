@@ -962,7 +962,7 @@ const translations = {
     // Navigation
     nav: {
       dashboard: "ダッシュボード",
-      analytics: "アナリティクス",
+      analytics: "分析",
       userManagement: "ユーザー管理",
       masterDB: "マスターDB",
       opcManagement: "OPC管理",
