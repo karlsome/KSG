@@ -128,6 +128,8 @@ let tabletSessionSyncPromise = null;
 let tabletSessionSyncQueuedOptions = null;
 let tabletSessionHeartbeatInterval = null;
 const TABLET_SESSION_HEARTBEAT_INTERVAL_MS = 15000;
+let pendingKanbanConflict = null;
+let ignoredIncomingKanbanForCurrentRecord = null;
 
 function normalizeKanbanValue(rawValue) {
   if (rawValue === null || rawValue === undefined) {
@@ -202,9 +204,128 @@ function getTabletSelectedOperators() {
     .slice(0, 4);
 }
 
-function hasActiveTabletSession() {
+function hasUnsubmittedTabletData() {
   const startTimeValue = document.getElementById('startTime')?.value || '';
   return Boolean(workStartTime || startTimeValue);
+}
+
+function hasActiveTabletSession() {
+  return hasUnsubmittedTabletData();
+}
+
+function getCurrentRecordKanban() {
+  const currentKanban = normalizeKanbanValue(
+    localStorage.getItem('tablet_kanbanID')
+    || localStorage.getItem('tablet_lastKnownKanbanID')
+    || kenyokiRHKanbanValue
+  );
+
+  return isUsableKanbanValue(currentKanban) ? currentKanban : null;
+}
+
+function closeKanbanConflictModal() {
+  const modalOverlay = document.getElementById('kanbanConflictModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.remove('active');
+  }
+}
+
+function resetKanbanConflictState(options = {}) {
+  const { preserveIgnoredIncoming = false } = options;
+
+  pendingKanbanConflict = null;
+  if (!preserveIgnoredIncoming) {
+    ignoredIncomingKanbanForCurrentRecord = null;
+  }
+
+  closeKanbanConflictModal();
+}
+
+function showKanbanConflictModal(conflict) {
+  pendingKanbanConflict = conflict;
+
+  const formatProductLabel = (productName, productId) => {
+    const safeName = productName || '看板なし';
+    return productId ? `${safeName} (${productId})` : safeName;
+  };
+
+  const previousKanban = document.getElementById('kanbanConflictPreviousKanban');
+  const previousProduct = document.getElementById('kanbanConflictPreviousProduct');
+  const incomingKanban = document.getElementById('kanbanConflictIncomingKanban');
+  const incomingProduct = document.getElementById('kanbanConflictIncomingProduct');
+  const modalOverlay = document.getElementById('kanbanConflictModalOverlay');
+
+  if (previousKanban) {
+    previousKanban.textContent = conflict.currentKanban || '-';
+  }
+  if (previousProduct) {
+    previousProduct.textContent = formatProductLabel(conflict.currentProductName, conflict.currentProductId);
+  }
+  if (incomingKanban) {
+    incomingKanban.textContent = conflict.incomingKanban || '-';
+  }
+  if (incomingProduct) {
+    incomingProduct.textContent = formatProductLabel(conflict.incomingProductName, conflict.incomingProductId);
+  }
+  if (modalOverlay) {
+    modalOverlay.classList.add('active');
+  }
+}
+
+function continueEditingCurrentKanban() {
+  if (pendingKanbanConflict?.incomingKanban) {
+    ignoredIncomingKanbanForCurrentRecord = pendingKanbanConflict.incomingKanban;
+  }
+
+  const retainedKanban = pendingKanbanConflict?.currentKanban;
+  resetKanbanConflictState({ preserveIgnoredIncoming: true });
+  console.warn(`⚠️ Keeping current unsubmitted data on original kanban: ${retainedKanban || 'unknown'}`);
+}
+
+async function submitCurrentKanbanData() {
+  const retainedKanban = pendingKanbanConflict?.currentKanban;
+  resetKanbanConflictState();
+  console.log(`📤 Submitting current tablet data for original kanban: ${retainedKanban || 'unknown'}`);
+  await sendData();
+}
+
+function handleIncomingKanbanConflict(product, incomingKanban) {
+  if (!hasUnsubmittedTabletData()) {
+    resetKanbanConflictState();
+    return false;
+  }
+
+  const currentKanban = getCurrentRecordKanban();
+  if (!currentKanban || currentKanban === incomingKanban) {
+    resetKanbanConflictState();
+    return false;
+  }
+
+  if (ignoredIncomingKanbanForCurrentRecord === incomingKanban) {
+    return true;
+  }
+
+  const nextConflict = {
+    currentKanban,
+    currentProductName: currentProductName || document.getElementById('productNameDisplay')?.textContent || '',
+    currentProductId,
+    incomingKanban,
+    incomingProductName: product?.['製品名'] || '',
+    incomingProductId: product?.品番 || ''
+  };
+
+  if (
+    pendingKanbanConflict
+    && pendingKanbanConflict.currentKanban === nextConflict.currentKanban
+    && pendingKanbanConflict.incomingKanban === nextConflict.incomingKanban
+  ) {
+    showKanbanConflictModal(nextConflict);
+    return true;
+  }
+
+  console.warn(`⚠️ Different valid kanban detected while current data is still unsubmitted: ${currentKanban} -> ${incomingKanban}`);
+  showKanbanConflictModal(nextConflict);
+  return true;
 }
 
 function buildTabletSessionPayload() {
@@ -218,7 +339,7 @@ function buildTabletSessionPayload() {
   const stopTimeValue = parseFloat(document.getElementById('stopTime')?.value) || 0;
   const manHoursValue = parseFloat(document.getElementById('manHours')?.value) || 0;
   const productNameDisplay = document.getElementById('productNameDisplay');
-  const currentKanban = getLastKnownKanban()
+  const currentKanban = getCurrentRecordKanban()
     || normalizeKanbanValue(latestObservedKanbanValue)
     || normalizeKanbanValue(kenyokiRHKanbanValue);
 
@@ -443,6 +564,7 @@ function clearCurrentProductContext() {
   kenyokiRHKanbanValue = null;
   localStorage.removeItem('tablet_currentProductName');
   localStorage.removeItem('tablet_kanbanID');
+  resetKanbanConflictState();
 
   const productNameDisplay = document.getElementById('productNameDisplay');
   const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
@@ -459,6 +581,21 @@ function clearCurrentProductContext() {
 }
 
 async function resolveProductContextForSubmit() {
+  const lockedKanban = hasUnsubmittedTabletData() ? getCurrentRecordKanban() : null;
+
+  if (lockedKanban) {
+    try {
+      const product = await fetchValidatedProductByKanban(lockedKanban);
+      return {
+        kanbanId: normalizeKanbanValue(product.kanbanID) || lockedKanban,
+        product
+      };
+    } catch (error) {
+      console.error(`❌ Failed to resolve current record kanban "${lockedKanban}" before submit:`, error);
+      return { kanbanId: lockedKanban, product: null };
+    }
+  }
+
   const observedKanban = normalizeKanbanValue(latestObservedKanbanValue);
 
   if (observedKanban) {
@@ -524,7 +661,16 @@ async function hydrateInProgressProductContextFromFallback(options = {}) {
 async function handleObservedKanbanValue(rawKanbanValue) {
   const requestId = ++latestKanbanValidationRequestId;
   const normalizedKanban = normalizeKanbanValue(rawKanbanValue);
-  const workInProgress = !!document.getElementById('startTime')?.value;
+  const workInProgress = hasUnsubmittedTabletData();
+  const currentRecordKanban = workInProgress ? getCurrentRecordKanban() : null;
+
+  if (ignoredIncomingKanbanForCurrentRecord && normalizedKanban !== ignoredIncomingKanbanForCurrentRecord) {
+    ignoredIncomingKanbanForCurrentRecord = null;
+  }
+
+  if (pendingKanbanConflict && (!workInProgress || !normalizedKanban || normalizedKanban === currentRecordKanban)) {
+    resetKanbanConflictState();
+  }
 
   if (!normalizedKanban) {
     if (workInProgress) {
@@ -567,8 +713,14 @@ async function handleObservedKanbanValue(rawKanbanValue) {
     }
 
     console.log(`✅ Kanban accepted from masterDB: ${normalizedKanban}`);
+    const acceptedKanban = normalizeKanbanValue(product.kanbanID) || normalizedKanban;
+
+    if (handleIncomingKanbanConflict(product, acceptedKanban)) {
+      return;
+    }
+
     applyProductContext(product, {
-      kanbanId: normalizeKanbanValue(product.kanbanID) || normalizedKanban
+      kanbanId: acceptedKanban
     });
   } catch (error) {
     if (requestId !== latestKanbanValidationRequestId) {
@@ -1863,6 +2015,7 @@ function updateUIWithVariables(variables) {
 // Reset functions for each card
 function resetBasicSettings() {
   if (confirm('基本設定をリセットしますか？')) {
+    resetKanbanConflictState();
     document.getElementById('lhRh').value = 'LH';
     
     // Reset all user dropdowns to first option (placeholder)
@@ -2302,6 +2455,7 @@ async function sendData() {
 
 // Helper function to clear all fields after submission
 function clearAllFields() {
+  resetKanbanConflictState();
   const startTimeInput = document.getElementById('startTime');
   if (startTimeInput) {
     startTimeInput.value = ''; // Clear start time

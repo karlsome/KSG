@@ -683,6 +683,139 @@
       line-height: 1.5;
     }
 
+    .kanban-conflict-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 1500;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+
+    .kanban-conflict-modal-overlay.active {
+      display: flex;
+    }
+
+    .kanban-conflict-modal {
+      width: min(680px, 100%);
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+      padding: 32px;
+    }
+
+    .kanban-conflict-modal-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #263238;
+      margin-bottom: 12px;
+    }
+
+    .kanban-conflict-modal-subtitle {
+      font-size: 16px;
+      line-height: 1.6;
+      color: #546e7a;
+      margin-bottom: 24px;
+    }
+
+    .kanban-conflict-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kanban-conflict-card {
+      background: #f8fafb;
+      border: 1px solid #d9e3e8;
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .kanban-conflict-label {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #607d8b;
+      margin-bottom: 12px;
+    }
+
+    .kanban-conflict-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0d47a1;
+      margin-bottom: 8px;
+      word-break: break-word;
+    }
+
+    .kanban-conflict-product {
+      font-size: 15px;
+      line-height: 1.5;
+      color: #37474f;
+      word-break: break-word;
+    }
+
+    .kanban-conflict-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .kanban-conflict-button {
+      border: none;
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .kanban-conflict-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12);
+    }
+
+    .kanban-conflict-button:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    .kanban-conflict-button.secondary {
+      background: #eceff1;
+      color: #37474f;
+    }
+
+    .kanban-conflict-button.primary {
+      background: #ef6c00;
+      color: white;
+    }
+
+    @media (max-width: 720px) {
+      .kanban-conflict-modal {
+        padding: 24px;
+      }
+
+      .kanban-conflict-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .kanban-conflict-actions {
+        flex-direction: column-reverse;
+      }
+
+      .kanban-conflict-button {
+        width: 100%;
+      }
+    }
+
     /* Collapsible Card Styles */
     .card.collapsible .card-header {
       cursor: pointer;
@@ -1000,6 +1133,32 @@
       <div class="uploading-spinner"></div>
       <div class="uploading-modal-title">データ送信中...</div>
       <div class="uploading-modal-subtitle">Uploading data...<br>しばらくお待ちください</div>
+    </div>
+  </div>
+
+  <div class="kanban-conflict-modal-overlay" id="kanbanConflictModalOverlay">
+    <div class="kanban-conflict-modal" role="dialog" aria-modal="true" aria-labelledby="kanbanConflictModalTitle">
+      <div class="kanban-conflict-modal-title" id="kanbanConflictModalTitle">別の看板が検出されました</div>
+      <div class="kanban-conflict-modal-subtitle">
+        現在のデータはまだ未送信です。新しい看板に切り替えると、元の記録に対して製品名・品番・看板 ID がずれる可能性があります。<br>
+        Submit the current record first, or keep editing the current record.
+      </div>
+      <div class="kanban-conflict-grid">
+        <div class="kanban-conflict-card">
+          <div class="kanban-conflict-label">Current Unsubmitted Record</div>
+          <div class="kanban-conflict-value" id="kanbanConflictPreviousKanban">-</div>
+          <div class="kanban-conflict-product" id="kanbanConflictPreviousProduct">-</div>
+        </div>
+        <div class="kanban-conflict-card">
+          <div class="kanban-conflict-label">New Detected Kanban</div>
+          <div class="kanban-conflict-value" id="kanbanConflictIncomingKanban">-</div>
+          <div class="kanban-conflict-product" id="kanbanConflictIncomingProduct">-</div>
+        </div>
+      </div>
+      <div class="kanban-conflict-actions">
+        <button class="kanban-conflict-button secondary" type="button" onclick="continueEditingCurrentKanban()">今のデータを継続 / Continue editing</button>
+        <button class="kanban-conflict-button primary" type="button" onclick="submitCurrentKanbanData()">現在のデータを送信 / Submit current data</button>
+      </div>
     </div>
   </div>
 
