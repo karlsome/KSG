@@ -11,10 +11,24 @@ let allDepartments = [];
 let allSections = [];
 let allTablets = [];
 let allNGGroups = [];
+let allGoogleSheetTargets = [];
 let selectedItems = [];
 let currentModalData = null;
 let currentModalType = null;
 let isEditMode = false;
+let currentGoogleSheetInspection = null;
+let currentGoogleSheetAnalysis = null;
+let currentGoogleSheetEditTargetId = '';
+let googleSheetServiceAccountInfo = { configured: false, serviceAccountEmail: '' };
+
+function escapeHtml(value = '') {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ====================
 // Language Change Listener
@@ -42,6 +56,7 @@ function switchMainTab(tabName) {
   document.getElementById('contentSection').classList.add('hidden');
   document.getElementById('contentRpiServer').classList.add('hidden');
   document.getElementById('contentTablet').classList.add('hidden');
+  document.getElementById('contentGoogleSheets').classList.add('hidden');
 
   // Remove active class from all tabs
   document.getElementById('tabMaster').classList.remove('tab-active');
@@ -53,6 +68,7 @@ function switchMainTab(tabName) {
   document.getElementById('tabSection').classList.remove('tab-active');
   document.getElementById('tabRpiServer').classList.remove('tab-active');
   document.getElementById('tabTablet').classList.remove('tab-active');
+  document.getElementById('tabGoogleSheets').classList.remove('tab-active');
 
   // Show selected content and activate tab
   currentTab = tabName;
@@ -61,14 +77,14 @@ function switchMainTab(tabName) {
   document.getElementById(`tab${capitalizeFirst(tabName)}`).classList.add('tab-active');
 
   // Reset sub-tab buttons (if they exist)
-  if (tabName !== 'rpiServer' && tabName !== 'masterNG') {
+  if (tabName !== 'rpiServer' && tabName !== 'masterNG' && tabName !== 'googleSheets') {
     switchSubTab(tabName, 'data');
   }
 
   // Disable/enable 新規登録 button based on tab
   const quickCreateBtn = document.querySelector('button[onclick="showQuickCreateModal()"]');
   if (quickCreateBtn) {
-    if (tabName === 'rpiServer' || tabName === 'masterNG') {
+    if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'googleSheets') {
       quickCreateBtn.disabled = true;
       quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
       quickCreateBtn.classList.remove('hover:bg-green-700');
@@ -130,8 +146,11 @@ function loadTabData(tabName) {
     case 'tablet':
       loadTablets();
       break;
-  case 'masterNG':
+    case 'masterNG':
       loadNGGroups();
+      break;
+    case 'googleSheets':
+      loadGoogleSheetTargets();
       break;
   }
 }
@@ -2975,9 +2994,910 @@ if (typeof window !== 'undefined') {
   window.deleteRole = deleteRole;
   window.loadDepartments = loadDepartments;
   window.loadSections = loadSections;
+  window.loadGoogleSheetTargets = loadGoogleSheetTargets;
+  window.showGoogleSheetTargetModal = showGoogleSheetTargetModal;
+  window.closeGoogleSheetTargetModal = closeGoogleSheetTargetModal;
+  window.inspectGoogleSheetFromModal = inspectGoogleSheetFromModal;
+  window.handleGoogleSheetTargetGroupChange = handleGoogleSheetTargetGroupChange;
+  window.toggleAllGoogleSheetTargetProducts = toggleAllGoogleSheetTargetProducts;
+  window.updateGoogleSheetTargetProductCount = updateGoogleSheetTargetProductCount;
+  window.resetGoogleSheetAnalysisView = resetGoogleSheetAnalysisView;
+  window.analyzeGoogleSheetModal = analyzeGoogleSheetModal;
+  window.saveGoogleSheetTarget = saveGoogleSheetTarget;
+  window.deleteGoogleSheetTarget = deleteGoogleSheetTarget;
 
   // Load master data by default
   loadMasterData();
+}
+
+// ====================
+// Google Sheets Target Functions
+// ====================
+
+async function ensureGoogleSheetReferenceData() {
+  const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+  const dbName = currentUser.dbName || 'KSG';
+  const role = currentUser.role || 'admin';
+
+  const [productsResponse, ngGroupsResponse] = await Promise.all([
+    fetch(BASE_URL + 'getMasterDB', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dbName, role })
+    }),
+    fetch(BASE_URL + 'getNGGroups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dbName })
+    })
+  ]);
+
+  if (!productsResponse.ok) {
+    throw new Error('Failed to load products');
+  }
+
+  if (!ngGroupsResponse.ok) {
+    throw new Error('Failed to load defect groups');
+  }
+
+  allMasterData = await productsResponse.json();
+  allNGGroups = await ngGroupsResponse.json();
+}
+
+function gsText(key, replacements = {}) {
+  const template = String(t(`masterDB.googleSheets.${key}`));
+
+  return template.replace(/\{(\w+)\}/g, (match, token) => {
+    if (Object.prototype.hasOwnProperty.call(replacements, token)) {
+      return replacements[token];
+    }
+    return match;
+  });
+}
+
+function getGoogleSheetsLocale() {
+  return typeof getCurrentLanguage === 'function' && getCurrentLanguage() === 'ja' ? 'ja-JP' : 'en-US';
+}
+
+function formatGoogleSheetsDate(value) {
+  return value ? new Date(value).toLocaleString(getGoogleSheetsLocale()) : '';
+}
+
+async function loadGoogleSheetTargets() {
+  const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+  const dbName = currentUser.dbName || 'KSG';
+  const container = document.getElementById('googleSheetsTargetContainer');
+
+  if (!container) return;
+  container.innerHTML = `<p class="text-gray-500">${t('common.loading')}</p>`;
+
+  try {
+    const [infoRes, targetsRes] = await Promise.all([
+      fetch(BASE_URL + 'getGoogleSheetServiceAccountInfo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      }),
+      fetch(BASE_URL + 'getGoogleSheetTargets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dbName })
+      })
+    ]);
+
+    googleSheetServiceAccountInfo = infoRes.ok
+      ? await infoRes.json()
+      : { configured: false, serviceAccountEmail: '' };
+
+    if (!targetsRes.ok) {
+      throw new Error(gsText('loadTargetsFailed'));
+    }
+
+    allGoogleSheetTargets = await targetsRes.json();
+    renderGoogleSheetTargets(allGoogleSheetTargets);
+  } catch (error) {
+    console.error('Failed to load Google Sheet targets:', error);
+    container.innerHTML = `<p class="text-red-600">${gsText('loadFailed', { message: escapeHtml(error.message) })}</p>`;
+  }
+}
+
+function renderGoogleSheetTargets(targets = []) {
+  const container = document.getElementById('googleSheetsTargetContainer');
+  if (!container) return;
+
+  const serviceEmail = escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || gsText('serviceAccountNotConfigured'));
+  const configured = Boolean(googleSheetServiceAccountInfo.configured);
+
+  const statusBadge = configured
+    ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('configured')}</span>`
+    : `<span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">${gsText('notConfigured')}</span>`;
+
+  const rowsHtml = targets.length === 0
+    ? `
+      <tr>
+        <td colspan="7" class="px-4 py-10 text-center text-gray-500">
+          ${gsText('emptyState')}
+        </td>
+      </tr>
+    `
+    : targets.map(target => {
+        const productCount = Array.isArray(target.masterRecords) ? target.masterRecords.length : 0;
+        const productNames = Array.isArray(target.masterRecords)
+          ? target.masterRecords.slice(0, 3).map(product => escapeHtml(product.hinban || product.productName)).join(' / ')
+          : '';
+        const remainingProducts = productCount > 3
+          ? ` +${productCount - 3}`
+          : '';
+        const syncBadge = target.lastSyncStatus === 'success'
+          ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('statusSyncOk')}</span>`
+          : target.lastSyncStatus === 'error'
+            ? `<span class="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">${gsText('statusSyncError')}</span>`
+            : `<span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">${gsText('statusNotRun')}</span>`;
+        const lastStatusText = target.lastSyncError
+          ? escapeHtml(target.lastSyncError)
+          : target.lastUsedAt
+            ? escapeHtml(formatGoogleSheetsDate(target.lastUsedAt))
+            : gsText('notSentYet');
+
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(target.label || '')}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900">${escapeHtml(target.spreadsheetTitle || '')}</div>
+              <div class="text-xs text-gray-500">${escapeHtml(target.spreadsheetId || '')}</div>
+            </td>
+            <td class="px-4 py-3">${escapeHtml(target.sheetName || '')}</td>
+            <td class="px-4 py-3">${escapeHtml(target.ngGroupName || '')}</td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-900">${productNames || '-'}</div>
+              <div class="text-xs text-gray-500">${gsText('productCount', { count: productCount })}${remainingProducts}</div>
+            </td>
+            <td class="px-4 py-3">
+              ${syncBadge}
+              <div class="mt-1 text-xs text-gray-500">${lastStatusText}</div>
+            </td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex justify-end gap-2">
+                <button type="button" class="inline-flex items-center rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50" onclick="showGoogleSheetTargetModal('${escapeHtml(String(target._id))}')">
+                  <i class="ri-edit-line mr-1"></i>${t('common.edit')}
+                </button>
+                <button type="button" class="inline-flex items-center rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50" onclick="deleteGoogleSheetTarget('${escapeHtml(String(target._id))}')">
+                  <i class="ri-delete-bin-line mr-1"></i>${t('common.delete')}
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+  container.innerHTML = `
+    <div class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div class="mb-2 flex items-center gap-3">
+            <h2 class="text-xl font-semibold text-slate-900">${gsText('title')}</h2>
+            ${statusBadge}
+          </div>
+          <p class="text-sm text-slate-600">${gsText('description')}</p>
+        </div>
+        <button type="button" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700" onclick="showGoogleSheetTargetModal()">
+          <i class="ri-add-line mr-2"></i>${gsText('registerButton')}
+        </button>
+      </div>
+      <div class="mt-4 rounded-xl border border-dashed ${configured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'} p-4 text-sm">
+        <div class="font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
+        <div class="mt-1 font-mono text-xs text-slate-700">${serviceEmail}</div>
+        <p class="mt-2 text-xs text-slate-600">${gsText('serviceAccountDescription')}</p>
+      </div>
+    </div>
+    <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLinkName')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSpreadsheet')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSheet')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableNgGroup')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableTargetProducts')}</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLastStatus')}</th>
+            <th class="px-4 py-3 text-right font-semibold text-gray-600">${t('common.actions')}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildGoogleSheetTargetModalHtml(target = {}) {
+  const label = escapeHtml(target.label || '');
+  const spreadsheetUrl = escapeHtml(target.spreadsheetUrl || target.spreadsheetId || '');
+  const serviceAccountEmail = escapeHtml(googleSheetServiceAccountInfo.serviceAccountEmail || gsText('serviceAccountNotConfigured'));
+  const modalTitle = target._id ? gsText('modalEditTitle') : gsText('modalCreateTitle');
+  const serviceAccountStatus = googleSheetServiceAccountInfo.configured
+    ? gsText('serviceAccountConfigured')
+    : gsText('serviceAccountMissing');
+
+  return `
+    <div id="googleSheetTargetModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+      <div class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="flex items-center justify-between border-b px-6 py-4">
+          <div>
+            <h2 class="text-2xl font-semibold text-slate-900">${modalTitle}</h2>
+            <p class="mt-1 text-sm text-slate-500">${gsText('modalDescription')}</p>
+          </div>
+          <button type="button" class="text-gray-500 hover:text-gray-700" onclick="closeGoogleSheetTargetModal()">
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto px-6 py-6">
+          <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div class="text-sm font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
+              <div id="gstServiceAccountEmail" class="mt-1 font-mono text-xs text-slate-700">${serviceAccountEmail}</div>
+              <div id="gstServiceAccountStatus" class="mt-2 text-xs ${googleSheetServiceAccountInfo.configured ? 'text-emerald-700' : 'text-amber-700'}">${serviceAccountStatus}</div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('labelField')}</label>
+                <input id="gstLabel" type="text" value="${label}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="${gsText('labelPlaceholder')}" />
+              </div>
+              <div class="md:col-span-1">
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('spreadsheetUrlField')}</label>
+                <div class="flex gap-2">
+                  <input id="gstSpreadsheetUrl" type="text" value="${spreadsheetUrl}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="https://docs.google.com/spreadsheets/d/..." />
+                  <button type="button" class="shrink-0 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900" onclick="inspectGoogleSheetFromModal()">${gsText('verifyAccess')}</button>
+                </div>
+                <p id="gstInspectStatus" class="mt-2 text-xs text-slate-500">${gsText('verifyUrlHint')}</p>
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('sheetField')}</label>
+                <select id="gstSheetName" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetSheetChange()">
+                  <option value="">${gsText('sheetPlaceholderAfterVerify')}</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('ngGroupField')}</label>
+                <select id="gstNgGroupId" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetGroupChange()">
+                  <option value="">${gsText('ngGroupPlaceholder')}</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-200 p-4">
+              <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 class="text-base font-semibold text-slate-900">${gsText('targetProductsTitle')}</h3>
+                  <p class="text-xs text-slate-500">${gsText('targetProductsDescription')}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(true)">${gsText('selectAll')}</button>
+                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(false)">${gsText('clearAll')}</button>
+                </div>
+              </div>
+              <div id="gstProductCount" class="mb-2 text-xs font-medium text-slate-600">${gsText('selectedCount', { count: 0 })}</div>
+              <div id="gstProductList" class="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>
+              </div>
+            </div>
+
+            <div id="gstDuplicateWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4"></div>
+
+            <div class="rounded-xl border border-gray-200 p-4">
+              <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 class="text-base font-semibold text-slate-900">${gsText('columnCheckTitle')}</h3>
+                  <p class="text-xs text-slate-500">${gsText('columnCheckDescription')}</p>
+                </div>
+                <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="analyzeGoogleSheetModal()">${gsText('checkColumns')}</button>
+              </div>
+              <div id="gstAnalysisSection" class="hidden">
+                <div id="gstAnalysisContainer"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flex justify-end gap-3 border-t bg-gray-50 px-6 py-4">
+          <button type="button" class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300" onclick="closeGoogleSheetTargetModal()">${t('common.cancel')}</button>
+          <button id="gstSaveBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" onclick="saveGoogleSheetTarget()" disabled>${t('common.save')}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function showGoogleSheetTargetModal(targetId = '') {
+  await ensureGoogleSheetReferenceData();
+
+  const target = allGoogleSheetTargets.find(item => String(item._id) === String(targetId)) || null;
+  currentGoogleSheetEditTargetId = target ? String(target._id) : '';
+  currentGoogleSheetInspection = null;
+  currentGoogleSheetAnalysis = null;
+
+  closeGoogleSheetTargetModal();
+  document.body.insertAdjacentHTML('beforeend', buildGoogleSheetTargetModalHtml(target || {}));
+
+  populateGoogleSheetNgGroupOptions(target?.ngGroupId || '');
+  renderGoogleSheetTargetProductChecklist(target?.ngGroupId || '', target?.masterRecordIds || []);
+  renderGoogleSheetTargetDuplicateWarning();
+
+  if (target?.spreadsheetUrl || target?.spreadsheetId) {
+    await inspectGoogleSheetFromModal(target?.sheetName || '');
+    if (target?.sheetName) {
+      const sheetSelect = document.getElementById('gstSheetName');
+      if (sheetSelect) {
+        sheetSelect.value = target.sheetName;
+      }
+    }
+
+    renderGoogleSheetTargetDuplicateWarning();
+
+    if ((target?.masterRecordIds || []).length > 0 && target?.ngGroupId) {
+      await analyzeGoogleSheetModal(target.fieldMappings || []);
+    }
+  }
+}
+
+function closeGoogleSheetTargetModal() {
+  const modal = document.getElementById('googleSheetTargetModal');
+  if (modal) {
+    modal.remove();
+  }
+  currentGoogleSheetInspection = null;
+  currentGoogleSheetAnalysis = null;
+  currentGoogleSheetEditTargetId = '';
+}
+
+function populateGoogleSheetNgGroupOptions(selectedId = '') {
+  const select = document.getElementById('gstNgGroupId');
+  if (!select) return;
+
+  const sortedGroups = [...allNGGroups].sort((a, b) => String(a.groupName || '').localeCompare(String(b.groupName || ''), 'ja'));
+  select.innerHTML = `<option value="">${gsText('ngGroupPlaceholder')}</option>` + sortedGroups.map(group => `
+    <option value="${escapeHtml(String(group._id))}" ${String(group._id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(group.groupName || '')}</option>
+  `).join('');
+}
+
+function renderGoogleSheetTargetProductChecklist(ngGroupId = '', selectedIds = []) {
+  const list = document.getElementById('gstProductList');
+  if (!list) return;
+
+  const normalizedSelected = new Set((Array.isArray(selectedIds) ? selectedIds : []).map(id => String(id)));
+  const products = allMasterData
+    .filter(product => String(product.ngGroupId || '') === String(ngGroupId))
+    .sort((a, b) => String(a.品番 || '').localeCompare(String(b.品番 || ''), 'ja'));
+
+  if (!ngGroupId) {
+    list.innerHTML = `<p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>`;
+    updateGoogleSheetTargetProductCount();
+    return;
+  }
+
+  if (products.length === 0) {
+    list.innerHTML = `<p class="text-sm text-amber-600">${gsText('noProductsForGroup')}</p>`;
+    updateGoogleSheetTargetProductCount();
+    return;
+  }
+
+  list.innerHTML = products.map(product => {
+    const productId = String(product._id);
+    return `
+      <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 hover:border-blue-300">
+        <input type="checkbox" class="mt-1 rounded border-gray-300 gst-product-checkbox" value="${escapeHtml(productId)}" ${normalizedSelected.has(productId) ? 'checked' : ''} onchange="updateGoogleSheetTargetProductCount()">
+        <span class="min-w-0">
+          <span class="block font-medium text-slate-900">${escapeHtml(product.品番 || '-')}</span>
+          <span class="block text-xs text-slate-500">${escapeHtml(product.製品名 || '')} / ${escapeHtml(product.kanbanID || '')}</span>
+        </span>
+      </label>
+    `;
+  }).join('');
+
+  updateGoogleSheetTargetProductCount();
+}
+
+function handleGoogleSheetTargetGroupChange() {
+  const groupId = document.getElementById('gstNgGroupId')?.value || '';
+  renderGoogleSheetTargetProductChecklist(groupId, []);
+  resetGoogleSheetAnalysisView();
+}
+
+function handleGoogleSheetTargetSheetChange() {
+  resetGoogleSheetAnalysisView();
+  renderGoogleSheetTargetDuplicateWarning();
+}
+
+function toggleAllGoogleSheetTargetProducts(checked) {
+  document.querySelectorAll('.gst-product-checkbox').forEach(checkbox => {
+    checkbox.checked = Boolean(checked);
+  });
+  updateGoogleSheetTargetProductCount();
+}
+
+function updateGoogleSheetTargetProductCount() {
+  const selectedCount = document.querySelectorAll('.gst-product-checkbox:checked').length;
+  const countEl = document.getElementById('gstProductCount');
+  if (countEl) {
+    countEl.textContent = gsText('selectedCount', { count: selectedCount });
+  }
+
+  renderGoogleSheetTargetDuplicateWarning();
+}
+
+function getSelectedGoogleSheetProductIds() {
+  return Array.from(document.querySelectorAll('.gst-product-checkbox:checked')).map(checkbox => checkbox.value);
+}
+
+function getGoogleSheetTargetOverlapInfo() {
+  const selectedIds = new Set(getSelectedGoogleSheetProductIds().map(id => String(id)));
+  const spreadsheetId = String(currentGoogleSheetAnalysis?.spreadsheetId || currentGoogleSheetInspection?.spreadsheetId || '').trim();
+  const sheetName = String(document.getElementById('gstSheetName')?.value || '').trim();
+
+  if (selectedIds.size === 0) {
+    return {
+      overlaps: [],
+      overlappingProductIds: [],
+      hasSameDestinationOverlap: false,
+    };
+  }
+
+  const overlaps = allGoogleSheetTargets
+    .filter(target => target?.isActive !== false && String(target?._id || '') !== String(currentGoogleSheetEditTargetId || ''))
+    .map(target => {
+      const targetProductIds = (Array.isArray(target?.masterRecordIds) ? target.masterRecordIds : []).map(id => String(id));
+      const overlappingProductIds = targetProductIds.filter(id => selectedIds.has(id));
+      const targetSpreadsheetId = String(target?.spreadsheetId || '').trim();
+      const targetSheetName = String(target?.sheetName || '').trim();
+      const sheetLabel = [String(target?.spreadsheetTitle || '').trim(), targetSheetName].filter(Boolean).join(' / ');
+
+      return {
+        targetId: String(target?._id || ''),
+        label: String(target?.label || sheetLabel).trim() || '-',
+        sheetLabel,
+        overlappingProductIds,
+        sameDestination: Boolean(spreadsheetId && sheetName && spreadsheetId === targetSpreadsheetId && sheetName === targetSheetName),
+      };
+    })
+    .filter(target => target.overlappingProductIds.length > 0);
+
+  return {
+    overlaps,
+    overlappingProductIds: [...new Set(overlaps.flatMap(target => target.overlappingProductIds))],
+    hasSameDestinationOverlap: overlaps.some(target => target.sameDestination),
+  };
+}
+
+function renderGoogleSheetTargetDuplicateWarning() {
+  const warningEl = document.getElementById('gstDuplicateWarning');
+  if (!warningEl) return;
+
+  const { overlaps, overlappingProductIds, hasSameDestinationOverlap } = getGoogleSheetTargetOverlapInfo();
+  if (overlaps.length === 0) {
+    warningEl.className = 'hidden rounded-xl border border-amber-200 bg-amber-50 p-4';
+    warningEl.innerHTML = '';
+    return;
+  }
+
+  const overlapItems = overlaps.map(target => `
+      <li class="text-xs text-amber-800">
+        ${escapeHtml(gsText('duplicateWarningItem', {
+          label: target.label,
+          sheet: target.sheetLabel || '-',
+          count: target.overlappingProductIds.length,
+        }))}
+      </li>
+    `).join('');
+
+  warningEl.className = 'rounded-xl border border-amber-200 bg-amber-50 p-4';
+  warningEl.innerHTML = `
+    <div class="flex items-start gap-3">
+      <i class="ri-alert-line mt-0.5 text-lg text-amber-700"></i>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-semibold text-amber-900">${gsText('duplicateWarningTitle')}</div>
+        <p class="mt-1 text-xs text-amber-800">${gsText('duplicateWarningDescription')}</p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">${gsText('duplicateWarningOverlapCount', { count: overlappingProductIds.length })}</span>
+          <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">${gsText('duplicateWarningTargetCount', { count: overlaps.length })}</span>
+        </div>
+        ${hasSameDestinationOverlap ? `<p class="mt-3 text-xs font-medium text-red-700">${gsText('duplicateWarningSameDestination')}</p>` : ''}
+        <div class="mt-3 text-xs font-semibold text-amber-900">${gsText('duplicateWarningListTitle')}</div>
+        <ul class="mt-2 space-y-1">${overlapItems}</ul>
+      </div>
+    </div>
+  `;
+}
+
+function resetGoogleSheetAnalysisView() {
+  currentGoogleSheetAnalysis = null;
+  const section = document.getElementById('gstAnalysisSection');
+  const container = document.getElementById('gstAnalysisContainer');
+  const saveBtn = document.getElementById('gstSaveBtn');
+
+  if (section) section.classList.add('hidden');
+  if (container) container.innerHTML = '';
+  if (saveBtn) saveBtn.disabled = true;
+}
+
+async function inspectGoogleSheetFromModal(selectedSheetName = '') {
+  const spreadsheetUrl = document.getElementById('gstSpreadsheetUrl')?.value?.trim() || '';
+  const statusEl = document.getElementById('gstInspectStatus');
+  const sheetSelect = document.getElementById('gstSheetName');
+  const emailEl = document.getElementById('gstServiceAccountEmail');
+
+  if (!spreadsheetUrl) {
+    alert(gsText('enterSpreadsheetUrl'));
+    return;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = gsText('verifyingAccess');
+    statusEl.className = 'mt-2 text-xs text-slate-500';
+  }
+
+  try {
+    const response = await fetch(BASE_URL + 'inspectGoogleSheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spreadsheetUrl })
+    });
+
+    const result = await response.json();
+    const serviceAccountEmail = result?.serviceAccountEmail || googleSheetServiceAccountInfo.serviceAccountEmail || '';
+
+    if (serviceAccountEmail) {
+      googleSheetServiceAccountInfo = {
+        configured: googleSheetServiceAccountInfo.configured || Boolean(result?.success),
+        serviceAccountEmail,
+      };
+
+      if (emailEl) {
+        emailEl.textContent = serviceAccountEmail;
+      }
+    }
+
+    if (!response.ok || !result.success) {
+      const rawError = String(result?.error || gsText('inspectFailedNoAccess'));
+      const normalizedError = rawError.toLowerCase();
+
+      if (serviceAccountEmail && (normalizedError.includes('permission') || normalizedError.includes('forbidden') || normalizedError.includes('insufficient'))) {
+        const shareMessage = gsText('shareSheetMessage', { email: serviceAccountEmail });
+
+        if (statusEl) {
+          statusEl.textContent = shareMessage;
+          statusEl.className = 'mt-2 text-xs text-amber-700';
+        }
+
+        alert(shareMessage);
+        resetGoogleSheetAnalysisView();
+        return;
+      }
+
+      throw new Error(rawError);
+    }
+
+    googleSheetServiceAccountInfo = {
+      configured: true,
+      serviceAccountEmail,
+    };
+    currentGoogleSheetInspection = result;
+
+    if (sheetSelect) {
+      const sheetOptions = (result.sheets || []).map(sheet => `
+        <option value="${escapeHtml(sheet.sheetName)}" ${sheet.sheetName === selectedSheetName ? 'selected' : ''}>${escapeHtml(sheet.sheetName)}</option>
+      `).join('');
+      sheetSelect.innerHTML = `<option value="">${gsText('sheetPlaceholderSelect')}</option>` + sheetOptions;
+    }
+
+    if (statusEl) {
+      statusEl.textContent = gsText('accessSuccess', {
+        title: result.spreadsheetTitle,
+        count: (result.sheets || []).length,
+      });
+      statusEl.className = 'mt-2 text-xs text-emerald-700';
+    }
+  } catch (error) {
+    console.error('Failed to inspect Google Sheet:', error);
+    currentGoogleSheetInspection = null;
+    if (sheetSelect) {
+      sheetSelect.innerHTML = `<option value="">${gsText('sheetPlaceholderAfterVerify')}</option>`;
+    }
+    if (statusEl) {
+      statusEl.textContent = gsText('accessFailed', { message: error.message });
+      statusEl.className = 'mt-2 text-xs text-red-600';
+    }
+  }
+
+  renderGoogleSheetTargetDuplicateWarning();
+
+  resetGoogleSheetAnalysisView();
+}
+
+function buildGoogleSheetFieldSelectOptions(field, analysis) {
+  const seen = new Set();
+  const candidateHeaders = [];
+
+  (field.candidateHeaders || []).forEach(candidate => {
+    const name = candidate.headerName;
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      candidateHeaders.push(name);
+    }
+  });
+
+  (analysis.unusedHeaders || []).forEach(candidate => {
+    const name = candidate.headerName;
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      candidateHeaders.push(name);
+    }
+  });
+
+  (analysis.headers || []).forEach(name => {
+    const normalized = String(name || '').trim();
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      candidateHeaders.push(normalized);
+    }
+  });
+
+  const options = [];
+  if (field.status === 'review') {
+    options.push(`<option value="">${gsText('selectColumnPrompt')}</option>`);
+  }
+
+  candidateHeaders.forEach(headerName => {
+    options.push(`<option value="${escapeHtml(headerName)}">${gsText('existingColumnOption', { name: escapeHtml(headerName) })}</option>`);
+  });
+
+  options.push(`<option value="__create__" ${field.status === 'new' ? 'selected' : ''}>${gsText('createNewColumnOption', { name: escapeHtml(field.fieldLabel) })}</option>`);
+  return options.join('');
+}
+
+function renderGoogleSheetAnalysis(analysis) {
+  const section = document.getElementById('gstAnalysisSection');
+  const container = document.getElementById('gstAnalysisContainer');
+  const saveBtn = document.getElementById('gstSaveBtn');
+  if (!section || !container) return;
+
+  const matchedCount = analysis.fields.filter(field => field.status === 'matched').length;
+  const reviewFields = analysis.fields
+    .map((field, index) => ({ field, index }))
+    .filter(({ field }) => field.status !== 'matched');
+  const reviewRows = reviewFields.length === 0
+    ? `<p class="text-sm text-emerald-700">${gsText('allColumnsMatched')}</p>`
+    : reviewFields.map(({ field, index }) => `
+        <div class="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-white p-3 md:grid-cols-[1.2fr_1.5fr]">
+          <div>
+            <div class="font-medium text-slate-900">${escapeHtml(field.fieldLabel)}</div>
+            <div class="mt-1 text-xs ${field.status === 'review' ? 'text-amber-700' : 'text-slate-500'}">
+              ${field.status === 'review' ? gsText('reviewNeededMultiple') : gsText('reviewNeededMissing')}
+            </div>
+          </div>
+          <div>
+            <select id="gstFieldMap_${index}" data-field-key="${escapeHtml(field.fieldKey)}" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
+              ${buildGoogleSheetFieldSelectOptions(field, analysis)}
+            </select>
+          </div>
+        </div>
+      `).join('');
+
+  const matchedRows = analysis.fields
+    .filter(field => field.status === 'matched')
+    .slice(0, 12)
+    .map(field => `
+      <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+        ${escapeHtml(field.fieldLabel)} → ${escapeHtml(field.headerName)}
+      </span>
+    `).join('');
+
+  container.innerHTML = `
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div class="rounded-xl bg-emerald-50 p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-emerald-700">${gsText('summaryAutoMatched')}</div>
+        <div class="mt-2 text-2xl font-semibold text-emerald-900">${matchedCount}</div>
+      </div>
+      <div class="rounded-xl bg-amber-50 p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">${gsText('summaryNeedsReview')}</div>
+        <div class="mt-2 text-2xl font-semibold text-amber-900">${analysis.fields.filter(field => field.status === 'review').length}</div>
+      </div>
+      <div class="rounded-xl bg-slate-50 p-4">
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-600">${gsText('summaryNewColumns')}</div>
+        <div class="mt-2 text-2xl font-semibold text-slate-900">${analysis.fields.filter(field => field.status === 'new').length}</div>
+      </div>
+    </div>
+    <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+      <div class="mb-3 text-sm font-semibold text-slate-900">${gsText('matchedFieldsTitle')}</div>
+      <div class="flex flex-wrap gap-2">${matchedRows || `<span class="text-sm text-gray-500">${gsText('noMatchedFields')}</span>`}</div>
+    </div>
+    <div class="mt-4 space-y-3">
+      ${reviewRows}
+    </div>
+  `;
+
+  section.classList.remove('hidden');
+  if (saveBtn) saveBtn.disabled = false;
+}
+
+function collectGoogleSheetTargetFieldMappings() {
+  if (!currentGoogleSheetAnalysis) {
+    return [];
+  }
+
+  return currentGoogleSheetAnalysis.fields.map((field, index) => {
+    if (field.status === 'matched') {
+      return { fieldKey: field.fieldKey, headerName: field.headerName, action: 'map' };
+    }
+
+    const select = document.getElementById(`gstFieldMap_${index}`);
+    const selectedValue = select?.value || '';
+
+    if (!selectedValue) {
+      throw new Error(gsText('mappingRequired', { field: field.fieldLabel }));
+    }
+
+    if (selectedValue === '__create__') {
+      return { fieldKey: field.fieldKey, headerName: field.fieldLabel, action: 'create' };
+    }
+
+    return { fieldKey: field.fieldKey, headerName: selectedValue, action: 'map' };
+  });
+}
+
+async function analyzeGoogleSheetModal(initialMappings = null) {
+  const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+  const dbName = currentUser.dbName || 'KSG';
+  const spreadsheetUrl = document.getElementById('gstSpreadsheetUrl')?.value?.trim() || '';
+  const sheetName = document.getElementById('gstSheetName')?.value || '';
+  const ngGroupId = document.getElementById('gstNgGroupId')?.value || '';
+  const selectedProducts = getSelectedGoogleSheetProductIds();
+
+  if (!spreadsheetUrl || !sheetName || !ngGroupId) {
+    alert(gsText('selectUrlTabGroup'));
+    return;
+  }
+
+  if (selectedProducts.length === 0) {
+    alert(gsText('selectAtLeastOneProduct'));
+    return;
+  }
+
+  const requestedMappings = Array.isArray(initialMappings)
+    ? initialMappings
+    : (currentGoogleSheetAnalysis ? collectGoogleSheetTargetFieldMappings() : []);
+
+  try {
+    const response = await fetch(BASE_URL + 'analyzeGoogleSheetTarget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dbName,
+        spreadsheetUrl,
+        sheetName,
+        ngGroupId,
+        masterRecordIds: selectedProducts,
+        fieldMappings: requestedMappings,
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || gsText('columnCheckFailed'));
+    }
+
+    currentGoogleSheetAnalysis = result;
+    if (result.serviceAccountEmail) {
+      const emailEl = document.getElementById('gstServiceAccountEmail');
+      if (emailEl) emailEl.textContent = result.serviceAccountEmail;
+    }
+    renderGoogleSheetAnalysis(result);
+  } catch (error) {
+    console.error('Failed to analyze Google Sheet target:', error);
+    alert(`${gsText('columnCheckFailed')}: ${error.message}`);
+    resetGoogleSheetAnalysisView();
+  }
+}
+
+async function saveGoogleSheetTarget() {
+  const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+  const dbName = currentUser.dbName || 'KSG';
+  const username = currentUser.username || 'admin';
+  const label = document.getElementById('gstLabel')?.value?.trim() || '';
+  const spreadsheetUrl = document.getElementById('gstSpreadsheetUrl')?.value?.trim() || '';
+  const sheetName = document.getElementById('gstSheetName')?.value || '';
+  const ngGroupId = document.getElementById('gstNgGroupId')?.value || '';
+  const masterRecordIds = getSelectedGoogleSheetProductIds();
+
+  if (!currentGoogleSheetAnalysis) {
+    alert(gsText('runColumnCheckBeforeSave'));
+    return;
+  }
+
+  if (!spreadsheetUrl || !sheetName || !ngGroupId || masterRecordIds.length === 0) {
+    alert(gsText('confirmUrlTabGroupProducts'));
+    return;
+  }
+
+  const overlapInfo = getGoogleSheetTargetOverlapInfo();
+  if (overlapInfo.overlaps.length > 0) {
+    let confirmationMessage = gsText('duplicateConfirm', {
+      targetCount: overlapInfo.overlaps.length,
+      productCount: overlapInfo.overlappingProductIds.length,
+    });
+
+    if (overlapInfo.hasSameDestinationOverlap) {
+      confirmationMessage += `\n\n${gsText('duplicateConfirmSameDestination')}`;
+    }
+
+    if (!confirm(confirmationMessage)) {
+      return;
+    }
+  }
+
+  try {
+    const fieldMappings = collectGoogleSheetTargetFieldMappings();
+    const response = await fetch(BASE_URL + 'saveGoogleSheetTarget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dbName,
+        username,
+        targetId: currentGoogleSheetEditTargetId,
+        target: {
+          label,
+          spreadsheetUrl,
+          spreadsheetId: currentGoogleSheetAnalysis.spreadsheetId,
+          sheetName,
+          ngGroupId,
+          masterRecordIds,
+          fieldMappings,
+          isActive: true,
+        }
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || gsText('saveFailed'));
+    }
+
+    alert(gsText('saveSuccess'));
+    closeGoogleSheetTargetModal();
+    loadGoogleSheetTargets();
+  } catch (error) {
+    console.error('Failed to save Google Sheet target:', error);
+    alert(`${gsText('saveFailed')}: ${error.message}`);
+  }
+}
+
+async function deleteGoogleSheetTarget(targetId) {
+  if (!confirm(gsText('deleteConfirm'))) {
+    return;
+  }
+
+  const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+  const dbName = currentUser.dbName || 'KSG';
+  const username = currentUser.username || 'admin';
+
+  try {
+    const response = await fetch(BASE_URL + 'deleteGoogleSheetTarget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dbName, username, targetId })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || gsText('deleteFailed'));
+    }
+
+    alert(gsText('deleteSuccess'));
+    loadGoogleSheetTargets();
+  } catch (error) {
+    console.error('Failed to delete Google Sheet target:', error);
+    alert(`${gsText('deleteFailed')}: ${error.message}`);
+  }
 }
 
 // ====================
