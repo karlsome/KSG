@@ -370,6 +370,7 @@
     let adminDashboardInsightKey = '';
     const DASHBOARD_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
     const DASHBOARD_WORKDAY_HOURS = 8;
+    const DASHBOARD_AUTO_REFRESH_MS = 15000;
     const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
       '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
       'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
@@ -505,6 +506,19 @@
           return 'bg-rose-50 text-rose-700 ring-rose-200';
         default:
           return 'bg-slate-100 text-slate-600 ring-slate-200';
+      }
+    }
+
+    function getDashboardMachineStatusDotTone(status = 'idle') {
+      switch (status) {
+        case 'running':
+          return 'bg-emerald-500';
+        case 'break':
+          return 'bg-amber-500';
+        case 'trouble':
+          return 'bg-rose-500';
+        default:
+          return 'bg-slate-300';
       }
     }
 
@@ -862,7 +876,7 @@
                   <tr class="align-top transition hover:bg-slate-50/70">
                     <td class="border-b border-gray-100 px-4 py-4">
                       <div class="flex items-start gap-3">
-                        <div class="mt-1 h-2.5 w-2.5 rounded-full ${row.isStarted ? 'bg-emerald-500' : 'bg-slate-300'}"></div>
+                        <div class="mt-1 h-2.5 w-2.5 rounded-full ${getDashboardMachineStatusDotTone(row.status)}"></div>
                         <div>
                           <div class="flex flex-wrap items-center gap-2">
                             <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
@@ -1360,6 +1374,7 @@
     function renderDashboardWorkerHours(workers = []) {
       const container = document.getElementById('dashboardWorkerHours');
       if (!container) return;
+      const machineStatusCopy = getDashboardMachineStatusCopy();
 
       if (!Array.isArray(workers) || workers.length === 0) {
         container.innerHTML = `<p class="text-sm text-gray-400">${dashboardText('noWorkerHoursToday')}</p>`;
@@ -1392,6 +1407,10 @@
                 : progress >= 25
                   ? 'from-amber-400 to-orange-400'
                   : 'from-rose-500 to-orange-400';
+            const activeStatus = String(worker.activeStatus || 'idle').trim() || 'idle';
+            const activeMachines = Array.isArray(worker.activeMachines) ? worker.activeMachines : [];
+            const statusLabel = machineStatusCopy.status[activeStatus] || machineStatusCopy.status.idle;
+            const statusTone = getDashboardMachineStatusTone(activeStatus);
 
             return `
               <div class="rounded-2xl bg-gray-50 px-4 py-4">
@@ -1402,6 +1421,7 @@
                       <div class="min-w-0">
                         <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(worker.name || '—')}</p>
                         <p class="mt-1 text-xs text-gray-500">${dashboardText('submissions')}: ${formatDashboardNumber(worker.submissions || 0)}</p>
+                        ${worker.liveSessionCount > 0 ? `<div class="mt-2 flex flex-wrap items-center gap-2"><span class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusTone}">${statusLabel}</span>${activeMachines.length > 0 ? `<span class="truncate text-[11px] text-gray-400">${escapeDashboardHtml(activeMachines.join(', '))}</span>` : ''}</div>` : ''}
                       </div>
                       <div class="shrink-0 text-right">
                         <p class="text-lg font-semibold ${hoursClass}">${formatDashboardNumber(displayHours, 2)}H</p>
@@ -1431,7 +1451,6 @@
       }
 
       if (typeof echarts === 'undefined') {
-        container.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-gray-400">Chart library not available</div>`;
         return;
       }
 
@@ -1615,6 +1634,12 @@
       // Reload current page to refresh dynamic content
       origLoadPage(currentPage);
     });
+
+    window.setInterval(() => {
+      if (currentPage !== 'dashboard' || document.visibilityState === 'hidden') return;
+      if (document.getElementById('dashboardRefreshBtn')?.disabled) return;
+      loadAdminDashboard();
+    }, DASHBOARD_AUTO_REFRESH_MS);
 
     // Load dashboard by default
     document.addEventListener('DOMContentLoaded', () => {

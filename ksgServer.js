@@ -2561,6 +2561,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
+        const now = new Date();
         const today = getJapanCalendarDate();
         const last7Days = Array.from({ length: 7 }, (_, index) => {
             const date = new Date();
@@ -2581,12 +2582,16 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             date_day: today.day
         };
 
-        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords] = await Promise.all([
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords] = await Promise.all([
             collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
             collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
             collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
             collection.countDocuments(activeFilter),
-            collection.countDocuments({ is_deleted: true })
+            collection.countDocuments({ is_deleted: true }),
+            db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
+                .find({ isStarted: true })
+                .sort({ updatedAt: -1 })
+                .toArray()
         ]);
 
         const operatorMap = new Map();
@@ -2596,6 +2601,18 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
         const activeOperators = new Set();
         const activeKanbans = new Set();
         const dashboardWorkdayHours = 8;
+        const workerStatusRank = {
+            idle: 0,
+            running: 1,
+            break: 2,
+            trouble: 3
+        };
+
+        const pickDominantWorkerStatus = (currentStatus = 'idle', nextStatus = 'idle') => {
+            const currentRank = workerStatusRank[currentStatus] ?? 0;
+            const nextRank = workerStatusRank[nextStatus] ?? 0;
+            return nextRank > currentRank ? nextStatus : currentStatus;
+        };
 
         let totalGoodCount = 0;
         let totalDefectCount = 0;
@@ -2649,6 +2666,9 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                 operatorEntry.totalGoodCount += goodCount;
                 operatorEntry.totalManHours += manHours;
                 operatorEntry.totalTroubleHours += troubleTime;
+                operatorEntry.liveSessionCount = operatorEntry.liveSessionCount || 0;
+                operatorEntry.activeStatus = operatorEntry.activeStatus || 'idle';
+                operatorEntry.activeMachines = Array.isArray(operatorEntry.activeMachines) ? operatorEntry.activeMachines : [];
                 if (Number.isFinite(cycleTime) && cycleTime > 0) {
                     operatorEntry.cycleTimeTotal += cycleTime;
                     operatorEntry.cycleTimeSamples += 1;
@@ -2698,6 +2718,53 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                         .slice(0, 2)
                 });
             }
+        });
+
+        sessionRecords.forEach(session => {
+            const sessionDate = normalizeTabletSessionDate(session.updatedAt || session.workStartTime);
+            if (!sessionDate || getJapanCalendarDate(sessionDate).key !== today.key) {
+                return;
+            }
+
+            const operatorNames = normalizeTabletSessionOperators(session.operators);
+            if (operatorNames.length === 0) {
+                return;
+            }
+
+            const kanbanId = normalizeTabletSessionString(session.kanbanId);
+            if (kanbanId) {
+                activeKanbans.add(kanbanId);
+            }
+
+            const sessionStatus = normalizeTabletSessionString(session.status) || 'running';
+            const durations = getMachineStatusDurationMetrics(session, now);
+            const liveManHours = Math.max(0, durations.netRunMinutes / 60);
+            const machineName = normalizeTabletSessionString(session.equipmentName || session.tabletName);
+
+            operatorNames.forEach(name => {
+                activeOperators.add(name);
+                const operatorEntry = operatorMap.get(name) || {
+                    name,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalManHours: 0,
+                    totalTroubleHours: 0,
+                    cycleTimeTotal: 0,
+                    cycleTimeSamples: 0,
+                    liveSessionCount: 0,
+                    activeStatus: 'idle',
+                    activeMachines: []
+                };
+
+                operatorEntry.totalManHours += liveManHours;
+                operatorEntry.liveSessionCount += 1;
+                operatorEntry.activeStatus = pickDominantWorkerStatus(operatorEntry.activeStatus, sessionStatus);
+                if (machineName && !operatorEntry.activeMachines.includes(machineName)) {
+                    operatorEntry.activeMachines.push(machineName);
+                }
+
+                operatorMap.set(name, operatorEntry);
+            });
         });
 
         const trendMap = new Map(last7Days.map(day => [day.key, {
@@ -2756,7 +2823,10 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                         ? Math.min((displayWorkHours / dashboardWorkdayHours) * 100, 100)
                         : 0,
                     totalGoodCount: operator.totalGoodCount,
-                    totalTroubleHours: operator.totalTroubleHours
+                    totalTroubleHours: operator.totalTroubleHours,
+                    activeStatus: operator.activeStatus || 'idle',
+                    activeMachines: Array.isArray(operator.activeMachines) ? operator.activeMachines : [],
+                    liveSessionCount: operator.liveSessionCount || 0
                 };
             });
 
@@ -2815,7 +2885,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
         res.json({
             success: true,
-            generatedAt: new Date().toISOString(),
+            generatedAt: now.toISOString(),
             today: {
                 date: today.key,
                 submissions: todayRecords.length,
@@ -2895,6 +2965,12 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
 
         const db = mongoClient.db(req.dbName || 'KSG');
         const now = new Date();
+        const machineStatusRank = {
+            trouble: 3,
+            break: 2,
+            running: 1,
+            idle: 0
+        };
         const [equipmentRecords, tabletRecords, sessionRecords] = await Promise.all([
             db.collection('equipment')
                 .find({}, { projection: { _id: 1, 設備名: 1, 工場: 1, description: 1 } })
@@ -3039,6 +3115,8 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
                 };
             })
             .sort((a, b) => {
+                const statusDiff = (machineStatusRank[b.status] ?? 0) - (machineStatusRank[a.status] ?? 0);
+                if (statusDiff !== 0) return statusDiff;
                 const startedDiff = Number(b.isStarted) - Number(a.isStarted);
                 if (startedDiff !== 0) return startedDiff;
                 return a.machineName.localeCompare(b.machineName, 'ja');

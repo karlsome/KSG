@@ -126,6 +126,8 @@ let latestKanbanValidationRequestId = 0;
 let tabletSessionSyncTimeout = null;
 let tabletSessionSyncPromise = null;
 let tabletSessionSyncQueuedOptions = null;
+let tabletSessionHeartbeatInterval = null;
+const TABLET_SESSION_HEARTBEAT_INTERVAL_MS = 15000;
 
 function normalizeKanbanValue(rawValue) {
   if (rawValue === null || rawValue === undefined) {
@@ -322,6 +324,18 @@ function scheduleTabletSessionSync(options = {}) {
     tabletSessionSyncTimeout = null;
     syncTabletSession(syncOptions);
   }, delay);
+}
+
+function startTabletSessionHeartbeat() {
+  if (tabletSessionHeartbeatInterval) {
+    clearInterval(tabletSessionHeartbeatInterval);
+  }
+
+  tabletSessionHeartbeatInterval = setInterval(() => {
+    if (hasActiveTabletSession()) {
+      scheduleTabletSessionSync();
+    }
+  }, TABLET_SESSION_HEARTBEAT_INTERVAL_MS);
 }
 
 async function fetchProductByKanbanID(kanbanId) {
@@ -1293,6 +1307,8 @@ function getURLParameter(name) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+  startTabletSessionHeartbeat();
+
   // Display current user info
   try {
     const authData = localStorage.getItem('tabletAuth');
@@ -1419,6 +1435,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   if (hasActiveTabletSession()) {
+    scheduleTabletSessionSync({ immediate: true });
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && hasActiveTabletSession()) {
     scheduleTabletSessionSync({ immediate: true });
   }
 });
