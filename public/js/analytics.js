@@ -48,7 +48,7 @@ function analyticsFormatNumber(value, digits = 0) {
   const number = Number(value ?? 0);
   if (!Number.isFinite(number)) return '0';
 
-  return number.toLocaleString('en-US', {
+  return number.toLocaleString('ja-JP', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
@@ -68,10 +68,7 @@ function analyticsFormatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
 
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(date);
+  return date.toLocaleString('ja-JP');
 }
 
 function analyticsGetProductLabel(item = {}) {
@@ -81,12 +78,58 @@ function analyticsGetProductLabel(item = {}) {
   return bits.filter(Boolean).join(' / ');
 }
 
+function analyticsGetCardValueClass(card = {}) {
+  if (card.valueClass) return card.valueClass;
+
+  const tone = card.tone || '';
+  if (tone.includes('emerald')) return 'text-emerald-600';
+  if (tone.includes('rose')) return 'text-rose-600';
+  if (tone.includes('amber')) return 'text-amber-600';
+  if (tone.includes('sky')) return 'text-sky-600';
+  if (tone.includes('violet')) return 'text-violet-600';
+  if (tone.includes('cyan')) return 'text-cyan-600';
+  return 'text-gray-900';
+}
+
+function analyticsGetCardValueText(card = {}) {
+  return String(card.value ?? '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function analyticsGetCardValueSizeClass(card = {}) {
+  const valueText = analyticsGetCardValueText(card);
+
+  if (valueText.length > 44) return 'text-base';
+  if (valueText.length > 28) return 'text-lg';
+  if (valueText.length > 18) return 'text-xl';
+  return 'text-2xl';
+}
+
+function analyticsShouldWrapCardValue(card = {}) {
+  return analyticsGetCardValueText(card).length > 24;
+}
+
+function analyticsGetCardValueLayoutClass(card = {}) {
+  if (analyticsShouldWrapCardValue(card)) {
+    return 'whitespace-normal break-words';
+  }
+
+  return 'overflow-hidden text-ellipsis whitespace-nowrap';
+}
+
 function analyticsGetSummaryCardsMarkup(cards = []) {
   return cards.map(card => `
-    <article class="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
-      <div class="inline-flex rounded-full px-3 py-1 text-xs font-semibold ${card.tone || 'bg-slate-100 text-slate-700'}">${analyticsEscapeHtml(card.eyebrow || '')}</div>
-      <div class="mt-4 text-3xl font-semibold tracking-tight text-slate-900">${card.value}</div>
-      <p class="mt-2 text-sm text-slate-500">${card.detail || ''}</p>
+    <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-gray-500">${card.title || card.eyebrow || ''}</p>
+          <p class="mt-4 max-w-full font-semibold leading-tight ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}</p>
+          <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.detail || card.subtext || ''}</p>
+        </div>
+        ${card.icon ? `<div class="shrink-0 rounded-2xl px-3 py-2 ${card.tone || 'bg-gray-100 text-gray-700'}"><i class="${card.icon} text-xl"></i></div>` : ''}
+      </div>
     </article>`).join('');
 }
 
@@ -95,13 +138,13 @@ function analyticsRenderCardGrid(containerId, cards = []) {
   if (!container) return;
   container.innerHTML = cards.length
     ? analyticsGetSummaryCardsMarkup(cards)
-    : '<div class="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-sm text-slate-400">No data for this section.</div>';
+    : '<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-sm text-gray-400">No data for this section.</div>';
 }
 
 function analyticsRenderTableState(containerId, message) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  container.innerHTML = `<div class="px-6 py-10 text-sm text-slate-400">${analyticsEscapeHtml(message)}</div>`;
+  container.innerHTML = `<div class="px-6 py-10 text-sm text-gray-400">${analyticsEscapeHtml(message)}</div>`;
 }
 
 function analyticsShowChartEmpty(containerId, message) {
@@ -113,7 +156,7 @@ function analyticsShowChartEmpty(containerId, message) {
     delete analyticsCharts[containerId];
   }
 
-  container.innerHTML = `<div class="flex h-full items-center justify-center px-6 text-center text-sm text-slate-400">${analyticsEscapeHtml(message)}</div>`;
+  container.innerHTML = `<div class="flex h-full items-center justify-center px-6 text-center text-sm text-gray-400">${analyticsEscapeHtml(message)}</div>`;
 }
 
 function analyticsRenderChart(containerId, option) {
@@ -216,11 +259,11 @@ function analyticsPopulateSelect(id, values, defaultLabel, allowBlank = false) {
 function analyticsUpdateTabState() {
   document.querySelectorAll('[data-analytics-tab]').forEach(button => {
     const isActive = button.getAttribute('data-analytics-tab') === analyticsActiveTab;
-    button.classList.toggle('bg-slate-900', isActive);
-    button.classList.toggle('text-white', isActive);
+    button.classList.toggle('bg-gray-100', isActive);
+    button.classList.toggle('text-gray-900', isActive);
     button.classList.toggle('shadow-sm', isActive);
-    button.classList.toggle('text-slate-500', !isActive);
-    button.classList.toggle('hover:bg-slate-100', !isActive);
+    button.classList.toggle('text-gray-500', !isActive);
+    button.classList.toggle('hover:bg-gray-50', !isActive);
   });
 
   document.querySelectorAll('[data-analytics-panel]').forEach(panel => {
@@ -248,19 +291,39 @@ function renderAnalyticsMeta(filters, summary, generatedAt) {
   updatedEl.textContent = analyticsFormatDateTime(generatedAt);
 
   const chips = [
-    `Range: ${analyticsEscapeHtml(filters.startDate || 'All')} to ${analyticsEscapeHtml(filters.endDate || 'All')}`,
-    `Records: ${analyticsFormatNumber(summary.submissions)}`,
-    `Workers: ${analyticsFormatNumber(summary.uniqueOperators)}`,
-    `Machines: ${analyticsFormatNumber(summary.uniqueSources)}`
+    {
+      label: 'Range',
+      value: `${analyticsEscapeHtml(filters.startDate || 'All')} to ${analyticsEscapeHtml(filters.endDate || 'All')}`,
+      tone: 'border-slate-100 bg-slate-50'
+    },
+    {
+      label: 'Records',
+      value: analyticsFormatNumber(summary.submissions),
+      tone: 'border-emerald-100 bg-emerald-50'
+    },
+    {
+      label: 'Workers',
+      value: analyticsFormatNumber(summary.uniqueOperators),
+      tone: 'border-sky-100 bg-sky-50'
+    },
+    {
+      label: 'Machines',
+      value: analyticsFormatNumber(summary.uniqueSources),
+      tone: 'border-violet-100 bg-violet-50'
+    }
   ];
 
-  if (filters.source) chips.push(`Machine: ${analyticsEscapeHtml(filters.source)}`);
-  if (filters.lhRh) chips.push(`Direction: ${analyticsEscapeHtml(filters.lhRh)}`);
-  if (filters.hinban) chips.push(`Hinban: ${analyticsEscapeHtml(filters.hinban)}`);
-  if (filters.productName) chips.push(`Product: ${analyticsEscapeHtml(filters.productName)}`);
-  if (filters.operator) chips.push(`Worker search: ${analyticsEscapeHtml(filters.operator)}`);
+  if (filters.source) chips.push({ label: 'Machine', value: analyticsEscapeHtml(filters.source), tone: 'border-gray-200 bg-white' });
+  if (filters.lhRh) chips.push({ label: 'Direction', value: analyticsEscapeHtml(filters.lhRh), tone: 'border-gray-200 bg-white' });
+  if (filters.hinban) chips.push({ label: 'Hinban', value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
+  if (filters.productName) chips.push({ label: 'Product', value: analyticsEscapeHtml(filters.productName), tone: 'border-gray-200 bg-white' });
+  if (filters.operator) chips.push({ label: 'Worker', value: analyticsEscapeHtml(filters.operator), tone: 'border-gray-200 bg-white' });
 
-  metaEl.innerHTML = chips.map(chip => `<span class="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">${chip}</span>`).join('');
+  metaEl.innerHTML = chips.map(chip => `
+    <div class="rounded-xl border px-3 py-2 text-sm ${chip.tone}">
+      <span class="text-gray-600">${chip.label}:</span>
+      <strong class="ml-2 font-semibold text-gray-900">${chip.value}</strong>
+    </div>`).join('');
   focusMetaEl.textContent = filters.focusOperator
     ? `Focused on ${filters.focusOperator} for the worker timeline.`
     : 'Auto-selecting the busiest worker in the current filter.';
@@ -272,37 +335,43 @@ function renderAnalyticsKpis(summary) {
       eyebrow: 'Good Pieces',
       value: analyticsFormatNumber(summary.totalGoodCount),
       detail: `${analyticsFormatNumber(summary.submissions)} records in scope`,
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'bg-emerald-50 text-emerald-700',
+      icon: 'ri-checkbox-circle-line'
     },
     {
       eyebrow: 'Defect Rate',
       value: analyticsFormatPercent(summary.defectRate),
       detail: `${analyticsFormatNumber(summary.totalDefectCount)} total defects`,
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Issue Records',
       value: analyticsFormatNumber(summary.totalIssueRecords),
       detail: 'Records with defects, trouble, or remarks',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-alarm-warning-line'
     },
     {
       eyebrow: 'Man Hours',
       value: analyticsFormatHours(summary.totalManHours),
       detail: `${analyticsFormatHours(summary.totalTroubleTime)} trouble time`,
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-time-line'
     },
     {
       eyebrow: 'Active Workers',
       value: analyticsFormatNumber(summary.uniqueOperators),
       detail: `${analyticsFormatNumber(summary.uniqueKanbans)} kanbans`,
-      tone: 'bg-violet-50 text-violet-700'
+      tone: 'bg-violet-50 text-violet-700',
+      icon: 'ri-team-line'
     },
     {
       eyebrow: 'Active Machines',
       value: analyticsFormatNumber(summary.uniqueSources),
       detail: `${analyticsFormatNumber(summary.uniqueProducts)} products`,
-      tone: 'bg-cyan-50 text-cyan-700'
+      tone: 'bg-cyan-50 text-cyan-700',
+      icon: 'ri-cpu-line'
     }
   ];
 
@@ -388,25 +457,29 @@ function renderAnalyticsOverview(data) {
       eyebrow: 'Main Defect Driver',
       value: topDefect ? analyticsEscapeHtml(topDefect.name) : 'No defects',
       detail: topDefect ? `${analyticsFormatNumber(topDefect.count)} defect hits in scope` : 'No quality loss in the current filter',
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Most Loaded Worker',
       value: busiestWorker ? analyticsEscapeHtml(busiestWorker.name) : 'No worker data',
       detail: busiestWorker ? `${analyticsFormatHours(busiestWorker.totalManHours)} across ${analyticsFormatNumber(busiestWorker.submissions)} records` : 'No worker activity for the current filter',
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-user-star-line'
     },
     {
       eyebrow: 'Most Unstable Machine',
       value: unstableMachine ? analyticsEscapeHtml(unstableMachine.source) : 'No machine data',
       detail: unstableMachine ? `${analyticsFormatHours(unstableMachine.totalTroubleTime)} trouble time, ${analyticsFormatPercent(unstableMachine.defectRate)} defect rate` : 'No machine activity for the current filter',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-cpu-line'
     },
     {
       eyebrow: 'Lead Product',
       value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : 'No product data',
       detail: leadProduct ? `${analyticsFormatNumber(leadProduct.totalGoodCount)} good pieces, ${analyticsFormatPercent(leadProduct.defectRate)} defect rate` : 'No product activity for the current filter',
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'bg-emerald-50 text-emerald-700',
+      icon: 'ri-box-3-line'
     }
   ]);
 
@@ -621,25 +694,29 @@ function renderAnalyticsWorkerTab(data) {
       eyebrow: 'Highest Output Worker',
       value: topOutputWorker ? analyticsEscapeHtml(topOutputWorker.name) : 'No worker data',
       detail: topOutputWorker ? `${analyticsFormatNumber(topOutputWorker.totalGoodCount)} good pieces` : 'No output signal in this filter',
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'bg-emerald-50 text-emerald-700',
+      icon: 'ri-medal-line'
     },
     {
       eyebrow: 'Most Trouble Time',
       value: topTroubleWorker ? analyticsEscapeHtml(topTroubleWorker.name) : 'No worker data',
       detail: topTroubleWorker ? `${analyticsFormatHours(topTroubleWorker.totalTroubleTime)} trouble time` : 'No trouble signal in this filter',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-alarm-warning-line'
     },
     {
       eyebrow: 'Most Issue Records',
       value: topIssueWorker ? analyticsEscapeHtml(topIssueWorker.name) : 'No worker data',
       detail: topIssueWorker ? `${analyticsFormatNumber(topIssueWorker.issueCount)} issue records` : 'No issue signal in this filter',
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Cleanest High-Output Worker',
       value: bestQualityWorker ? analyticsEscapeHtml(bestQualityWorker.name) : 'No candidate',
       detail: bestQualityWorker ? `${analyticsFormatNumber(bestQualityWorker.totalGoodCount)} good pieces with no issue records` : 'No clean high-output worker in this filter',
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-shield-check-line'
     }
   ]);
 
@@ -793,25 +870,29 @@ function renderAnalyticsMachineTab(data) {
       eyebrow: 'Highest Output Machine',
       value: topOutputSource ? analyticsEscapeHtml(topOutputSource.source) : 'No machine data',
       detail: topOutputSource ? `${analyticsFormatNumber(topOutputSource.totalGoodCount)} good pieces` : 'No machine output data',
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'bg-emerald-50 text-emerald-700',
+      icon: 'ri-cpu-line'
     },
     {
       eyebrow: 'Most Trouble Time',
       value: topTroubleSource ? analyticsEscapeHtml(topTroubleSource.source) : 'No machine data',
       detail: topTroubleSource ? `${analyticsFormatHours(topTroubleSource.totalTroubleTime)} trouble time` : 'No trouble signal',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-alarm-warning-line'
     },
     {
       eyebrow: 'Most Issue Records',
       value: topIssueSource ? analyticsEscapeHtml(topIssueSource.source) : 'No machine data',
       detail: topIssueSource ? `${analyticsFormatNumber(topIssueSource.issueCount)} issue records` : 'No issue signal',
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Highest Defect Rate',
       value: worstQualitySource ? analyticsEscapeHtml(worstQualitySource.source) : 'No machine data',
       detail: worstQualitySource ? `${analyticsFormatPercent(worstQualitySource.defectRate)} defect rate` : 'No quality signal',
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-focus-3-line'
     }
   ]);
 
@@ -938,25 +1019,29 @@ function renderAnalyticsQualityTab(data) {
       eyebrow: 'Defect Rate',
       value: analyticsFormatPercent(data.summary?.defectRate || 0),
       detail: `${analyticsFormatNumber(data.summary?.totalDefectCount || 0)} total defects`,
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Issue Records',
       value: analyticsFormatNumber(data.summary?.totalIssueRecords || 0),
       detail: 'Records needing review',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-alarm-warning-line'
     },
     {
       eyebrow: 'Top Defect',
       value: topDefect ? analyticsEscapeHtml(topDefect.name) : 'No defects',
       detail: topDefect ? `${analyticsFormatNumber(topDefect.count)} counted events` : 'No defect activity in this filter',
-      tone: 'bg-slate-100 text-slate-700'
+      tone: 'bg-slate-100 text-slate-700',
+      icon: 'ri-bug-line'
     },
     {
       eyebrow: 'Highest-Risk Product',
       value: worstProduct ? analyticsEscapeHtml(analyticsGetProductLabel(worstProduct)) : 'No product data',
       detail: worstProduct ? `${analyticsFormatPercent(worstProduct.defectRate)} defect rate` : 'No product quality signal',
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-box-3-line'
     }
   ]);
 
@@ -1100,25 +1185,29 @@ function renderAnalyticsProductTab(data) {
       eyebrow: 'Lead Product',
       value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : 'No product data',
       detail: leadProduct ? `${analyticsFormatNumber(leadProduct.totalGoodCount)} good pieces` : 'No product output data',
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'bg-emerald-50 text-emerald-700',
+      icon: 'ri-box-3-line'
     },
     {
       eyebrow: 'Highest Defect Rate',
       value: riskiestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(riskiestProduct)) : 'No product data',
       detail: riskiestProduct ? `${analyticsFormatPercent(riskiestProduct.defectRate)} defect rate` : 'No quality signal',
-      tone: 'bg-rose-50 text-rose-700'
+      tone: 'bg-rose-50 text-rose-700',
+      icon: 'ri-error-warning-line'
     },
     {
       eyebrow: 'Slowest Cycle',
       value: slowestProduct ? analyticsEscapeHtml(analyticsGetProductLabel(slowestProduct)) : 'No product data',
       detail: slowestProduct ? `${analyticsFormatNumber(slowestProduct.averageCycleTime, 2)} average cycle time` : 'No cycle-time signal',
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'bg-amber-50 text-amber-700',
+      icon: 'ri-timer-2-line'
     },
     {
       eyebrow: 'Most Issue Records',
       value: issueHeavyProduct ? analyticsEscapeHtml(analyticsGetProductLabel(issueHeavyProduct)) : 'No product data',
       detail: issueHeavyProduct ? `${analyticsFormatNumber(issueHeavyProduct.issueCount)} issue records` : 'No issue signal',
-      tone: 'bg-sky-50 text-sky-700'
+      tone: 'bg-sky-50 text-sky-700',
+      icon: 'ri-alarm-warning-line'
     }
   ]);
 

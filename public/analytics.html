@@ -1,84 +1,137 @@
-<div id="analyticsRoot" class="container space-y-6">
-  <section class="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-    <div class="relative px-6 py-6 lg:px-8">
-      <div class="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.08),_transparent_55%),radial-gradient(circle_at_top_right,_rgba(245,158,11,0.12),_transparent_40%)]"></div>
-      <div class="relative flex flex-col gap-6">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Admin Decision View</p>
-            <h2 class="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Analytics</h2>
-            <p class="mt-2 max-w-3xl text-sm text-slate-500">Organized by what an admin actually needs to answer: overall health, worker performance, machine stability, quality risks, and product behavior.</p>
+<div id="analyticsRoot" class="space-y-6">
+  <style>
+    #analyticsRoot .rounded-\[24px\],
+    #analyticsRoot .rounded-\[28px\] {
+      border-radius: 1rem;
+    }
+
+    #analyticsRoot .border-slate-100 {
+      border-color: rgb(243 244 246 / 1);
+    }
+
+    #analyticsRoot .border-slate-200 {
+      border-color: rgb(229 231 235 / 1);
+    }
+
+    #analyticsRoot .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+      border-color: rgb(243 244 246 / 1);
+    }
+
+    #analyticsRoot .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+      border-color: rgb(229 231 235 / 1);
+    }
+
+    #analyticsRoot .bg-slate-50,
+    #analyticsRoot .bg-slate-50\/90 {
+      background-color: rgb(249 250 251 / 1);
+    }
+
+    #analyticsRoot .bg-slate-100 {
+      background-color: rgb(243 244 246 / 1);
+    }
+
+    #analyticsRoot .text-slate-900 {
+      color: rgb(17 24 39 / 1);
+    }
+
+    #analyticsRoot .text-slate-700 {
+      color: rgb(55 65 81 / 1);
+    }
+
+    #analyticsRoot .text-slate-600 {
+      color: rgb(75 85 99 / 1);
+    }
+
+    #analyticsRoot .text-slate-500 {
+      color: rgb(107 114 128 / 1);
+    }
+
+    #analyticsRoot .text-slate-400 {
+      color: rgb(156 163 175 / 1);
+    }
+
+    #analyticsRoot thead.text-xs {
+      letter-spacing: 0;
+      text-transform: none;
+    }
+  </style>
+
+  <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+    <div class="flex flex-col gap-5">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 class="text-3xl font-semibold tracking-tight text-gray-900">Analytics</h2>
+          <p class="mt-2 max-w-3xl text-sm text-gray-500">Organized by what an admin actually needs to answer: overall health, worker performance, machine stability, quality risks, and product behavior.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            <span class="text-gray-500">Last updated:</span>
+            <span id="analyticsLastUpdated">-</span>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700 backdrop-blur">
-              <span class="text-slate-500">Last updated:</span>
-              <span id="analyticsLastUpdated">-</span>
-            </div>
-            <button id="analyticsRefreshBtn" onclick="loadAnalytics()" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800">
-              <i class="ri-refresh-line"></i>
-              <span id="analyticsRefreshLabel">Refresh</span>
-            </button>
-          </div>
+          <button id="analyticsRefreshBtn" onclick="loadAnalytics()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100">
+            <i class="ri-refresh-line"></i>
+            <span id="analyticsRefreshLabel">Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label class="block text-sm font-medium text-gray-700">
+            Start date
+            <input id="analyticsStartDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            End date
+            <input id="analyticsEndDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Machine source
+            <select id="analyticsSource" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="all">All sources</option>
+            </select>
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            LH/RH
+            <select id="analyticsLhRh" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="all">All directions</option>
+              <option value="LH">LH</option>
+              <option value="RH">RH</option>
+            </select>
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Hinban
+            <input id="analyticsHinban" type="text" list="analyticsHinbanList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" placeholder="Filter by hinban" onkeydown="handleAnalyticsFilterKeydown(event)">
+            <datalist id="analyticsHinbanList"></datalist>
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Product
+            <input id="analyticsProductName" type="text" list="analyticsProductList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" placeholder="Filter by product" onkeydown="handleAnalyticsFilterKeydown(event)">
+            <datalist id="analyticsProductList"></datalist>
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Worker contains
+            <input id="analyticsOperator" type="text" list="analyticsOperatorList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" placeholder="Search operator" onkeydown="handleAnalyticsFilterKeydown(event)">
+            <datalist id="analyticsOperatorList"></datalist>
+          </label>
+          <label class="block text-sm font-medium text-gray-700">
+            Focus worker chart
+            <select id="analyticsFocusOperator" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="">Auto (top worker)</option>
+            </select>
+          </label>
         </div>
 
-        <div class="rounded-[24px] border border-slate-200 bg-slate-50/90 p-4 shadow-inner shadow-slate-100">
-          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <label class="block text-sm font-medium text-slate-700">
-              Start date
-              <input id="analyticsStartDate" type="date" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" onkeydown="handleAnalyticsFilterKeydown(event)">
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              End date
-              <input id="analyticsEndDate" type="date" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" onkeydown="handleAnalyticsFilterKeydown(event)">
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              Machine source
-              <select id="analyticsSource" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" onchange="loadAnalytics()">
-                <option value="all">All sources</option>
-              </select>
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              LH/RH
-              <select id="analyticsLhRh" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" onchange="loadAnalytics()">
-                <option value="all">All directions</option>
-                <option value="LH">LH</option>
-                <option value="RH">RH</option>
-              </select>
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              Hinban
-              <input id="analyticsHinban" type="text" list="analyticsHinbanList" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" placeholder="Filter by hinban" onkeydown="handleAnalyticsFilterKeydown(event)">
-              <datalist id="analyticsHinbanList"></datalist>
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              Product
-              <input id="analyticsProductName" type="text" list="analyticsProductList" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" placeholder="Filter by product" onkeydown="handleAnalyticsFilterKeydown(event)">
-              <datalist id="analyticsProductList"></datalist>
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              Worker contains
-              <input id="analyticsOperator" type="text" list="analyticsOperatorList" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" placeholder="Search operator" onkeydown="handleAnalyticsFilterKeydown(event)">
-              <datalist id="analyticsOperatorList"></datalist>
-            </label>
-            <label class="block text-sm font-medium text-slate-700">
-              Focus worker chart
-              <select id="analyticsFocusOperator" class="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700" onchange="loadAnalytics()">
-                <option value="">Auto (top worker)</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="mt-4 flex flex-wrap items-center gap-3">
-            <button onclick="loadAnalytics()" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800">
-              <i class="ri-filter-3-line"></i>
-              Apply filters
-            </button>
-            <button onclick="resetAnalyticsFilters()" class="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
-              <i class="ri-restart-line"></i>
-              Reset
-            </button>
-            <div id="analyticsMetaChips" class="flex flex-wrap gap-2"></div>
-          </div>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button onclick="loadAnalytics()" class="inline-flex items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200">
+            <i class="ri-filter-3-line"></i>
+            Apply filters
+          </button>
+          <button onclick="resetAnalyticsFilters()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+            <i class="ri-restart-line"></i>
+            Reset
+          </button>
+          <div id="analyticsMetaChips" class="flex flex-wrap gap-2"></div>
         </div>
       </div>
     </div>
@@ -86,60 +139,60 @@
 
   <div id="analyticsError" class="hidden rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"></div>
 
-  <section class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+  <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
     <div class="mb-4 flex items-center justify-between gap-4">
       <div>
-        <h3 class="text-lg font-semibold text-slate-900">Scope Summary</h3>
-        <p class="mt-1 text-sm text-slate-500">A compact view of output, quality, labor, and operating footprint for the current filter.</p>
+        <h3 class="text-lg font-semibold text-gray-900">Scope Summary</h3>
+        <p class="mt-1 text-sm text-gray-500">A compact view of output, quality, labor, and operating footprint for the current filter.</p>
       </div>
     </div>
     <div id="analyticsKpiGrid" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div class="h-3 w-24 animate-pulse rounded bg-slate-200"></div>
-        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-slate-100"></div>
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
+        <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
     </div>
   </section>
 
-  <section class="rounded-[24px] border border-slate-200 bg-white p-2 shadow-sm">
+  <section class="rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
     <div class="flex flex-wrap gap-2" id="analyticsTabButtons">
-      <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition">
+      <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
         <i class="ri-home-5-line"></i>
         Overview
       </button>
-      <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition">
+      <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
         <i class="ri-team-line"></i>
         Worker
       </button>
-      <button type="button" data-analytics-tab="machine" onclick="setAnalyticsTab('machine')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition">
+      <button type="button" data-analytics-tab="machine" onclick="setAnalyticsTab('machine')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
         <i class="ri-cpu-line"></i>
         Machine
       </button>
-      <button type="button" data-analytics-tab="quality" onclick="setAnalyticsTab('quality')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition">
+      <button type="button" data-analytics-tab="quality" onclick="setAnalyticsTab('quality')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
         <i class="ri-shield-check-line"></i>
         Quality
       </button>
-      <button type="button" data-analytics-tab="product" onclick="setAnalyticsTab('product')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition">
+      <button type="button" data-analytics-tab="product" onclick="setAnalyticsTab('product')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
         <i class="ri-box-3-line"></i>
         Product
       </button>
@@ -151,18 +204,18 @@
       <div id="analyticsOverviewHighlights" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)]">
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Output and issue trend</h3>
-            <p class="mt-1 text-sm text-slate-500">See whether production, labor, and issues are moving together or drifting apart.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Output and issue trend</h3>
+            <p class="mt-1 text-sm text-gray-500">See whether production, labor, and issues are moving together or drifting apart.</p>
           </div>
           <div id="analyticsTrendChart" class="h-[380px] px-2 py-4"></div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">What needs attention</h3>
-            <p class="mt-1 text-sm text-slate-500">Shortlist of the biggest quality, labor, and machine signals in the selected range.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">What needs attention</h3>
+            <p class="mt-1 text-sm text-gray-500">Shortlist of the biggest quality, labor, and machine signals in the selected range.</p>
           </div>
           <div id="analyticsOverviewDrivers" class="p-6"></div>
         </section>
@@ -173,27 +226,27 @@
       <div id="analyticsWorkerSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm xl:col-span-2">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Worker output versus defect rate</h3>
-            <p class="mt-1 text-sm text-slate-500">Compare who is producing the most and where quality risk is concentrated.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm xl:col-span-2">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Worker output versus defect rate</h3>
+            <p class="mt-1 text-sm text-gray-500">Compare who is producing the most and where quality risk is concentrated.</p>
           </div>
           <div id="analyticsOperatorsChart" class="h-[380px] px-2 py-4"></div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Focused worker timeline</h3>
-            <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-slate-500">Auto-selecting the busiest worker in the current filter.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Focused worker timeline</h3>
+            <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500">Auto-selecting the busiest worker in the current filter.</p>
           </div>
           <div id="analyticsOperatorFocusChart" class="h-[380px] px-2 py-4"></div>
         </section>
       </div>
 
-      <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <div class="border-b border-slate-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-slate-900">Worker leaderboard</h3>
-          <p class="mt-1 text-sm text-slate-500">Use this table to identify overload, defect-heavy work, and labor balance.</p>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Worker leaderboard</h3>
+          <p class="mt-1 text-sm text-gray-500">Use this table to identify overload, defect-heavy work, and labor balance.</p>
         </div>
         <div id="analyticsWorkerTable" class="overflow-x-auto"></div>
       </section>
@@ -203,27 +256,27 @@
       <div id="analyticsMachineSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Machine source performance</h3>
-            <p class="mt-1 text-sm text-slate-500">Output, downtime, and defect rate by submitted source.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Machine source performance</h3>
+            <p class="mt-1 text-sm text-gray-500">Output, downtime, and defect rate by submitted source.</p>
           </div>
           <div id="analyticsSourceChart" class="h-[380px] px-2 py-4"></div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Machine spotlight</h3>
-            <p class="mt-1 text-sm text-slate-500">Quick cards for the most productive and most unstable sources.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Machine spotlight</h3>
+            <p class="mt-1 text-sm text-gray-500">Quick cards for the most productive and most unstable sources.</p>
           </div>
           <div id="analyticsMachineCards" class="p-6"></div>
         </section>
       </div>
 
-      <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <div class="border-b border-slate-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-slate-900">Machine table</h3>
-          <p class="mt-1 text-sm text-slate-500">Compare source stability, labor, and issue frequency in one place.</p>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Machine table</h3>
+          <p class="mt-1 text-sm text-gray-500">Compare source stability, labor, and issue frequency in one place.</p>
         </div>
         <div id="analyticsMachineTable" class="overflow-x-auto"></div>
       </section>
@@ -233,30 +286,30 @@
       <div id="analyticsQualitySummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Defect Pareto</h3>
-            <p class="mt-1 text-sm text-slate-500">The defect types that explain most of the quality loss in the selected period.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Defect Pareto</h3>
+            <p class="mt-1 text-sm text-gray-500">The defect types that explain most of the quality loss in the selected period.</p>
           </div>
           <div id="analyticsDefectsChart" class="h-[380px] px-2 py-4"></div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Quality watchlist</h3>
-            <p class="mt-1 text-sm text-slate-500">Signals to inspect first when quality starts drifting.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Quality watchlist</h3>
+            <p class="mt-1 text-sm text-gray-500">Signals to inspect first when quality starts drifting.</p>
           </div>
           <div id="analyticsQualityAlerts" class="p-6"></div>
         </section>
       </div>
 
-      <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <div class="border-b border-slate-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-slate-900">Quality hotspots</h3>
-          <p class="mt-1 text-sm text-slate-500">The most defect-heavy or trouble-heavy records, including remarks for inspection.</p>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Quality hotspots</h3>
+          <p class="mt-1 text-sm text-gray-500">The most defect-heavy or trouble-heavy records, including remarks for inspection.</p>
         </div>
         <div id="analyticsHotspotsList" class="overflow-x-auto">
-          <div class="px-6 py-10 text-sm text-slate-400">Loading analytics...</div>
+          <div class="px-6 py-10 text-sm text-gray-400">Loading analytics...</div>
         </div>
       </section>
     </section>
@@ -265,27 +318,27 @@
       <div id="analyticsProductSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Product output and defect rate</h3>
-            <p class="mt-1 text-sm text-slate-500">Find which products are carrying throughput and which ones are creating quality risk.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Product output and defect rate</h3>
+            <p class="mt-1 text-sm text-gray-500">Find which products are carrying throughput and which ones are creating quality risk.</p>
           </div>
           <div id="analyticsProductsChart" class="h-[380px] px-2 py-4"></div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-          <div class="border-b border-slate-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-slate-900">Product notes</h3>
-            <p class="mt-1 text-sm text-slate-500">Fast scan of lead products, high-risk products, and slow-cycle items.</p>
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900">Product notes</h3>
+            <p class="mt-1 text-sm text-gray-500">Fast scan of lead products, high-risk products, and slow-cycle items.</p>
           </div>
           <div id="analyticsProductHighlights" class="p-6"></div>
         </section>
       </div>
 
-      <section class="overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-sm">
-        <div class="border-b border-slate-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-slate-900">Product table</h3>
-          <p class="mt-1 text-sm text-slate-500">Throughput, quality, and cycle-time summary by product.</p>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900">Product table</h3>
+          <p class="mt-1 text-sm text-gray-500">Throughput, quality, and cycle-time summary by product.</p>
         </div>
         <div id="analyticsProductTable" class="overflow-x-auto"></div>
       </section>
