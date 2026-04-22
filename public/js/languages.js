@@ -57,6 +57,7 @@ const translations = {
     // Navigation
     nav: {
       dashboard: "Dashboard",
+      analytics: "Analytics",
       userManagement: "User Management",
       masterDB: "Master DB",
       opcManagement: "OPC Management",
@@ -628,6 +629,7 @@ const translations = {
     // Navigation
     nav: {
       dashboard: "ダッシュボード",
+      analytics: "Analytics",
       userManagement: "ユーザー管理",
       masterDB: "マスターDB",
       opcManagement: "OPC管理",

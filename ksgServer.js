@@ -744,6 +744,164 @@ async function authenticateTablet(req, res, next) {
     }
 }
 
+const TABLET_ACTIVE_SESSION_COLLECTION = 'tabletActiveSessions';
+
+function normalizeTabletSessionString(value = '') {
+    return String(value ?? '').trim();
+}
+
+function normalizeTabletSessionNumber(value, fallback = 0) {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) ? normalized : fallback;
+}
+
+function normalizeTabletSessionDate(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeTabletSessionOperators(values = []) {
+    const seen = new Set();
+
+    return (Array.isArray(values) ? values : [values])
+        .map(normalizeTabletSessionString)
+        .filter(name => {
+            if (!name || seen.has(name)) return false;
+            seen.add(name);
+            return true;
+        })
+        .slice(0, 4);
+}
+
+function resolveTabletSessionQuery(req) {
+    const company = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const tabletId = normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || '');
+    const tabletName = normalizeTabletSessionString(req.tablet?.tabletName || req.user?.tabletName || '');
+
+    if (tabletId) {
+        return {
+            company,
+            tabletId
+        };
+    }
+
+    if (tabletName) {
+        return {
+            company,
+            tabletName
+        };
+    }
+
+    throw new Error('Unable to resolve tablet identity for active session');
+}
+
+function buildTabletActiveSessionDocument(req, payload = {}, now = new Date()) {
+    const workStartTime = normalizeTabletSessionDate(payload.workStartTime || payload.startedAt);
+    const breakStartTime = normalizeTabletSessionDate(payload.breakStartTime);
+    const troubleStartTime = normalizeTabletSessionDate(payload.troubleStartTime);
+    const isStarted = Boolean(payload.isStarted && workStartTime);
+    const breakActive = Boolean(payload.breakActive && breakStartTime);
+    const troubleActive = Boolean(payload.troubleActive && troubleStartTime);
+    const operators = normalizeTabletSessionOperators(payload.operators);
+    const totalBreakHours = Math.max(0, normalizeTabletSessionNumber(payload.totalBreakHours, 0));
+    const totalTroubleHours = Math.max(0, normalizeTabletSessionNumber(payload.totalTroubleHours, 0));
+    let status = 'idle';
+
+    if (troubleActive) {
+        status = 'trouble';
+    } else if (breakActive) {
+        status = 'break';
+    } else if (isStarted) {
+        status = 'running';
+    }
+
+    return {
+        company: normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG',
+        tabletId: normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || ''),
+        tabletName: normalizeTabletSessionString(req.tablet?.tabletName || req.user?.tabletName || ''),
+        tabletKey: normalizeTabletSessionString(req.tablet?.tabletId || req.user?.tabletId || req.tablet?.tabletName || req.user?.tabletName || ''),
+        factoryLocation: normalizeTabletSessionString(req.tablet?.factoryLocation || ''),
+        equipmentName: normalizeTabletSessionString(req.tablet?.equipmentName || ''),
+        username: normalizeTabletSessionString(req.user?.username || ''),
+        userId: normalizeTabletSessionString(req.user?.userId || ''),
+        userRole: normalizeTabletSessionString(req.user?.role || ''),
+        operators,
+        status,
+        isStarted,
+        breakActive,
+        troubleActive,
+        startTime: normalizeTabletSessionString(payload.startTime),
+        workStartTime,
+        breakStartTime,
+        troubleStartTime,
+        totalBreakHours,
+        totalTroubleHours,
+        stopTimeHours: Math.max(0, normalizeTabletSessionNumber(payload.stopTimeHours, totalBreakHours + totalTroubleHours)),
+        manHours: Math.max(0, normalizeTabletSessionNumber(payload.manHours, 0)),
+        currentCount: Math.max(0, normalizeTabletSessionNumber(payload.currentCount, 0)),
+        goodCount: Math.max(0, normalizeTabletSessionNumber(payload.goodCount, 0)),
+        seisanSuStartValue: normalizeTabletSessionNumber(payload.seisanSuStartValue, 0),
+        currentSeisanSuValue: normalizeTabletSessionNumber(payload.currentSeisanSuValue, 0),
+        kanbanId: normalizeTabletSessionString(payload.kanbanId),
+        productId: normalizeTabletSessionString(payload.productId),
+        productName: normalizeTabletSessionString(payload.productName),
+        lhRh: normalizeTabletSessionString(payload.lhRh),
+        hakoIresu: Math.max(0, normalizeTabletSessionNumber(payload.hakoIresu, 0)),
+        remarks: normalizeTabletSessionString(payload.remarks),
+        otherDetails: normalizeTabletSessionString(payload.otherDetails),
+        updatedAt: now
+    };
+}
+
+async function upsertTabletActiveSession(req, payload = {}) {
+    if (!mongoClient) {
+        throw new Error('Database not connected');
+    }
+
+    const dbName = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const db = mongoClient.db(dbName);
+    const collection = db.collection(TABLET_ACTIVE_SESSION_COLLECTION);
+    const query = resolveTabletSessionQuery(req);
+    const now = new Date();
+
+    const document = buildTabletActiveSessionDocument(req, payload, now);
+
+    await collection.updateOne(
+        query,
+        {
+            $set: document,
+            $setOnInsert: { createdAt: now }
+        },
+        { upsert: true }
+    );
+
+    return {
+        query,
+        document
+    };
+}
+
+async function clearTabletActiveSession(req) {
+    if (!mongoClient) {
+        throw new Error('Database not connected');
+    }
+
+    const dbName = normalizeTabletSessionString(req.user?.dbName || 'KSG') || 'KSG';
+    const db = mongoClient.db(dbName);
+    const collection = db.collection(TABLET_ACTIVE_SESSION_COLLECTION);
+    const query = resolveTabletSessionQuery(req);
+    const result = await collection.deleteOne(query);
+
+    return {
+        query,
+        deletedCount: result.deletedCount || 0
+    };
+}
+
 // � Device Authentication Middleware
 async function authenticateDevice(req, res, next) {
     const deviceId = req.headers['x-device-id'];
@@ -1315,6 +1473,48 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
     const tabletName = decodeURIComponent(req.params.tabletName);
     
     try {
+
+app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
+    try {
+        const payload = req.body || {};
+
+        if (payload.clear) {
+            const cleared = await clearTabletActiveSession(req);
+            return res.json({
+                success: true,
+                cleared: true,
+                deletedCount: cleared.deletedCount,
+                tablet: {
+                    tabletId: req.tablet?.tabletId || req.user?.tabletId || '',
+                    tabletName: req.tablet?.tabletName || req.user?.tabletName || ''
+                }
+            });
+        }
+
+        const result = await upsertTabletActiveSession(req, payload);
+
+        res.json({
+            success: true,
+            session: {
+                tabletId: result.document.tabletId,
+                tabletName: result.document.tabletName,
+                equipmentName: result.document.equipmentName,
+                status: result.document.status,
+                updatedAt: result.document.updatedAt,
+                operators: result.document.operators,
+                currentCount: result.document.currentCount,
+                startTime: result.document.startTime
+            }
+        });
+    } catch (error) {
+        console.error('❌ [TABLET] Error syncing active session:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to sync tablet session',
+            details: error.message
+        });
+    }
+});
         if (!mongoClient) {
             return res.status(503).json({ 
                 success: false, 
@@ -1518,6 +1718,12 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         const success = mongoResult || googleSheetsResult;
         
         if (success) {
+            try {
+                await clearTabletActiveSession(req);
+            } catch (sessionError) {
+                console.error('❌ [TABLET] Failed to clear active session after submit:', sessionError);
+            }
+
             res.json({
                 success: true,
                 message: 'Data submitted successfully',
@@ -1547,10 +1753,13 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
 // ============================================================
 
+const SUBMITTED_DB_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
+
 const SUBMITTED_DB_FIXED_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
-    'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+    ...SUBMITTED_DB_OPERATOR_FIELDS,
+    'good_count', 'man_hours', 'cycle_time',
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
@@ -1561,7 +1770,8 @@ const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
 ]);
 const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
     'hinban', 'product_name', 'kanban_id', 'lh_rh',
-    'operator1', 'operator2', 'other_description', 'start_time', 'end_time', 'remarks'
+    ...SUBMITTED_DB_OPERATOR_FIELDS,
+    'other_description', 'start_time', 'end_time', 'remarks'
 ]);
 
 function normalizeSubmittedDBUpdates(source = {}) {
@@ -1696,6 +1906,654 @@ function getSubmittedDBRecordDefects(record = {}) {
 function getSubmittedDBTotalDefects(record = {}) {
     return getSubmittedDBRecordDefects(record).reduce((sum, defect) => sum + defect.count, 0);
 }
+
+function getSubmittedDBCreatedTotal(goodCount, defectCount) {
+    return Math.max(0, (Number(goodCount ?? 0) || 0) + (Number(defectCount ?? 0) || 0));
+}
+
+function getSubmittedDBDefectRate(goodCount, defectCount) {
+    const createdTotal = getSubmittedDBCreatedTotal(goodCount, defectCount);
+    if (createdTotal <= 0) return 0;
+
+    return ((Number(defectCount ?? 0) || 0) / createdTotal) * 100;
+}
+
+function getSubmittedDBRate(numerator, denominator) {
+    const safeDenominator = Number(denominator ?? 0) || 0;
+    if (safeDenominator <= 0) return 0;
+
+    return ((Number(numerator ?? 0) || 0) / safeDenominator) * 100;
+}
+
+function getSubmittedDBCoefficientOfVariation(values = []) {
+    const samples = values.filter(value => Number.isFinite(value) && value >= 0);
+    if (samples.length <= 1) return 0;
+
+    const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    if (average <= 0) return 0;
+
+    const variance = samples.reduce((sum, value) => sum + ((value - average) ** 2), 0) / samples.length;
+    return Math.sqrt(variance) / average;
+}
+
+function escapeSubmittedDBRegex(value = '') {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSubmittedDBAnalyticsFilter(query = {}) {
+    const filter = {
+        is_deleted: { $ne: true }
+    };
+
+    const dateRangeExpr = buildSubmittedDBDateRangeExpr(query.startDate, query.endDate);
+    if (dateRangeExpr) {
+        filter.$expr = dateRangeExpr;
+    }
+
+    const hinban = String(query.hinban ?? '').trim();
+    const productName = String(query.productName ?? '').trim();
+    const operator = String(query.operator ?? '').trim();
+    const kanbanId = String(query.kanbanId ?? '').trim();
+    const source = String(query.source ?? '').trim();
+    const lhRh = String(query.lhRh ?? '').trim();
+
+    if (hinban) {
+        filter.hinban = { $regex: escapeSubmittedDBRegex(hinban), $options: 'i' };
+    }
+    if (productName) {
+        filter.product_name = { $regex: escapeSubmittedDBRegex(productName), $options: 'i' };
+    }
+    if (operator) {
+        const safeOperator = escapeSubmittedDBRegex(operator);
+        filter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(field => ({
+            [field]: { $regex: safeOperator, $options: 'i' }
+        }));
+    }
+    if (kanbanId) {
+        filter.kanban_id = { $regex: escapeSubmittedDBRegex(kanbanId), $options: 'i' };
+    }
+    if (source && source !== 'all') {
+        filter.submitted_from = source;
+    }
+    if (lhRh && lhRh !== 'all') {
+        filter.lh_rh = lhRh;
+    }
+
+    return filter;
+}
+
+function getSubmittedDBRecordOperators(record = {}) {
+    return [...new Set(
+        SUBMITTED_DB_OPERATOR_FIELDS
+            .map(field => String(record[field] ?? '').trim())
+            .filter(Boolean)
+    )];
+}
+
+function getSubmittedDBRecordDateInfo(record = {}) {
+    const year = Number(record.date_year ?? 0);
+    const month = Number(record.date_month ?? 0);
+    const day = Number(record.date_day ?? 0);
+
+    if (year > 0 && month > 0 && day > 0) {
+        return {
+            key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            label: `${month}/${day}`
+        };
+    }
+
+    const fallbackDate = new Date(record.timestamp || Date.now());
+    if (!Number.isNaN(fallbackDate.getTime())) {
+        const calendarDate = getJapanCalendarDate(fallbackDate);
+        return {
+            key: calendarDate.key,
+            label: calendarDate.label
+        };
+    }
+
+    return {
+        key: 'Unknown',
+        label: 'Unknown'
+    };
+}
+
+function normalizeSubmittedDBOptionList(values = [], limit = 250) {
+    return [...new Set(
+        values
+            .map(value => String(value ?? '').trim())
+            .filter(Boolean)
+    )]
+        .sort((a, b) => a.localeCompare(b, 'ja'))
+        .slice(0, limit);
+}
+
+app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const activeFilter = { is_deleted: { $ne: true } };
+        const operatorValueFields = Object.fromEntries(
+            SUBMITTED_DB_OPERATOR_FIELDS.map(field => [`${field}Values`, { $addToSet: `$${field}` }])
+        );
+
+        const [optionsDoc = {}] = await collection.aggregate([
+            { $match: activeFilter },
+            {
+                $group: {
+                    _id: null,
+                    sources: { $addToSet: '$submitted_from' },
+                    lhRh: { $addToSet: '$lh_rh' },
+                    hinban: { $addToSet: '$hinban' },
+                    productNames: { $addToSet: '$product_name' },
+                    ...operatorValueFields
+                }
+            }
+        ]).toArray();
+
+        res.json({
+            success: true,
+            options: {
+                sources: normalizeSubmittedDBOptionList(optionsDoc.sources || []),
+                lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
+                hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
+                productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
+                operators: normalizeSubmittedDBOptionList(
+                    SUBMITTED_DB_OPERATOR_FIELDS.flatMap(field => optionsDoc[`${field}Values`] || [])
+                )
+            }
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching analytics filter options:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load analytics filter options' });
+    }
+});
+
+app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+        const filter = buildSubmittedDBAnalyticsFilter(req.query);
+        const records = await collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray();
+
+        const dailyMap = new Map();
+        const defectMap = new Map();
+        const operatorMap = new Map();
+        const operatorProductMap = new Map();
+        const operatorSourceMap = new Map();
+        const productMap = new Map();
+        const productWorkerBenchmarkMap = new Map();
+        const sourceMap = new Map();
+        const sourceWorkerBenchmarkMap = new Map();
+        const qualityHotspots = [];
+        const uniqueOperators = new Set();
+        const uniqueProducts = new Set();
+        const uniqueSources = new Set();
+        const uniqueKanbans = new Set();
+
+        let totalGoodCount = 0;
+        let totalDefectCount = 0;
+        let totalManHours = 0;
+        let totalBreakTime = 0;
+        let totalTroubleTime = 0;
+        let totalIssueRecords = 0;
+        let cycleTimeTotal = 0;
+        let cycleTimeSamples = 0;
+
+        records.forEach(record => {
+            const goodCount = Number(record.good_count ?? 0) || 0;
+            const manHours = Number(record.man_hours ?? 0) || 0;
+            const breakTime = Number(record.break_time ?? 0) || 0;
+            const troubleTime = Number(record.trouble_time ?? 0) || 0;
+            const cycleTime = Number(record.cycle_time ?? 0);
+            const defects = getSubmittedDBRecordDefects(record);
+            const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+            const dateInfo = getSubmittedDBRecordDateInfo(record);
+            const operators = getSubmittedDBRecordOperators(record);
+            const operatorCount = Math.max(operators.length, 1);
+            const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+            const kanbanId = String(record.kanban_id ?? '').trim();
+            const hasIssue = totalDefects > 0 || troubleTime > 0 || String(record.remarks ?? '').trim() !== '';
+            const attributedGoodCount = goodCount / operatorCount;
+            const attributedDefectCount = totalDefects / operatorCount;
+            const attributedIssueCount = hasIssue ? 1 / operatorCount : 0;
+
+            totalGoodCount += goodCount;
+            totalDefectCount += totalDefects;
+            totalManHours += manHours;
+            totalBreakTime += breakTime;
+            totalTroubleTime += troubleTime;
+            if (hasIssue) {
+                totalIssueRecords += 1;
+            }
+
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                cycleTimeTotal += cycleTime;
+                cycleTimeSamples += 1;
+            }
+
+            if (kanbanId) uniqueKanbans.add(kanbanId);
+            uniqueSources.add(source);
+            if (record.hinban || record.product_name || record.lh_rh) {
+                uniqueProducts.add([
+                    String(record.hinban ?? '').trim(),
+                    String(record.product_name ?? '').trim(),
+                    String(record.lh_rh ?? '').trim()
+                ].join('||'));
+            }
+            operators.forEach(name => uniqueOperators.add(name));
+
+            const dailyEntry = dailyMap.get(dateInfo.key) || {
+                date: dateInfo.key,
+                label: dateInfo.label,
+                submissions: 0,
+                goodCount: 0,
+                defectCount: 0,
+                issueCount: 0,
+                manHours: 0,
+                breakTime: 0,
+                troubleTime: 0
+            };
+            dailyEntry.submissions += 1;
+            dailyEntry.goodCount += goodCount;
+            dailyEntry.defectCount += totalDefects;
+            if (hasIssue) {
+                dailyEntry.issueCount += 1;
+            }
+            dailyEntry.manHours += manHours;
+            dailyEntry.breakTime += breakTime;
+            dailyEntry.troubleTime += troubleTime;
+            dailyMap.set(dateInfo.key, dailyEntry);
+
+            defects.forEach(defect => {
+                defectMap.set(defect.name, (defectMap.get(defect.name) || 0) + defect.count);
+            });
+
+            const sourceEntry = sourceMap.get(source) || {
+                source,
+                submissions: 0,
+                totalGoodCount: 0,
+                totalDefectCount: 0,
+                issueCount: 0,
+                totalManHours: 0,
+                totalTroubleTime: 0
+            };
+            sourceEntry.submissions += 1;
+            sourceEntry.totalGoodCount += goodCount;
+            sourceEntry.totalDefectCount += totalDefects;
+            if (hasIssue) {
+                sourceEntry.issueCount += 1;
+            }
+            sourceEntry.totalManHours += manHours;
+            sourceEntry.totalTroubleTime += troubleTime;
+            sourceMap.set(source, sourceEntry);
+
+            const productKey = [
+                String(record.hinban ?? '').trim(),
+                String(record.product_name ?? '').trim(),
+                String(record.lh_rh ?? '').trim()
+            ].join('||');
+            const productEntry = productMap.get(productKey) || {
+                hinban: String(record.hinban ?? '').trim(),
+                productName: String(record.product_name ?? '').trim(),
+                lhRh: String(record.lh_rh ?? '').trim(),
+                submissions: 0,
+                totalGoodCount: 0,
+                totalDefectCount: 0,
+                issueCount: 0,
+                totalManHours: 0,
+                cycleTimeTotal: 0,
+                cycleTimeSamples: 0
+            };
+            productEntry.submissions += 1;
+            productEntry.totalGoodCount += goodCount;
+            productEntry.totalDefectCount += totalDefects;
+            if (hasIssue) {
+                productEntry.issueCount += 1;
+            }
+            productEntry.totalManHours += manHours;
+            if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                productEntry.cycleTimeTotal += cycleTime;
+                productEntry.cycleTimeSamples += 1;
+            }
+            productMap.set(productKey, productEntry);
+
+            operators.forEach(name => {
+                const operatorEntry = operatorMap.get(name) || {
+                    name,
+                    submissions: 0,
+                    sharedSubmissions: 0,
+                    soloSubmissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    issueCount: 0,
+                    attributedIssueCount: 0,
+                    totalManHours: 0,
+                    totalBreakTime: 0,
+                    totalTroubleTime: 0,
+                    cycleTimeTotal: 0,
+                    cycleTimeSamples: 0,
+                    activeDates: new Set(),
+                    productKeys: new Set(),
+                    sourceKeys: new Set(),
+                    dailyMap: new Map()
+                };
+                operatorEntry.submissions += 1;
+                if (operators.length > 1) {
+                    operatorEntry.sharedSubmissions += 1;
+                } else {
+                    operatorEntry.soloSubmissions += 1;
+                }
+                operatorEntry.totalGoodCount += attributedGoodCount;
+                operatorEntry.totalDefectCount += attributedDefectCount;
+                if (hasIssue) {
+                    operatorEntry.issueCount += 1;
+                }
+                operatorEntry.attributedIssueCount += attributedIssueCount;
+                operatorEntry.totalManHours += manHours;
+                operatorEntry.totalBreakTime += breakTime;
+                operatorEntry.totalTroubleTime += troubleTime;
+                operatorEntry.activeDates.add(dateInfo.key);
+                operatorEntry.productKeys.add(productKey);
+                operatorEntry.sourceKeys.add(source);
+                if (Number.isFinite(cycleTime) && cycleTime > 0) {
+                    operatorEntry.cycleTimeTotal += cycleTime;
+                    operatorEntry.cycleTimeSamples += 1;
+                }
+
+                const operatorDailyEntry = operatorEntry.dailyMap.get(dateInfo.key) || {
+                    date: dateInfo.key,
+                    label: dateInfo.label,
+                    submissions: 0,
+                    goodCount: 0,
+                    defectCount: 0,
+                    issueCount: 0,
+                    manHours: 0,
+                    breakTime: 0,
+                    troubleTime: 0
+                };
+                operatorDailyEntry.submissions += 1;
+                operatorDailyEntry.goodCount += attributedGoodCount;
+                operatorDailyEntry.defectCount += attributedDefectCount;
+                if (hasIssue) {
+                    operatorDailyEntry.issueCount += 1;
+                }
+                operatorDailyEntry.manHours += manHours;
+                operatorDailyEntry.breakTime += breakTime;
+                operatorDailyEntry.troubleTime += troubleTime;
+                operatorEntry.dailyMap.set(dateInfo.key, operatorDailyEntry);
+                operatorMap.set(name, operatorEntry);
+
+                const operatorProductKey = `${name}||${productKey}`;
+                const operatorProductEntry = operatorProductMap.get(operatorProductKey) || {
+                    name,
+                    contextKey: productKey,
+                    hinban: String(record.hinban ?? '').trim(),
+                    productName: String(record.product_name ?? '').trim(),
+                    lhRh: String(record.lh_rh ?? '').trim(),
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                operatorProductEntry.submissions += 1;
+                operatorProductEntry.totalGoodCount += attributedGoodCount;
+                operatorProductEntry.totalDefectCount += attributedDefectCount;
+                operatorProductEntry.totalManHours += manHours;
+                operatorProductMap.set(operatorProductKey, operatorProductEntry);
+
+                const productWorkerBenchmark = productWorkerBenchmarkMap.get(productKey) || {
+                    contextKey: productKey,
+                    hinban: String(record.hinban ?? '').trim(),
+                    productName: String(record.product_name ?? '').trim(),
+                    lhRh: String(record.lh_rh ?? '').trim(),
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                productWorkerBenchmark.submissions += 1;
+                productWorkerBenchmark.totalGoodCount += attributedGoodCount;
+                productWorkerBenchmark.totalDefectCount += attributedDefectCount;
+                productWorkerBenchmark.totalManHours += manHours;
+                productWorkerBenchmarkMap.set(productKey, productWorkerBenchmark);
+
+                const operatorSourceKey = `${name}||${source}`;
+                const operatorSourceEntry = operatorSourceMap.get(operatorSourceKey) || {
+                    name,
+                    contextKey: source,
+                    source,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                operatorSourceEntry.submissions += 1;
+                operatorSourceEntry.totalGoodCount += attributedGoodCount;
+                operatorSourceEntry.totalDefectCount += attributedDefectCount;
+                operatorSourceEntry.totalManHours += manHours;
+                operatorSourceMap.set(operatorSourceKey, operatorSourceEntry);
+
+                const sourceWorkerBenchmark = sourceWorkerBenchmarkMap.get(source) || {
+                    contextKey: source,
+                    source,
+                    submissions: 0,
+                    totalGoodCount: 0,
+                    totalDefectCount: 0,
+                    totalManHours: 0
+                };
+                sourceWorkerBenchmark.submissions += 1;
+                sourceWorkerBenchmark.totalGoodCount += attributedGoodCount;
+                sourceWorkerBenchmark.totalDefectCount += attributedDefectCount;
+                sourceWorkerBenchmark.totalManHours += manHours;
+                sourceWorkerBenchmarkMap.set(source, sourceWorkerBenchmark);
+            });
+
+            qualityHotspots.push({
+                id: record._id,
+                timestamp: record.timestamp,
+                date: dateInfo.key,
+                productName: String(record.product_name ?? '').trim(),
+                hinban: String(record.hinban ?? '').trim(),
+                kanbanId,
+                source,
+                operators,
+                goodCount,
+                totalDefects,
+                manHours,
+                breakTime,
+                troubleTime,
+                defectRate: getSubmittedDBDefectRate(goodCount, totalDefects),
+                remarks: String(record.remarks ?? '').trim(),
+                topDefects: defects
+                    .slice()
+                    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
+                    .slice(0, 3),
+                hasIssue
+            });
+        });
+
+        const summary = {
+            submissions: records.length,
+            totalGoodCount,
+            totalDefectCount,
+            defectRate: getSubmittedDBDefectRate(totalGoodCount, totalDefectCount),
+            totalManHours,
+            totalBreakTime,
+            totalTroubleTime,
+            totalIssueRecords,
+            averageCycleTime: cycleTimeSamples > 0 ? cycleTimeTotal / cycleTimeSamples : 0,
+            uniqueOperators: uniqueOperators.size,
+            uniqueProducts: uniqueProducts.size,
+            uniqueSources: uniqueSources.size,
+            uniqueKanbans: uniqueKanbans.size
+        };
+
+        const dailyTrend = [...dailyMap.values()]
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(entry => ({
+                ...entry,
+                defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount)
+            }));
+
+        const topDefects = [...defectMap.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
+            .slice(0, 10);
+
+        const operatorComparisonAll = [...operatorMap.values()]
+            .map(entry => {
+                const dailyPoints = [...entry.dailyMap.values()]
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(point => ({
+                        ...point,
+                        defectRate: getSubmittedDBDefectRate(point.goodCount, point.defectCount),
+                        outputPerHour: point.manHours > 0 ? point.goodCount / point.manHours : 0,
+                        downtimeRate: getSubmittedDBRate(point.breakTime + point.troubleTime, point.manHours)
+                    }));
+                const outputPerHourSamples = dailyPoints
+                    .map(point => point.outputPerHour)
+                    .filter(value => Number.isFinite(value) && value > 0);
+
+                return {
+                    name: entry.name,
+                    submissions: entry.submissions,
+                    sharedSubmissions: entry.sharedSubmissions,
+                    soloSubmissions: entry.soloSubmissions,
+                    totalGoodCount: entry.totalGoodCount,
+                    totalDefectCount: entry.totalDefectCount,
+                    issueCount: entry.issueCount,
+                    attributedIssueCount: entry.attributedIssueCount,
+                    totalManHours: entry.totalManHours,
+                    totalBreakTime: entry.totalBreakTime,
+                    totalTroubleTime: entry.totalTroubleTime,
+                    averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
+                    defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount),
+                    issueRate: getSubmittedDBRate(entry.issueCount, entry.submissions),
+                    outputPerHour: entry.totalManHours > 0 ? entry.totalGoodCount / entry.totalManHours : 0,
+                    downtimeRate: getSubmittedDBRate(entry.totalBreakTime + entry.totalTroubleTime, entry.totalManHours),
+                    troubleRate: getSubmittedDBRate(entry.totalTroubleTime, entry.totalManHours),
+                    activeDays: entry.activeDates.size,
+                    productCount: entry.productKeys.size,
+                    sourceCount: entry.sourceKeys.size,
+                    consistencyScore: Math.max(0, 100 - (getSubmittedDBCoefficientOfVariation(outputPerHourSamples) * 100)),
+                    dailyPoints
+                };
+            })
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.outputPerHour - a.outputPerHour || b.totalManHours - a.totalManHours || a.name.localeCompare(b.name, 'ja'));
+
+        const operatorComparison = operatorComparisonAll
+            .slice(0, 20)
+            .map(({ dailyPoints, ...entry }) => entry);
+        const operatorDerivedMap = new Map(operatorComparisonAll.map(entry => [entry.name, entry]));
+
+        const topProducts = [...productMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.productName.localeCompare(b.productName, 'ja'))
+            .slice(0, 20)
+            .map(entry => ({
+                ...entry,
+                averageCycleTime: entry.cycleTimeSamples > 0 ? entry.cycleTimeTotal / entry.cycleTimeSamples : 0,
+                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
+            }));
+
+        const sourceBreakdown = [...sourceMap.values()]
+            .sort((a, b) => b.totalGoodCount - a.totalGoodCount || b.submissions - a.submissions || a.source.localeCompare(b.source, 'ja'))
+            .map(entry => ({
+                ...entry,
+                defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount)
+            }));
+
+        const requestedFocusOperator = String(req.query.focusOperator ?? '').trim();
+        const resolvedFocusOperator = requestedFocusOperator || operatorComparison[0]?.name || '';
+        const focusWorker = operatorDerivedMap.get(resolvedFocusOperator);
+        const operatorFocus = focusWorker
+            ? {
+                name: focusWorker.name,
+                points: focusWorker.dailyPoints
+            }
+            : null;
+
+        const buildFocusSkillContexts = (scope, entries, benchmarks) => {
+            if (!resolvedFocusOperator) return [];
+
+            return [...entries.values()]
+                .filter(entry => entry.name === resolvedFocusOperator && entry.totalManHours > 0)
+                .map(entry => {
+                    const benchmark = benchmarks.get(entry.contextKey);
+                    if (!benchmark || benchmark.totalManHours <= 0) return null;
+
+                    const outputPerHour = entry.totalGoodCount / entry.totalManHours;
+                    const benchmarkOutputPerHour = benchmark.totalGoodCount / benchmark.totalManHours;
+
+                    return {
+                        scope,
+                        label: scope === 'source'
+                            ? entry.source
+                            : [entry.productName || entry.hinban || 'Unknown', entry.hinban && entry.productName && entry.hinban !== entry.productName ? entry.hinban : '', entry.lhRh].filter(Boolean).join(' / '),
+                        source: entry.source || '',
+                        hinban: entry.hinban || '',
+                        productName: entry.productName || '',
+                        lhRh: entry.lhRh || '',
+                        submissions: entry.submissions,
+                        totalGoodCount: entry.totalGoodCount,
+                        totalManHours: entry.totalManHours,
+                        outputPerHour,
+                        defectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount),
+                        benchmarkOutputPerHour,
+                        benchmarkDefectRate: getSubmittedDBDefectRate(benchmark.totalGoodCount, benchmark.totalDefectCount),
+                        deltaOutputPerHour: outputPerHour - benchmarkOutputPerHour,
+                        deltaPercent: benchmarkOutputPerHour > 0 ? ((outputPerHour / benchmarkOutputPerHour) - 1) * 100 : 0
+                    };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.totalManHours - a.totalManHours || b.submissions - a.submissions || a.label.localeCompare(b.label, 'ja'));
+        };
+
+        const operatorSkillProfile = resolvedFocusOperator
+            ? {
+                name: resolvedFocusOperator,
+                contexts: [
+                    ...buildFocusSkillContexts('source', operatorSourceMap, sourceWorkerBenchmarkMap).slice(0, 4),
+                    ...buildFocusSkillContexts('product', operatorProductMap, productWorkerBenchmarkMap).slice(0, 4)
+                ]
+            }
+            : null;
+
+        res.json({
+            success: true,
+            generatedAt: new Date().toISOString(),
+            filters: {
+                startDate: String(req.query.startDate ?? '').trim(),
+                endDate: String(req.query.endDate ?? '').trim(),
+                hinban: String(req.query.hinban ?? '').trim(),
+                productName: String(req.query.productName ?? '').trim(),
+                operator: String(req.query.operator ?? '').trim(),
+                kanbanId: String(req.query.kanbanId ?? '').trim(),
+                source: String(req.query.source ?? '').trim(),
+                lhRh: String(req.query.lhRh ?? '').trim(),
+                focusOperator: resolvedFocusOperator
+            },
+            summary,
+            dailyTrend,
+            topDefects,
+            operatorComparison,
+            operatorFocus,
+            operatorSkillProfile,
+            topProducts,
+            sourceBreakdown,
+            qualityHotspots: qualityHotspots
+                .filter(entry => entry.hasIssue)
+                .sort((a, b) => b.totalDefects - a.totalDefects || b.troubleTime - a.troubleTime || String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')))
+                .slice(0, 20)
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load analytics' });
+    }
+});
 
 app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, res) => {
     try {
@@ -1965,6 +2823,210 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to load dashboard summary' });
+    }
+});
+
+function normalizeMachineStatusStringList(values = []) {
+    return (Array.isArray(values) ? values : [values])
+        .map(value => String(value ?? '').trim())
+        .filter(Boolean);
+}
+
+function getMachineStatusDurationMetrics(session = {}, now = new Date()) {
+    const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+    const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+    const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+
+    if (!workStartTime) {
+        return {
+            elapsedMinutes: 0,
+            stoppedMinutes: 0,
+            netRunMinutes: 0
+        };
+    }
+
+    const elapsedMinutes = Math.max(0, (now.getTime() - workStartTime.getTime()) / 60000);
+    let stoppedMinutes = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60)
+        + Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+
+    if (session.breakActive && breakStartTime) {
+        stoppedMinutes += Math.max(0, (now.getTime() - breakStartTime.getTime()) / 60000);
+    }
+
+    if (session.troubleActive && troubleStartTime) {
+        stoppedMinutes += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
+    }
+
+    return {
+        elapsedMinutes,
+        stoppedMinutes,
+        netRunMinutes: Math.max(0, elapsedMinutes - stoppedMinutes)
+    };
+}
+
+app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const now = new Date();
+        const [equipmentRecords, tabletRecords, sessionRecords] = await Promise.all([
+            db.collection('equipment')
+                .find({}, { projection: { _id: 1, 設備名: 1, 工場: 1, description: 1 } })
+                .sort({ 設備名: 1 })
+                .toArray(),
+            db.collection('tabletDB')
+                .find({ enabled: { $ne: false } }, { projection: { _id: 1, tabletName: 1, 設備名: 1, factoryLocation: 1 } })
+                .sort({ 設備名: 1, tabletName: 1 })
+                .toArray(),
+            db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
+                .find({})
+                .sort({ updatedAt: -1 })
+                .toArray()
+        ]);
+
+        const machineMap = new Map();
+
+        const ensureMachineEntry = (machineKey, seed = {}) => {
+            if (!machineMap.has(machineKey)) {
+                machineMap.set(machineKey, {
+                    machineKey,
+                    machineName: '',
+                    factoryLocations: [],
+                    tabletId: '',
+                    tabletName: '',
+                    description: '',
+                    session: null
+                });
+            }
+
+            const current = machineMap.get(machineKey);
+            if (seed.machineName) current.machineName = seed.machineName;
+            if (seed.tabletId) current.tabletId = seed.tabletId;
+            if (seed.tabletName) current.tabletName = seed.tabletName;
+            if (seed.description) current.description = seed.description;
+            if (Array.isArray(seed.factoryLocations) && seed.factoryLocations.length > 0) {
+                current.factoryLocations = [...new Set([...current.factoryLocations, ...seed.factoryLocations])];
+            }
+            if (seed.session) current.session = seed.session;
+
+            return current;
+        };
+
+        equipmentRecords.forEach(record => {
+            const machineName = String(record.設備名 ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                description: String(record.description ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.工場)
+            });
+        });
+
+        tabletRecords.forEach(record => {
+            const machineName = String(record.設備名 ?? '').trim() || String(record.tabletName ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                tabletId: record._id ? String(record._id) : '',
+                tabletName: String(record.tabletName ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.factoryLocation)
+            });
+        });
+
+        sessionRecords.forEach(record => {
+            const machineName = String(record.equipmentName ?? '').trim() || String(record.tabletName ?? '').trim() || String(record.tabletId ?? '').trim();
+            if (!machineName) return;
+
+            ensureMachineEntry(machineName, {
+                machineName,
+                tabletId: String(record.tabletId ?? '').trim(),
+                tabletName: String(record.tabletName ?? '').trim(),
+                factoryLocations: normalizeMachineStatusStringList(record.factoryLocation),
+                session: record
+            });
+        });
+
+        const machineEntries = [...machineMap.values()];
+        const kanbanIds = [...new Set(machineEntries.map(entry => String(entry.session?.kanbanId ?? '').trim()).filter(Boolean))];
+        const productIds = [...new Set(machineEntries.map(entry => String(entry.session?.productId ?? '').trim()).filter(Boolean))];
+
+        let productRecords = [];
+        if (kanbanIds.length > 0 || productIds.length > 0) {
+            const productFilters = [];
+            if (kanbanIds.length > 0) productFilters.push({ kanbanID: { $in: kanbanIds } });
+            if (productIds.length > 0) productFilters.push({ 品番: { $in: productIds } });
+
+            productRecords = await db.collection('masterDB')
+                .find({ $or: productFilters }, { projection: { _id: 1, 品番: 1, 製品名: 1, kanbanID: 1, cycleTime: 1 } })
+                .toArray();
+        }
+
+        const productByKanban = new Map();
+        const productById = new Map();
+        productRecords.forEach(record => {
+            const kanbanId = String(record.kanbanID ?? '').trim();
+            const productId = String(record.品番 ?? '').trim();
+            if (kanbanId && !productByKanban.has(kanbanId)) productByKanban.set(kanbanId, record);
+            if (productId && !productById.has(productId)) productById.set(productId, record);
+        });
+
+        const rows = machineEntries
+            .map(entry => {
+                const session = entry.session || null;
+                const sessionKanbanId = String(session?.kanbanId ?? '').trim();
+                const sessionProductId = String(session?.productId ?? '').trim();
+                const matchedProduct = productByKanban.get(sessionKanbanId) || productById.get(sessionProductId) || null;
+                const cycleTime = Math.max(0, normalizeTabletSessionNumber(matchedProduct?.cycleTime, 0));
+                const durations = getMachineStatusDurationMetrics(session || {}, now);
+                const currentCount = session?.isStarted ? Math.max(0, normalizeTabletSessionNumber(session.currentCount, 0)) : null;
+                const expectedCount = cycleTime > 0 && durations.netRunMinutes > 0
+                    ? durations.netRunMinutes / cycleTime
+                    : 0;
+                const efficiency = currentCount !== null && expectedCount > 0
+                    ? (currentCount / expectedCount) * 100
+                    : null;
+
+                return {
+                    machineKey: entry.machineKey,
+                    machineName: entry.machineName || '—',
+                    machineDescription: entry.description || '',
+                    factory: entry.factoryLocations.join(', '),
+                    tabletId: entry.tabletId || '',
+                    tabletName: entry.tabletName || '',
+                    status: String(session?.status ?? '').trim() || 'idle',
+                    isStarted: Boolean(session?.isStarted),
+                    productId: String(matchedProduct?.品番 ?? session?.productId ?? '').trim(),
+                    productName: String(matchedProduct?.製品名 ?? session?.productName ?? '').trim(),
+                    kanbanId: String(matchedProduct?.kanbanID ?? sessionKanbanId).trim(),
+                    operators: normalizeMachineStatusStringList(session?.operators),
+                    targetQuantity: null,
+                    startTime: String(session?.startTime ?? '').trim(),
+                    elapsedMinutes: Math.round(durations.elapsedMinutes),
+                    stoppedMinutes: Math.round(durations.stoppedMinutes),
+                    netRunMinutes: Math.round(durations.netRunMinutes),
+                    currentCount,
+                    efficiency,
+                    cycleTime,
+                    updatedAt: session?.updatedAt || null
+                };
+            })
+            .sort((a, b) => {
+                const startedDiff = Number(b.isStarted) - Number(a.isStarted);
+                if (startedDiff !== 0) return startedDiff;
+                return a.machineName.localeCompare(b.machineName, 'ja');
+            });
+
+        res.json({
+            success: true,
+            generatedAt: now.toISOString(),
+            rows
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching machine status dashboard:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to load machine status dashboard' });
     }
 });
 

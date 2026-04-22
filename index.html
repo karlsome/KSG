@@ -47,6 +47,12 @@
             </a>
           </li>
           <li>
+            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
+              <i class="ri-line-chart-line text-xl"></i>
+              <span data-nav="analytics"></span>
+            </a>
+          </li>
+          <li>
             <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
               <i class="ri-user-settings-line text-xl"></i>
               <span data-nav="userManagement"></span>
@@ -161,6 +167,9 @@
       closeDashboardSubmissionDetail(null, true);
       closeDashboardInsightModal(null, true);
       disposeAdminDashboardChart();
+      if (typeof disposeAnalyticsCharts === 'function') {
+        disposeAnalyticsCharts();
+      }
       
       handleNavClick(); // Close sidebar on mobile
       
@@ -168,6 +177,33 @@
         case 'dashboard':
           mainContent.innerHTML = buildAdminDashboardShell();
           setTimeout(() => loadAdminDashboard(), 0);
+          break;
+
+        case 'analytics':
+          fetch('/analytics.html')
+            .then(response => response.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(html, 'text/html');
+              const container = doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.outerHTML : html;
+
+              const existingScript = document.querySelector('script[src="/js/analytics.js"]');
+              if (existingScript) {
+                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                return;
+              }
+
+              const script = document.createElement('script');
+              script.src = '/js/analytics.js';
+              script.onload = () => {
+                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+              };
+              document.body.appendChild(script);
+            })
+            .catch(err => {
+              mainContent.innerHTML = `<div class="bg-white p-6 rounded-lg shadow"><p class="text-red-600">Failed to load analytics: ${err.message}</p></div>`;
+            });
           break;
           
         case 'user-management':
@@ -417,6 +453,59 @@
       return operators.map(name => escapeDashboardHtml(name)).join(' / ');
     }
 
+    function getDashboardMachineStatusCopy() {
+      const isJapanese = String(currentLanguage || '').toLowerCase().startsWith('ja');
+
+      return {
+        title: isJapanese ? '機械ステータス' : 'Machine Status',
+        subtitle: isJapanese ? 'タブレットの進行中セッションをもとに各設備の現在状況を表示します。' : 'Live machine rows based on active tablet sessions.',
+        noData: isJapanese ? 'まだ表示できる機械データがありません。' : 'No machine data available yet.',
+        updated: isJapanese ? '更新' : 'Updated',
+        cycleTime: isJapanese ? 'CT' : 'CT',
+        headers: {
+          machine: isJapanese ? '設備' : 'Machine',
+          product: isJapanese ? '製品' : 'Product',
+          kanban: isJapanese ? 'かんばん' : 'Kanban',
+          operators: isJapanese ? '技能員' : 'Operators',
+          target: isJapanese ? '目標数' : 'Target',
+          start: isJapanese ? '開始' : 'Start',
+          elapsed: isJapanese ? '経過' : 'Elapsed',
+          stopped: isJapanese ? '停止' : 'Stopped',
+          currentCount: isJapanese ? '現在数' : 'Current Count',
+          efficiency: isJapanese ? '効率' : 'Efficiency'
+        },
+        status: {
+          running: isJapanese ? '稼働中' : 'Running',
+          break: isJapanese ? '休憩中' : 'Break',
+          trouble: isJapanese ? '停止中' : 'Trouble',
+          idle: isJapanese ? '待機中' : 'Idle'
+        }
+      };
+    }
+
+    function formatDashboardDurationMinutes(value) {
+      const minutes = Number(value);
+      if (!Number.isFinite(minutes)) return '—';
+
+      const safeMinutes = Math.max(0, Math.round(minutes));
+      const hours = Math.floor(safeMinutes / 60);
+      const remainingMinutes = safeMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}`;
+    }
+
+    function getDashboardMachineStatusTone(status = 'idle') {
+      switch (status) {
+        case 'running':
+          return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+        case 'break':
+          return 'bg-amber-50 text-amber-700 ring-amber-200';
+        case 'trouble':
+          return 'bg-rose-50 text-rose-700 ring-rose-200';
+        default:
+          return 'bg-slate-100 text-slate-600 ring-slate-200';
+      }
+    }
+
     function getDashboardAuthHeaders() {
       const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
       const token = localStorage.getItem('ksgToken') || '';
@@ -524,13 +613,6 @@
                   <div class="px-6 py-10 text-sm text-gray-400">${t('common.loading')}</div>
                 </div>
               </section>
-
-              <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                <div class="border-b border-gray-100 px-6 py-4">
-                  <h3 class="text-lg font-semibold text-gray-900">${dashboardText('dailyTrend')}</h3>
-                </div>
-                <div id="dashboardTrendChart" class="h-80 px-2 py-4"></div>
-              </section>
             </div>
 
             <div class="space-y-6">
@@ -562,6 +644,16 @@
               </section>
             </div>
           </div>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="flex flex-col gap-1 border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900">${getDashboardMachineStatusCopy().title}</h3>
+              <p class="text-sm text-gray-500">${getDashboardMachineStatusCopy().subtitle}</p>
+            </div>
+            <div id="dashboardMachineStatusTable" class="px-2 py-4">
+              <div class="px-4 py-10 text-sm text-gray-400">${t('common.loading')}</div>
+            </div>
+          </section>
 
           <div id="dashboardSubmissionModal" class="fixed inset-0 z-50 hidden bg-black/40 p-4" onclick="closeDashboardSubmissionDetail(event)">
             <div class="mx-auto flex h-full max-w-3xl items-center justify-center">
@@ -712,6 +804,84 @@
             <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">${dashboardText('otherDescription')}</p>
             <p class="mt-2 whitespace-pre-wrap text-sm text-gray-700">${escapeDashboardHtml(record.other_description)}</p>
           </div>` : ''}`;
+    }
+
+    function renderDashboardMachineStatusTable(rows = []) {
+      const container = document.getElementById('dashboardMachineStatusTable');
+      if (!container) return;
+
+      disposeAdminDashboardChart();
+
+      const copy = getDashboardMachineStatusCopy();
+      if (!Array.isArray(rows) || rows.length === 0) {
+        container.innerHTML = `<div class="flex h-48 items-center justify-center text-sm text-gray-400">${copy.noData}</div>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="overflow-x-auto px-4">
+          <table class="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr class="text-left text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.machine}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.product}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.kanban}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.operators}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.target}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.start}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.elapsed}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.stopped}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.currentCount}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.efficiency}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => {
+                const statusLabel = copy.status[row.status] || copy.status.idle;
+                const updatedLabel = row.updatedAt ? `${copy.updated}: ${formatDashboardRelativeTime(row.updatedAt)}` : '&nbsp;';
+                const productMeta = row.productId ? `<span class="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">${escapeDashboardHtml(row.productId)}</span>` : '<span class="text-[11px] text-gray-300">&nbsp;</span>';
+                const efficiencyValue = row.efficiency === null || row.efficiency === undefined
+                  ? '—'
+                  : formatDashboardPercent(row.efficiency, 1);
+                const cycleTimeMeta = row.cycleTime
+                  ? `<span class="mt-1 block text-[11px] text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
+                  : '';
+
+                return `
+                  <tr class="align-top transition hover:bg-slate-50/70">
+                    <td class="border-b border-gray-100 px-4 py-4">
+                      <div class="flex items-start gap-3">
+                        <div class="mt-1 h-2.5 w-2.5 rounded-full ${row.isStarted ? 'bg-emerald-500' : 'bg-slate-300'}"></div>
+                        <div>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
+                            <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${getDashboardMachineStatusTone(row.status)}">${statusLabel}</span>
+                          </div>
+                          <p class="mt-1 text-xs text-gray-500">${escapeDashboardHtml(row.factory || row.tabletName || '—')}</p>
+                          <p class="mt-1 text-[11px] text-gray-400">${updatedLabel}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="border-b border-gray-100 px-4 py-4 text-gray-700">
+                      <p class="font-medium text-gray-900">${escapeDashboardHtml(row.productName || '—')}</p>
+                      ${productMeta}
+                    </td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${escapeDashboardHtml(row.kanbanId || '—')}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 text-gray-700">${formatDashboardOperators(row.operators || [])}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-600">${row.targetQuantity === null || row.targetQuantity === undefined ? '—' : formatDashboardNumber(row.targetQuantity)}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${escapeDashboardHtml(row.startTime || '—')}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—'}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—'}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">${row.currentCount === null || row.currentCount === undefined ? '—' : formatDashboardNumber(row.currentCount)}</td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">
+                      ${efficiencyValue}
+                      ${cycleTimeMeta}
+                    </td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
     }
 
     async function openDashboardSubmissionDetail(recordId) {
@@ -1264,7 +1434,7 @@
       renderDashboardProblems(data.problemsToday || {});
       renderDashboardTopProducts(data.topProducts || []);
       renderDashboardTopOperators(data.topOperators || []);
-      renderDashboardTrendChart(data.dailyTrend || []);
+      renderDashboardMachineStatusTable(data.machineStatus || []);
     }
 
     async function loadAdminDashboard() {
@@ -1285,20 +1455,33 @@
       if (refreshLabel) refreshLabel.textContent = `${dashboardText('refresh')}...`;
 
       try {
-        const response = await fetch(`${API_URL}/api/admin/dashboard-summary`, {
-          headers: getDashboardAuthHeaders()
-        });
-        const result = await response.json();
+        const headers = getDashboardAuthHeaders();
+        const [summaryResponse, machineStatusResponse] = await Promise.all([
+          fetch(`${API_URL}/api/admin/dashboard-summary`, { headers }),
+          fetch(`${API_URL}/api/admin/dashboard-machine-status`, { headers })
+        ]);
+        const [summaryResult, machineStatusResult] = await Promise.all([
+          summaryResponse.json(),
+          machineStatusResponse.json()
+        ]);
 
         if (requestId !== adminDashboardRequestId || currentPage !== 'dashboard') {
           return;
         }
 
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || 'Failed to load dashboard');
+        if (!summaryResponse.ok || !summaryResult.success) {
+          throw new Error(summaryResult.error || 'Failed to load dashboard');
         }
 
-        renderAdminDashboard(result);
+        if (!machineStatusResponse.ok || !machineStatusResult.success) {
+          throw new Error(machineStatusResult.error || 'Failed to load machine status');
+        }
+
+        renderAdminDashboard({
+          ...summaryResult,
+          machineStatus: machineStatusResult.rows || [],
+          machineStatusGeneratedAt: machineStatusResult.generatedAt || ''
+        });
       } catch (error) {
         console.error('dashboard load error:', error);
         if (errorEl) {
