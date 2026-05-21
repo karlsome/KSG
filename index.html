@@ -432,6 +432,68 @@
       return ((Number(totalDefects ?? 0) || 0) / createdTotal) * 100;
     }
 
+    function getDashboardPiecesPerHour(cycleTime) {
+      const safeCycleTime = Number(cycleTime ?? 0);
+      if (!Number.isFinite(safeCycleTime) || safeCycleTime <= 0) return null;
+      return 60 / safeCycleTime;
+    }
+
+    function formatDashboardPiecesPerHour(cycleTime, digits = 2) {
+      const piecesPerHour = getDashboardPiecesPerHour(cycleTime);
+      return piecesPerHour === null ? '—' : formatDashboardNumber(piecesPerHour, digits);
+    }
+
+    function getDashboardPiecesPerHourText(cycleTime, digits = 2) {
+      const piecesPerHour = getDashboardPiecesPerHour(cycleTime);
+      if (piecesPerHour === null) return '';
+      return `${dashboardText('piecesPerHourShort')}: ${formatDashboardNumber(piecesPerHour, digits)}`;
+    }
+
+    function buildDashboardPiecesPerHourBadge(cycleTime, toneClass = 'bg-indigo-50 text-indigo-700') {
+      const piecesPerHourText = getDashboardPiecesPerHourText(cycleTime);
+      if (!piecesPerHourText) return '';
+      return `<span class="rounded-full ${toneClass} px-2.5 py-1 text-xs font-medium">${piecesPerHourText}</span>`;
+    }
+
+    function getDashboardMachineStatusLiveRunMinutes(row = {}, snapshotAt = '') {
+      if (!row.isStarted) return null;
+
+      const baseNetRunMinutes = Number(row.netRunMinutes);
+      const elapsedMinutes = Number(row.elapsedMinutes);
+      const stoppedMinutes = Number(row.stoppedMinutes);
+      let runMinutes = Number.isFinite(baseNetRunMinutes)
+        ? baseNetRunMinutes
+        : Number.isFinite(elapsedMinutes) && Number.isFinite(stoppedMinutes)
+          ? elapsedMinutes - stoppedMinutes
+          : NaN;
+
+      if (!Number.isFinite(runMinutes) || runMinutes < 0) return null;
+
+      const snapshotTime = snapshotAt ? new Date(snapshotAt) : null;
+      if (row.status === 'running' && snapshotTime && Number.isFinite(snapshotTime.getTime())) {
+        runMinutes += Math.max(0, (Date.now() - snapshotTime.getTime()) / 60000);
+      }
+
+      return runMinutes > 0 ? runMinutes : null;
+    }
+
+    function getDashboardMachineStatusLivePiecesPerHour(row = {}, snapshotAt = '') {
+      if (!row.isStarted) return null;
+
+      const currentCount = Number(row.currentCount);
+      if (!Number.isFinite(currentCount) || currentCount < 0) return null;
+
+      const runMinutes = getDashboardMachineStatusLiveRunMinutes(row, snapshotAt);
+      if (runMinutes === null) return null;
+
+      return (currentCount * 60) / runMinutes;
+    }
+
+    function formatDashboardMachineStatusLivePiecesPerHour(row = {}, snapshotAt = '', digits = 2) {
+      const piecesPerHour = getDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
+      return piecesPerHour === null ? '—' : formatDashboardNumber(piecesPerHour, digits);
+    }
+
     function formatDashboardRelativeTime(value) {
       if (!value) return '—';
 
@@ -480,7 +542,8 @@
           elapsed: isJapanese ? '経過' : 'Elapsed',
           stopped: isJapanese ? '停止' : 'Stopped',
           currentCount: isJapanese ? '現在数' : 'Current Count',
-          efficiency: isJapanese ? '効率' : 'Efficiency'
+          efficiency: isJapanese ? '効率' : 'Efficiency',
+          piecesPerHour: dashboardText('piecesPerHourShort')
         },
         status: {
           running: isJapanese ? '稼働中' : 'Running',
@@ -831,6 +894,7 @@
       const operators = DASHBOARD_OPERATOR_FIELDS.map(field => record[field]).map(name => String(name ?? '').trim()).filter(Boolean);
       const defects = getDashboardSubmissionDefects(record);
       const totalDefects = defects.reduce((sum, item) => sum + item.count, 0);
+      const piecesPerHourValue = formatDashboardPiecesPerHour(record.cycle_time);
 
       date.textContent = formatDashboardDateTime(record.timestamp);
       title.textContent = record.product_name || dashboardText('detailTitle');
@@ -838,7 +902,7 @@
       footer.textContent = `${dashboardText('source')}: ${record.submitted_from || '—'}`;
 
       body.innerHTML = `
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div class="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
             <p class="text-xs text-emerald-700">${dashboardText('goodPieces')}</p>
             <p class="mt-2 text-2xl font-semibold text-emerald-600">${formatDashboardNumber(record.good_count || 0)}</p>
@@ -846,6 +910,10 @@
           <div class="rounded-2xl bg-violet-50 px-4 py-3 text-center">
             <p class="text-xs text-violet-700">${dashboardText('cycleTimeShort')}</p>
             <p class="mt-2 text-2xl font-semibold text-violet-600">${formatDashboardNumber(record.cycle_time || 0, 2)}</p>
+          </div>
+          <div class="rounded-2xl bg-indigo-50 px-4 py-3 text-center">
+            <p class="text-xs text-indigo-700">${dashboardText('piecesPerHourShort')}</p>
+            <p class="mt-2 text-2xl font-semibold text-indigo-600">${piecesPerHourValue}</p>
           </div>
           <div class="rounded-2xl bg-rose-50 px-4 py-3 text-center">
             <p class="text-xs text-rose-700">${dashboardText('defects')}</p>
@@ -906,7 +974,7 @@
           </div>` : ''}`;
     }
 
-    function renderDashboardMachineStatusTable(rows = []) {
+    function renderDashboardMachineStatusTable(rows = [], snapshotAt = '') {
       const container = document.getElementById('dashboardMachineStatusTable');
       if (!container) return;
 
@@ -920,7 +988,7 @@
 
       container.innerHTML = `
         <div class="overflow-x-auto px-4">
-          <table class="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
+          <table class="min-w-[1240px] w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr class="text-left text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.machine}</th>
@@ -933,6 +1001,7 @@
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.stopped}</th>
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.currentCount}</th>
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.efficiency}</th>
+                <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.piecesPerHour}</th>
               </tr>
             </thead>
             <tbody>
@@ -943,6 +1012,7 @@
                 const efficiencyValue = row.efficiency === null || row.efficiency === undefined
                   ? '—'
                   : formatDashboardPercent(row.efficiency, 1);
+                const piecesPerHourValue = formatDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
                 const cycleTimeMeta = row.cycleTime
                   ? `<span class="mt-1 block text-[11px] text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
                   : '';
@@ -977,6 +1047,7 @@
                       ${efficiencyValue}
                       ${cycleTimeMeta}
                     </td>
+                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">${piecesPerHourValue}</td>
                   </tr>`;
               }).join('')}
             </tbody>
@@ -1068,6 +1139,7 @@
               <div class="flex flex-wrap items-center gap-2 lg:justify-end">
                 <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(record.goodCount || 0)}</span>
                 <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+                ${buildDashboardPiecesPerHourBadge(record.cycleTime)}
                 <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">${dashboardText('defects')}: ${formatDashboardNumber(record.totalDefects || 0)}</span>
                 ${record.troubleTime > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>` : ''}
               </div>
@@ -1092,6 +1164,7 @@
                 <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">${dashboardText('submissions')}: ${formatDashboardNumber(operator.submissions || 0)}</span>
                 <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(operator.totalGoodCount || 0)}</span>
                 <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</span>
+                ${buildDashboardPiecesPerHourBadge(operator.averageCycleTime)}
                 ${operator.totalTroubleHours > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(operator.totalTroubleHours, 2)} h</span>` : ''}
               </div>
             </div>
@@ -1154,7 +1227,9 @@
             .filter(record => Number(record.cycleTime || 0) > 0)
             .sort((a, b) => (b.cycleTime || 0) - (a.cycleTime || 0));
           title = dashboardText('avgCycleTime');
-          subtitle = `${formatDashboardNumber(data.today?.averageCycleTime || 0, 2)} ${dashboardText('cycleTimeShort')}`;
+          subtitle = [`${formatDashboardNumber(data.today?.averageCycleTime || 0, 2)} ${dashboardText('cycleTimeShort')}`, getDashboardPiecesPerHourText(data.today?.averageCycleTime || 0)]
+            .filter(Boolean)
+            .join(' · ');
           html = buildDashboardInsightRecordList(records, dashboardText('noCycleTimeRecords'));
           break;
         }
@@ -1239,7 +1314,9 @@
           key: 'avgCycleTime',
           title: dashboardText('avgCycleTime'),
           value: formatDashboardNumber(today.averageCycleTime || 0, 2),
-          subtext: `${dashboardText('cycleTimeShort')} min`,
+          subtext: [`${dashboardText('cycleTimeShort')} min`, getDashboardPiecesPerHourText(today.averageCycleTime || 0)]
+            .filter(Boolean)
+            .join(' · '),
           icon: 'ri-timer-2-line',
           tone: 'bg-violet-50 text-violet-700',
           valueClass: 'text-violet-600'
@@ -1321,6 +1398,7 @@
               ${defectBadge}
               <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('defectRate')}: ${formatDashboardPercent(defectRate, 1)}</span>
               <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+              ${buildDashboardPiecesPerHourBadge(record.cycleTime)}
               ${record.troubleTime > 0 ? `<span class="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>` : ''}
             </div>
           </article>`;
@@ -1404,7 +1482,10 @@
 
       container.innerHTML = `
         <div class="space-y-3">
-          ${products.map((product, index) => `
+          ${products.map((product, index) => {
+            const piecesPerHourText = getDashboardPiecesPerHourText(product.averageCycleTime);
+
+            return `
             <div class="flex items-start gap-3 rounded-2xl bg-gray-50 px-4 py-3">
               <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-semibold text-white">${index + 1}</div>
               <div class="min-w-0 flex-1">
@@ -1415,8 +1496,10 @@
                 <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(product.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
                 <p>${dashboardText('submissions')}: ${formatDashboardNumber(product.submissions)}</p>
                 <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(product.averageCycleTime || 0, 2)}</p>
+                ${piecesPerHourText ? `<p>${piecesPerHourText}</p>` : ''}
               </div>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
         </div>`;
     }
 
@@ -1431,7 +1514,10 @@
 
       container.innerHTML = `
         <div class="space-y-3">
-          ${operators.map((operator, index) => `
+          ${operators.map((operator, index) => {
+            const piecesPerHourText = getDashboardPiecesPerHourText(operator.averageCycleTime);
+
+            return `
             <div class="flex items-center gap-3 rounded-2xl bg-gray-50 px-4 py-3">
               <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white">${index + 1}</div>
               <div class="min-w-0 flex-1">
@@ -1441,8 +1527,10 @@
               <div class="text-right text-xs text-gray-500">
                 <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(operator.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
                 <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</p>
+                ${piecesPerHourText ? `<p>${piecesPerHourText}</p>` : ''}
               </div>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
         </div>`;
     }
 
@@ -1602,7 +1690,7 @@
       renderDashboardTopProducts(data.topProducts || []);
       renderDashboardTopOperators(data.topOperators || []);
       renderDashboardWorkerHours(data.workerHoursToday || []);
-      renderDashboardMachineStatusTable(data.machineStatus || []);
+      renderDashboardMachineStatusTable(data.machineStatus || [], data.machineStatusGeneratedAt || data.generatedAt || '');
     }
 
     async function loadAdminDashboard() {
