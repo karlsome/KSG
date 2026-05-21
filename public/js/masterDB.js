@@ -524,6 +524,7 @@ function renderModalDetails(type, data) {
             <select id="modalFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
           </div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.grossProfit')}</label><input type="number" step="0.01" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.grossProfit || ''}" disabled data-field="grossProfit" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
           <div class="col-span-2">
@@ -1368,6 +1369,10 @@ function showCreateMasterForm() {
             <input type="number" id="newCycleTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.grossProfit')}</label>
+            <input type="number" step="0.01" id="newGrossProfit" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+          </div>
+          <div class="space-y-1">
             <label class="block text-sm font-medium text-gray-700">${t('masterDB.imageUpload')}</label>
             <input type="file" id="newImageFile" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
@@ -1425,6 +1430,7 @@ async function submitNewMaster() {
     設備: document.getElementById("new設備").value,
     工場: document.getElementById("new工場").value,
     cycleTime: document.getElementById("newCycleTime").value,
+    grossProfit: document.getElementById("newGrossProfit").value ? parseFloat(document.getElementById("newGrossProfit").value) : null,
     dbName,
     username
   };
@@ -2496,6 +2502,10 @@ async function showQuickCreateModal() {
           <label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label>
           <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCycleTime')}">
         </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.grossProfit')}</label>
+          <input type="number" step="0.01" id="quickGrossProfit" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 1500.50">
+        </div>
         <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
           <label class="block text-sm font-medium mb-1 text-blue-800">${t('masterDB.inspectionMembers')} *</label>
           <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="${t('masterDB.example')}: 2" value="2" required>
@@ -2761,6 +2771,7 @@ async function submitQuickCreate() {
           設備: document.getElementById("quick設備").value.trim(),
           工場: document.getElementById("quick工場").value.trim(),
           cycleTime: document.getElementById("quickCycleTime").value,
+          grossProfit: document.getElementById("quickGrossProfit").value ? parseFloat(document.getElementById("quickGrossProfit").value) : null,
           kensaMembers: parseInt(document.getElementById("quickKensaMembers").value) || 2,
           収容数: document.getElementById("quick収容数").value ? parseInt(document.getElementById("quick収容数").value) : null,
           dbName,
