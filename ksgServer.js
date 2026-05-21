@@ -7881,7 +7881,6 @@ const normalizedSortField = allowedSortFields.has(sortField) ? sortField : 'user
 // Create new user in customer database
 app.post("/customerCreateUser", async (req, res) => {
   const {
-    firstName,
     lastName,
     email,
     username,
@@ -7891,7 +7890,7 @@ app.post("/customerCreateUser", async (req, res) => {
     creatorRole
   } = req.body;
 
-  if (!firstName || !lastName || !email || !username || !password || !role || !dbName || !creatorRole) {
+  if (!lastName || !email || !username || !password || !role || !dbName || !creatorRole) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
@@ -7943,7 +7942,6 @@ app.post("/customerCreateUser", async (req, res) => {
     // 4. Insert user in customer DB
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = {
-      firstName,
       lastName,
       email,
       username: normalizedUsername,

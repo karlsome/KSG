@@ -376,10 +376,6 @@ function showCreateUserForm() {
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-gray-700">${t('userManagement.firstName')}</label>
-          <input type="text" id="newFirstName" placeholder="${t('userManagement.firstName')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
-        </div>
-        <div class="space-y-1">
           <label class="block text-sm font-medium text-gray-700">${t('userManagement.lastName')}</label>
           <input type="text" id="newLastName" placeholder="${t('userManagement.lastName')}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" />
         </div>
@@ -698,11 +694,10 @@ async function deleteUser(userId) {
 }
 
 function renderUserTable(users, paginationState = userQueryState) {
-  const headers = ["firstName", "lastName", "email", "username", "role", "division", "section", "enable", "factory", "equipment", "userID"];
+  const headers = ["lastName", "email", "username", "role", "division", "section", "enable", "factory", "equipment", "userID"];
   
   // Create header translations map
   const headerTranslations = {
-    firstName: t('userManagement.firstName'),
     lastName: t('userManagement.lastName'),
     email: t('userManagement.email'),
     username: t('userManagement.username'),
@@ -927,7 +922,6 @@ async function submitNewUser() {
   const creatorRole = currentUser.role || "admin";
 
   const data = {
-    firstName: document.getElementById("newFirstName").value.trim(),
     lastName: document.getElementById("newLastName").value.trim(),
     email: document.getElementById("newEmail").value.trim(),
     username: document.getElementById("newUsername").value.trim(),
@@ -943,7 +937,7 @@ async function submitNewUser() {
     creatorRole
   };
 
-  if (!data.firstName || !data.lastName || !data.email || !data.username || !data.password || !data.role) {
+  if (!data.lastName || !data.email || !data.username || !data.password || !data.role) {
     return alert(t('userManagement.fillRequiredFields'));
   }
 
