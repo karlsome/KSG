@@ -454,6 +454,60 @@ function buildStoredMappings(fieldMappings = []) {
     : [];
 }
 
+function buildSheetRowValues({ headers = [], fieldColumnMap = new Map(), expectedFields = [], submission = {}, baseValues = [] } = {}) {
+  const rowValues = Array.from({ length: headers.length }, (_value, index) => {
+    const existingValue = Array.isArray(baseValues) ? baseValues[index] : '';
+    return existingValue === undefined || existingValue === null ? '' : existingValue;
+  });
+
+  expectedFields.forEach(field => {
+    const columnIndex = fieldColumnMap.get(field.key);
+    if (!columnIndex) {
+      return;
+    }
+
+    rowValues[columnIndex - 1] = formatFieldValue(field, submission[field.key]);
+  });
+
+  return rowValues;
+}
+
+function normalizeTimestampMatchValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  if (value instanceof Date) {
+    return normalizeTimestampMatchValue(formatTimestampForSheet(value));
+  }
+
+  const textValue = String(value).trim();
+
+  if (/T\d{2}:\d{2}/.test(textValue) || /(?:Z|GMT|UTC)$/i.test(textValue)) {
+    const parsedDate = new Date(textValue);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return normalizeTimestampMatchValue(formatTimestampForSheet(parsedDate));
+    }
+  }
+
+  const textMatch = textValue.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+  if (textMatch) {
+    return `${Number(textMatch[1])}-${Number(textMatch[2])}-${Number(textMatch[3])} ${Number(textMatch[4])}:${Number(textMatch[5])}:${Number(textMatch[6] || 0)}`;
+  }
+
+  const parsedDate = new Date(textValue);
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return normalizeTimestampMatchValue(formatTimestampForSheet(parsedDate));
+  }
+
+  return textValue;
+}
+
+function getSingleColumnValues(valueRange = {}) {
+  const rows = Array.isArray(valueRange?.values) ? valueRange.values : [];
+  return rows.map(row => String(Array.isArray(row) ? row[0] ?? '' : '').trim());
+}
+
 async function ensureHeadersForTarget({ spreadsheetId, sheetName, expectedFields = [], fieldMappings = [], headerRow = DEFAULT_HEADER_ROW } = {}) {
   const sheetsClient = await getGoogleSheetsClient();
   const headers = await getSheetHeaders(spreadsheetId, sheetName, headerRow);
@@ -503,6 +557,196 @@ async function ensureHeadersForTarget({ spreadsheetId, sheetName, expectedFields
   };
 }
 
+async function findSubmissionRowInSheet({ spreadsheetId, sheetName, fieldColumnMap = new Map(), expectedFields = [], previousSubmission = {}, submission = {}, headerRow = DEFAULT_HEADER_ROW } = {}) {
+  const sheetsClient = await getGoogleSheetsClient();
+  const quotedSheetName = sheetName.replace(/'/g, "''");
+  const fieldsByKey = new Map(expectedFields.map(field => [field.key, field]));
+  const timestampColumnIndex = fieldColumnMap.get('timestamp');
+  const timestampValue = normalizeTimestampMatchValue(previousSubmission.timestamp ?? submission.timestamp);
+
+  if (!timestampColumnIndex) {
+    throw new Error('Timestamp column is not configured for this sheet');
+  }
+
+  if (!timestampValue) {
+    throw new Error('Timestamp is required to locate the matching sheet row');
+  }
+
+  const matchKeys = ['timestamp', 'hinban', 'kanban_id', 'product_name', 'submitted_from'];
+  const matchSpecs = matchKeys.reduce((accumulator, key) => {
+    const columnIndex = fieldColumnMap.get(key);
+    if (!columnIndex) {
+      return accumulator;
+    }
+
+    if (key === 'timestamp') {
+      accumulator.push({ key, columnIndex, value: timestampValue });
+      return accumulator;
+    }
+
+    const field = fieldsByKey.get(key) || { key };
+    const rawValue = previousSubmission[key] ?? submission[key];
+    const formattedValue = String(formatFieldValue(field, rawValue) ?? '').trim();
+    if (!formattedValue) {
+      return accumulator;
+    }
+
+    accumulator.push({ key, columnIndex, value: formattedValue });
+    return accumulator;
+  }, []);
+
+  const ranges = matchSpecs.map(spec => {
+    const columnLetter = toColumnLetter(spec.columnIndex);
+    return `'${quotedSheetName}'!${columnLetter}${headerRow + 1}:${columnLetter}`;
+  });
+
+  const response = await sheetsClient.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges,
+    valueRenderOption: 'FORMATTED_VALUE',
+    dateTimeRenderOption: 'FORMATTED_STRING',
+  });
+
+  const valueRanges = Array.isArray(response.data?.valueRanges) ? response.data.valueRanges : [];
+  const columnValuesByKey = new Map();
+
+  matchSpecs.forEach((spec, index) => {
+    const rawValues = getSingleColumnValues(valueRanges[index]);
+    columnValuesByKey.set(
+      spec.key,
+      spec.key === 'timestamp' ? rawValues.map(normalizeTimestampMatchValue) : rawValues
+    );
+  });
+
+  const timestampValues = columnValuesByKey.get('timestamp') || [];
+  const timestampMatches = [];
+  timestampValues.forEach((value, rowIndex) => {
+    if (value === timestampValue) {
+      timestampMatches.push(headerRow + 1 + rowIndex);
+    }
+  });
+
+  if (timestampMatches.length === 0) {
+    return {
+      found: false,
+      reason: 'timestamp-not-found',
+      timestampValue,
+      matchCount: 0,
+    };
+  }
+
+  if (timestampMatches.length === 1) {
+    return {
+      found: true,
+      rowNumber: timestampMatches[0],
+      matchCount: 1,
+      matchedBy: 'timestamp',
+      timestampValue,
+    };
+  }
+
+  let narrowedMatches = [...timestampMatches];
+
+  matchSpecs.forEach(spec => {
+    if (spec.key === 'timestamp' || narrowedMatches.length <= 1) {
+      return;
+    }
+
+    const columnValues = columnValuesByKey.get(spec.key) || [];
+    const filteredMatches = narrowedMatches.filter(rowNumber => {
+      const rowIndex = rowNumber - (headerRow + 1);
+      return String(columnValues[rowIndex] ?? '').trim() === spec.value;
+    });
+
+    if (filteredMatches.length > 0) {
+      narrowedMatches = filteredMatches;
+    }
+  });
+
+  if (narrowedMatches.length === 1) {
+    return {
+      found: true,
+      rowNumber: narrowedMatches[0],
+      matchCount: 1,
+      matchedBy: 'timestamp+fallback',
+      timestampValue,
+    };
+  }
+
+  return {
+    found: false,
+    reason: 'ambiguous-timestamp',
+    timestampValue,
+    matchCount: narrowedMatches.length,
+  };
+}
+
+async function updateSubmissionRowInSheet({ spreadsheetId, sheetName, expectedFields = [], fieldMappings = [], submission = {}, previousSubmission = {}, headerRow = DEFAULT_HEADER_ROW } = {}) {
+  const sheetsClient = await getGoogleSheetsClient();
+  const { headers, fieldColumnMap } = await ensureHeadersForTarget({
+    spreadsheetId,
+    sheetName,
+    expectedFields,
+    fieldMappings,
+    headerRow,
+  });
+
+  const matchResult = await findSubmissionRowInSheet({
+    spreadsheetId,
+    sheetName,
+    fieldColumnMap,
+    expectedFields,
+    previousSubmission,
+    submission,
+    headerRow,
+  });
+
+  if (!matchResult.found) {
+    if (matchResult.reason === 'ambiguous-timestamp') {
+      throw new Error(`Multiple Google Sheets rows matched timestamp ${matchResult.timestampValue}`);
+    }
+
+    throw new Error(`Matching Google Sheets row not found for timestamp ${matchResult.timestampValue}`);
+  }
+
+  const quotedSheetName = sheetName.replace(/'/g, "''");
+  const lastColumnLetter = toColumnLetter(Math.max(headers.length, 1));
+  const range = `'${quotedSheetName}'!A${matchResult.rowNumber}:${lastColumnLetter}${matchResult.rowNumber}`;
+  const existingRowResponse = await sheetsClient.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+  const existingRowValues = Array.isArray(existingRowResponse.data?.values?.[0])
+    ? existingRowResponse.data.values[0]
+    : [];
+
+  const rowValues = buildSheetRowValues({
+    headers,
+    fieldColumnMap,
+    expectedFields,
+    submission,
+    baseValues: existingRowValues,
+  });
+
+  const response = await sheetsClient.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [rowValues],
+    },
+  });
+
+  return {
+    rowNumber: matchResult.rowNumber,
+    matchedBy: matchResult.matchedBy || 'timestamp',
+    updatedRange: response.data?.updatedRange || range,
+    updatedRows: Number(response.data?.updatedRows || 0),
+    updatedColumns: Number(response.data?.updatedColumns || 0),
+  };
+}
+
 async function appendSubmissionToSheet({ spreadsheetId, sheetName, expectedFields = [], fieldMappings = [], submission = {}, headerRow = DEFAULT_HEADER_ROW } = {}) {
   const sheetsClient = await getGoogleSheetsClient();
   const { headers, fieldColumnMap } = await ensureHeadersForTarget({
@@ -513,16 +757,11 @@ async function appendSubmissionToSheet({ spreadsheetId, sheetName, expectedField
     headerRow,
   });
 
-  const rowValues = new Array(headers.length).fill('');
-
-  expectedFields.forEach(field => {
-    const columnIndex = fieldColumnMap.get(field.key);
-    if (!columnIndex) {
-      return;
-    }
-
-    const rawValue = submission[field.key];
-    rowValues[columnIndex - 1] = formatFieldValue(field, rawValue);
+  const rowValues = buildSheetRowValues({
+    headers,
+    fieldColumnMap,
+    expectedFields,
+    submission,
   });
 
   const quotedSheetName = sheetName.replace(/'/g, "''");
@@ -558,5 +797,6 @@ module.exports = {
   getSheetHeaders,
   analyzeSheetTarget,
   appendSubmissionToSheet,
+  updateSubmissionRowInSheet,
   buildStoredMappings,
 };

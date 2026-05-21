@@ -14,6 +14,7 @@ const {
     buildExpectedFields,
     analyzeSheetTarget,
     appendSubmissionToSheet,
+    updateSubmissionRowInSheet,
     inspectSpreadsheet,
 } = require('./src/googleSheetsService');
 
@@ -330,7 +331,7 @@ async function submitTabletDataToRegisteredGoogleSheets(db, submission = {}) {
                 ngGroupCache.set(targetNgGroupId, ngGroup || null);
             }
 
-            const expectedFields = buildExpectedFields({ ngGroup });
+            const expectedFields = buildGoogleSheetExpectedFieldsForSubmissionRecord(submission, ngGroup);
             const appendResult = await appendSubmissionToSheet({
                 spreadsheetId: target.spreadsheetId,
                 sheetName: target.sheetName,
@@ -358,6 +359,97 @@ async function submitTabletDataToRegisteredGoogleSheets(db, submission = {}) {
                 sheetName: target.sheetName,
                 spreadsheetTitle: target.spreadsheetTitle || '',
                 ...appendResult,
+            });
+        } catch (error) {
+            await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).updateOne(
+                { _id: target._id },
+                {
+                    $set: {
+                        lastUsedAt: new Date(),
+                        lastSyncStatus: 'error',
+                        lastSyncError: String(error.message || 'Unknown error'),
+                    }
+                }
+            );
+
+            results.push({
+                success: false,
+                targetId: String(target._id),
+                label: target.label || `${target.spreadsheetTitle} / ${target.sheetName}`,
+                sheetName: target.sheetName,
+                spreadsheetTitle: target.spreadsheetTitle || '',
+                error: String(error.message || 'Unknown error'),
+            });
+        }
+    }
+
+    return results;
+}
+
+async function syncSubmittedRecordUpdateToRegisteredGoogleSheets(db, submission = {}, previousSubmission = {}) {
+    if (!hasGoogleServiceAccountCredentials()) {
+        return [{ success: false, skipped: true, error: 'Google service account credentials are not configured' }];
+    }
+
+    const masterRecordId = normalizeGoogleSheetString(submission.master_record_id);
+    const ngGroupId = normalizeGoogleSheetString(submission.ng_group_id);
+    if (!masterRecordId && !ngGroupId) {
+        return [];
+    }
+
+    const query = { isActive: { $ne: false } };
+    if (masterRecordId) {
+        query.masterRecordIds = masterRecordId;
+    } else {
+        query.ngGroupId = ngGroupId;
+    }
+
+    const targets = await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).find(query).toArray();
+    if (targets.length === 0) {
+        return [];
+    }
+
+    const ngGroupCache = new Map();
+    const results = [];
+
+    for (const target of targets) {
+        try {
+            const targetNgGroupId = normalizeGoogleSheetObjectIdString(target.ngGroupId || submission.ng_group_id);
+            let ngGroup = ngGroupCache.get(targetNgGroupId);
+            if (!ngGroup && targetNgGroupId) {
+                ngGroup = await resolveGoogleSheetNgGroup(db, targetNgGroupId);
+                ngGroupCache.set(targetNgGroupId, ngGroup || null);
+            }
+
+            const expectedFields = buildGoogleSheetExpectedFieldsForSubmissionRecord(submission, ngGroup);
+            const updateResult = await updateSubmissionRowInSheet({
+                spreadsheetId: target.spreadsheetId,
+                sheetName: target.sheetName,
+                expectedFields,
+                fieldMappings: target.fieldMappings,
+                submission,
+                previousSubmission,
+                headerRow: Number(target.headerRow) || DEFAULT_HEADER_ROW,
+            });
+
+            await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).updateOne(
+                { _id: target._id },
+                {
+                    $set: {
+                        lastUsedAt: new Date(),
+                        lastSyncStatus: 'success',
+                        lastSyncError: '',
+                    }
+                }
+            );
+
+            results.push({
+                success: true,
+                targetId: String(target._id),
+                label: target.label || `${target.spreadsheetTitle} / ${target.sheetName}`,
+                sheetName: target.sheetName,
+                spreadsheetTitle: target.spreadsheetTitle || '',
+                ...updateResult,
             });
         } catch (error) {
             await db.collection(GOOGLE_SHEET_TARGETS_COLLECTION).updateOne(
@@ -2140,6 +2232,35 @@ function getSubmittedDBNonCountUpDefectKeySet(record = {}) {
     );
 }
 
+function buildGoogleSheetExpectedFieldsForSubmissionRecord(record = {}, ngGroup = null) {
+    const expectedFields = buildExpectedFields({ ngGroup });
+    const knownFieldKeys = new Set(expectedFields.map(field => String(field?.key || '').trim()).filter(Boolean));
+    const nonCountUpDefectKeys = getSubmittedDBNonCountUpDefectKeySet(record);
+    const recordDefectFields = Object.keys(record)
+        .filter(key => !SUBMITTED_DB_FIXED_FIELDS.has(key) && !knownFieldKeys.has(key))
+        .sort((a, b) => a.localeCompare(b, 'ja'))
+        .map(key => ({
+            key,
+            header: key,
+            aliases: [key],
+            kind: 'defect',
+            countUp: !nonCountUpDefectKeys.has(key),
+        }));
+
+    if (recordDefectFields.length === 0) {
+        return expectedFields;
+    }
+
+    const postDefectFieldIndex = expectedFields.findIndex(field => field.key === 'other_description');
+    if (postDefectFieldIndex === -1) {
+        expectedFields.push(...recordDefectFields);
+    } else {
+        expectedFields.splice(postDefectFieldIndex, 0, ...recordDefectFields);
+    }
+
+    return expectedFields;
+}
+
 function getJapanCalendarDate(date = new Date()) {
     const parts = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Tokyo',
@@ -3653,8 +3774,13 @@ app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, 
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const _id = new ObjectId(recordId);
+        const existingData = await collection.findOne({ _id, is_deleted: { $ne: true } });
+        if (!existingData) {
+            return res.status(404).json({ success: false, error: 'Submitted data not found' });
+        }
+
         const result = await collection.updateOne(
-            { _id, is_deleted: { $ne: true } },
+            { _id },
             { $set: updates }
         );
 
@@ -3663,7 +3789,40 @@ app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, 
         }
 
         const data = await collection.findOne({ _id });
-        res.json({ success: true, data });
+        let googleSheets = {
+            success: true,
+            targetCount: 0,
+            successCount: 0,
+            targets: []
+        };
+
+        try {
+            const targetResults = await syncSubmittedRecordUpdateToRegisteredGoogleSheets(db, data, existingData);
+            const successCount = targetResults.filter(resultItem => resultItem.success).length;
+            const errorCount = targetResults.filter(resultItem => !resultItem.success && !resultItem.skipped).length;
+
+            googleSheets = {
+                success: errorCount === 0,
+                targetCount: targetResults.length,
+                successCount,
+                targets: targetResults,
+            };
+
+            if (errorCount > 0) {
+                googleSheets.warning = 'MongoDB was updated, but one or more Google Sheets rows could not be synced.';
+            }
+        } catch (googleError) {
+            console.error('❌ [ADMIN] Google Sheets sync error after submittedDB update:', googleError);
+            googleSheets = {
+                success: false,
+                targetCount: 0,
+                successCount: 0,
+                targets: [{ success: false, error: googleError.message || 'Unknown error' }],
+                warning: 'MongoDB was updated, but Google Sheets sync failed.'
+            };
+        }
+
+        res.json({ success: true, data, googleSheets });
     } catch (error) {
         const statusCode = error.statusCode || 500;
         if (statusCode === 500) {

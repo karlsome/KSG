@@ -1063,7 +1063,13 @@ async function handleSdbModalSave() {
       closeSdbDetail();
     }
 
-    alert('データを更新しました');
+    const googleSheetsWarning = result.googleSheets && !result.googleSheets.success
+      ? 'MongoDBは更新しましたが、Google Sheetsとの同期でエラーが発生しました。'
+      : '';
+
+    alert(googleSheetsWarning
+      ? `データを更新しました\n${googleSheetsWarning}`
+      : 'データを更新しました');
   } catch (error) {
     console.error('submittedDB update error:', error);
     alert(`更新エラー: ${error.message}`);
