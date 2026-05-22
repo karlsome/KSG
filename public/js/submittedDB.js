@@ -44,6 +44,30 @@ const SDB_MODAL_INTEGER_FIELDS = new Set([
   'good_count', 'hako_iresu'
 ]);
 
+function sdbGetTranslatedLabel(key, fallback) {
+  if (typeof t !== 'function') return fallback;
+
+  const translated = t(key);
+  return translated && translated !== key ? translated : fallback;
+}
+
+function sdbPiecesPerHourLabel() {
+  return sdbGetTranslatedLabel('dashboard.piecesPerHourShort', '1h / pc');
+}
+
+function sdbApplyPiecesPerHourLabel(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+
+  const label = sdbPiecesPerHourLabel();
+  root.querySelectorAll('[data-sdb-pieces-per-hour-label]').forEach(element => {
+    element.textContent = label;
+  });
+}
+
+window.addEventListener('languageChanged', () => {
+  sdbApplyPiecesPerHourLabel();
+});
+
 function sdbDebouncedLoad() {
   clearTimeout(_sdbDebounceTimer);
   _sdbDebounceTimer = setTimeout(() => {
@@ -411,6 +435,7 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
     { key: 'good_count', label: '良品数' },
     { key: 'man_hours', label: '工数(h)' },
     { key: 'cycle_time', label: 'CT(min)' },
+    { key: '__pieces_per_hour', label: '1h / pc', sortable: false },
     { key: 'start_time', label: '開始' },
     { key: 'end_time', label: '終了' },
     { key: 'break_time', label: '休憩(h)' },
@@ -441,9 +466,11 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
       >
     </th>
     ${allCols.map(col => `
-      <th onclick="sdbSort('${col.key}')"
-          class="px-3 py-2 text-left text-xs font-semibold uppercase whitespace-nowrap cursor-pointer hover:bg-gray-200 select-none ${col.isDefect ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}">
-        ${col.label}${sortIcon(col.key)}
+      <th ${col.sortable === false ? '' : `onclick="sdbSort('${col.key}')"`}
+          class="px-3 py-2 text-left text-xs font-semibold uppercase whitespace-nowrap select-none ${col.sortable === false ? '' : 'cursor-pointer hover:bg-gray-200'} ${col.isDefect ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}">
+        ${col.key === '__pieces_per_hour'
+          ? `<span data-sdb-pieces-per-hour-label>${sdbEscapeHtml(sdbPiecesPerHourLabel())}</span>`
+          : col.label}${col.sortable === false ? '' : sortIcon(col.key)}
       </th>`).join('')}
   `;
 
@@ -460,6 +487,11 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
         return defectCount > 0
           ? `<td class="px-3 py-2 text-red-600 font-bold text-center whitespace-nowrap">${defectCount}</td>`
           : '<td class="px-3 py-2 text-center text-gray-300 whitespace-nowrap">0</td>';
+      }
+
+      if (col.key === '__pieces_per_hour') {
+        const piecesPerHour = sdbFormatPiecesPerHour(record.cycle_time);
+        return `<td class="px-3 py-2 text-sm font-medium text-indigo-700 whitespace-nowrap">${piecesPerHour}</td>`;
       }
 
       const safeValue = sdbEscapeHtml(value);
@@ -488,6 +520,8 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
         <tbody>${tbody}</tbody>
       </table>
     </div>`;
+
+  sdbApplyPiecesPerHourLabel(container);
 
   if (paginationEl) {
     if (totalPages <= 1) {
@@ -721,6 +755,168 @@ function sdbSetModalElementContent(elementId, value, { html = false } = {}) {
   }
 }
 
+function sdbRoundMetric(value, digits = 2) {
+  const factor = 10 ** digits;
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
+}
+
+function sdbGetPiecesPerHour(cycleTime) {
+  const safeCycleTime = Number(cycleTime ?? 0);
+  if (!Number.isFinite(safeCycleTime) || safeCycleTime <= 0) return null;
+  return 60 / safeCycleTime;
+}
+
+function sdbFormatPiecesPerHour(cycleTime, digits = 2) {
+  const piecesPerHour = sdbGetPiecesPerHour(cycleTime);
+  if (piecesPerHour === null) return '—';
+  return sdbRoundMetric(piecesPerHour, digits).toFixed(digits);
+}
+
+function sdbGetModalField(fieldKey) {
+  const modal = document.getElementById('sdbDetailModal');
+  if (!modal) return null;
+
+  return Array.from(modal.querySelectorAll('[data-sdb-field]'))
+    .find(field => field.dataset.sdbField === fieldKey) || null;
+}
+
+function sdbGetModalNumericValue(fieldKey, fallback = 0) {
+  const field = sdbGetModalField(fieldKey);
+  if (!field) return fallback;
+
+  const rawValue = String(field.value ?? '').trim();
+  if (rawValue === '') return fallback;
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function sdbParseClockMinutes(value = '') {
+  const normalized = String(value ?? '').trim();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] || 0);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) return null;
+
+  return (hours * 60) + minutes + (seconds / 60);
+}
+
+function sdbCalculateManHoursFromTimes(startTime, endTime, breakHours = 0, troubleHours = 0) {
+  const startMinutes = sdbParseClockMinutes(startTime);
+  const endMinutes = sdbParseClockMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) return null;
+
+  let elapsedMinutes = endMinutes - startMinutes;
+  if (elapsedMinutes < 0) elapsedMinutes += 24 * 60;
+
+  const safeBreakHours = Math.max(0, Number(breakHours ?? 0) || 0);
+  const safeTroubleHours = Math.max(0, Number(troubleHours ?? 0) || 0);
+  return sdbRoundMetric(Math.max(0, (elapsedMinutes / 60) - safeBreakHours - safeTroubleHours), 2);
+}
+
+function sdbGetModalDefectFieldKeys(record = {}) {
+  return Object.keys(record)
+    .filter(key => !SDB_FIXED_KEYS.has(key))
+    .sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function sdbRefreshModalPiecesPerHour(cycleTime) {
+  sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(cycleTime));
+}
+
+function sdbRecalculateModalMetrics(source = 'time') {
+  const record = sdbGetModalRecord();
+  if (!record || !_sdbModalEditMode) return;
+
+  const goodCountField = sdbGetModalField('good_count');
+  const manHoursField = sdbGetModalField('man_hours');
+  const cycleTimeField = sdbGetModalField('cycle_time');
+  if (!goodCountField || !manHoursField || !cycleTimeField) return;
+
+  if (source !== 'man_hours') {
+    const calculatedManHours = sdbCalculateManHoursFromTimes(
+      sdbGetModalField('start_time')?.value,
+      sdbGetModalField('end_time')?.value,
+      sdbGetModalNumericValue('break_time', Number(record.break_time ?? 0) || 0),
+      sdbGetModalNumericValue('trouble_time', Number(record.trouble_time ?? 0) || 0)
+    );
+
+    if (calculatedManHours !== null) {
+      manHoursField.value = calculatedManHours.toFixed(2);
+    }
+  }
+
+  const effectiveManHours = Math.max(0, sdbGetModalNumericValue('man_hours', Number(record.man_hours ?? 0) || 0));
+  const defectTotal = sdbGetModalDefectFieldKeys(record).reduce((sum, key) => {
+    const defectCount = Math.max(0, Math.trunc(sdbGetModalNumericValue(key, Number(record[key] ?? 0) || 0)));
+    return sum + defectCount;
+  }, 0);
+  const baselineCycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
+
+  if ((source === 'time' || source === 'man_hours') && baselineCycleTime > 0 && effectiveManHours > 0) {
+    const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / baselineCycleTime));
+    goodCountField.value = String(Math.max(0, totalPieces - defectTotal));
+  }
+
+  if (source === 'cycle_time') {
+    const desiredCycleTime = Math.max(0, sdbGetModalNumericValue('cycle_time', baselineCycleTime));
+    if (desiredCycleTime > 0 && effectiveManHours > 0) {
+      const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / desiredCycleTime));
+      goodCountField.value = String(Math.max(0, totalPieces - defectTotal));
+    }
+  }
+
+  if (source !== 'cycle_time') {
+    const effectiveGoodCount = Math.max(0, Math.trunc(sdbGetModalNumericValue('good_count', Number(record.good_count ?? 0) || 0)));
+    const totalWorkCount = effectiveGoodCount + defectTotal;
+    const recalculatedCycleTime = totalWorkCount > 0 && effectiveManHours > 0
+      ? sdbRoundMetric((effectiveManHours * 60) / totalWorkCount, 2)
+      : 0;
+
+    cycleTimeField.value = recalculatedCycleTime.toFixed(2);
+  }
+
+  sdbRefreshModalPiecesPerHour(sdbGetModalNumericValue('cycle_time', Number(record.cycle_time ?? 0) || 0));
+}
+
+function sdbBindModalAutoCalculations(record) {
+  if (!record || !_sdbModalEditMode) {
+    sdbRefreshModalPiecesPerHour(record?.cycle_time ?? 0);
+    return;
+  }
+
+  ['start_time', 'end_time', 'break_time', 'trouble_time'].forEach(fieldKey => {
+    const field = sdbGetModalField(fieldKey);
+    if (field) field.addEventListener('input', () => sdbRecalculateModalMetrics('time'));
+  });
+
+  const manHoursField = sdbGetModalField('man_hours');
+  if (manHoursField) {
+    manHoursField.addEventListener('input', () => sdbRecalculateModalMetrics('man_hours'));
+  }
+
+  const goodCountField = sdbGetModalField('good_count');
+  if (goodCountField) {
+    goodCountField.addEventListener('input', () => sdbRecalculateModalMetrics('count'));
+  }
+
+  const cycleTimeField = sdbGetModalField('cycle_time');
+  if (cycleTimeField) {
+    cycleTimeField.addEventListener('input', () => sdbRecalculateModalMetrics('cycle_time'));
+  }
+
+  sdbGetModalDefectFieldKeys(record).forEach(fieldKey => {
+    const field = sdbGetModalField(fieldKey);
+    if (field) field.addEventListener('input', () => sdbRecalculateModalMetrics('time'));
+  });
+
+  sdbRefreshModalPiecesPerHour(sdbGetModalNumericValue('cycle_time', Number(record.cycle_time ?? 0) || 0));
+}
+
 function sdbBuildModalInput(fieldKey, value, options = {}) {
   const {
     type = 'text',
@@ -865,6 +1061,7 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalCT', isEditing
     ? sdbBuildModalInput('cycle_time', record.cycle_time ?? 0, { type: 'number', min: '0', step: '0.01', className: `${metricInputClass} text-purple-600` })
     : (record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—'), { html: isEditing });
+  sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(record.cycle_time));
   sdbSetModalElementContent('sdbModalLhRh', isEditing
     ? sdbBuildModalSelect('lh_rh', record.lh_rh, [
         { value: '', label: '—' },
@@ -931,6 +1128,7 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalFrom', footerBits.join('  |  '));
 
   sdbUpdateModalActions(record);
+  sdbBindModalAutoCalculations(record);
   document.getElementById('sdbDetailModal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
@@ -1160,6 +1358,7 @@ function initializeSubmittedDB() {
   _sdbCanPermanentDelete = false;
   _sdbModalRecordId = '';
   _sdbModalEditMode = false;
+  sdbApplyPiecesPerHourLabel();
   sdbResetSelection();
   updateSubmittedDBTabs();
   updateSubmittedDBToolbar();

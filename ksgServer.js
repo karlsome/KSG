@@ -2224,6 +2224,125 @@ function normalizeSubmittedDBUpdates(source = {}) {
     return updates;
 }
 
+function roundSubmittedDBMetric(value, digits = 2) {
+    const factor = 10 ** digits;
+    return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
+}
+
+function parseSubmittedDBClockToMinutes(value = '') {
+    const normalized = String(value ?? '').trim();
+    const match = normalized.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!match) return null;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    const seconds = Number(match[3] || 0);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) return null;
+
+    return (hours * 60) + minutes + (seconds / 60);
+}
+
+function calculateSubmittedDBManHours(startTime, endTime, breakTime = 0, troubleTime = 0) {
+    const startMinutes = parseSubmittedDBClockToMinutes(startTime);
+    const endMinutes = parseSubmittedDBClockToMinutes(endTime);
+    if (startMinutes === null || endMinutes === null) return null;
+
+    let elapsedMinutes = endMinutes - startMinutes;
+    if (elapsedMinutes < 0) elapsedMinutes += 24 * 60;
+
+    const safeBreakTime = Math.max(0, Number(breakTime ?? 0) || 0);
+    const safeTroubleTime = Math.max(0, Number(troubleTime ?? 0) || 0);
+    return roundSubmittedDBMetric(Math.max(0, (elapsedMinutes / 60) - safeBreakTime - safeTroubleTime), 2);
+}
+
+function getSubmittedDBAllDefectCount(record = {}) {
+    return Object.entries(record)
+        .filter(([key]) => !SUBMITTED_DB_FIXED_FIELDS.has(key))
+        .reduce((sum, [, rawValue]) => {
+            const defectCount = Number(rawValue ?? 0);
+            return sum + (Number.isFinite(defectCount) && defectCount > 0 ? Math.trunc(defectCount) : 0);
+        }, 0);
+}
+
+function applySubmittedDBDerivedUpdates(existingData = {}, updates = {}) {
+    const hasOwn = key => Object.prototype.hasOwnProperty.call(updates, key);
+    const mergedData = { ...existingData, ...updates };
+    const timeFieldsChanged = ['start_time', 'end_time', 'break_time', 'trouble_time'].some(hasOwn);
+    const cycleTimeChanged = hasOwn('cycle_time');
+    const manHoursChanged = hasOwn('man_hours');
+    const goodCountChanged = hasOwn('good_count');
+    const defectFieldsChanged = Object.keys(updates).some(key => !SUBMITTED_DB_FIXED_FIELDS.has(key));
+
+    if (timeFieldsChanged) {
+        const calculatedManHours = calculateSubmittedDBManHours(
+            mergedData.start_time,
+            mergedData.end_time,
+            mergedData.break_time,
+            mergedData.trouble_time
+        );
+
+        if (calculatedManHours !== null) {
+            updates.man_hours = calculatedManHours;
+            mergedData.man_hours = calculatedManHours;
+        }
+
+        const baselineCycleTime = Math.max(0, Number(existingData.cycle_time ?? 0) || 0);
+        const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
+        if (baselineCycleTime > 0 && effectiveManHours > 0) {
+            const defectCount = getSubmittedDBAllDefectCount(mergedData);
+            const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / baselineCycleTime));
+            const derivedGoodCount = Math.max(0, totalPieces - defectCount);
+            updates.good_count = derivedGoodCount;
+            mergedData.good_count = derivedGoodCount;
+        }
+    }
+
+    if (cycleTimeChanged) {
+        const desiredCycleTime = Math.max(0, Number(mergedData.cycle_time ?? 0) || 0);
+        const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
+        if (desiredCycleTime > 0 && effectiveManHours > 0) {
+            const defectCount = getSubmittedDBAllDefectCount(mergedData);
+            const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / desiredCycleTime));
+            const derivedGoodCount = Math.max(0, totalPieces - defectCount);
+            updates.good_count = derivedGoodCount;
+            mergedData.good_count = derivedGoodCount;
+        }
+    }
+
+    const shouldRecalculateCycleTime = timeFieldsChanged || (!cycleTimeChanged && (manHoursChanged || goodCountChanged || defectFieldsChanged));
+    if (shouldRecalculateCycleTime) {
+        const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
+        const goodCount = Math.max(0, Number(mergedData.good_count ?? 0) || 0);
+        const defectCount = getSubmittedDBAllDefectCount(mergedData);
+        const totalWorkCount = goodCount + defectCount;
+        const recalculatedCycleTime = totalWorkCount > 0 && effectiveManHours > 0
+            ? roundSubmittedDBMetric((effectiveManHours * 60) / totalWorkCount, 2)
+            : 0;
+
+        updates.cycle_time = recalculatedCycleTime;
+        mergedData.cycle_time = recalculatedCycleTime;
+    }
+
+    if (hasOwn('good_count')) {
+        updates.good_count = Math.max(0, Math.trunc(Number(updates.good_count ?? 0) || 0));
+    }
+    if (hasOwn('man_hours')) {
+        updates.man_hours = roundSubmittedDBMetric(Math.max(0, Number(updates.man_hours ?? 0) || 0), 2);
+    }
+    if (hasOwn('cycle_time')) {
+        updates.cycle_time = roundSubmittedDBMetric(Math.max(0, Number(updates.cycle_time ?? 0) || 0), 2);
+    }
+
+    Object.keys(updates).forEach(key => {
+        if (!SUBMITTED_DB_FIXED_FIELDS.has(key)) {
+            updates[key] = Math.max(0, Math.trunc(Number(updates[key] ?? 0) || 0));
+        }
+    });
+
+    return updates;
+}
+
 function getSubmittedDBNonCountUpDefectKeySet(record = {}) {
     return new Set(
         (Array.isArray(record.non_countup_defect_keys) ? record.non_countup_defect_keys : [])
@@ -3778,6 +3897,8 @@ app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, 
         if (!existingData) {
             return res.status(404).json({ success: false, error: 'Submitted data not found' });
         }
+
+        applySubmittedDBDerivedUpdates(existingData, updates);
 
         const result = await collection.updateOne(
             { _id },
