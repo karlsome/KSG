@@ -279,6 +279,7 @@ function renderMasterTable(data) {
     { key: "工場", label: t('masterDB.factory') },
     { key: "ngGroupId", label: "不良グループ", isNGGroup: true },
     { key: "cycleTime", label: t('masterDB.cycleTime') },
+    { key: "grossProfit", label: t('masterDB.grossProfit') },
     { key: "検査メンバー数", label: t('masterDB.inspectionMembers') },
     { key: "収容数", label: t('masterDB.capacity') }
   ];
@@ -306,7 +307,7 @@ function renderMasterTable(data) {
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
               <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
               ${headers.map(h => {
-                let value = record[h.key] || "";
+                let value = record[h.key] ?? "";
                 // Handle kensaMembers specifically to show default value if missing
                 if (h.key === "検査メンバー数" && !value && record.kensaMembers !== undefined) {
                   value = record.kensaMembers;
