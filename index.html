@@ -39,7 +39,8 @@
         </a>
       </div>
       <nav class="flex-1 overflow-y-auto p-4">
-        <ul id="dynamicNav" class="space-y-2">
+        <ul id="dynamicNav" class="relative flex flex-col gap-2">
+          <div id="dynamicNavIndicator" aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 rounded-lg border border-sky-100 bg-sky-50 shadow-sm opacity-0 transition-all duration-300 ease-out"></div>
           <li>
             <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
               <i class="ri-dashboard-line text-xl"></i>
@@ -1785,8 +1786,10 @@
     }
 
     function updateActiveNavItem(page) {
-      const activeClassName = 'flex items-center gap-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-3 font-medium text-sky-700 shadow-sm';
-      const inactiveClassName = 'flex items-center gap-3 rounded-lg px-3 py-3 text-gray-700 hover:bg-gray-100';
+      const activeClassName = 'relative z-10 flex w-full items-center gap-3 rounded-lg px-3 py-3 font-medium text-sky-700 transition-colors duration-300';
+      const inactiveClassName = 'relative z-10 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-gray-700 transition-colors duration-300 hover:text-gray-900';
+      const indicator = document.getElementById('dynamicNavIndicator');
+      let activeItem = null;
 
       document.querySelectorAll('#dynamicNav a').forEach(link => {
         const href = link.getAttribute('href') || '';
@@ -1795,11 +1798,25 @@
 
         link.className = isActive ? activeClassName : inactiveClassName;
         if (isActive) {
+          activeItem = link.closest('li') || link;
           link.setAttribute('aria-current', 'page');
         } else {
           link.removeAttribute('aria-current');
         }
       });
+
+      if (!indicator) return;
+
+      if (!activeItem) {
+        indicator.classList.add('opacity-0');
+        indicator.style.height = '0px';
+        indicator.style.transform = 'translateY(0px)';
+        return;
+      }
+
+      indicator.classList.remove('opacity-0');
+      indicator.style.height = `${activeItem.offsetHeight}px`;
+      indicator.style.transform = `translateY(${activeItem.offsetTop}px)`;
     }
 
     // Listen for language changes - update sidebar/header + reload current page
@@ -1815,6 +1832,11 @@
       applyPageTranslations();
       // Reload current page to refresh dynamic content
       origLoadPage(currentPage);
+      requestAnimationFrame(() => updateActiveNavItem(currentPage));
+    });
+
+    window.addEventListener('resize', () => {
+      updateActiveNavItem(currentPage);
     });
 
     window.setInterval(() => {
