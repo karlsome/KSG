@@ -1784,11 +1784,30 @@
       applyTranslations();
     }
 
+    function updateActiveNavItem(page) {
+      const activeClassName = 'flex items-center gap-3 rounded-lg border border-sky-100 bg-sky-50 px-3 py-3 font-medium text-sky-700 shadow-sm';
+      const inactiveClassName = 'flex items-center gap-3 rounded-lg px-3 py-3 text-gray-700 hover:bg-gray-100';
+
+      document.querySelectorAll('#dynamicNav a').forEach(link => {
+        const href = link.getAttribute('href') || '';
+        const linkPage = href.startsWith('#') ? href.substring(1) : href;
+        const isActive = linkPage === page;
+
+        link.className = isActive ? activeClassName : inactiveClassName;
+        if (isActive) {
+          link.setAttribute('aria-current', 'page');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+    }
+
     // Listen for language changes - update sidebar/header + reload current page
     let currentPage = 'dashboard';
     const origLoadPage = loadPage;
     loadPage = function(page) {
       currentPage = page;
+      updateActiveNavItem(page);
       origLoadPage(page);
     };
 
