@@ -64,7 +64,7 @@
   }
 })();
 
-// Logout function
+// Manual logout — shows a confirmation dialog (user-initiated only)
 function logoutTablet() {
   if (confirm('ログアウトしますか？ / Logout?')) {
     const authData = localStorage.getItem('tabletAuth');
@@ -74,7 +74,7 @@ function logoutTablet() {
       tabletName = auth.tabletName || auth.tablet?.tabletName;
     }
     localStorage.removeItem('tabletAuth');
-    
+
     if (tabletName) {
       window.location.href = `tablet-login.html?tabletName=${tabletName}`;
     } else {
@@ -82,6 +82,24 @@ function logoutTablet() {
     }
   }
 }
+
+// Forced logout — no confirmation, only called when token is genuinely expired
+// or an admin has disabled the account. Never call this for network/server errors.
+function forceLogoutTablet() {
+  const authData = localStorage.getItem('tabletAuth');
+  let tabletName = null;
+  if (authData) {
+    const auth = JSON.parse(authData);
+    tabletName = auth.tabletName || auth.tablet?.tabletName;
+  }
+  localStorage.removeItem('tabletAuth');
+  window.location.href = tabletName
+    ? `tablet-login.html?tabletName=${tabletName}`
+    : 'tablet-login.html';
+}
+
+// Key used to persist a failed submission so it can be retried after reload
+const PENDING_SUBMISSION_KEY = 'tablet_pendingSubmission';
 
 // ============================================================
 // 🌐 WEBSOCKET CONNECTION
@@ -1376,6 +1394,8 @@ function clearAllLocalStorage() {
   try {
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
+      // Never erase a pending (unsent) submission — it survives until successfully retried
+      if (key === PENDING_SUBMISSION_KEY) return;
       if (key.startsWith('tablet_')) {
         localStorage.removeItem(key);
       }
@@ -1436,16 +1456,19 @@ async function validateToken() {
     
     if (!response.ok) {
       const error = await response.json();
-      console.error('❌ Token validation failed:', error);
-      
-      if (error.forceLogout || response.status === 401 || response.status === 403) {
-        alert('セッションが無効です。再ログインしてください / Session invalid. Please log in again.');
+      console.warn('⚠️ Token validation response:', error);
+
+      // Only force-logout when the token has genuinely expired.
+      // Any other 401 (server restart, network blip, env change) should NOT log the
+      // user out mid-shift — the tablet just continues and the user can keep working.
+      if (error.reason === 'expired') {
+        alert('セッションの有効期限が切れました。再ログインしてください。\nSession has expired. Please log in again.');
         stopTokenValidation();
-        logoutTablet();
+        forceLogoutTablet();
       }
       return;
     }
-    
+
     console.log('✅ Token validated successfully');
   } catch (error) {
     console.error('❌ Token validation error:', error);
@@ -1502,6 +1525,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Restore all fields from localStorage
   restoreAllFields();
+
+  // If a previous submission failed, offer to retry it before the user starts work
+  await checkPendingSubmission();
 
   // If work was already in progress before refresh, rebuild product/NG context from fallback kanban
   const restoredStartTimeInput = document.getElementById('startTime');
@@ -1946,8 +1972,9 @@ setInterval(() => {
 socket.on('auth_error', (data) => {
   console.error('🚫 Authentication error:', data.error);
   if (data.forceLogout) {
+    // Admin explicitly disabled this account — forced logout is appropriate
     alert('アカウントが無効化されました / Account has been disabled');
-    logoutTablet();
+    forceLogoutTablet();
   }
 });
 
@@ -2421,23 +2448,31 @@ async function sendData() {
     
     console.log('📊 Submitting data:', submissionData);
     
+    // Persist the submission to localStorage BEFORE sending.
+    // If anything goes wrong (network, server error, browser crash), the data
+    // survives and will be offered for retry on the next page load.
+    localStorage.setItem(PENDING_SUBMISSION_KEY, JSON.stringify({
+      data: submissionData,
+      savedAt: new Date().toISOString()
+    }));
+
     // Show uploading modal
     const uploadingModal = document.getElementById('uploadingModalOverlay');
     if (uploadingModal) {
       uploadingModal.classList.add('active');
     }
-    
+
     // Get auth token
     const authData = localStorage.getItem('tabletAuth');
     if (!authData) {
-      alert('認証エラー / Authentication error');
-      logoutTablet();
+      if (uploadingModal) uploadingModal.classList.remove('active');
+      alert('認証情報が見つかりません。\nAuth info missing — data has been saved and can be retried after logging back in.\n送信データは保存されました。再ログイン後に再送信できます。');
       return;
     }
     const auth = JSON.parse(authData);
     const token = auth.token;
     const tabletName = auth.tablet?.tabletName || auth.tabletName || '';
-    
+
     // Submit to server with Authorization header
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
@@ -2448,44 +2483,38 @@ async function sendData() {
       },
       body: JSON.stringify(submissionData)
     });
-    
+
     const result = await response.json();
-    
+
     if (!response.ok) {
-      // Handle authentication errors
-      if (result.forceLogout || response.status === 401 || response.status === 403) {
-        alert('セッションが無効です。再ログインしてください / Session invalid. Please log in again.');
-        logoutTablet();
-        return;
+      // Auth errors: do NOT log out — data is already saved as pending.
+      // User can reload and retry without losing anything.
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('認証エラー。送信データは保存されました。再読み込みして再試行してください。\nAuth error — data saved. Reload to retry.');
       }
       throw new Error(result.error || 'Submission failed');
     }
-    
+
     if (result.success) {
-      // Hide uploading modal
-      if (uploadingModal) {
-        uploadingModal.classList.remove('active');
-      }
-      
+      // Success — safe to remove the pending copy
+      localStorage.removeItem(PENDING_SUBMISSION_KEY);
+
+      if (uploadingModal) uploadingModal.classList.remove('active');
       console.log('✅ Data submitted successfully:', result);
       alert('データが正常に送信されました！');
-      
-      // Clear all fields after successful submission, then fully reload to avoid stale UI state
+
       clearAllFields();
       window.location.reload();
     } else {
       throw new Error(result.error || 'Submission failed');
     }
-    
+
   } catch (error) {
-    // Hide uploading modal
     const uploadingModal = document.getElementById('uploadingModalOverlay');
-    if (uploadingModal) {
-      uploadingModal.classList.remove('active');
-    }
-    
+    if (uploadingModal) uploadingModal.classList.remove('active');
+
     console.error('❌ Error submitting data:', error);
-    alert('データ送信エラー: ' + error.message);
+    alert('データ送信エラー:\n' + error.message + '\n\n送信データは保存されました。再読み込みして再試行できます。\nData has been saved — reload to retry.');
   }
 }
 
@@ -2553,6 +2582,78 @@ function clearAllFields() {
     
     checkStartButtonState(); // Re-check button state
     checkBasicSettingsAttention(); // Check attention state after clearing
+  }
+}
+
+// On page load, check if a previous submission failed and offer to retry it.
+async function checkPendingSubmission() {
+  const raw = localStorage.getItem(PENDING_SUBMISSION_KEY);
+  if (!raw) return;
+
+  let pending;
+  try {
+    pending = JSON.parse(raw);
+  } catch (e) {
+    localStorage.removeItem(PENDING_SUBMISSION_KEY);
+    return;
+  }
+
+  const savedAt = new Date(pending.savedAt).toLocaleString('ja-JP');
+  const retry = confirm(
+    `前回の送信が失敗しました (${savedAt})\n` +
+    `保存されたデータを再送信しますか？\n\n` +
+    `Previous submission failed at ${savedAt}.\n` +
+    `Retry sending the saved data?`
+  );
+
+  if (retry) {
+    await resubmitPendingData(pending.data);
+  } else {
+    const discard = confirm(
+      '送信データを破棄しますか？\n破棄すると元に戻せません。\n\n' +
+      'Discard the unsent data?\nThis cannot be undone.'
+    );
+    if (discard) {
+      localStorage.removeItem(PENDING_SUBMISSION_KEY);
+    }
+    // If user cancels discard, data stays — offered again on next reload
+  }
+}
+
+async function resubmitPendingData(submissionData) {
+  const authData = localStorage.getItem('tabletAuth');
+  if (!authData) {
+    alert('再送信するにはログインが必要です。\nPlease log in to retry the submission.');
+    return;
+  }
+
+  const auth = JSON.parse(authData);
+  const tabletName = auth.tablet?.tabletName || auth.tabletName || '';
+
+  try {
+    const response = await fetch(`${API_URL}/api/tablet/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Tablet-Name': encodeURIComponent(tabletName)
+      },
+      body: JSON.stringify(submissionData)
+    });
+
+    const result = await response.json();
+    if (response.ok && result.success) {
+      localStorage.removeItem(PENDING_SUBMISSION_KEY);
+      alert('再送信が成功しました！\nData resubmitted successfully!');
+    } else {
+      alert(
+        '再送信に失敗しました。後で再試行してください。\n' +
+        'Retry failed — data is still saved for the next attempt.\n\n' +
+        (result.error || '')
+      );
+    }
+  } catch (error) {
+    alert('再送信エラー: ' + error.message + '\n\nデータは保存されたままです。\nData is still saved.');
   }
 }
 

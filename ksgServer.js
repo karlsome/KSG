@@ -1364,8 +1364,11 @@ app.post("/validateToken", async (req, res) => {
       dbName: decoded.dbName
     });
   } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired', reason: 'expired' });
+    }
     console.error('Token validation error:', error);
-    res.status(401).json({ error: 'Invalid or expired token' });
+    res.status(401).json({ error: 'Invalid or expired token', reason: 'invalid' });
   }
 });
 
