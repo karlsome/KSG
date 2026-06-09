@@ -119,7 +119,8 @@ let variableMappings = {
 };
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
 const IGNORED_KANBAN_NOISE_VALUES = new Set(['9999']);
-const kanbanProductCache = new Map();
+const kanbanProductCache = new Map(); // entries: { product, cachedAt }
+const KANBAN_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const invalidKanbanCache = new Set();
 let latestObservedKanbanValue = null;
 let latestKanbanValidationRequestId = 0;
@@ -486,7 +487,11 @@ async function fetchValidatedProductByKanban(kanbanId) {
   }
 
   if (kanbanProductCache.has(normalizedKanban)) {
-    return kanbanProductCache.get(normalizedKanban);
+    const cached = kanbanProductCache.get(normalizedKanban);
+    if (Date.now() - cached.cachedAt < KANBAN_CACHE_TTL_MS) {
+      return cached.product;
+    }
+    kanbanProductCache.delete(normalizedKanban); // expired — re-fetch
   }
 
   if (isIgnoredKanbanNoise(normalizedKanban) || invalidKanbanCache.has(normalizedKanban)) {
@@ -499,7 +504,7 @@ async function fetchValidatedProductByKanban(kanbanId) {
 
   try {
     const product = await fetchProductByKanbanID(normalizedKanban);
-    kanbanProductCache.set(normalizedKanban, product);
+    kanbanProductCache.set(normalizedKanban, { product, cachedAt: Date.now() });
     invalidKanbanCache.delete(normalizedKanban);
     return product;
   } catch (error) {
@@ -836,8 +841,8 @@ function updateWorkDuration() {
 
 // Start break timer and show modal
 function startBreakTimer() {
-  // Stop any existing break timer
-  stopBreakTimer();
+  if (breakTimerInterval !== null) return; // already running — ignore double-click
+  stopBreakTimer(); // defensive clear
   
   // Set break start time
   breakStartTime = new Date();
@@ -2009,15 +2014,18 @@ function updateUIWithVariables(variables) {
     void handleObservedKanbanValue(observedKanbanValue);
   }
   
-  // Track production count variable for work count calculation
+  // Track production count variable for work count calculation.
+  // Only update when a valid value is present — keep the last known value otherwise
+  // so a temporary OPC gap doesn't zero-out the work counter.
   if (variables[productionVarName] !== undefined) {
     const value = variables[productionVarName].value;
-    currentSeisanSuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
-    console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
-    updateWorkCount();
+    if (value !== null && value !== undefined) {
+      currentSeisanSuValue = parseFloat(value);
+      console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
+      updateWorkCount();
+    }
   } else {
-    currentSeisanSuValue = null;
-    console.warn(`⚠️ ${productionVarName} variable not found`);
+    console.warn(`⚠️ ${productionVarName} variable not found in update, keeping last value`);
   }
   
   // Track box quantity variable for 合格数追加 display

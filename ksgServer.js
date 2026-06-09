@@ -4786,235 +4786,174 @@ async function updateDeviceStatus(deviceId, status) {
 }
 
 // Helper function: Broadcast variables to a specific tablet
+// Compute the full variables payload for a company using batch DB queries.
+// 4 queries total regardless of how many variables or tablets exist.
+async function computeVariablesForCompany(company) {
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(company);
+    const now = new Date();
+
+    const [conversions, devices] = await Promise.all([
+        db.collection('opcua_conversions').find({}).toArray(),
+        db.collection('deviceInfo').find({}).toArray()
+    ]);
+
+    // Build a set of all known device identifiers for quick membership checks
+    const deviceSet = new Set();
+    for (const d of devices) {
+        deviceSet.add(d._id.toString());
+        if (d.device_id) deviceSet.add(d.device_id);
+    }
+
+    // Collect all opcNodeIds needed across simple and combined variables
+    const allOpcNodeIds = new Set();
+    const fallbackObjectIds = [];
+
+    function collectNodeIds(variable) {
+        if (variable.opcNodeId) {
+            allOpcNodeIds.add(variable.opcNodeId);
+        } else if (variable.datapointId) {
+            try { fallbackObjectIds.push(new ObjectId(variable.datapointId)); } catch (e) { /* invalid id */ }
+        }
+    }
+
+    for (const variable of conversions) {
+        if (variable.sourceType === 'combined' && variable.sourceVariables) {
+            for (const srcName of variable.sourceVariables) {
+                const srcVar = conversions.find(v => v.variableName === srcName);
+                if (srcVar) collectNodeIds(srcVar);
+            }
+        } else {
+            collectNodeIds(variable);
+        }
+    }
+
+    const nodeIdArray = [...allOpcNodeIds];
+
+    const [discoveredNodes, realtimeRecords, fallbackNodes] = await Promise.all([
+        nodeIdArray.length > 0
+            ? db.collection('opcua_discovered_nodes').find({ opcNodeId: { $in: nodeIdArray } }).toArray()
+            : Promise.resolve([]),
+        nodeIdArray.length > 0
+            ? db.collection('opcua_realtime').find({ opcNodeId: { $in: nodeIdArray } }).toArray()
+            : Promise.resolve([]),
+        fallbackObjectIds.length > 0
+            ? db.collection('opcua_discovered_nodes').find({ _id: { $in: fallbackObjectIds } }).toArray()
+            : Promise.resolve([])
+    ]);
+
+    // Build lookup maps keyed by `${raspberryId}:${opcNodeId}`
+    const discoveredMap = new Map();
+    for (const n of [...discoveredNodes, ...fallbackNodes]) {
+        discoveredMap.set(`${n.raspberryId}:${n.opcNodeId}`, n);
+        if (n._id) discoveredMap.set(`id:${n._id.toString()}`, n);
+    }
+    const realtimeMap = new Map();
+    for (const r of realtimeRecords) {
+        realtimeMap.set(`${r.raspberryId}:${r.opcNodeId}`, r);
+    }
+
+    function resolveDatapoint(variable) {
+        if (variable.opcNodeId) return discoveredMap.get(`${variable.raspberryId}:${variable.opcNodeId}`) || null;
+        if (variable.datapointId) return discoveredMap.get(`id:${variable.datapointId}`) || null;
+        return null;
+    }
+
+    function resolveTimeMeta(variable, datapoint) {
+        const rt = realtimeMap.get(`${variable.raspberryId}:${datapoint.opcNodeId}`);
+        let quality = 'Unknown', dataTimestamp = null, dataAge = null, isStale = false;
+        if (rt) {
+            quality = rt.quality || 'Unknown';
+            dataTimestamp = rt.sourceTimestamp || rt.updatedAt;
+        } else {
+            dataTimestamp = datapoint.discoveredAt || datapoint.updatedAt;
+        }
+        if (dataTimestamp) {
+            const ts = new Date(dataTimestamp);
+            if (!isNaN(ts)) { dataAge = Math.floor((now - ts) / 1000); isStale = dataAge > 60; }
+        }
+        return { quality, dataTimestamp, dataAge, isStale };
+    }
+
+    function processSimpleVariable(variable) {
+        if (!variable.raspberryId || !deviceSet.has(variable.raspberryId)) return null;
+        const datapoint = resolveDatapoint(variable);
+        if (!datapoint || datapoint.value === undefined) return null;
+        let rawValue = datapoint.value;
+        if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
+            rawValue = rawValue[variable.arrayIndex];
+        }
+        const value = applyConversionOnServer(rawValue, variable.conversionFromType, variable.conversionToType);
+        return { value, ...resolveTimeMeta(variable, datapoint) };
+    }
+
+    const variables = {};
+
+    for (const variable of conversions) {
+        try {
+            if (variable.sourceType === 'combined' && variable.sourceVariables && variable.operation) {
+                const sourceValues = [], sourceQualities = [], sourceTimestamps = [];
+                for (const srcName of variable.sourceVariables) {
+                    const srcVar = conversions.find(v => v.variableName === srcName);
+                    if (!srcVar) continue;
+                    const r = processSimpleVariable(srcVar);
+                    if (r) { sourceValues.push(r.value); sourceQualities.push(r.quality); sourceTimestamps.push(r.dataTimestamp); }
+                }
+                if (sourceValues.length > 0) {
+                    const value = applyCombinedOperation(sourceValues, variable.operation);
+                    const quality = sourceQualities.includes('Bad') ? 'Bad'
+                        : sourceQualities.includes('Uncertain') ? 'Uncertain'
+                        : sourceQualities.every(q => q === 'Good') ? 'Good' : 'Unknown';
+                    const dataTimestamp = sourceTimestamps.length > 0
+                        ? sourceTimestamps.reduce((a, b) => new Date(a) < new Date(b) ? a : b) : null;
+                    let dataAge = null, isStale = false;
+                    if (dataTimestamp) {
+                        const ts = new Date(dataTimestamp);
+                        if (!isNaN(ts)) { dataAge = Math.floor((now - ts) / 1000); isStale = dataAge > 60; }
+                    }
+                    variables[variable.variableName] = { value, quality, timestamp: dataTimestamp, dataAge, isStale };
+                } else {
+                    variables[variable.variableName] = { value: null, quality: 'Bad', timestamp: null, dataAge: null, isStale: true };
+                }
+            } else {
+                const r = processSimpleVariable(variable);
+                variables[variable.variableName] = r
+                    ? { value: r.value, quality: r.quality, timestamp: r.dataTimestamp, dataAge: r.dataAge, isStale: r.isStale }
+                    : { value: null, quality: 'Unknown', timestamp: null, dataAge: null, isStale: false };
+            }
+        } catch (error) {
+            console.error(`❌ Error processing variable ${variable.variableName}:`, error);
+            variables[variable.variableName] = { value: null, quality: 'Bad', timestamp: null, dataAge: null, isStale: true };
+        }
+    }
+
+    return variables;
+}
+
 async function broadcastVariablesToTablet(socket, company) {
     try {
-        console.log(`🔍 Broadcasting variables to tablet for company: ${company}`);
-        const { ObjectId } = require('mongodb');
-        const db = mongoClient.db(company);
-        const conversions = await db.collection('opcua_conversions').find({}).toArray();
-        const devices = await db.collection('deviceInfo').find({}).toArray();
-        
-        console.log(`📋 Found ${conversions.length} variables and ${devices.length} devices`);
-        
-        const variables = {};
-        const now = new Date();
-        
-        for (const variable of conversions) {
-            console.log(`🔧 Processing variable: ${variable.variableName} (${variable.sourceType})`);
-            try {
-                let calculatedValue = null;
-                let quality = 'Unknown';
-                let dataTimestamp = null;
-                let dataAge = null;
-                let isStale = false;
-                
-                // Check if it's a simple conversion variable (not combined)
-                if (variable.sourceType !== 'combined' && variable.raspberryId) {
-                    // Get the device - try both _id (ObjectId) and device_id (string)
-                    const device = devices.find(d => 
-                        d._id.toString() === variable.raspberryId || 
-                        d.device_id === variable.raspberryId
-                    );
-                    console.log(`🔍 Looking for device ${variable.raspberryId}, found:`, !!device);
-                    
-                    if (device) {
-                        // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
-                        let datapoint = null;
-                        
-                        if (variable.opcNodeId) {
-                            datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                                opcNodeId: variable.opcNodeId,
-                                raspberryId: variable.raspberryId
-                            });
-                        }
-                        
-                        // Fallback to datapointId
-                        if (!datapoint && variable.datapointId) {
-                            try {
-                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                                    _id: new ObjectId(variable.datapointId),
-                                    raspberryId: variable.raspberryId
-                                });
-                            } catch (e) {
-                                // Invalid ObjectId
-                            }
-                        }
-                        
-                        if (datapoint && datapoint.value !== undefined) {
-                            let rawValue = datapoint.value;
-                            
-                            // Get actual data timestamp and quality from opcua_realtime if available
-                            const realtimeData = await db.collection('opcua_realtime').findOne({
-                                raspberryId: variable.raspberryId,
-                                opcNodeId: datapoint.opcNodeId
-                            });
-                            
-                            if (realtimeData) {
-                                quality = realtimeData.quality || 'Unknown';
-                                dataTimestamp = realtimeData.sourceTimestamp || realtimeData.updatedAt;
-                                
-                                // Calculate data age in seconds
-                                if (dataTimestamp) {
-                                    const timestampDate = new Date(dataTimestamp);
-                                    dataAge = Math.floor((now - timestampDate) / 1000);
-                                    // Mark as stale if older than 60 seconds
-                                    isStale = dataAge > 60;
-                                }
-                            } else {
-                                // Fallback to discovered node timestamp
-                                dataTimestamp = datapoint.discoveredAt || datapoint.updatedAt;
-                                quality = 'Unknown';
-                                if (dataTimestamp) {
-                                    const timestampDate = new Date(dataTimestamp);
-                                    dataAge = Math.floor((now - timestampDate) / 1000);
-                                    isStale = dataAge > 60;
-                                }
-                            }
-                            
-                            // Extract array value if needed
-                            if (variable.arrayIndex !== undefined && variable.arrayIndex !== null && Array.isArray(rawValue)) {
-                                rawValue = rawValue[variable.arrayIndex];
-                            }
-                            
-                            // Apply conversion
-                            calculatedValue = applyConversionOnServer(rawValue, variable.conversionFromType, variable.conversionToType);
-                            console.log(`✅ ${variable.variableName} = ${calculatedValue}`);
-                        }
-                    }
-                } else if (variable.sourceType === 'combined' && variable.sourceVariables && variable.operation) {
-                    console.log(`🔗 Processing combined variable with ${variable.sourceVariables?.length} sources`);
-                    // Get values of all source variables
-                    const sourceValues = [];
-                    const sourceQualities = [];
-                    const sourceTimestamps = [];
-                    
-                    for (const sourceVarName of variable.sourceVariables) {
-                        const sourceVar = conversions.find(v => v.variableName === sourceVarName);
-                        if (sourceVar && sourceVar.raspberryId) {
-                            // Try to get datapoint by opcNodeId first (stable), then fall back to datapointId
-                            let datapoint = null;
-                            
-                            if (sourceVar.opcNodeId) {
-                                datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                                    opcNodeId: sourceVar.opcNodeId,
-                                    raspberryId: sourceVar.raspberryId
-                                });
-                            }
-                            
-                            // Fallback to datapointId
-                            if (!datapoint && sourceVar.datapointId) {
-                                try {
-                                    datapoint = await db.collection('opcua_discovered_nodes').findOne({ 
-                                        _id: new ObjectId(sourceVar.datapointId),
-                                        raspberryId: sourceVar.raspberryId
-                                    });
-                                } catch (e) {
-                                    // Invalid ObjectId
-                                }
-                            }
-                            
-                            if (datapoint && datapoint.value !== undefined) {
-                                let rawValue = datapoint.value;
-                                if (sourceVar.arrayIndex !== undefined && sourceVar.arrayIndex !== null && Array.isArray(rawValue)) {
-                                    rawValue = rawValue[sourceVar.arrayIndex];
-                                }
-                                const converted = applyConversionOnServer(rawValue, sourceVar.conversionFromType, sourceVar.conversionToType);
-                                sourceValues.push(converted);
-                                
-                                // Get quality for this source
-                                const realtimeData = await db.collection('opcua_realtime').findOne({
-                                    raspberryId: sourceVar.raspberryId,
-                                    opcNodeId: datapoint.opcNodeId
-                                });
-                                
-                                if (realtimeData) {
-                                    sourceQualities.push(realtimeData.quality || 'Unknown');
-                                    sourceTimestamps.push(realtimeData.sourceTimestamp || realtimeData.updatedAt);
-                                } else {
-                                    sourceQualities.push('Unknown');
-                                    sourceTimestamps.push(datapoint.discoveredAt || datapoint.updatedAt);
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Apply operation
-                    if (sourceValues.length > 0) {
-                        calculatedValue = applyCombinedOperation(sourceValues, variable.operation);
-                        
-                        // Combined quality: Bad if any Bad, Uncertain if any Uncertain, else Good
-                        if (sourceQualities.includes('Bad')) {
-                            quality = 'Bad';
-                        } else if (sourceQualities.includes('Uncertain')) {
-                            quality = 'Uncertain';
-                        } else if (sourceQualities.every(q => q === 'Good')) {
-                            quality = 'Good';
-                        } else {
-                            quality = 'Unknown';
-                        }
-                        
-                        // Use oldest timestamp
-                        if (sourceTimestamps.length > 0) {
-                            dataTimestamp = sourceTimestamps.reduce((oldest, ts) => {
-                                return new Date(ts) < new Date(oldest) ? ts : oldest;
-                            });
-                            
-                            if (dataTimestamp) {
-                                const timestampDate = new Date(dataTimestamp);
-                                dataAge = Math.floor((now - timestampDate) / 1000);
-                                isStale = dataAge > 60;
-                            }
-                        }
-                        console.log(`✅ Combined ${variable.variableName} = ${calculatedValue}`);
-                    }
-                }
-
-                variables[variable.variableName] = {
-                    value: calculatedValue,
-                    quality: quality,
-                    timestamp: dataTimestamp,
-                    dataAge: dataAge,
-                    isStale: isStale
-                };
-            } catch (error) {
-                console.error(`❌ Error processing variable ${variable.variableName}:`, error);
-                variables[variable.variableName] = {
-                    value: null,
-                    quality: 'Bad',
-                    timestamp: null,
-                    dataAge: null,
-                    isStale: true
-                };
-            }
-        }
-        
-        console.log(`📤 Sending ${Object.keys(variables).length} variables to tablet:`, Object.keys(variables));
-        // Send to tablet
+        const variables = await computeVariablesForCompany(company);
         socket.emit('opcua_variables_update', { variables });
-        
     } catch (error) {
         console.error('❌ Error broadcasting variables to tablet:', error);
     }
 }
 
-// Helper function: Broadcast variables to all tablets subscribed to a company
+// Broadcast variables to all subscribed tablets for a company.
+// Variables are computed once and emitted to all tablets simultaneously.
 async function broadcastVariablesToAllTablets(company) {
     try {
-        // Get all connected sockets - io.sockets.sockets is a Map
         const allSockets = Array.from(io.sockets.sockets.values());
         const tabletsForCompany = allSockets.filter(s => s.tabletCompany === company && s.connected === true);
-        
-        if (tabletsForCompany.length === 0) {
-            return; // No tablets subscribed to this company
-        }
-        
-        console.log(`🔔 Broadcasting real-time updates to ${tabletsForCompany.length} tablets for ${company}`);
-        
-        // Broadcast to each tablet
+
+        if (tabletsForCompany.length === 0) return;
+
+        const variables = await computeVariablesForCompany(company);
+        const payload = { variables };
+
         for (const socket of tabletsForCompany) {
-            await broadcastVariablesToTablet(socket, company);
+            socket.emit('opcua_variables_update', payload);
         }
-        
     } catch (error) {
         console.error('Error broadcasting to all tablets:', error);
     }
@@ -5084,10 +5023,14 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Start a heartbeat interval for this socket to ensure regular last_seen updates
+    // Start a heartbeat interval for this socket to ensure regular last_seen updates.
+    // Self-clears if the socket is no longer connected (covers zombie/silent-disconnect cases).
     const heartbeatInterval = setInterval(() => {
-        if (socket.deviceId && socket.connected) {
-            console.log(`💓 Heartbeat update for device ${socket.deviceId}`);
+        if (!socket.connected) {
+            clearInterval(socket.heartbeatInterval);
+            return;
+        }
+        if (socket.deviceId) {
             updateDeviceLastSeen(socket.deviceId, socket.id);
         }
     }, 30000); // Update every 30 seconds
@@ -5298,8 +5241,14 @@ io.on('connection', (socket) => {
     
     // Handle OPC UA data changes from Raspberry Pi (real-time via WebSocket)
     socket.on('opcua_data_change', async (data) => {
+        // Only Raspberry Pi sockets may inject OPC data. Reject tablets and webapps.
+        if (socket.clientType && socket.clientType !== 'raspberry') {
+            console.warn(`⚠️ Rejected opcua_data_change from non-raspberry socket (${socket.clientType}) ${socket.id}`);
+            return;
+        }
+
         console.log('📊 OPC UA data change from Raspberry Pi:', socket.raspberryId || socket.id);
-        
+
         try {
             const { raspberryId, equipmentId, data: datapoints, discovered_nodes } = data;
             const deviceId = raspberryId; // device_id from Raspberry Pi
@@ -9758,7 +9707,7 @@ app.post("/tabletLogin", async (req, res) => {
         userId: user._id.toString()
       },
       process.env.JWT_SECRET,
-      { expiresIn: '12h' }
+      { expiresIn: '180d' }
     );
 
     res.json({
