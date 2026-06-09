@@ -6410,10 +6410,16 @@ app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) =>
         }
         
         const db = mongoClient.db(dbName);
-        
+
+        // Capture existing node names before deletion to compute diff
+        const existingNodes = await db.collection('opcua_discovered_nodes')
+            .find({ raspberryId }, { projection: { variableName: 1 } })
+            .toArray();
+        const existingNodeNames = new Set(existingNodes.map(n => n.variableName));
+
         // Delete old discovered nodes for this Raspberry Pi
         await db.collection('opcua_discovered_nodes').deleteMany({ raspberryId });
-        
+
         // Insert new discovered nodes
         const nodesToInsert = nodes.map(node => ({
             raspberryId,
@@ -6428,13 +6434,30 @@ app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) =>
             discoveredAt: timestamp,
             createdAt: new Date().toISOString()
         }));
-        
+
         if (nodesToInsert.length > 0) {
             await db.collection('opcua_discovered_nodes').insertMany(nodesToInsert);
         }
-        
-        console.log(`✅ Saved ${nodes.length} discovered nodes for ${raspberryId}`);
-        res.json({ success: true, count: nodes.length });
+
+        // Compute newly found nodes (not present in previous scan)
+        const newNodes = nodes.filter(n => !existingNodeNames.has(n.variableName));
+
+        // Emit scan_complete to admin UI so the management page can show results
+        io.to(`opcua_${dbName}`).emit('scan_complete', {
+            raspberryId,
+            totalNodes: nodes.length,
+            newNodeCount: newNodes.length,
+            newNodes: newNodes.map(n => ({
+                variableName: n.variableName,
+                browseName: n.browseName,
+                opcNodeId: n.opcNodeId,
+                dataType: n.dataType
+            })),
+            completedAt: new Date().toISOString()
+        });
+
+        console.log(`✅ Saved ${nodes.length} discovered nodes for ${raspberryId} (${newNodes.length} new)`);
+        res.json({ success: true, count: nodes.length, newNodeCount: newNodes.length });
         
     } catch (error) {
         console.error('❌ Error saving discovered nodes:', error);
@@ -6455,10 +6478,33 @@ app.get('/api/opcua/discovered-nodes/:raspberryId', validateAdminUser, async (re
             .toArray();
         
         res.json({ success: true, nodes });
-        
+
     } catch (error) {
         console.error('❌ Error fetching discovered nodes:', error);
         res.status(500).json({ error: 'Failed to fetch discovered nodes' });
+    }
+});
+
+// POST /api/opcua/trigger-scan/:raspberryId - Trigger immediate node scan from admin UI
+app.post('/api/opcua/trigger-scan/:raspberryId', async (req, res) => {
+    try {
+        const { raspberryId } = req.params;
+
+        const allSockets = Array.from(io.sockets.sockets.values());
+        const rpiSocket = allSockets.find(s => s.raspberryId === raspberryId && s.connected);
+
+        if (!rpiSocket) {
+            return res.status(404).json({ success: false, error: 'Raspberry Pi is not connected' });
+        }
+
+        rpiSocket.emit('trigger_node_scan', { requestedAt: new Date().toISOString() });
+
+        console.log(`🔍 Node scan triggered for Raspberry Pi: ${raspberryId}`);
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('❌ Error triggering node scan:', error);
+        res.status(500).json({ success: false, error: 'Failed to trigger scan' });
     }
 });
 

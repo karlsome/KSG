@@ -34,7 +34,9 @@ if (typeof window.opcManagementState === 'undefined') {
         variablesCache: [],
         selectedVariablesForCombine: [],
         currentConversionData: null,
-        listenersBound: false
+        listenersBound: false,
+        scanningInProgress: false,
+        scanTimeout: null
     };
 }
 
@@ -207,6 +209,18 @@ function initializeWebSocket() {
             console.log('🔍 Received discovered nodes update:', data);
             handleDiscoveredNodesUpdate(data);
         });
+
+        // Listen for scan completion to show results in UI
+        window.opcSocket.on('scan_complete', (data) => {
+            console.log('✅ Scan complete:', data);
+            if (window.opcManagementState.scanningInProgress) {
+                resetScanButton();
+                showScanResult(data);
+                if (data.raspberryId === window.opcManagementState.currentRaspberryId) {
+                    loadRealTimeData(data.raspberryId);
+                }
+            }
+        });
     } else {
         // Socket already exists and is connected
         updateConnectionStatus(window.opcSocket.connected);
@@ -247,12 +261,12 @@ function setupEventListeners() {
         filterSelect.addEventListener('change', handleRaspberryChange);
     }
     
-    // Refresh button
+    // Scan nodes button
     const refreshBtn = document.getElementById('refresh-data-btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
-            if (currentRaspberryId) {
-                loadRealTimeData(currentRaspberryId);
+            if (currentRaspberryId && !window.opcManagementState.scanningInProgress) {
+                triggerNodeScan(currentRaspberryId);
             }
         });
     }
@@ -2168,4 +2182,96 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 3000);
+}
+
+// ==========================================
+// NODE SCAN TRIGGER
+// ==========================================
+
+async function triggerNodeScan(raspberryId) {
+    const btn = document.getElementById('refresh-data-btn');
+
+    window.opcManagementState.scanningInProgress = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> <span>Scanning...</span>';
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/api/opcua/trigger-scan/${raspberryId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (!data.success) {
+            resetScanButton();
+            showScanResult({ error: data.error || 'Failed to trigger scan' });
+            return;
+        }
+
+        // Wait for scan_complete WebSocket event; time out after 90s
+        window.opcManagementState.scanTimeout = setTimeout(() => {
+            if (window.opcManagementState.scanningInProgress) {
+                resetScanButton();
+                showScanResult({ error: 'Scan timed out. The device may have lost connection.' });
+            }
+        }, 90000);
+
+    } catch (err) {
+        console.error('Failed to trigger scan:', err);
+        resetScanButton();
+        showScanResult({ error: 'Network error: could not reach server.' });
+    }
+}
+
+function resetScanButton() {
+    window.opcManagementState.scanningInProgress = false;
+    if (window.opcManagementState.scanTimeout) {
+        clearTimeout(window.opcManagementState.scanTimeout);
+        window.opcManagementState.scanTimeout = null;
+    }
+    const btn = document.getElementById('refresh-data-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri-scan-2-line"></i> <span>Scan Nodes</span>';
+    }
+}
+
+function showScanResult(result) {
+    const modal = document.getElementById('scan-result-modal');
+    const titleEl = document.getElementById('scan-result-title');
+    const bodyEl = document.getElementById('scan-result-body');
+    if (!modal || !titleEl || !bodyEl) return;
+
+    if (result.error) {
+        titleEl.textContent = 'Scan Failed';
+        titleEl.className = 'text-lg font-semibold text-red-600';
+        bodyEl.innerHTML = `<p class="text-red-500">${result.error}</p>`;
+    } else if (result.newNodeCount === 0) {
+        titleEl.textContent = 'Scan Complete';
+        titleEl.className = 'text-lg font-semibold text-gray-800';
+        bodyEl.innerHTML = `
+            <div class="flex flex-col items-center py-4 gap-2">
+                <i class="ri-checkbox-circle-line text-4xl text-gray-400"></i>
+                <p class="text-gray-600 font-medium">No new nodes found</p>
+                <p class="text-xs text-gray-400">${result.totalNodes} total nodes scanned</p>
+            </div>`;
+    } else {
+        titleEl.textContent = `${result.newNodeCount} New Node${result.newNodeCount > 1 ? 's' : ''} Found`;
+        titleEl.className = 'text-lg font-semibold text-green-600';
+        const nodeList = result.newNodes.map(n => `
+            <div class="flex items-start gap-2 py-2 border-b border-gray-100 last:border-0">
+                <span class="mt-1.5 w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></span>
+                <div>
+                    <p class="font-medium text-gray-800">${n.variableName}</p>
+                    <p class="text-xs text-gray-500">${n.opcNodeId} &bull; ${n.dataType || 'unknown'}</p>
+                </div>
+            </div>`).join('');
+        bodyEl.innerHTML = `
+            <p class="text-xs text-gray-500 mb-3">${result.totalNodes} total nodes scanned</p>
+            <div class="max-h-64 overflow-y-auto">${nodeList}</div>`;
+    }
+
+    modal.classList.remove('hidden');
 }

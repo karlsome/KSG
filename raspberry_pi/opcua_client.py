@@ -395,6 +395,12 @@ def raspberry_status_update(data):
     """Receive status update from server"""
     logger.debug(f"📡 Status update from server: {data}")
 
+@sio.event
+def trigger_node_scan(data):
+    """Triggered by admin UI to scan for new nodes immediately"""
+    logger.info("🔔 Manual node scan triggered by admin")
+    threading.Thread(target=save_discovered_nodes, daemon=True).start()
+
 def start_websocket():
     """Start WebSocket connection in background thread"""
     def connect_websocket():
