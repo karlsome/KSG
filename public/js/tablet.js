@@ -1592,8 +1592,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && hasActiveTabletSession()) {
-    scheduleTabletSessionSync({ immediate: true });
+  if (!document.hidden) {
+    if (hasActiveTabletSession()) {
+      scheduleTabletSessionSync({ immediate: true });
+    }
+    // Re-subscribe to OPC variables when tab becomes visible again.
+    // Tablets (especially iPads) sleep the browser, which kills the WebSocket on the
+    // server side. When the screen wakes the socket may have already reconnected
+    // (triggering socket.on('connect')), OR it may look connected client-side while
+    // the server has already dropped it ("zombie" connection). Emitting
+    // subscribe_variables here covers both cases.
+    if (isEquipmentConfigLoaded) {
+      const authData = localStorage.getItem('tabletAuth');
+      const token = authData ? JSON.parse(authData).token : null;
+      if (socket.connected) {
+        socket.emit('subscribe_variables', { company: currentCompany, token });
+      } else {
+        // Socket hasn't reconnected yet; socket.on('connect') will re-subscribe
+        socket.connect();
+      }
+    }
   }
 });
 
@@ -1908,6 +1926,16 @@ socket.on('connect_error', (error) => {
   console.error('Connection error:', error);
   updateConnectionStatus('disconnected');
 });
+
+// Periodic re-subscription every 5 minutes to recover from "zombie" connections
+// where the client-side socket reports connected but the server has dropped the room.
+setInterval(() => {
+  if (isEquipmentConfigLoaded && socket.connected) {
+    const authData = localStorage.getItem('tabletAuth');
+    const token = authData ? JSON.parse(authData).token : null;
+    socket.emit('subscribe_variables', { company: currentCompany, token });
+  }
+}, 5 * 60 * 1000);
 
 // Listen for authentication errors from server
 socket.on('auth_error', (data) => {

@@ -5002,7 +5002,7 @@ async function broadcastVariablesToAllTablets(company) {
     try {
         // Get all connected sockets - io.sockets.sockets is a Map
         const allSockets = Array.from(io.sockets.sockets.values());
-        const tabletsForCompany = allSockets.filter(s => s.tabletCompany === company);
+        const tabletsForCompany = allSockets.filter(s => s.tabletCompany === company && s.connected === true);
         
         if (tabletsForCompany.length === 0) {
             return; // No tablets subscribed to this company
