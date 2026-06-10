@@ -2210,13 +2210,13 @@ async function triggerNodeScan(raspberryId) {
             return;
         }
 
-        // Wait for scan_complete WebSocket event; time out after 90s
+        // Wait for scan_complete WebSocket event; time out after 10s
         window.opcManagementState.scanTimeout = setTimeout(() => {
             if (window.opcManagementState.scanningInProgress) {
                 resetScanButton();
-                showScanResult({ error: 'Scan timed out. The device may have lost connection.' });
+                showScanResult({ error: 'Scan timed out. The device may be offline or needs a software update.' });
             }
-        }, 90000);
+        }, 10000);
 
     } catch (err) {
         console.error('Failed to trigger scan:', err);
