@@ -2049,6 +2049,17 @@ function updateUIWithVariables(variables) {
     if (value !== null && value !== undefined) {
       currentSeisanSuValue = parseFloat(value);
       console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
+
+      // If the machine's counter reset (e.g. after a die/mold changeover) the new
+      // value can drop below the captured start value. Without re-baselining here,
+      // workCount would go negative, get clamped to 0 by updateWorkCount(), and stay
+      // stuck at 0 until the counter climbs back past the old start value.
+      if (seisanSuStartValue !== null && currentSeisanSuValue < seisanSuStartValue) {
+        console.warn(`⚠️ ${productionVarName} counter reset detected (${currentSeisanSuValue} < ${seisanSuStartValue}); re-baselining start value`);
+        seisanSuStartValue = currentSeisanSuValue;
+        localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+      }
+
       updateWorkCount();
     }
   } else {
