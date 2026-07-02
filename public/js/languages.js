@@ -227,6 +227,7 @@ const translations = {
       selectRaspberryPi: "Select Raspberry Pi...",
       realTimeData: "Real-time Data",
       refresh: "Refresh",
+      scanNodes: "Scan Nodes",
       variables: "Variables",
       combine: "Combine",
 
@@ -835,6 +836,7 @@ const translations = {
         verdict: "{source} loses the most time: {hours} per day not producing (changeover {changeover}, trouble {trouble}, idle {idle}).",
         verdictGood: "No machine is losing significant time in this period.",
         legendProducing: "Producing",
+        legendInProgress: "In-Progress",
         legendBreak: "Break",
         legendTrouble: "Trouble",
         legendChangeover: "Changeover",
@@ -1058,6 +1060,9 @@ const translations = {
       },
 
       machine: {
+        timelineTitle: "Machine Timeline",
+        timelineDescription: "Chronological timeline of machine activity for the selected day.",
+        noTimelineData: "No timeline data available.",
         performanceTitle: "Machine source performance",
         performanceDesc: "Output, downtime, and defect rate by submitted source.",
         spotlightTitle: "Machine spotlight",
@@ -1427,6 +1432,7 @@ const translations = {
       selectRaspberryPi: "Raspberry Piを選択...",
       realTimeData: "リアルタイムデータ",
       refresh: "更新",
+      scanNodes: "ノードスキャン",
       variables: "変数",
       combine: "結合",
 
@@ -2036,6 +2042,7 @@ const translations = {
         verdict: "{source}が最も時間を失っています: 1日あたり{hours}が非生産時間（段替え{changeover}、トラブル{trouble}、待機{idle}）。",
         verdictGood: "この期間、大きな時間損失のある設備はありません。",
         legendProducing: "生産",
+        legendInProgress: "進行中",
         legendBreak: "休憩",
         legendTrouble: "トラブル",
         legendChangeover: "段替え",
@@ -2259,6 +2266,9 @@ const translations = {
       },
 
       machine: {
+        timelineTitle: "設備タイムライン",
+        timelineDescription: "選択した日付の設備の稼働状況の時系列タイムラインです。",
+        noTimelineData: "タイムラインデータがありません。",
         performanceTitle: "設備ソース別パフォーマンス",
         performanceDesc: "提出ソース別の生産量、ダウンタイム、不良率です。",
         spotlightTitle: "設備スポットライト",

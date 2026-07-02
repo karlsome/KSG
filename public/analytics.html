@@ -385,12 +385,15 @@
 
     <section id="analyticsPanelMachine" data-analytics-panel="machine" class="hidden space-y-6">
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.bottleneck.title">Bottleneck: where do the hours go?</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.bottleneck.description">Each bar is one machine's average day: green is producing, everything else is lost time. Gaps between records are counted as changeover when the product changed, otherwise as unlogged idle time.</p>
+        <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.machine.timelineTitle">Machine Timeline</h3>
+            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.machine.timelineDescription">Chronological timeline of machine activity for the selected day.</p>
+          </div>
+          <select id="analyticsMachineTimelineDateSelect" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm" onchange="renderAnalyticsMachineTimeline(analyticsData?.machineDaily, this.value)"></select>
         </div>
         <div id="analyticsMachineBottleneckVerdict" class="px-6 pt-4"></div>
-        <div id="analyticsMachineTimeLossChart" class="h-[380px] px-2 py-4"></div>
+        <div id="analyticsMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
       </section>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">

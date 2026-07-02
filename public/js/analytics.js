@@ -1412,6 +1412,7 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
 
 function renderAnalyticsMachineTab(data) {
   renderAnalyticsMachineTimeLoss(data.machineTimeLoss || []);
+  renderAnalyticsMachineTimeline(data.machineDaily || []);
   renderAnalyticsChangeoverTrend(data.changeoverTrend || null);
   renderAnalyticsOpcEvents(data.opcEvents || null);
 
@@ -2498,7 +2499,6 @@ function renderAnalyticsMachineTimeLoss(machineTimeLoss) {
 
   if (machines.length === 0) {
     if (verdictEl) verdictEl.innerHTML = '';
-    analyticsShowChartEmpty('analyticsMachineTimeLossChart', t('analytics.bottleneck.noData'));
     return;
   }
 
@@ -2523,30 +2523,237 @@ function renderAnalyticsMachineTimeLoss(machineTimeLoss) {
         </div>`;
     }
   }
+}
 
-  const perDay = (machine, value) => Math.round((value / Math.max(machine.days, 1)) * 100) / 100;
-  const ordered = machines.slice().reverse(); // Horizontal bars: worst on top
+function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
+  const container = document.getElementById('analyticsMachineTimelineContainer');
+  const dateSelect = document.getElementById('analyticsMachineTimelineDateSelect');
+  if (!container) return;
+
+  const machines = machineDaily || [];
+  
+  if (machines.length === 0) {
+    container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.bottleneck.noData'))}</div>`;
+    if (dateSelect) dateSelect.innerHTML = '';
+    return;
+  }
+
+  // Collect all unique dates across all machines
+  const allDates = new Set();
+  machines.forEach(machine => {
+    (machine.days || []).forEach(day => allDates.add(day.date));
+  });
+  const sortedDates = [...allDates].sort();
+
+  if (sortedDates.length === 0) {
+    container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.bottleneck.noData'))}</div>`;
+    if (dateSelect) dateSelect.innerHTML = '';
+    return;
+  }
+
+  // Determine the date to show
+  let targetDate = selectedDate;
+  if (!targetDate || !sortedDates.includes(targetDate)) {
+    const endDatePicker = document.getElementById('analyticsEndDate')?.value;
+    if (endDatePicker && sortedDates.includes(endDatePicker)) {
+      targetDate = endDatePicker;
+    } else {
+      targetDate = sortedDates[sortedDates.length - 1];
+    }
+  }
+
+  // Populate date dropdown
+  if (dateSelect) {
+    dateSelect.innerHTML = sortedDates.map(date => 
+      `<option value="${analyticsEscapeHtml(date)}" ${date === targetDate ? 'selected' : ''}>${analyticsEscapeHtml(date)}</option>`
+    ).join('');
+  }
+
+  const shiftStart = 8 * 60 + 30; // 08:30
+  const shiftEnd = 19 * 60; // 19:00
+  const span = shiftEnd - shiftStart;
+  const toPercent = minutes => Math.max(0, Math.min(100, ((minutes - shiftStart) / span) * 100));
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isToday = targetDate === todayStr;
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const showCurrentTimeLine = isToday && nowMins >= shiftStart && nowMins <= shiftEnd;
+
   const lgProducing = t('analytics.bottleneck.legendProducing');
+  const lgInProgress = t('analytics.bottleneck.legendInProgress');
   const lgBreak = t('analytics.bottleneck.legendBreak');
   const lgTrouble = t('analytics.bottleneck.legendTrouble');
   const lgChangeover = t('analytics.bottleneck.legendChangeover');
   const lgIdle = t('analytics.bottleneck.legendIdle');
 
-  analyticsRenderChart('analyticsMachineTimeLossChart', {
-    color: ['#10b981', '#94a3b8', '#ef4444', '#f59e0b', '#8b5cf6'],
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: [lgProducing, lgBreak, lgTrouble, lgChangeover, lgIdle] },
-    grid: { left: 40, right: 40, top: 40, bottom: 24, containLabel: true },
-    xAxis: { type: 'value', name: t('analytics.bottleneck.xAxisHoursPerDay'), splitLine: { lineStyle: { color: '#e2e8f0' } } },
-    yAxis: { type: 'category', data: ordered.map(machine => machine.source), axisTick: { show: false } },
-    series: [
-      { name: lgProducing, type: 'bar', stack: 'time', barMaxWidth: 26, data: ordered.map(machine => perDay(machine, machine.producingHours)) },
-      { name: lgBreak, type: 'bar', stack: 'time', data: ordered.map(machine => perDay(machine, machine.breakHours)) },
-      { name: lgTrouble, type: 'bar', stack: 'time', data: ordered.map(machine => perDay(machine, machine.troubleHours)) },
-      { name: lgChangeover, type: 'bar', stack: 'time', data: ordered.map(machine => perDay(machine, machine.changeoverHours)) },
-      { name: lgIdle, type: 'bar', stack: 'time', itemStyle: { borderRadius: [0, 8, 8, 0] }, data: ordered.map(machine => perDay(machine, machine.idleGapHours)) }
-    ]
+  let html = `
+    <div class="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-gray-600 mb-2">
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-emerald-400"></div>${analyticsEscapeHtml(lgProducing)}</div>
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-blue-400 animate-pulse"></div>${analyticsEscapeHtml(lgInProgress)}</div>
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-rose-400"></div>${analyticsEscapeHtml(lgTrouble)}</div>
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-purple-400"></div>${analyticsEscapeHtml(lgBreak)}</div>
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-amber-400"></div>${analyticsEscapeHtml(lgChangeover)}</div>
+      <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-gray-400"></div>${analyticsEscapeHtml(lgIdle)}</div>
+    </div>
+    <div class="space-y-4 relative pb-6">
+  `;
+
+  machines.forEach(machine => {
+    const dayData = (machine.days || []).find(d => d.date === targetDate);
+    const records = dayData ? dayData.records || [] : [];
+    
+    let segments = records.map(record => {
+      const start = analyticsParseClockMinutes(record.startTime);
+      let end = analyticsParseClockMinutes(record.endTime);
+      if (end < start) end += 24 * 60;
+      return { ...record, start, end };
+    }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+    // Keep each submission as its own separate bar (no merging)
+    // so admin can see independently submitted records
+    segments.forEach(seg => {
+      seg.operatorsList = Array.isArray(seg.operators) ? [...seg.operators] : [];
+    });
+
+    let blocksHtml = '';
+
+    const buildBlock = (colorClass, left, width, tooltipStr) => {
+      if (!tooltipStr) return `<div class="absolute top-0 bottom-0 rounded-md ${colorClass}" style="left:${left}%;width:${width}%"></div>`;
+      return `<div class="group absolute top-0 bottom-0 rounded-md ${colorClass} hover:brightness-110 transition-all cursor-pointer" style="left:${left}%;width:${width}%">
+        <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 w-max rounded bg-gray-800 px-3 py-2 text-left text-xs text-white shadow-lg opacity-0 transition-opacity duration-200 group-hover:delay-500 group-hover:opacity-100 whitespace-pre leading-relaxed">${analyticsEscapeHtml(tooltipStr)}</div>
+      </div>`;
+    };
+
+    if (segments.length === 0) {
+      blocksHtml += buildBlock('bg-gray-400', 0, 100, null);
+    } else {
+      let lastEnd = shiftStart;
+
+      segments.forEach((segment, index) => {
+        if (segment.start > lastEnd) {
+          if (index === 0) {
+            const left = toPercent(lastEnd);
+            const width = toPercent(segment.start) - left;
+            if (width > 0) blocksHtml += buildBlock('bg-gray-400', left, width, null);
+          } else {
+            const left = toPercent(lastEnd);
+            const width = toPercent(segment.start) - left;
+            const changeoverMins = segment.start - lastEnd;
+            const startStr = `${String(Math.floor(lastEnd/60)).padStart(2, '0')}:${String(lastEnd%60).padStart(2, '0')}`;
+            const endStr = `${String(Math.floor(segment.start/60)).padStart(2, '0')}:${String(segment.start%60).padStart(2, '0')}`;
+            
+            const prevSeg = segments[index - 1];
+            const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+            
+            const color = isSameHinban ? 'bg-gray-400' : 'bg-amber-400';
+            const label = isSameHinban ? lgIdle : lgChangeover;
+            const tooltipStr = `${label}: ${Math.round(changeoverMins)}m\nTime: ${startStr} - ${endStr}`;
+            
+            if (width > 0) blocksHtml += buildBlock(color, left, width, tooltipStr);
+          }
+        }
+
+        const segDuration = segment.end - segment.start;
+        const breakMins = (segment.breakTime || 0) * 60;
+        const troubleMins = (segment.troubleTime || 0) * 60;
+        const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
+        
+        const hasInterrupt = breakMins > 0 || troubleMins > 0;
+        const prod1 = hasInterrupt ? producingMins / 2 : producingMins;
+        const prod2 = hasInterrupt ? producingMins - prod1 : 0;
+
+        const buildTooltip = (name, mins, isProducing) => {
+          const durationStr = isProducing ? `${(mins / 60).toFixed(2)}h` : `${Math.round(mins)}m`;
+          const hinbanStr = segment.hinban || segment.productName || '-';
+          const kanbanStr = segment.kanbanId || '-';
+          const workerStr = (segment.operators || []).join(', ') || '-';
+          return `${name}: ${durationStr}\n品番: ${hinbanStr}\nKanban ID: ${kanbanStr}\nWorker: ${workerStr}\nTime: ${segment.startTime} - ${segment.endTime}`;
+        };
+        
+        let currentMins = segment.start;
+        
+        if (prod1 > 0) {
+          const left = toPercent(currentMins);
+          const width = toPercent(currentMins + prod1) - left;
+          const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
+          const name = segment.isInProgress ? lgInProgress : lgProducing;
+          blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true));
+          currentMins += prod1;
+        }
+        
+        if (troubleMins > 0) {
+          const left = toPercent(currentMins);
+          const width = toPercent(currentMins + troubleMins) - left;
+          blocksHtml += buildBlock('bg-rose-400', left, width, buildTooltip(lgTrouble, troubleMins, false));
+          currentMins += troubleMins;
+        }
+
+        if (breakMins > 0) {
+          const left = toPercent(currentMins);
+          const width = toPercent(currentMins + breakMins) - left;
+          blocksHtml += buildBlock('bg-purple-400', left, width, buildTooltip(lgBreak, breakMins, false));
+          currentMins += breakMins;
+        }
+
+        if (prod2 > 0) {
+          const left = toPercent(currentMins);
+          const width = toPercent(currentMins + prod2) - left;
+          const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
+          const name = segment.isInProgress ? lgInProgress : lgProducing;
+          blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true));
+          currentMins += prod2;
+        }
+        
+        lastEnd = Math.max(lastEnd, segment.end);
+      });
+
+      if (lastEnd < shiftEnd) {
+        const left = toPercent(lastEnd);
+        const width = toPercent(shiftEnd) - left;
+        if (width > 0) blocksHtml += buildBlock('bg-gray-400', left, width, null);
+      }
+    }
+
+    html += `
+      <div class="flex items-center gap-4">
+        <div class="w-24 md:w-32 flex-shrink-0 truncate text-right text-sm font-medium text-gray-700" title="${analyticsEscapeHtml(machine.source)}">
+          ${analyticsEscapeHtml(machine.source)}
+        </div>
+        <div class="relative h-6 flex-grow rounded-md bg-gray-100">
+          ${blocksHtml}
+          ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+        </div>
+      </div>
+    `;
   });
+
+  let ticksHtml = '';
+  const ticks = [8*60+30, 10*60, 12*60, 14*60, 16*60, 18*60, 19*60];
+  ticks.forEach(mins => {
+    const position = toPercent(mins);
+    const label = `${String(Math.floor((mins / 60) % 24)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    const translate = position < 2 ? '0' : position > 98 ? '-100%' : '-50%';
+    ticksHtml += `
+      <div class="absolute top-0 text-xs text-gray-400" style="left:${position}%; transform:translateX(${translate})">
+        <div class="mx-auto mb-1 h-1 w-px bg-gray-300"></div>
+        ${label}
+      </div>
+    `;
+  });
+
+  html += `
+      <div class="flex items-center gap-4 mt-2">
+        <div class="w-24 md:w-32 flex-shrink-0"></div>
+        <div class="relative h-6 flex-grow">
+          ${ticksHtml}
+          ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
 }
 
 // ------------------------------------------------------------

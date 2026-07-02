@@ -2820,6 +2820,126 @@ function computeSubmittedDBOperatorDaily(records = []) {
         .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
+function computeSubmittedDBMachineDaily(records = [], liveSessions = []) {
+    const machineMap = new Map();
+
+    records.forEach(record => {
+        const source = String(record.submitted_from ?? '').trim();
+        if (!source) return;
+
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defects = getSubmittedDBRecordDefects(record);
+        const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+        const productName = String(record.product_name ?? '').trim();
+        const hinban = String(record.hinban ?? '').trim();
+        const operators = getSubmittedDBRecordOperators(record);
+
+        const recordRow = {
+            startTime: String(record.start_time ?? '').trim(),
+            endTime: String(record.end_time ?? '').trim(),
+            source,
+            productName,
+            hinban,
+            kanbanId: String(record.kanban_id ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            goodCount,
+            defectCount: totalDefects,
+            breakTime: Number(record.break_time ?? 0) || 0,
+            troubleTime: Number(record.trouble_time ?? 0) || 0,
+            manHours: Number(record.man_hours ?? 0) || 0,
+            operators,
+            remarks: String(record.remarks ?? '').trim()
+        };
+
+        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        const dayEntry = machineEntry.dayMap.get(dateInfo.key) || {
+            date: dateInfo.key,
+            label: dateInfo.label,
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            manHours: 0,
+            products: new Set(),
+            records: []
+        };
+
+        dayEntry.submissions += 1;
+        dayEntry.goodCount += goodCount;
+        dayEntry.defectCount += totalDefects;
+        dayEntry.breakTime += recordRow.breakTime;
+        dayEntry.troubleTime += recordRow.troubleTime;
+        dayEntry.manHours += recordRow.manHours;
+        if (productName || hinban) dayEntry.products.add(productName || hinban);
+        dayEntry.records.push(recordRow);
+
+        machineEntry.dayMap.set(dateInfo.key, dayEntry);
+        machineMap.set(source, machineEntry);
+    });
+
+    liveSessions.forEach(session => {
+        const source = String(session.source ?? '').trim();
+        if (!source) return;
+
+        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        
+        const dayEntry = machineEntry.dayMap.get(todayKey) || {
+            date: todayKey,
+            label: `${now.getMonth()+1}/${now.getDate()}`,
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            manHours: 0,
+            products: new Set(),
+            records: []
+        };
+
+        dayEntry.records.push({
+            startTime: String(session.startTime ?? '').trim(),
+            endTime: String(session.endTime ?? '').trim(),
+            source,
+            productName: String(session.productName ?? '').trim(),
+            hinban: String(session.hinban ?? '').trim(),
+            kanbanId: String(session.kanbanId ?? '').trim(),
+            lhRh: '',
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: Number(session.breakTime ?? 0) || 0,
+            troubleTime: Number(session.troubleTime ?? 0) || 0,
+            manHours: 0,
+            operators: session.operators || [],
+            remarks: '',
+            isInProgress: session.isInProgress
+        });
+
+        if (session.productName || session.hinban) dayEntry.products.add(session.productName || session.hinban);
+        
+        machineEntry.dayMap.set(todayKey, dayEntry);
+        machineMap.set(source, machineEntry);
+    });
+
+    return [...machineMap.values()]
+        .map(machineEntry => ({
+            source: machineEntry.source,
+            days: [...machineEntry.dayMap.values()]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(day => ({
+                    ...day,
+                    products: [...day.products],
+                    defectRate: getSubmittedDBDefectRate(day.goodCount, day.defectCount),
+                    records: day.records.sort((a, b) => a.startTime.localeCompare(b.startTime))
+                }))
+        }))
+        .sort((a, b) => a.source.localeCompare(b.source, 'ja'));
+}
+
 // Worker-vs-worker efficiency on the same product (fair comparison because
 // the product, and therefore the cycle time, is held constant).
 function computeSubmittedDBProductWorkerComparison(records = []) {
@@ -3966,6 +4086,45 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
 
         const machineTimeLoss = computeSubmittedDBMachineTimeLoss(records);
         const operatorDaily = computeSubmittedDBOperatorDaily(records);
+
+        // Fetch active tablet sessions for machine timeline
+        let liveSessions = [];
+        try {
+            const sessions = await db.collection(TABLET_ACTIVE_SESSION_COLLECTION).find({}).toArray();
+            if (sessions.length > 0) {
+                const tablets = await db.collection('tabletDB').find({}).toArray();
+                const tabletMap = new Map();
+                tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
+                const now = new Date();
+                liveSessions = sessions.map(session => {
+                    const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+                    if (!workStartTime) return null;
+                    let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+                    let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+                    const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+                    if (session.breakActive && breakStartTime) breakMins += Math.max(0, (now.getTime() - breakStartTime.getTime()) / 60000);
+                    const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+                    if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
+
+                    return {
+                        source: tabletMap.get(session.tabletName) || session.tabletName,
+                        startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
+                        endTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+                        breakTime: breakMins / 60,
+                        troubleTime: troubleMins / 60,
+                        hinban: session.hinban,
+                        productName: session.productName,
+                        kanbanId: session.kanbanId,
+                        operators: normalizeMachineStatusStringList(session.operators),
+                        isInProgress: true
+                    };
+                }).filter(Boolean);
+            }
+        } catch (e) {
+            console.error("Failed to fetch live sessions for analytics:", e);
+        }
+
+        const machineDaily = computeSubmittedDBMachineDaily(records, liveSessions);
         const productWorkerComparison = computeSubmittedDBProductWorkerComparison(records);
         const defectMatrix = computeSubmittedDBDefectMatrix(records);
         const changeoverTrend = computeSubmittedDBChangeoverTrend(records);
@@ -4046,6 +4205,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             operatorFocus,
             operatorSkillProfile,
             operatorDaily,
+            machineDaily,
             machineTimeLoss,
             productWorkerComparison,
             defectMatrix,
