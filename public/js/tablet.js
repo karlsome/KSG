@@ -1998,7 +1998,10 @@ function updateWorkCount() {
   // Update inline work count in defect card header
   const inlineWorkCount = document.getElementById('inlineWorkCount');
   if (inlineWorkCount) {
-    inlineWorkCount.textContent = workCountInput.value;
+    if (inlineWorkCount.textContent !== workCountInput.value) {
+      inlineWorkCount.textContent = workCountInput.value;
+      if (typeof triggerValuePop === 'function') triggerValuePop(inlineWorkCount);
+    }
   }
   
   // Update pass count whenever work count changes
@@ -2759,7 +2762,10 @@ function updateDefectSum() {
   
   const defectSumDisplay = document.getElementById('defectSum');
   if (defectSumDisplay) {
-    defectSumDisplay.textContent = total;
+    if (defectSumDisplay.textContent !== String(total)) {
+      defectSumDisplay.textContent = total;
+      if (typeof triggerValuePop === 'function') triggerValuePop(defectSumDisplay);
+    }
   }
   
   console.log('🔴 Total defects (countUp only):', total);
@@ -2823,7 +2829,10 @@ function updatePassCount() {
   // Update inline pass count in defect card header
   const inlinePassCount = document.getElementById('inlinePassCount');
   if (inlinePassCount) {
-    inlinePassCount.textContent = passCount;
+    if (inlinePassCount.textContent !== String(passCount)) {
+      inlinePassCount.textContent = passCount;
+      if (typeof triggerValuePop === 'function') triggerValuePop(inlinePassCount);
+    }
   }
 
   if (hasActiveTabletSession()) {
@@ -2936,4 +2945,15 @@ function attachNGButtonListeners() {
       }
     });
   });
+}
+
+// Trigger a CSS animation to draw the eye to updated numbers
+function triggerValuePop(element) {
+  if (!element) return;
+  element.classList.remove('value-changed');
+  void element.offsetWidth; // trigger reflow
+  element.classList.add('value-changed');
+  setTimeout(() => {
+    if (element) element.classList.remove('value-changed');
+  }, 400);
 }

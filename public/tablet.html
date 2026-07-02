@@ -929,6 +929,17 @@
         transform: translateY(-100%);
       }
     }
+
+    @keyframes value-pop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.4); color: #ff9800; }
+      100% { transform: scale(1); }
+    }
+
+    .value-changed {
+      animation: value-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
