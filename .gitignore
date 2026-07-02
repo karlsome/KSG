@@ -45,3 +45,7 @@ offline_functions.json
 # Temporary files
 *.tmp
 *.temp
+
+# Python bytecode
+__pycache__/
+*.pyc
