@@ -63,6 +63,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress internal opcua library errors (like BrokenPipeError stack traces on disconnects)
+logging.getLogger("opcua").setLevel(logging.CRITICAL)
+
+import threading
+
+# Catch unhandled exceptions in background threads (e.g. from the OPC UA library)
+# to prevent scary stack traces from filling up the systemctl status when the machine disconnects.
+_original_excepthook = getattr(threading, 'excepthook', None)
+def custom_thread_excepthook(args):
+    if issubclass(args.exc_type, (BrokenPipeError, ConnectionError, TimeoutError, OSError)):
+        pass  # Silently ignore broken pipe errors in background threads
+    elif _original_excepthook:
+        _original_excepthook(args)
+        
+if hasattr(threading, 'excepthook'):
+    threading.excepthook = custom_thread_excepthook
+
 # ==========================================
 # GLOBAL VARIABLES
 # ==========================================
@@ -88,6 +105,7 @@ websocket_connected = False
 pending_discovered_nodes = None
 pending_data_queue = []
 device_info_uploaded = False  # Track if device info has been uploaded
+manual_scan_requested = False
 
 # Event logging configuration
 EVENT_BUFFER_MAX = 1000  # Maximum events in buffer
@@ -399,8 +417,9 @@ def raspberry_status_update(data):
 @sio.event
 def trigger_node_scan(data):
     """Triggered by admin UI to scan for new nodes immediately"""
+    global manual_scan_requested
     logger.info("🔔 Manual node scan triggered by admin")
-    threading.Thread(target=save_discovered_nodes, daemon=True).start()
+    manual_scan_requested = True
 
 def start_websocket():
     """Start WebSocket connection in background thread"""
@@ -1101,7 +1120,7 @@ def save_discovered_nodes():
 
 def main_loop():
     """Main monitoring loop"""
-    global last_heartbeat, last_config_fetch
+    global last_heartbeat, last_config_fetch, subscription, subscription_handles
     
     logger.info("=" * 60)
     logger.info("🏭 OPC UA Monitoring Client Starting")
@@ -1198,6 +1217,24 @@ def main_loop():
             if pending_discovered_nodes and (current_time - last_config_fetch) > 60:
                 logger.info("🔄 Retrying pending discovered nodes upload...")
                 save_discovered_nodes()
+            
+            # Perform manual scan if requested
+            global manual_scan_requested
+            if manual_scan_requested:
+                logger.info("🔍 Running requested manual node discovery...")
+                
+                # Full disconnect + reconnect to get a clean socket for discovery
+                # Just deleting subscriptions corrupts the socket, so we need a fresh connection
+                disconnect_opcua()
+                
+                if connect_opcua():
+                    logger.info("✅ Fresh OPC UA connection established for discovery")
+                    save_discovered_nodes()
+                    setup_subscriptions()
+                else:
+                    logger.error("❌ Could not reconnect to OPC UA for manual scan")
+                
+                manual_scan_requested = False
             
             # Periodic connection health check
             global last_connection_check
