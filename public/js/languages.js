@@ -674,6 +674,11 @@ const translations = {
       refresh: "Refresh",
       refreshing: "Refreshing...",
 
+      timelineSummary: {
+        title: "Machine Daily Summary",
+        efficiency: "Efficiency"
+      },
+
       filters: {
         startDate: "Start date",
         endDate: "End date",
@@ -1879,6 +1884,11 @@ const translations = {
       lastUpdated: "最終更新：",
       refresh: "更新",
       refreshing: "更新中...",
+
+      timelineSummary: {
+        title: "設備の日別サマリー",
+        efficiency: "稼働率"
+      },
 
       filters: {
         startDate: "開始日",

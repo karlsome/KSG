@@ -752,6 +752,13 @@
             </div>
           </section>
 
+          <section class="mt-6 mb-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900">${dashboardText('machineTimeline') || 'Machine Timeline'}</h3>
+            </div>
+            <div id="dashboardMachineBottleneckVerdict" class="px-6 pt-4"></div>
+            <div id="dashboardMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
+          </section>
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div class="space-y-6 xl:col-span-2">
               <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -1054,6 +1061,158 @@
             </tbody>
           </table>
         </div>`;
+    }
+
+    function dashboardParseClockMinutes(timeStr) {
+      if (!timeStr) return null;
+      const parts = timeStr.split(':');
+      if (parts.length < 2) return null;
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      if (isNaN(hours) || isNaN(minutes)) return null;
+      return hours * 60 + minutes;
+    }
+
+    function renderDashboardMachineTimeline(machineDaily) {
+      const container = document.getElementById('dashboardMachineTimelineContainer');
+      if (!container) return;
+
+      const machines = machineDaily || [];
+      if (machines.length === 0) {
+        container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${escapeDashboardHtml(dashboardText('noData') || 'No data')}</div>`;
+        return;
+      }
+
+      const now = new Date();
+      const targetDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const shiftStart = 8 * 60 + 30; // 08:30
+      const shiftEnd = 19 * 60; // 19:00
+      const span = shiftEnd - shiftStart;
+      const toPercent = minutes => Math.max(0, Math.min(100, ((minutes - shiftStart) / span) * 100));
+
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const showCurrentTimeLine = nowMins >= shiftStart && nowMins <= shiftEnd;
+
+      let html = `
+        <div class="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-gray-600 mb-2">
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-emerald-400"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendProducing') || 'Producing')}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-blue-400 animate-pulse"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendInProgress') || 'In Progress')}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-rose-400"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble') || 'Trouble')}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-purple-400"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendBreak') || 'Break')}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-amber-400"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover') || 'Changeover')}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-gray-400"></div>${escapeDashboardHtml(t('analytics.bottleneck.legendIdle') || 'Idle')}</div>
+        </div>
+        <div class="space-y-4 relative pb-6">
+      `;
+
+      machines.forEach(machine => {
+        const dayData = (machine.days || []).find(d => d.date === targetDate);
+        const records = dayData ? dayData.records || [] : [];
+        
+        let segments = records.map(record => {
+          const start = dashboardParseClockMinutes(record.startTime);
+          let end = dashboardParseClockMinutes(record.endTime);
+          if (end < start) end += 24 * 60;
+          return { ...record, start, end };
+        }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+        let blocksHtml = '';
+        let lastEnd = shiftStart;
+
+        segments.forEach((segment, index) => {
+          if (segment.start > lastEnd) {
+            if (index === 0) {
+              const pStart = toPercent(lastEnd);
+              const pWidth = toPercent(segment.start) - pStart;
+              if (pWidth > 0.5) blocksHtml += `<div class="absolute top-0 bottom-0 bg-gray-400 opacity-60 rounded-sm" style="left:${pStart}%;width:${pWidth}%;"></div>`;
+            } else {
+              const gap = segment.start - lastEnd;
+              const prevSeg = segments[index - 1];
+              const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+              const pStart = toPercent(lastEnd);
+              const pWidth = toPercent(segment.start) - pStart;
+              if (pWidth > 0.5) {
+                blocksHtml += `<div class="absolute top-0 bottom-0 ${isSameHinban ? 'bg-gray-400 opacity-60' : 'bg-amber-400'} rounded-sm" style="left:${pStart}%;width:${pWidth}%;"></div>`;
+              }
+            }
+          }
+
+          const pStart = toPercent(segment.start);
+          const pWidth = Math.max(0.5, toPercent(segment.end) - pStart);
+          
+          let segColor = 'bg-emerald-400';
+          if (segment.isGenerating) {
+            segColor = 'bg-blue-400 animate-pulse';
+            if (segment.troubleActive) segColor = 'bg-rose-400';
+            else if (segment.breakActive) segColor = 'bg-purple-400';
+          } else {
+            const hasTrouble = segment.troubleTime && segment.troubleTime > 0;
+            const hasBreak = segment.breakTime && segment.breakTime > 0;
+            
+            if (hasTrouble && !hasBreak) segColor = 'bg-rose-400';
+            else if (hasBreak && !hasTrouble) segColor = 'bg-purple-400';
+            else if (hasTrouble && hasBreak) {
+              segColor = 'bg-gradient-to-r from-rose-400 to-purple-400';
+            }
+          }
+
+          const tooltipText = `${segment.productName || '—'}\n${segment.startTime} - ${segment.endTime}`;
+
+          blocksHtml += `<div class="absolute top-0 bottom-0 ${segColor} rounded-sm cursor-pointer hover:ring-2 hover:ring-white transition-shadow" style="left:${pStart}%;width:${pWidth}%;" title="${escapeDashboardHtml(tooltipText)}"></div>`;
+
+          lastEnd = Math.max(lastEnd, segment.end);
+        });
+
+        if (lastEnd < shiftEnd) {
+          const pStart = toPercent(lastEnd);
+          const pWidth = 100 - pStart;
+          if (pWidth > 0.5) {
+            blocksHtml += `<div class="absolute top-0 bottom-0 bg-gray-400 opacity-60 rounded-sm" style="left:${pStart}%;width:${pWidth}%;"></div>`;
+          }
+        }
+
+        html += `
+          <div class="flex items-center gap-4 group">
+            <div class="w-24 md:w-32 flex-shrink-0 text-right">
+              <div class="text-sm font-medium text-gray-900 truncate" title="${escapeDashboardHtml(machine.source)}">${escapeDashboardHtml(machine.source)}</div>
+            </div>
+            <div class="relative h-6 flex-grow bg-gray-100 rounded-md overflow-hidden">
+              ${blocksHtml}
+            </div>
+          </div>
+        `;
+      });
+
+      const tickCount = 10;
+      let ticksHtml = '';
+      for (let i = 0; i <= tickCount; i++) {
+        const p = (i / tickCount) * 100;
+        const totalMins = shiftStart + (span * (i / tickCount));
+        const hr = Math.floor(totalMins / 60);
+        const mn = Math.round(totalMins % 60);
+        const label = String(hr).padStart(2, '0') + ':' + String(mn).padStart(2, '0');
+        
+        ticksHtml += `
+          <div class="absolute top-0 bottom-0 w-px bg-gray-200" style="left:${p}%"></div>
+          <div class="absolute -bottom-5 text-[10px] text-gray-400 transform -translate-x-1/2" style="left:${p}%">
+            ${label}
+          </div>
+        `;
+      }
+
+      html += `
+          <div class="flex items-center gap-4 mt-2">
+            <div class="w-24 md:w-32 flex-shrink-0"></div>
+            <div class="relative h-6 flex-grow">
+              ${ticksHtml}
+              ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
     }
 
     async function openDashboardSubmissionDetail(recordId) {
@@ -1692,6 +1851,7 @@
       renderDashboardTopOperators(data.topOperators || []);
       renderDashboardWorkerHours(data.workerHoursToday || []);
       renderDashboardMachineStatusTable(data.machineStatus || [], data.machineStatusGeneratedAt || data.generatedAt || '');
+      renderDashboardMachineTimeline(data.machineDaily || []);
     }
 
     async function loadAdminDashboard() {

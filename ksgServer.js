@@ -4635,7 +4635,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             topProducts,
             topOperators,
             workerHoursToday,
-            dailyTrend: last7Days.map(day => trendMap.get(day.key))
+            dailyTrend: last7Days.map(day => trendMap.get(day.key)),
+            machineDaily: computeSubmittedDBMachineDaily(todayRecords, sessionRecords)
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);

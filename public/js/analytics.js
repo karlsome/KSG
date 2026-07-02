@@ -2754,6 +2754,119 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
   `;
 
   container.innerHTML = html;
+  
+  renderAnalyticsMachineTimelineSummary(machines, targetDate);
+}
+
+function renderAnalyticsMachineTimelineSummary(machines, targetDate) {
+  const summaryContainer = document.getElementById('analyticsMachineTimelineSummary');
+  if (!summaryContainer) return;
+
+  if (!machines || machines.length === 0) {
+    summaryContainer.innerHTML = '';
+    return;
+  }
+
+  const shiftStart = 8 * 60 + 30; // 08:30
+  const shiftEnd = 19 * 60; // 19:00
+  const totalShiftMins = shiftEnd - shiftStart;
+
+  let cardsHtml = '';
+
+  machines.forEach(machine => {
+    const dayData = (machine.days || []).find(d => d.date === targetDate);
+    const records = dayData ? dayData.records || [] : [];
+    
+    let segments = records.map(record => {
+      const start = analyticsParseClockMinutes(record.startTime);
+      let end = analyticsParseClockMinutes(record.endTime);
+      if (end < start) end += 24 * 60;
+      return { ...record, start, end };
+    }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+    let totalProducing = 0;
+    let totalTrouble = 0;
+    let totalBreak = 0;
+    let totalChangeover = 0;
+    let totalIdle = 0;
+
+    if (segments.length === 0) {
+      totalIdle = totalShiftMins;
+    } else {
+      let lastEnd = shiftStart;
+
+      segments.forEach((segment, index) => {
+        if (segment.start > lastEnd) {
+          if (index === 0) {
+            totalIdle += (segment.start - lastEnd);
+          } else {
+            const gap = segment.start - lastEnd;
+            const prevSeg = segments[index - 1];
+            const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+            if (isSameHinban) {
+              totalIdle += gap;
+            } else {
+              totalChangeover += gap;
+            }
+          }
+        }
+
+        const segDuration = segment.end - segment.start;
+        const breakMins = (segment.breakTime || 0) * 60;
+        const troubleMins = (segment.troubleTime || 0) * 60;
+        const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
+
+        totalProducing += producingMins;
+        totalBreak += breakMins;
+        totalTrouble += troubleMins;
+
+        lastEnd = Math.max(lastEnd, segment.end);
+      });
+
+      if (lastEnd < shiftEnd) {
+        totalIdle += (shiftEnd - lastEnd);
+      }
+    }
+
+    const efficiency = totalShiftMins > 0 ? (totalProducing / totalShiftMins) * 100 : 0;
+    
+    // Add stats card for this machine
+    cardsHtml += `
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${analyticsEscapeHtml(machine.source)}">${analyticsEscapeHtml(machine.source)}</h4>
+        
+        <div class="space-y-3">
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}</span>
+            <span class="font-medium text-emerald-600">${efficiency.toFixed(1)}%</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendProducing'))}</span>
+            <span class="font-medium text-gray-900">${analyticsFormatHours(totalProducing / 60)}</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendIdle'))}</span>
+            <span class="font-medium text-gray-900">${Math.round(totalIdle)}m</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendChangeover'))}</span>
+            <span class="font-medium text-gray-900">${Math.round(totalChangeover)}m</span>
+          </div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendTrouble'))}</span>
+            <span class="font-medium text-rose-600">${Math.round(totalTrouble)}m</span>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  summaryContainer.innerHTML = `
+    <h3 class="text-sm font-medium text-gray-700 mb-4">${analyticsEscapeHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      ${cardsHtml}
+    </div>
+  `;
 }
 
 // ------------------------------------------------------------
