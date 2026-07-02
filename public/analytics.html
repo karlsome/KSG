@@ -54,6 +54,25 @@
       letter-spacing: 0;
       text-transform: none;
     }
+
+    /* Print mode: isolate the worker report card (one A4 per worker/month) */
+    @media print {
+      body.analytics-printing-worker * {
+        visibility: hidden;
+      }
+      body.analytics-printing-worker #analyticsWorkerReportCard,
+      body.analytics-printing-worker #analyticsWorkerReportCard * {
+        visibility: visible;
+      }
+      body.analytics-printing-worker #analyticsWorkerReportCard {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        border: none;
+        box-shadow: none;
+      }
+    }
   </style>
 
   <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -209,11 +228,17 @@
         <i class="ri-box-3-line"></i>
         <span data-i18n="analytics.tabs.product">Product</span>
       </button>
+      <button type="button" id="analyticsFinanceTabButton" data-analytics-tab="finance" onclick="setAnalyticsTab('finance')" class="analytics-tab-btn hidden items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+        <i class="ri-money-cny-circle-line"></i>
+        <span data-i18n="analytics.tabs.finance">Finance</span>
+      </button>
     </div>
   </section>
 
   <div class="space-y-6">
     <section id="analyticsPanelOverview" data-analytics-panel="overview" class="space-y-6">
+      <div id="analyticsWeeklyDigest" class="hidden rounded-2xl border border-slate-100 bg-slate-50 px-5 py-4 text-sm leading-relaxed text-slate-700"></div>
+
       <div id="analyticsOverviewHighlights" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)]">
@@ -236,62 +261,153 @@
     </section>
 
     <section id="analyticsPanelWorker" data-analytics-panel="worker" class="hidden space-y-6">
-      <div class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900" data-i18n="analytics.worker.sharedNote">
-        Shared records split output and defect counts evenly across listed operators. Time-based metrics use full participation hours for each worker, and shift-normalized views follow the admin-configured shift window.
-      </div>
-
-      <div id="analyticsWorkerSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
-
-      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <section id="analyticsWorkerReportCard" class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.productivityTitle">Productivity</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.productivityDesc">Rank workers by average output per configured shift and compare how much output they generate per active hour.</p>
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.workerFocus.title">Worker report</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.workerFocus.description">Pick a worker and a day or month to see how they did.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="analyticsWorkerFocusSelect" onchange="handleAnalyticsWorkerFocusChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700"></select>
+              <div class="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1" id="analyticsWorkerViewButtons">
+                <button type="button" data-worker-view="daily" onclick="setAnalyticsWorkerView('daily')" class="rounded-lg px-4 py-1.5 text-sm font-medium transition" data-i18n="analytics.workerFocus.viewDaily">Daily</button>
+                <button type="button" data-worker-view="monthly" onclick="setAnalyticsWorkerView('monthly')" class="rounded-lg px-4 py-1.5 text-sm font-medium transition" data-i18n="analytics.workerFocus.viewMonthly">Monthly</button>
+              </div>
+              <input id="analyticsWorkerFocusDate" type="date" onchange="handleAnalyticsWorkerFocusChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+              <input id="analyticsWorkerFocusMonth" type="month" onchange="handleAnalyticsWorkerFocusChange()" class="hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+              <button type="button" onclick="analyticsPrintWorkerReport()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+                <i class="ri-printer-line"></i>
+                <span data-i18n="analytics.workerFocus.printReport">Print</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <div id="analyticsWorkerProductivityChart" class="h-[360px] px-2 py-4"></div>
+        <div class="space-y-5 px-6 py-5" id="analyticsWorkerReportBody">
+          <div id="analyticsWorkerInsight" class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"></div>
+          <div id="analyticsWorkerScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"></div>
+          <div id="analyticsWorkerDailySection">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.timelineTitle">Day timeline</p>
+            <div id="analyticsWorkerDayTimeline"></div>
+          </div>
+          <div id="analyticsWorkerMonthlySection" class="hidden space-y-5">
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.calendarTitle">Month at a glance (click a day for details)</p>
+              <div id="analyticsWorkerCalendar"></div>
+            </div>
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.monthTrendTitle">Daily output this month</p>
+              <div id="analyticsWorkerMonthChart" class="h-[300px]"></div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.qualityTitle">Quality</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.qualityDesc">See which workers accumulate the most attributed defects and where defect rate is persistently high.</p>
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.workerFocus.attentionTitle">Who needs attention</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.workerFocus.attentionDesc">Workers with the strongest warning signals in the selected date range.</p>
         </div>
-        <div id="analyticsWorkerQualityChart" class="h-[360px] px-2 py-4"></div>
+        <div id="analyticsWorkerAttention" class="p-6"></div>
       </section>
 
-      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.efficiencyTitle">Time Efficiency</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.efficiencyDesc">Track downtime behavior with break time, trouble time, and how much of each configured shift is actually occupied by work.</p>
-        </div>
-        <div id="analyticsWorkerEfficiencyChart" class="h-[360px] px-2 py-4"></div>
-      </section>
+      <details class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" ontoggle="analyticsResizeChartsSoon()">
+        <summary class="cursor-pointer select-none px-6 py-4 text-sm font-medium text-gray-600 hover:bg-gray-50">
+          <span data-i18n="analytics.workerFocus.recordsDetails">Show work records (detail)</span>
+        </summary>
+        <div id="analyticsWorkerFocusTable" class="overflow-x-auto border-t border-gray-100"></div>
+      </details>
 
-      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.consistencyTitle">Consistency Over Time</h3>
-          <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSelectText">Auto-selecting the busiest worker in the current filter.</p>
-        </div>
-        <div id="analyticsWorkerConsistencyChart" class="h-[380px] px-2 py-4"></div>
-      </section>
+      <details class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" ontoggle="analyticsResizeChartsSoon()">
+        <summary class="cursor-pointer select-none px-6 py-4 text-sm font-medium text-gray-600 hover:bg-gray-50">
+          <span data-i18n="analytics.workerFocus.teamDetails">Show team comparison charts (advanced)</span>
+        </summary>
+        <div class="space-y-6 border-t border-gray-100 p-4">
+          <div class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900" data-i18n="analytics.worker.sharedNote">
+            Shared records split output and defect counts evenly across listed operators. Time-based metrics use full participation hours for each worker, and shift-normalized views follow the admin-configured shift window.
+          </div>
 
-      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.skillTitle">Skill Fit</h3>
-          <p id="analyticsOperatorSkillMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSkillText">Comparing the focused worker against the same machine and product contexts.</p>
-        </div>
-        <div id="analyticsWorkerSkillChart" class="h-[420px] px-2 py-4"></div>
-      </section>
+          <div id="analyticsWorkerSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
-      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.leaderboardTitle">Worker leaderboard</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.leaderboardDesc">Use this table to compare attributed output, shared-work mix, downtime, and defect pressure.</p>
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.productivityTitle">Productivity</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.productivityDesc">Rank workers by average output per configured shift and compare how much output they generate per active hour.</p>
+            </div>
+            <div id="analyticsWorkerProductivityChart" class="h-[360px] px-2 py-4"></div>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.qualityTitle">Quality</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.qualityDesc">See which workers accumulate the most attributed defects and where defect rate is persistently high.</p>
+            </div>
+            <div id="analyticsWorkerQualityChart" class="h-[360px] px-2 py-4"></div>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.efficiencyTitle">Time Efficiency</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.efficiencyDesc">Track downtime behavior with break time, trouble time, and how much of each configured shift is actually occupied by work.</p>
+            </div>
+            <div id="analyticsWorkerEfficiencyChart" class="h-[360px] px-2 py-4"></div>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.consistencyTitle">Consistency Over Time</h3>
+              <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSelectText">Auto-selecting the busiest worker in the current filter.</p>
+            </div>
+            <div id="analyticsWorkerConsistencyChart" class="h-[380px] px-2 py-4"></div>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.skillTitle">Skill Fit</h3>
+              <p id="analyticsOperatorSkillMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSkillText">Comparing the focused worker against the same machine and product contexts.</p>
+            </div>
+            <div id="analyticsWorkerSkillChart" class="h-[420px] px-2 py-4"></div>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.leaderboardTitle">Worker leaderboard</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.worker.leaderboardDesc">Use this table to compare attributed output, shared-work mix, downtime, and defect pressure.</p>
+            </div>
+            <div id="analyticsWorkerTable" class="overflow-x-auto"></div>
+          </section>
         </div>
-        <div id="analyticsWorkerTable" class="overflow-x-auto"></div>
-      </section>
+      </details>
     </section>
 
     <section id="analyticsPanelMachine" data-analytics-panel="machine" class="hidden space-y-6">
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.bottleneck.title">Bottleneck: where do the hours go?</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.bottleneck.description">Each bar is one machine's average day: green is producing, everything else is lost time. Gaps between records are counted as changeover when the product changed, otherwise as unlogged idle time.</p>
+        </div>
+        <div id="analyticsMachineBottleneckVerdict" class="px-6 pt-4"></div>
+        <div id="analyticsMachineTimeLossChart" class="h-[380px] px-2 py-4"></div>
+      </section>
+
+      <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.changeover.title">Changeover time trend</h3>
+            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.changeover.description">Average minutes per changeover, by week. A falling line means changeovers are getting faster.</p>
+          </div>
+          <div id="analyticsChangeoverTrendChart" class="h-[320px] px-2 py-4"></div>
+        </section>
+
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div class="border-b border-gray-100 px-6 py-4">
+            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.opcEvents.title">OPC monitoring outages</h3>
+            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.opcEvents.description">Days when the OPC data connection dropped. On these days, "idle" time on the bottleneck chart may actually be missing data, not a stopped machine.</p>
+          </div>
+          <div id="analyticsOpcEventsCard" class="p-6"></div>
+        </section>
+      </div>
+
       <div id="analyticsMachineSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
@@ -324,6 +440,22 @@
     <section id="analyticsPanelQuality" data-analytics-panel="quality" class="hidden space-y-6">
       <div id="analyticsQualitySummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.quality.heatmapTitle">Which defect happens on which product</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.quality.heatmapDesc">Darker cells mean more defects of that type on that product. Read across a row to see a product's weak points.</p>
+        </div>
+        <div id="analyticsDefectHeatmap" class="h-[420px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.quality.controlTitle">Is the defect rate under control?</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.quality.controlDesc">The grey band is the normal range (average ±2σ). Days above the band are real signals worth investigating — not everyday noise.</p>
+        </div>
+        <div id="analyticsDefectControlChart" class="h-[320px] px-2 py-4"></div>
+      </section>
+
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
         <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
           <div class="border-b border-gray-100 px-6 py-4">
@@ -354,6 +486,36 @@
     </section>
 
     <section id="analyticsPanelProduct" data-analytics-panel="product" class="hidden space-y-6">
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.productDetail.title">Product report</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.productDetail.description">Pick a product to see its photo, pace history, quality breakdown, and who makes it.</p>
+            </div>
+            <select id="analyticsProductDetailSelect" onchange="handleAnalyticsProductDetailChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700"></select>
+          </div>
+        </div>
+        <div class="space-y-5 px-6 py-5">
+          <div id="analyticsProductDetailHeader"></div>
+          <div id="analyticsProductDetailScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"></div>
+          <div>
+            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.paceTitle">Pace history (minutes per piece — lower is faster)</p>
+            <div id="analyticsProductPaceChart" class="h-[300px]"></div>
+          </div>
+          <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.defectsTitle">Defects on this product</p>
+              <div id="analyticsProductDefectBars"></div>
+            </div>
+            <div>
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.peopleTitle">Made by</p>
+              <div id="analyticsProductPeople"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div id="analyticsProductSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,1fr)]">
@@ -376,11 +538,80 @@
 
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.productCompare.title">Worker comparison on the same product</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.productCompare.description">Fairest efficiency comparison: same product, same cycle time. Bars show pieces per hour; the dashed line is the all-worker average. Green = low defect rate, amber = watch, red = high.</p>
+            </div>
+            <select id="analyticsProductCompareSelect" onchange="handleAnalyticsProductCompareChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700"></select>
+          </div>
+        </div>
+        <div id="analyticsProductWorkerChart" class="h-[380px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
           <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.product.tableTitle">Product table</h3>
           <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.product.tableDesc">Throughput, quality, and cycle-time summary by product.</p>
         </div>
         <div id="analyticsProductTable" class="overflow-x-auto"></div>
       </section>
+    </section>
+
+    <section id="analyticsPanelFinance" data-analytics-panel="finance" class="hidden space-y-6">
+      <div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-900" data-i18n="analytics.finance.note">
+        Money values use gross profit per piece from the master data. Defect loss is lost profit (not full scrap cost). Products without a price are excluded from totals — see the list below to fill them in.
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm" id="analyticsFinanceScopeButtons">
+          <button type="button" data-finance-scope="today" onclick="setAnalyticsFinanceScope('today')" class="rounded-lg px-5 py-2 text-sm font-medium transition" data-i18n="analytics.finance.scopeToday">Today</button>
+          <button type="button" data-finance-scope="month" onclick="setAnalyticsFinanceScope('month')" class="rounded-lg px-5 py-2 text-sm font-medium transition" data-i18n="analytics.finance.scopeMonth">This month</button>
+          <button type="button" data-finance-scope="year" onclick="setAnalyticsFinanceScope('year')" class="rounded-lg px-5 py-2 text-sm font-medium transition" data-i18n="analytics.finance.scopeYear">This year</button>
+        </div>
+        <div id="analyticsFinanceCoverage" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"></div>
+      </div>
+
+      <div id="analyticsFinanceSummary" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.finance.trendTitle">Profit trend</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.finance.trendDesc">Gross profit earned per day (green) and profit lost to defects (red).</p>
+        </div>
+        <div id="analyticsFinanceTrendChart" class="h-[360px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.finance.productTitle">Which products make the money</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.finance.productDesc">Gross profit by product for the selected period. The red segment is profit lost to defects.</p>
+        </div>
+        <div id="analyticsFinanceProductChart" class="h-[400px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.finance.quadrantTitle">Where the money risk is</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.finance.quadrantDesc">Each dot is a product: right = high volume, up = high profit per piece, red = high defect rate. Big red dots in the top-right are the most expensive quality problems.</p>
+        </div>
+        <div id="analyticsFinanceQuadrantChart" class="h-[380px] px-2 py-4"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.finance.unpricedTitle">Products without a price</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.finance.unpricedDesc">These products are missing grossProfit in the master data, so their output is not counted in the money view. Fill them in on the Master DB page.</p>
+        </div>
+        <div id="analyticsFinanceUnpriced" class="p-6"></div>
+      </section>
+
+      <details class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm" ontoggle="analyticsResizeChartsSoon()">
+        <summary class="cursor-pointer select-none px-6 py-4 text-sm font-medium text-gray-600 hover:bg-gray-50">
+          <span data-i18n="analytics.finance.tableDetails">Show detailed money table</span>
+        </summary>
+        <div id="analyticsFinanceTable" class="overflow-x-auto border-t border-gray-100"></div>
+      </details>
     </section>
   </div>
 </div>

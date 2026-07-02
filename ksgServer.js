@@ -2610,6 +2610,840 @@ function normalizeSubmittedDBOptionList(values = [], limit = 250) {
         .slice(0, limit);
 }
 
+function parseSubmittedDBClockMinutes(value) {
+    const match = String(value ?? '').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) return null;
+
+    return (hours * 60) + minutes;
+}
+
+function getSubmittedDBRecordTimeWindow(record = {}) {
+    const startMinutes = parseSubmittedDBClockMinutes(record.start_time);
+    let endMinutes = parseSubmittedDBClockMinutes(record.end_time);
+    if (startMinutes === null || endMinutes === null) return null;
+
+    // Overnight sessions cross midnight (e.g. 23:50 -> 00:20)
+    if (endMinutes < startMinutes) endMinutes += 24 * 60;
+
+    return { startMinutes, endMinutes };
+}
+
+// Bottleneck / "time thief" analysis: reconstruct where each machine's hours
+// went (producing, breaks, trouble, and the unlogged gaps between records).
+// Gaps between consecutive records on the same machine+day are classified as
+// changeover when the product (hinban) changes, otherwise as idle/unlogged.
+const SUBMITTED_DB_GAP_MIN_MINUTES = 3;    // Ignore tiny gaps (record rounding)
+const SUBMITTED_DB_GAP_MAX_MINUTES = 180;  // Gaps beyond this = machine not scheduled
+
+function computeSubmittedDBMachineTimeLoss(records = []) {
+    const machineDayMap = new Map();
+
+    records.forEach(record => {
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const window = getSubmittedDBRecordTimeWindow(record);
+        const breakHours = Math.max(0, Number(record.break_time ?? 0) || 0);
+        const troubleHours = Math.max(0, Number(record.trouble_time ?? 0) || 0);
+        const manHours = Math.max(0, Number(record.man_hours ?? 0) || 0);
+
+        const key = `${source}||${dateInfo.key}`;
+        const entry = machineDayMap.get(key) || {
+            source,
+            date: dateInfo.key,
+            segments: [],
+            producingHours: 0,
+            breakHours: 0,
+            troubleHours: 0,
+            goodCount: 0,
+            submissions: 0
+        };
+
+        entry.producingHours += manHours;
+        entry.breakHours += breakHours;
+        entry.troubleHours += troubleHours;
+        entry.goodCount += Number(record.good_count ?? 0) || 0;
+        entry.submissions += 1;
+
+        if (window) {
+            entry.segments.push({
+                startMinutes: window.startMinutes,
+                endMinutes: window.endMinutes,
+                hinban: String(record.hinban ?? '').trim()
+            });
+        }
+
+        machineDayMap.set(key, entry);
+    });
+
+    const machineMap = new Map();
+
+    machineDayMap.forEach(dayEntry => {
+        const machine = machineMap.get(dayEntry.source) || {
+            source: dayEntry.source,
+            days: 0,
+            submissions: 0,
+            goodCount: 0,
+            producingHours: 0,
+            breakHours: 0,
+            troubleHours: 0,
+            changeoverHours: 0,
+            idleGapHours: 0,
+            changeoverCount: 0,
+            idleGapCount: 0
+        };
+
+        machine.days += 1;
+        machine.submissions += dayEntry.submissions;
+        machine.goodCount += dayEntry.goodCount;
+        machine.producingHours += dayEntry.producingHours;
+        machine.breakHours += dayEntry.breakHours;
+        machine.troubleHours += dayEntry.troubleHours;
+
+        const segments = dayEntry.segments.sort((a, b) => a.startMinutes - b.startMinutes);
+        for (let i = 1; i < segments.length; i++) {
+            const gapMinutes = segments[i].startMinutes - segments[i - 1].endMinutes;
+            if (gapMinutes < SUBMITTED_DB_GAP_MIN_MINUTES || gapMinutes > SUBMITTED_DB_GAP_MAX_MINUTES) continue;
+
+            const isChangeover = segments[i].hinban && segments[i - 1].hinban && segments[i].hinban !== segments[i - 1].hinban;
+            if (isChangeover) {
+                machine.changeoverHours += gapMinutes / 60;
+                machine.changeoverCount += 1;
+            } else {
+                machine.idleGapHours += gapMinutes / 60;
+                machine.idleGapCount += 1;
+            }
+        }
+
+        machineMap.set(dayEntry.source, machine);
+    });
+
+    return [...machineMap.values()]
+        .map(machine => {
+            const lostHours = machine.breakHours + machine.troubleHours + machine.changeoverHours + machine.idleGapHours;
+            const trackedHours = machine.producingHours + lostHours;
+            return {
+                ...machine,
+                lostHours,
+                trackedHours,
+                lostHoursPerDay: machine.days > 0 ? lostHours / machine.days : 0,
+                lossRate: trackedHours > 0 ? (lostHours / trackedHours) * 100 : 0,
+                averageChangeoverMinutes: machine.changeoverCount > 0 ? (machine.changeoverHours * 60) / machine.changeoverCount : 0
+            };
+        })
+        .sort((a, b) => b.lostHoursPerDay - a.lostHoursPerDay || b.lossRate - a.lossRate || a.source.localeCompare(b.source, 'ja'));
+}
+
+// Per-worker per-day detail used by the Worker tab daily/monthly drill-down.
+// Output and defects are attributed (split across shared operators) to stay
+// consistent with operatorComparison; break/trouble/man-hours are full record
+// values because each listed operator participates for the whole duration.
+function computeSubmittedDBOperatorDaily(records = []) {
+    const operatorMap = new Map();
+
+    records.forEach(record => {
+        const operators = getSubmittedDBRecordOperators(record);
+        if (operators.length === 0) return;
+
+        const operatorCount = operators.length;
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defects = getSubmittedDBRecordDefects(record);
+        const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const productName = String(record.product_name ?? '').trim();
+        const hinban = String(record.hinban ?? '').trim();
+
+        const recordRow = {
+            startTime: String(record.start_time ?? '').trim(),
+            endTime: String(record.end_time ?? '').trim(),
+            source,
+            productName,
+            hinban,
+            lhRh: String(record.lh_rh ?? '').trim(),
+            goodCount,
+            defectCount: totalDefects,
+            breakTime: Number(record.break_time ?? 0) || 0,
+            troubleTime: Number(record.trouble_time ?? 0) || 0,
+            manHours: Number(record.man_hours ?? 0) || 0,
+            operators,
+            remarks: String(record.remarks ?? '').trim()
+        };
+
+        operators.forEach(name => {
+            const operatorEntry = operatorMap.get(name) || { name, dayMap: new Map() };
+            const dayEntry = operatorEntry.dayMap.get(dateInfo.key) || {
+                date: dateInfo.key,
+                label: dateInfo.label,
+                submissions: 0,
+                goodCount: 0,
+                defectCount: 0,
+                breakTime: 0,
+                troubleTime: 0,
+                manHours: 0,
+                sources: new Set(),
+                products: new Set(),
+                records: []
+            };
+
+            dayEntry.submissions += 1;
+            dayEntry.goodCount += goodCount / operatorCount;
+            dayEntry.defectCount += totalDefects / operatorCount;
+            dayEntry.breakTime += recordRow.breakTime;
+            dayEntry.troubleTime += recordRow.troubleTime;
+            dayEntry.manHours += recordRow.manHours;
+            dayEntry.sources.add(source);
+            if (productName || hinban) dayEntry.products.add(productName || hinban);
+            dayEntry.records.push(recordRow);
+
+            operatorEntry.dayMap.set(dateInfo.key, dayEntry);
+            operatorMap.set(name, operatorEntry);
+        });
+    });
+
+    return [...operatorMap.values()]
+        .map(operatorEntry => ({
+            name: operatorEntry.name,
+            days: [...operatorEntry.dayMap.values()]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(day => ({
+                    ...day,
+                    sources: [...day.sources],
+                    products: [...day.products],
+                    defectRate: getSubmittedDBDefectRate(day.goodCount, day.defectCount),
+                    records: day.records.sort((a, b) => a.startTime.localeCompare(b.startTime))
+                }))
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+}
+
+// Worker-vs-worker efficiency on the same product (fair comparison because
+// the product, and therefore the cycle time, is held constant).
+function computeSubmittedDBProductWorkerComparison(records = []) {
+    const productMap = new Map();
+
+    records.forEach(record => {
+        const operators = getSubmittedDBRecordOperators(record);
+        if (operators.length === 0) return;
+
+        const operatorCount = operators.length;
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const totalDefects = getSubmittedDBTotalDefects(record);
+        const manHours = Number(record.man_hours ?? 0) || 0;
+
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+
+        const productEntry = productMap.get(productKey) || {
+            key: productKey,
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            totalGoodCount: 0,
+            totalDefectCount: 0,
+            totalManHours: 0,
+            workerMap: new Map()
+        };
+
+        productEntry.totalGoodCount += goodCount;
+        productEntry.totalDefectCount += totalDefects;
+        productEntry.totalManHours += manHours;
+
+        operators.forEach(name => {
+            const worker = productEntry.workerMap.get(name) || {
+                name,
+                submissions: 0,
+                goodCount: 0,
+                defectCount: 0,
+                manHours: 0
+            };
+            worker.submissions += 1;
+            worker.goodCount += goodCount / operatorCount;
+            worker.defectCount += totalDefects / operatorCount;
+            worker.manHours += manHours;
+            productEntry.workerMap.set(name, worker);
+        });
+
+        productMap.set(productKey, productEntry);
+    });
+
+    return [...productMap.values()]
+        .filter(entry => entry.workerMap.size > 0)
+        .sort((a, b) => b.totalGoodCount - a.totalGoodCount)
+        .slice(0, 30)
+        .map(entry => ({
+            key: entry.key,
+            hinban: entry.hinban,
+            productName: entry.productName,
+            lhRh: entry.lhRh,
+            totalGoodCount: entry.totalGoodCount,
+            benchmarkOutputPerHour: entry.totalManHours > 0 ? entry.totalGoodCount / entry.totalManHours : 0,
+            benchmarkDefectRate: getSubmittedDBDefectRate(entry.totalGoodCount, entry.totalDefectCount),
+            workers: [...entry.workerMap.values()]
+                .map(worker => ({
+                    name: worker.name,
+                    submissions: worker.submissions,
+                    goodCount: worker.goodCount,
+                    manHours: worker.manHours,
+                    outputPerHour: worker.manHours > 0 ? worker.goodCount / worker.manHours : 0,
+                    defectRate: getSubmittedDBDefectRate(worker.goodCount, worker.defectCount)
+                }))
+                .sort((a, b) => b.outputPerHour - a.outputPerHour)
+                .slice(0, 15)
+        }));
+}
+
+function parseSubmittedDBGrossProfit(value) {
+    const number = Number(String(value ?? '').trim().replace(/[,¥\s]/g, ''));
+    return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+// Finance analysis (gross-profit based). Always computed over the current
+// calendar year (Tokyo) so the today/month/year toggles work regardless of the
+// admin's date-range filter; non-date filters are respected.
+// Defect loss is valued at gross profit per piece = LOST PROFIT, not full
+// scrap cost (material/labor costs are not tracked in masterDB).
+async function computeSubmittedDBFinance(db, query = {}) {
+    const today = getJapanCalendarDate();
+    const yearStart = `${today.year}-01-01`;
+
+    const financeQuery = {
+        hinban: query.hinban,
+        productName: query.productName,
+        operator: query.operator,
+        kanbanId: query.kanbanId,
+        source: query.source,
+        lhRh: query.lhRh,
+        startDate: yearStart,
+        endDate: today.key
+    };
+
+    const [financeRecords, masterRecords] = await Promise.all([
+        db.collection('submittedDB').find(buildSubmittedDBAnalyticsFilter(financeQuery)).toArray(),
+        db.collection('masterDB').find({}, {
+            projection: { '品番': 1, 'LH/RH': 1, '製品名': 1, grossProfit: 1 }
+        }).toArray()
+    ]);
+
+    const priceById = new Map();
+    const priceByHinbanLhRh = new Map();
+    const priceByHinban = new Map();
+
+    masterRecords.forEach(master => {
+        const price = parseSubmittedDBGrossProfit(master.grossProfit);
+        if (price === null) return;
+
+        priceById.set(String(master._id), price);
+        const hinban = String(master['品番'] ?? '').trim();
+        const lhRh = String(master['LH/RH'] ?? '').trim();
+        if (hinban) {
+            priceByHinbanLhRh.set(`${hinban}||${lhRh}`, price);
+            if (!priceByHinban.has(hinban)) priceByHinban.set(hinban, price);
+        }
+    });
+
+    const resolvePrice = (record) => {
+        const masterRecordId = String(record.master_record_id ?? '').trim();
+        if (masterRecordId && priceById.has(masterRecordId)) return priceById.get(masterRecordId);
+
+        const hinban = String(record.hinban ?? '').trim();
+        if (!hinban) return null;
+
+        const lhRh = String(record.lh_rh ?? '').trim();
+        if (priceByHinbanLhRh.has(`${hinban}||${lhRh}`)) return priceByHinbanLhRh.get(`${hinban}||${lhRh}`);
+        return priceByHinban.get(hinban) ?? null;
+    };
+
+    const dailyMap = new Map();
+    const monthlyMap = new Map();
+    const productMap = new Map();
+
+    let totalEarned = 0;
+    let totalLost = 0;
+    let pricedGoodCount = 0;
+    let unpricedGoodCount = 0;
+    let pricedDefectCount = 0;
+    let unpricedDefectCount = 0;
+
+    financeRecords.forEach(record => {
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defectCount = getSubmittedDBTotalDefects(record);
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const monthKey = dateInfo.key.slice(0, 7);
+        const price = resolvePrice(record);
+        const priced = price !== null;
+        const earned = priced ? goodCount * price : 0;
+        const lost = priced ? defectCount * price : 0;
+
+        if (priced) {
+            totalEarned += earned;
+            totalLost += lost;
+            pricedGoodCount += goodCount;
+            pricedDefectCount += defectCount;
+        } else {
+            unpricedGoodCount += goodCount;
+            unpricedDefectCount += defectCount;
+        }
+
+        const dailyEntry = dailyMap.get(dateInfo.key) || {
+            date: dateInfo.key,
+            label: dateInfo.label,
+            earned: 0,
+            lost: 0,
+            goodCount: 0,
+            defectCount: 0
+        };
+        dailyEntry.earned += earned;
+        dailyEntry.lost += lost;
+        dailyEntry.goodCount += goodCount;
+        dailyEntry.defectCount += defectCount;
+        dailyMap.set(dateInfo.key, dailyEntry);
+
+        const monthlyEntry = monthlyMap.get(monthKey) || {
+            month: monthKey,
+            label: `${Number(monthKey.slice(5, 7))}月`,
+            earned: 0,
+            lost: 0,
+            goodCount: 0,
+            defectCount: 0
+        };
+        monthlyEntry.earned += earned;
+        monthlyEntry.lost += lost;
+        monthlyEntry.goodCount += goodCount;
+        monthlyEntry.defectCount += defectCount;
+        monthlyMap.set(monthKey, monthlyEntry);
+
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+        const productEntry = productMap.get(productKey) || {
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            priced,
+            price: priced ? price : null,
+            earned: 0,
+            lost: 0,
+            goodCount: 0,
+            defectCount: 0,
+            earnedToday: 0,
+            earnedThisMonth: 0,
+            lostToday: 0,
+            lostThisMonth: 0,
+            goodCountToday: 0,
+            goodCountThisMonth: 0,
+            defectCountToday: 0,
+            defectCountThisMonth: 0
+        };
+        productEntry.earned += earned;
+        productEntry.lost += lost;
+        productEntry.goodCount += goodCount;
+        productEntry.defectCount += defectCount;
+        if (dateInfo.key === today.key) {
+            productEntry.earnedToday += earned;
+            productEntry.lostToday += lost;
+            productEntry.goodCountToday += goodCount;
+            productEntry.defectCountToday += defectCount;
+        }
+        if (monthKey === today.key.slice(0, 7)) {
+            productEntry.earnedThisMonth += earned;
+            productEntry.lostThisMonth += lost;
+            productEntry.goodCountThisMonth += goodCount;
+            productEntry.defectCountThisMonth += defectCount;
+        }
+        productMap.set(productKey, productEntry);
+    });
+
+    const totalOutput = pricedGoodCount + unpricedGoodCount;
+    const products = [...productMap.values()]
+        .sort((a, b) => b.earned - a.earned || b.goodCount - a.goodCount);
+
+    return {
+        currency: 'JPY',
+        year: today.year,
+        todayKey: today.key,
+        monthKey: today.key.slice(0, 7),
+        summary: {
+            totalEarned,
+            totalLost,
+            lossRate: (totalEarned + totalLost) > 0 ? (totalLost / (totalEarned + totalLost)) * 100 : 0,
+            pricedGoodCount,
+            unpricedGoodCount,
+            pricedDefectCount,
+            unpricedDefectCount,
+            outputCoverage: totalOutput > 0 ? (pricedGoodCount / totalOutput) * 100 : 0,
+            pricedProducts: products.filter(product => product.priced).length,
+            unpricedProducts: products.filter(product => !product.priced).length
+        },
+        daily: [...dailyMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
+        monthly: [...monthlyMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
+        products,
+        unpricedProductList: products
+            .filter(product => !product.priced)
+            .sort((a, b) => b.goodCount - a.goodCount)
+            .slice(0, 20)
+    };
+}
+
+function addDaysToSubmittedDBDateKey(dateKey, days) {
+    const parsed = parseSubmittedDBCalendarDate(dateKey);
+    if (!parsed) return null;
+    const date = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + days));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Compact summary used for previous-period comparison on the Overview tab
+function computeSubmittedDBLightSummary(records = []) {
+    let goodCount = 0;
+    let defectCount = 0;
+    let manHours = 0;
+    let troubleTime = 0;
+    let issueRecords = 0;
+
+    records.forEach(record => {
+        const defects = getSubmittedDBTotalDefects(record);
+        goodCount += Number(record.good_count ?? 0) || 0;
+        defectCount += defects;
+        manHours += Number(record.man_hours ?? 0) || 0;
+        troubleTime += Number(record.trouble_time ?? 0) || 0;
+        if (defects > 0 || (Number(record.trouble_time ?? 0) || 0) > 0 || String(record.remarks ?? '').trim() !== '') {
+            issueRecords += 1;
+        }
+    });
+
+    return {
+        submissions: records.length,
+        totalGoodCount: goodCount,
+        totalDefectCount: defectCount,
+        defectRate: getSubmittedDBDefectRate(goodCount, defectCount),
+        totalManHours: manHours,
+        totalTroubleTime: troubleTime,
+        totalIssueRecords: issueRecords
+    };
+}
+
+// Defect-type × product matrix for the Quality tab heatmap
+function computeSubmittedDBDefectMatrix(records = []) {
+    const productMap = new Map();
+    const defectTotals = new Map();
+
+    records.forEach(record => {
+        const defects = getSubmittedDBRecordDefects(record);
+        if (defects.length === 0) return;
+
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+        const entry = productMap.get(productKey) || {
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            totalDefects: 0,
+            byType: new Map()
+        };
+
+        defects.forEach(defect => {
+            entry.totalDefects += defect.count;
+            entry.byType.set(defect.name, (entry.byType.get(defect.name) || 0) + defect.count);
+            defectTotals.set(defect.name, (defectTotals.get(defect.name) || 0) + defect.count);
+        });
+
+        productMap.set(productKey, entry);
+    });
+
+    const defectTypes = [...defectTotals.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+        .slice(0, 10)
+        .map(([name]) => name);
+
+    const products = [...productMap.values()]
+        .sort((a, b) => b.totalDefects - a.totalDefects)
+        .slice(0, 12)
+        .map(entry => ({
+            hinban: entry.hinban,
+            productName: entry.productName,
+            lhRh: entry.lhRh,
+            totalDefects: entry.totalDefects,
+            counts: defectTypes.map(type => entry.byType.get(type) || 0)
+        }));
+
+    return { defectTypes, products };
+}
+
+// Per-product deep-dive profiles for the Product tab detail view.
+// Joined with masterDB for the product photo, standard cycle time, and box size.
+function computeSubmittedDBProductProfiles(records = [], masterRecords = []) {
+    const masterById = new Map();
+    const masterByHinbanLhRh = new Map();
+    const masterByHinban = new Map();
+
+    masterRecords.forEach(master => {
+        const id = String(master._id);
+        masterById.set(id, master);
+        const hinban = String(master['品番'] ?? '').trim();
+        const lhRh = String(master['LH/RH'] ?? '').trim();
+        if (hinban) {
+            masterByHinbanLhRh.set(`${hinban}||${lhRh}`, master);
+            if (!masterByHinban.has(hinban)) masterByHinban.set(hinban, master);
+        }
+    });
+
+    const productMap = new Map();
+
+    records.forEach(record => {
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+
+        const entry = productMap.get(productKey) || {
+            key: productKey,
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            masterRecordId: '',
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            manHours: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            incompleteBoxRecords: 0,
+            hakoIresu: 0,
+            defectsByType: new Map(),
+            machines: new Map(),
+            workers: new Map(),
+            paceHistory: []
+        };
+
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defects = getSubmittedDBRecordDefects(record);
+        const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+        const cycleTime = Number(record.cycle_time ?? 0);
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const hakoIresu = Number(record.hako_iresu ?? 0) || 0;
+        const masterRecordId = String(record.master_record_id ?? '').trim();
+
+        entry.submissions += 1;
+        entry.goodCount += goodCount;
+        entry.defectCount += totalDefects;
+        entry.manHours += Number(record.man_hours ?? 0) || 0;
+        entry.breakTime += Number(record.break_time ?? 0) || 0;
+        entry.troubleTime += Number(record.trouble_time ?? 0) || 0;
+        if (masterRecordId && !entry.masterRecordId) entry.masterRecordId = masterRecordId;
+        if (hakoIresu > 0) {
+            entry.hakoIresu = hakoIresu;
+            if (goodCount > 0 && goodCount % hakoIresu !== 0) entry.incompleteBoxRecords += 1;
+        }
+
+        defects.forEach(defect => {
+            entry.defectsByType.set(defect.name, (entry.defectsByType.get(defect.name) || 0) + defect.count);
+        });
+        entry.machines.set(source, (entry.machines.get(source) || 0) + goodCount);
+        getSubmittedDBRecordOperators(record).forEach(name => {
+            entry.workers.set(name, (entry.workers.get(name) || 0) + goodCount);
+        });
+
+        if (Number.isFinite(cycleTime) && cycleTime > 0 && goodCount > 0) {
+            entry.paceHistory.push({
+                date: dateInfo.key,
+                label: dateInfo.label,
+                timestamp: String(record.timestamp ?? ''),
+                cycleTime,
+                goodCount,
+                source,
+                operators: getSubmittedDBRecordOperators(record)
+            });
+        }
+
+        productMap.set(productKey, entry);
+    });
+
+    return [...productMap.values()]
+        .sort((a, b) => b.goodCount - a.goodCount)
+        .slice(0, 30)
+        .map(entry => {
+            const master = (entry.masterRecordId && masterById.get(entry.masterRecordId))
+                || masterByHinbanLhRh.get(`${entry.hinban}||${entry.lhRh}`)
+                || masterByHinban.get(entry.hinban)
+                || null;
+
+            const paceHistory = entry.paceHistory
+                .sort((a, b) => a.date.localeCompare(b.date) || a.timestamp.localeCompare(b.timestamp))
+                .slice(-60);
+            const sortedCycleTimes = paceHistory.map(point => point.cycleTime).sort((a, b) => a - b);
+            // Best demonstrated pace = 25th percentile (robust against one-off outliers)
+            const bestCycleTime = sortedCycleTimes.length > 0
+                ? sortedCycleTimes[Math.floor((sortedCycleTimes.length - 1) * 0.25)]
+                : 0;
+
+            return {
+                key: entry.key,
+                hinban: entry.hinban,
+                productName: entry.productName,
+                lhRh: entry.lhRh,
+                masterRecordId: master ? String(master._id) : entry.masterRecordId,
+                imageURL: master ? String(master.imageURL ?? '').trim() : '',
+                standardCycleTime: master ? Number(String(master.cycleTime ?? '').trim()) || 0 : 0,
+                masterBoxSize: master ? Number(String(master['収容数'] ?? '').trim()) || 0 : 0,
+                submissions: entry.submissions,
+                goodCount: entry.goodCount,
+                defectCount: entry.defectCount,
+                defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount),
+                manHours: entry.manHours,
+                troubleTime: entry.troubleTime,
+                outputPerHour: entry.manHours > 0 ? entry.goodCount / entry.manHours : 0,
+                incompleteBoxRecords: entry.incompleteBoxRecords,
+                hakoIresu: entry.hakoIresu,
+                bestCycleTime,
+                averageCycleTime: sortedCycleTimes.length > 0
+                    ? sortedCycleTimes.reduce((sum, value) => sum + value, 0) / sortedCycleTimes.length
+                    : 0,
+                defectsByType: [...entry.defectsByType.entries()]
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count),
+                machines: [...entry.machines.entries()]
+                    .map(([name, pieces]) => ({ name, pieces }))
+                    .sort((a, b) => b.pieces - a.pieces),
+                workers: [...entry.workers.entries()]
+                    .map(([name, pieces]) => ({ name, pieces }))
+                    .sort((a, b) => b.pieces - a.pieces)
+                    .slice(0, 10),
+                paceHistory
+            };
+        });
+}
+
+// Weekly changeover trend per machine (Monday-keyed weeks)
+function computeSubmittedDBChangeoverTrend(records = []) {
+    const machineDayMap = new Map();
+
+    records.forEach(record => {
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const window = getSubmittedDBRecordTimeWindow(record);
+        if (!window || dateInfo.key === 'Unknown') return;
+
+        const key = `${source}||${dateInfo.key}`;
+        const entry = machineDayMap.get(key) || { source, date: dateInfo.key, segments: [] };
+        entry.segments.push({
+            startMinutes: window.startMinutes,
+            endMinutes: window.endMinutes,
+            hinban: String(record.hinban ?? '').trim()
+        });
+        machineDayMap.set(key, entry);
+    });
+
+    const weekOf = dateKey => {
+        const parsed = parseSubmittedDBCalendarDate(dateKey);
+        if (!parsed) return null;
+        const date = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+        const mondayOffset = (date.getUTCDay() + 6) % 7;
+        date.setUTCDate(date.getUTCDate() - mondayOffset);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    };
+
+    const trendMap = new Map(); // `${source}||${week}` -> { minutes, count }
+    const weekSet = new Set();
+    const machineTotals = new Map();
+
+    machineDayMap.forEach(dayEntry => {
+        const week = weekOf(dayEntry.date);
+        if (!week) return;
+
+        const segments = dayEntry.segments.sort((a, b) => a.startMinutes - b.startMinutes);
+        for (let i = 1; i < segments.length; i++) {
+            const gapMinutes = segments[i].startMinutes - segments[i - 1].endMinutes;
+            if (gapMinutes < SUBMITTED_DB_GAP_MIN_MINUTES || gapMinutes > SUBMITTED_DB_GAP_MAX_MINUTES) continue;
+            if (!segments[i].hinban || !segments[i - 1].hinban || segments[i].hinban === segments[i - 1].hinban) continue;
+
+            const key = `${dayEntry.source}||${week}`;
+            const entry = trendMap.get(key) || { minutes: 0, count: 0 };
+            entry.minutes += gapMinutes;
+            entry.count += 1;
+            trendMap.set(key, entry);
+            weekSet.add(week);
+            machineTotals.set(dayEntry.source, (machineTotals.get(dayEntry.source) || 0) + gapMinutes);
+        }
+    });
+
+    const weeks = [...weekSet].sort();
+    const topMachines = [...machineTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([source]) => source);
+
+    return {
+        weeks: weeks.map(week => ({
+            week,
+            label: `${Number(week.slice(5, 7))}/${Number(week.slice(8, 10))}~`
+        })),
+        series: topMachines.map(source => ({
+            source,
+            averageMinutes: weeks.map(week => {
+                const entry = trendMap.get(`${source}||${week}`);
+                return entry && entry.count > 0 ? Math.round((entry.minutes / entry.count) * 10) / 10 : null;
+            }),
+            counts: weeks.map(week => trendMap.get(`${source}||${week}`)?.count || 0)
+        }))
+    };
+}
+
+// OPC monitoring outage counts per day (distinguishes "machine idle" from
+// "monitoring was down" when reading the machine time-loss view)
+async function computeSubmittedDBOpcEvents(db, startDateValue, endDateValue) {
+    try {
+        const start = parseSubmittedDBCalendarDate(startDateValue);
+        const end = parseSubmittedDBCalendarDate(endDateValue);
+        const startDate = start
+            ? new Date(Date.UTC(start.year, start.month - 1, start.day) - 9 * 3600 * 1000)
+            : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+        const endDate = end
+            ? new Date(Date.UTC(end.year, end.month - 1, end.day + 1) - 9 * 3600 * 1000)
+            : new Date();
+
+        const events = await db.collection('opcua_event_log')
+            .find(
+                { eventType: 'connection_lost', timestamp: { $gte: startDate, $lt: endDate } },
+                { projection: { timestamp: 1, device_id: 1 } }
+            )
+            .sort({ timestamp: 1 })
+            .limit(2000)
+            .toArray();
+
+        const dailyMap = new Map();
+        events.forEach(event => {
+            const calendar = getJapanCalendarDate(new Date(event.timestamp));
+            const entry = dailyMap.get(calendar.key) || { date: calendar.key, label: calendar.label, count: 0, devices: new Set() };
+            entry.count += 1;
+            if (event.device_id) entry.devices.add(String(event.device_id));
+            dailyMap.set(calendar.key, entry);
+        });
+
+        return {
+            totalConnectionLost: events.length,
+            daily: [...dailyMap.values()]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(entry => ({ date: entry.date, label: entry.label, count: entry.count, devices: [...entry.devices] }))
+        };
+    } catch (error) {
+        console.error('❌ Error computing OPC events for analytics:', error.message);
+        return { totalConnectionLost: 0, daily: [] };
+    }
+}
+
 app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
@@ -2987,6 +3821,30 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
             .slice(0, 10);
 
+        // Benchmark-normalized pace per worker: how fast they run each product
+        // relative to the all-worker pace on that product, weighted by hours.
+        // 1.0 = exactly the team pace; >1 faster; <1 slower.
+        const paceIndexAccumulator = new Map();
+        operatorProductMap.forEach(entry => {
+            if (entry.totalManHours <= 0) return;
+            const benchmark = productWorkerBenchmarkMap.get(entry.contextKey);
+            if (!benchmark || benchmark.totalManHours <= 0 || benchmark.totalGoodCount <= 0) return;
+
+            const workerPace = entry.totalGoodCount / entry.totalManHours;
+            const benchmarkPace = benchmark.totalGoodCount / benchmark.totalManHours;
+            if (benchmarkPace <= 0) return;
+
+            const accumulator = paceIndexAccumulator.get(entry.name) || { weighted: 0, weight: 0 };
+            accumulator.weighted += (workerPace / benchmarkPace) * entry.totalManHours;
+            accumulator.weight += entry.totalManHours;
+            paceIndexAccumulator.set(entry.name, accumulator);
+        });
+        const paceIndexByOperator = new Map(
+            [...paceIndexAccumulator.entries()]
+                .filter(([, acc]) => acc.weight > 0)
+                .map(([name, acc]) => [name, acc.weighted / acc.weight])
+        );
+
         const operatorComparisonAll = [...operatorMap.values()]
             .map(entry => {
                 const dailyPoints = [...entry.dailyMap.values()]
@@ -3023,6 +3881,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                     productCount: entry.productKeys.size,
                     sourceCount: entry.sourceKeys.size,
                     consistencyScore: Math.max(0, 100 - (getSubmittedDBCoefficientOfVariation(outputPerHourSamples) * 100)),
+                    paceIndex: paceIndexByOperator.get(entry.name) ?? null,
                     dailyPoints
                 };
             })
@@ -3105,6 +3964,66 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             }
             : null;
 
+        const machineTimeLoss = computeSubmittedDBMachineTimeLoss(records);
+        const operatorDaily = computeSubmittedDBOperatorDaily(records);
+        const productWorkerComparison = computeSubmittedDBProductWorkerComparison(records);
+        const defectMatrix = computeSubmittedDBDefectMatrix(records);
+        const changeoverTrend = computeSubmittedDBChangeoverTrend(records);
+
+        // Product profiles need masterDB for photos / standard cycle time / box size
+        let productProfiles = [];
+        try {
+            const masterRecords = await db.collection('masterDB').find({}, {
+                projection: { '品番': 1, 'LH/RH': 1, '製品名': 1, imageURL: 1, cycleTime: 1, '収容数': 1 }
+            }).toArray();
+            productProfiles = computeSubmittedDBProductProfiles(records, masterRecords);
+        } catch (profileError) {
+            console.error('❌ [ADMIN] Error computing product profiles:', profileError);
+            productProfiles = computeSubmittedDBProductProfiles(records, []);
+        }
+
+        // Previous equivalent period (same length, immediately before) for KPI deltas
+        let previousSummary = null;
+        const requestedStartDate = String(req.query.startDate ?? '').trim();
+        const requestedEndDate = String(req.query.endDate ?? '').trim();
+        if (requestedStartDate && requestedEndDate) {
+            try {
+                const startParsed = parseSubmittedDBCalendarDate(requestedStartDate);
+                const endParsed = parseSubmittedDBCalendarDate(requestedEndDate);
+                if (startParsed && endParsed) {
+                    const startUtc = Date.UTC(startParsed.year, startParsed.month - 1, startParsed.day);
+                    const endUtc = Date.UTC(endParsed.year, endParsed.month - 1, endParsed.day);
+                    const lengthDays = Math.round((endUtc - startUtc) / 86400000) + 1;
+                    const previousQuery = {
+                        ...req.query,
+                        startDate: addDaysToSubmittedDBDateKey(requestedStartDate, -lengthDays),
+                        endDate: addDaysToSubmittedDBDateKey(requestedStartDate, -1)
+                    };
+                    const previousRecords = await collection.find(buildSubmittedDBAnalyticsFilter(previousQuery)).toArray();
+                    previousSummary = {
+                        ...computeSubmittedDBLightSummary(previousRecords),
+                        startDate: previousQuery.startDate,
+                        endDate: previousQuery.endDate
+                    };
+                }
+            } catch (previousError) {
+                console.error('❌ [ADMIN] Error computing previous-period summary:', previousError);
+            }
+        }
+
+        const opcEvents = await computeSubmittedDBOpcEvents(db, requestedStartDate, requestedEndDate);
+
+        // Finance is restricted: only admin/masterUser roles receive it.
+        const financeAllowed = req.userRole === 'admin' || req.userRole === 'masterUser';
+        let finance = null;
+        if (financeAllowed) {
+            try {
+                finance = await computeSubmittedDBFinance(db, req.query);
+            } catch (financeError) {
+                console.error('❌ [ADMIN] Error computing finance analytics:', financeError);
+            }
+        }
+
         res.json({
             success: true,
             generatedAt: new Date().toISOString(),
@@ -3119,12 +4038,22 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                 lhRh: String(req.query.lhRh ?? '').trim(),
                 focusOperator: resolvedFocusOperator
             },
+            viewerRole: req.userRole,
             summary,
             dailyTrend,
             topDefects,
             operatorComparison,
             operatorFocus,
             operatorSkillProfile,
+            operatorDaily,
+            machineTimeLoss,
+            productWorkerComparison,
+            defectMatrix,
+            changeoverTrend,
+            productProfiles,
+            previousSummary,
+            opcEvents,
+            finance,
             topProducts,
             sourceBreakdown,
             qualityHotspots: qualityHotspots
@@ -3135,6 +4064,56 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching analytics:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to load analytics' });
+    }
+});
+
+// POST /api/admin/analytics/product-cycle-time
+// Saves the observed best pace as the product's standard cycle time in masterDB
+// (the "register best pace as standard" nudge on the Product tab detail view).
+app.post('/api/admin/analytics/product-cycle-time', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const { masterRecordId, cycleTime } = req.body || {};
+        const cycleTimeNumber = Number(cycleTime);
+
+        if (!masterRecordId || !ObjectId.isValid(String(masterRecordId))) {
+            return res.status(400).json({ success: false, error: 'Invalid masterRecordId' });
+        }
+        if (!Number.isFinite(cycleTimeNumber) || cycleTimeNumber <= 0 || cycleTimeNumber > 1000) {
+            return res.status(400).json({ success: false, error: 'Invalid cycleTime' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('masterDB');
+        const record = await collection.findOne({ _id: new ObjectId(String(masterRecordId)) });
+        if (!record) {
+            return res.status(404).json({ success: false, error: 'Master record not found' });
+        }
+
+        const newValue = String(Math.round(cycleTimeNumber * 100) / 100);
+        const oldValue = String(record.cycleTime ?? '').trim() || '(なし)';
+
+        await collection.updateOne(
+            { _id: record._id },
+            {
+                $set: { cycleTime: newValue },
+                $push: {
+                    changeHistory: {
+                        timestamp: new Date(),
+                        changedBy: req.username || 'admin',
+                        action: '更新',
+                        changes: [{ field: 'cycleTime', oldValue, newValue }]
+                    }
+                }
+            }
+        );
+
+        console.log(`⏱️ [ADMIN] Standard cycle time set for ${record['品番'] || masterRecordId}: ${oldValue} → ${newValue} (by ${req.username})`);
+        res.json({ success: true, cycleTime: newValue });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error saving product cycle time:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to save cycle time' });
     }
 });
 
