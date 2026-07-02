@@ -799,7 +799,8 @@ const translations = {
         bestPaceLine: "Best {n}",
         standardLine: "Standard {n}",
         tooltipPace: "Pace",
-        minPerPiece: "min/pc"
+        minPerPiece: "min/pc",
+        infoBestPace: "Best demonstrated pace = the fastest quarter of production runs (25th percentile), robust against one-off outliers"
       },
 
       digest: {
@@ -887,7 +888,10 @@ const translations = {
         quadrantTitle: "Where the money risk is",
         quadrantDesc: "Each dot is a product: right = high volume, up = high profit per piece, red = high defect rate. Big red dots in the top-right are the most expensive quality problems.",
         quadrantXAxis: "pieces (year)",
-        quadrantYAxis: "profit / piece"
+        quadrantYAxis: "profit / piece",
+        infoEarned: "Good pieces × gross profit per piece (from master data). Unpriced products are not included.",
+        infoLost: "Defective pieces × gross profit per piece = lost profit (not full scrap cost).",
+        infoLossRate: "Lost profit ÷ (earned + lost) × 100"
       },
 
       meta: {
@@ -939,7 +943,9 @@ const translations = {
         infoGoodPieces: "Total good pieces submitted in the selected period",
         infoDefectRate: "Defect rate = defects ÷ (good pieces + defects)",
         infoIssueRecords: "Records containing defects, trouble time, or remarks",
-        infoManHours: "Man-hours = work time minus breaks and trouble, summed over records"
+        infoManHours: "Man-hours = work time minus breaks and trouble, summed over records",
+        infoActiveWorkers: "Number of distinct workers appearing on records in the selected period",
+        infoActiveMachines: "Number of distinct machines (submission sources) in the selected period"
       },
 
       overview: {
@@ -1994,7 +2000,8 @@ const translations = {
         bestPaceLine: "ベスト {n}",
         standardLine: "標準 {n}",
         tooltipPace: "ペース",
-        minPerPiece: "分/個"
+        minPerPiece: "分/個",
+        infoBestPace: "実測ベスト = 生産実績の速い方から25%地点のペース。単発の外れ値に影響されにくい指標です。"
       },
 
       digest: {
@@ -2082,7 +2089,10 @@ const translations = {
         quadrantTitle: "収益リスクマップ",
         quadrantDesc: "各点は製品です。右=生産量が多い、上=1個あたりの粗利が高い、赤=不良率が高い。右上の大きな赤い点が最も高くつく品質問題です。",
         quadrantXAxis: "生産数（年間）",
-        quadrantYAxis: "粗利/個"
+        quadrantYAxis: "粗利/個",
+        infoEarned: "良品数 × 1個あたり粗利（マスターデータ）。価格未設定の製品は含まれません。",
+        infoLost: "不良数 × 1個あたり粗利 = 逸失利益（廃棄コスト全体ではありません）。",
+        infoLossRate: "逸失利益 ÷（獲得 + 損失）× 100"
       },
 
       meta: {
@@ -2134,7 +2144,9 @@ const translations = {
         infoGoodPieces: "選択期間に提出された良品の合計数",
         infoDefectRate: "不良率 = 不良数 ÷（良品数 + 不良数）",
         infoIssueRecords: "不良・トラブル時間・備考のいずれかを含むデータの件数",
-        infoManHours: "工数 = 作業時間 −（休憩 + トラブル）の合計"
+        infoManHours: "工数 = 作業時間 −（休憩 + トラブル）の合計",
+        infoActiveWorkers: "選択期間のデータに登場する作業者の人数",
+        infoActiveMachines: "選択期間のデータに登場する設備（提出元）の数"
       },
 
       overview: {

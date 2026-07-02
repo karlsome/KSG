@@ -600,6 +600,7 @@ function renderAnalyticsKpis(summary, previousSummary = null) {
     {
       eyebrow: t('analytics.kpi.activeWorkers'),
       value: analyticsFormatNumber(summary.uniqueOperators),
+      info: t('analytics.kpi.infoActiveWorkers'),
       detail: t('analytics.kpi.kanbans').replace('{n}', analyticsFormatNumber(summary.uniqueKanbans)),
       tone: 'bg-violet-50 text-violet-700',
       icon: 'ri-team-line'
@@ -607,6 +608,7 @@ function renderAnalyticsKpis(summary, previousSummary = null) {
     {
       eyebrow: t('analytics.kpi.activeMachines'),
       value: analyticsFormatNumber(summary.uniqueSources),
+      info: t('analytics.kpi.infoActiveMachines'),
       detail: t('analytics.kpi.products').replace('{n}', analyticsFormatNumber(summary.uniqueProducts)),
       tone: 'bg-cyan-50 text-cyan-700',
       icon: 'ri-cpu-line'
@@ -1883,7 +1885,7 @@ function analyticsScoreTile(tile) {
   return `
     <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div class="flex items-center justify-between gap-2">
-        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(tile.title)}</p>
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(tile.title)}${tile.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(tile.info)}"></i>` : ''}</p>
         ${analyticsTrafficDot(tile.tone)}
       </div>
       <p class="mt-2 text-2xl font-semibold leading-tight ${valueClass}">${tile.value}</p>
@@ -2711,6 +2713,7 @@ function renderAnalyticsFinanceTab(data) {
     {
       eyebrow: t('analytics.finance.tileEarned'),
       value: analyticsFormatCurrency(scope.earned),
+      info: t('analytics.finance.infoEarned'),
       detail: t('analytics.finance.tileEarnedDetail').replace('{n}', analyticsFormatNumber(scope.goodCount)),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-money-cny-circle-line'
@@ -2718,6 +2721,7 @@ function renderAnalyticsFinanceTab(data) {
     {
       eyebrow: t('analytics.finance.tileLost'),
       value: analyticsFormatCurrency(scope.lost),
+      info: t('analytics.finance.infoLost'),
       detail: t('analytics.finance.tileLostDetail').replace('{n}', analyticsFormatNumber(scope.defectCount)),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-delete-bin-line'
@@ -2725,6 +2729,7 @@ function renderAnalyticsFinanceTab(data) {
     {
       eyebrow: t('analytics.finance.tileLossRate'),
       value: analyticsFormatPercent(lossRate),
+      info: t('analytics.finance.infoLossRate'),
       detail: t('analytics.finance.tileLossRateDetail'),
       valueClass: lossRate < 1 ? 'text-emerald-600' : lossRate < 3 ? 'text-amber-600' : 'text-rose-600',
       tone: lossRate < 1 ? 'bg-emerald-50 text-emerald-700' : lossRate < 3 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700',
@@ -3096,6 +3101,7 @@ function renderAnalyticsProductDetail(data) {
     analyticsScoreTile({
       title: t('analytics.productDetail.tileBestPace'),
       value: `${analyticsFormatNumber(profile.bestCycleTime, 2)}`,
+      info: t('analytics.productDetail.infoBestPace'),
       detail: t('analytics.productDetail.tileAvgPaceDetail').replace('{n}', analyticsFormatNumber(profile.averageCycleTime, 2)),
       tone: paceRatio === 0 ? 'neutral' : paceRatio <= 1.15 ? 'good' : paceRatio <= 1.35 ? 'watch' : 'bad'
     }),
@@ -3202,7 +3208,16 @@ function renderAnalyticsProductDetail(data) {
 function handleAnalyticsProductDetailChange() {
   const select = document.getElementById('analyticsProductDetailSelect');
   if (select) analyticsProductDetailKey = select.value;
-  if (analyticsData) renderAnalyticsProductDetail(analyticsData);
+  if (!analyticsData) return;
+  renderAnalyticsProductDetail(analyticsData);
+
+  // Keep the worker-comparison chart on the same product (keys share the
+  // same hinban||productName||lhRh format)
+  const comparisons = analyticsData.productWorkerComparison || [];
+  if (comparisons.some(entry => entry.key === analyticsProductDetailKey)) {
+    analyticsProductCompareKey = analyticsProductDetailKey;
+    renderAnalyticsProductWorkerComparison(comparisons);
+  }
 }
 
 async function analyticsSaveStandardCycleTime(button) {
