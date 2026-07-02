@@ -940,6 +940,104 @@
       animation: value-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       display: inline-block;
     }
+
+    /* OPC Reset Detection Modal */
+    .opc-reset-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 1500;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+
+    .opc-reset-modal-overlay.active {
+      display: flex;
+    }
+
+    .opc-reset-modal {
+      width: min(580px, 100%);
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+      padding: 32px;
+      text-align: center;
+    }
+
+    .opc-reset-modal-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    .opc-reset-modal-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #e65100;
+      margin-bottom: 12px;
+    }
+
+    .opc-reset-modal-subtitle {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #546e7a;
+      margin-bottom: 20px;
+    }
+
+    .opc-reset-preserved-count {
+      display: inline-block;
+      background: #e8f5e9;
+      border: 2px solid #43a047;
+      border-radius: 12px;
+      padding: 12px 24px;
+      margin-bottom: 24px;
+    }
+
+    .opc-reset-preserved-label {
+      font-size: 13px;
+      color: #546e7a;
+      margin-bottom: 4px;
+    }
+
+    .opc-reset-preserved-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #2e7d32;
+    }
+
+    .opc-reset-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .opc-reset-button {
+      flex: 1;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .opc-reset-button:active {
+      opacity: 0.8;
+    }
+
+    .opc-reset-button.secondary {
+      background: #f5f5f5;
+      color: #424242;
+    }
+
+    .opc-reset-button.primary {
+      background: #e65100;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -1169,6 +1267,28 @@
       <div class="kanban-conflict-actions">
         <button class="kanban-conflict-button secondary" type="button" onclick="continueEditingCurrentKanban()">今のデータを継続 / Continue editing</button>
         <button class="kanban-conflict-button primary" type="button" onclick="submitCurrentKanbanData()">現在のデータを送信 / Submit current data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPC Reset Detection Modal -->
+  <div class="opc-reset-modal-overlay" id="opcResetModalOverlay">
+    <div class="opc-reset-modal" role="dialog" aria-modal="true" aria-labelledby="opcResetModalTitle">
+      <div class="opc-reset-modal-icon">⚠️</div>
+      <div class="opc-reset-modal-title" id="opcResetModalTitle">設備リセットが検出されました</div>
+      <div class="opc-reset-modal-subtitle">
+        機械のカウンターがリセットされましたが、未送信のデータがあります。<br>
+        生産数は保存されています。データを送信してください。<br><br>
+        Machine counter was reset but you have unsubmitted data.<br>
+        Your production count has been preserved.
+      </div>
+      <div class="opc-reset-preserved-count">
+        <div class="opc-reset-preserved-label">保存された生産数 / Preserved Count</div>
+        <div class="opc-reset-preserved-value" id="opcResetPreservedCount">0</div>
+      </div>
+      <div class="opc-reset-actions">
+        <button class="opc-reset-button secondary" type="button" onclick="opcResetContinueWorking()">継続する / Continue</button>
+        <button class="opc-reset-button primary" type="button" onclick="opcResetSubmitData()">データを送信 / Submit data</button>
       </div>
     </div>
   </div>
