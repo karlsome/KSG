@@ -44,7 +44,7 @@ DEVICE_INFO_ENDPOINT = f"{API_BASE_URL}/api/opcua/device-info"
 COMPANY_NAME = "KSG"
 DEVICE_OWNER = "kasugai"
 DEVICE_TYPE = "Raspberry Pi"
-DEVICE_BRAND = "Raspberry Pi"sudo journalctl -u opcua-client -f
+DEVICE_BRAND = "Raspberry Pi"  # View service logs: sudo journalctl -u opcua-client -f
 
 # Timing Configuration
 HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30 seconds
@@ -97,7 +97,8 @@ EVENT_LOG_ENDPOINT = f"{API_BASE_URL}/api/opcua/event-log"
 
 # Event logging state
 event_buffer = []  # Buffer for event logs
-last_values = {}  # Track previous values for change detection
+last_values = {}  # Push change detection (cleared on resubscribe to force a snapshot push)
+last_logged_values = {}  # Event-log change detection (never cleared, avoids log spam)
 last_event_flush = 0
 opcua_connection_status = 'Unknown'  # Unknown, Connected, Disconnected
 last_connection_check = 0
@@ -444,8 +445,8 @@ class DataChangeHandler:
     
     def datachange_notification(self, node, val, data):
         """Called when subscribed node value changes"""
-        global last_values
-        
+        global last_values, last_logged_values
+
         try:
             # Find which datapoint this belongs to
             node_id = node.nodeid.to_string()
@@ -464,9 +465,10 @@ class DataChangeHandler:
             if matching_datapoint:
                 # This is a configured datapoint - send via normal data channel
                 variable_name = matching_datapoint.get('label', node_id)
-                
-                # Get previous value for logging
-                old_value = last_values.get(node_id)
+
+                # Get previous value for logging (separate dict from push detection,
+                # so snapshot pushes after resubscribe don't spam the event log)
+                old_value = last_logged_values.get(node_id)
                 
                 # Prepare data for WebSocket push
                 changed_data = {
@@ -535,9 +537,10 @@ class DataChangeHandler:
                     
                     logger.info(f"🔍 Discovered node changed: {node_id} = {val} (quality: {quality})")
             
-            # Update last known value
+            # Update last known values (push detection + event-log detection)
             last_values[node_id] = val
-                    
+            last_logged_values[node_id] = val
+
         except Exception as e:
             logger.error(f"❌ Error in datachange_notification: {e}")
 
@@ -664,13 +667,23 @@ def disconnect_opcua():
 
 def setup_subscriptions():
     """Setup OPC UA subscriptions for all configured datapoints AND discovered nodes"""
-    global subscription, subscription_handles, discovered_nodes_cache
-    
+    global subscription, subscription_handles, discovered_nodes_cache, last_values
+
     try:
         if not opcua_client:
             logger.warning("⚠️  Cannot setup subscriptions: No client")
             return False
-        
+
+        # Force a full snapshot push after every (re)subscribe: OPC UA sends an
+        # initial notification for each subscribed node, and clearing the push
+        # change-detection cache makes every initial value look like a change.
+        # This guarantees the cloud converges to the true PLC values within one
+        # refresh cycle even if a previous update was lost in transit (dropped
+        # WebSocket emit, server-side error, DB hiccup). Without this, a lost
+        # update for a discovered node (e.g. the production count) would stay
+        # stale until the PLC value changed again.
+        last_values.clear()
+
         # Create subscription with handler
         handler = DataChangeHandler()
         subscription = opcua_client.create_subscription(SUBSCRIPTION_INTERVAL, handler)
@@ -1155,10 +1168,14 @@ def main_loop():
             
             # Check if any data has changed (buffered by subscription handler)
             if changed_data_buffer:
-                # Get all changed data and clear buffer
-                data_to_upload = changed_data_buffer.copy()
-                changed_data_buffer.clear()
-                
+                # Drain only the items we copied. The subscription thread appends
+                # concurrently, so copy()+clear() would silently drop any change
+                # that arrives between the two calls (e.g. a production count
+                # increment). Deleting exactly the copied prefix keeps late
+                # appends in the buffer for the next loop iteration.
+                data_to_upload = changed_data_buffer[:]
+                del changed_data_buffer[:len(data_to_upload)]
+
                 logger.info(f"📦 Uploading {len(data_to_upload)} changed datapoint(s)")
                 push_data(data_to_upload)
             
