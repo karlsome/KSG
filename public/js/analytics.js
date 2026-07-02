@@ -2157,12 +2157,31 @@ function renderAnalyticsWorkerDayTimeline(dayEntry, shiftProfile) {
       </span>
     </div>`).join('');
 
+  // Time ticks under the strip at every segment boundary so admins can read
+  // exact start/end times. Deduplicate ticks that would overlap visually
+  // (e.g. one record ending 13:00 and the next starting 13:00).
+  const tickMinutes = [boundStart, boundEnd];
+  segments.forEach(segment => {
+    tickMinutes.push(segment.start, segment.end);
+  });
+  const MIN_TICK_GAP_PERCENT = 3.5;
+  const ticks = [];
+  [...new Set(tickMinutes)].sort((a, b) => a - b).forEach(minutes => {
+    const position = toPercent(minutes);
+    if (ticks.length === 0 || position - ticks[ticks.length - 1].position >= MIN_TICK_GAP_PERCENT) {
+      ticks.push({ minutes, position });
+    }
+  });
+
+  const tickMarkup = ticks.map(tick => {
+    // Keep edge labels inside the container instead of centering past it
+    const translate = tick.position < 2 ? '0' : tick.position > 98 ? '-100%' : '-50%';
+    return `<span class="absolute top-0 whitespace-nowrap text-[10px] text-gray-500" style="left:${tick.position}%;transform:translateX(${translate})">${minutesToLabel(tick.minutes)}</span>`;
+  }).join('');
+
   container.innerHTML = `
     <div class="relative h-12 rounded-xl bg-gray-100">${bars}</div>
-    <div class="mt-1 flex justify-between text-xs text-gray-400">
-      <span>${minutesToLabel(boundStart)}</span>
-      <span>${minutesToLabel(boundEnd)}</span>
-    </div>
+    <div class="relative mt-1 h-4">${tickMarkup}</div>
     <div class="mt-3 space-y-2">${rows}</div>`;
 }
 
