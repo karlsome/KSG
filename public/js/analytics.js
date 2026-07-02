@@ -321,8 +321,8 @@ function analyticsGetSummaryCardsMarkup(cards = []) {
     <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-medium text-gray-500">${card.title || card.eyebrow || ''}</p>
-          <p class="mt-4 max-w-full font-semibold leading-tight ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}</p>
+          <p class="text-sm font-medium text-gray-500">${card.title || card.eyebrow || ''}${card.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(card.info)}"></i>` : ''}</p>
+          <p class="mt-4 max-w-full font-semibold leading-tight ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}${card.delta || ''}</p>
           <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.detail || card.subtext || ''}</p>
         </div>
         ${card.icon ? `<div class="shrink-0 rounded-2xl px-3 py-2 ${card.tone || 'bg-gray-100 text-gray-700'}"><i class="${card.icon} text-xl"></i></div>` : ''}
@@ -479,6 +479,7 @@ function setAnalyticsTab(tabName) {
   analyticsActiveTab = tabName || 'overview';
   analyticsUpdateTabState();
   renderAnalyticsActiveTab();
+  if (typeof analyticsSaveViewState === 'function') analyticsSaveViewState();
 }
 
 function analyticsGetHighestBy(items = [], valueSelector, filterSelector = null) {
@@ -558,11 +559,13 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
   }
 }
 
-function renderAnalyticsKpis(summary) {
+function renderAnalyticsKpis(summary, previousSummary = null) {
   const cards = [
     {
       eyebrow: t('analytics.kpi.goodPieces'),
       value: analyticsFormatNumber(summary.totalGoodCount),
+      delta: previousSummary ? analyticsBuildDeltaChip(summary.totalGoodCount, previousSummary.totalGoodCount, { higherIsBetter: true }) : '',
+      info: t('analytics.kpi.infoGoodPieces'),
       detail: t('analytics.kpi.recordsInScope').replace('{n}', analyticsFormatNumber(summary.submissions)),
       tone: 'bg-emerald-50 text-emerald-700',
       icon: 'ri-checkbox-circle-line'
@@ -570,6 +573,8 @@ function renderAnalyticsKpis(summary) {
     {
       eyebrow: t('analytics.kpi.defectRate'),
       value: analyticsFormatPercent(summary.defectRate),
+      delta: previousSummary ? analyticsBuildDeltaChip(summary.defectRate, previousSummary.defectRate, { higherIsBetter: false, isRate: true }) : '',
+      info: t('analytics.kpi.infoDefectRate'),
       detail: t('analytics.kpi.totalDefects').replace('{n}', analyticsFormatNumber(summary.totalDefectCount)),
       tone: 'bg-rose-50 text-rose-700',
       icon: 'ri-error-warning-line'
@@ -577,6 +582,8 @@ function renderAnalyticsKpis(summary) {
     {
       eyebrow: t('analytics.kpi.issueRecords'),
       value: analyticsFormatNumber(summary.totalIssueRecords),
+      delta: previousSummary ? analyticsBuildDeltaChip(summary.totalIssueRecords, previousSummary.totalIssueRecords, { higherIsBetter: false }) : '',
+      info: t('analytics.kpi.infoIssueRecords'),
       detail: t('analytics.kpi.recordsWithIssues'),
       tone: 'bg-amber-50 text-amber-700',
       icon: 'ri-alarm-warning-line'
@@ -584,6 +591,8 @@ function renderAnalyticsKpis(summary) {
     {
       eyebrow: t('analytics.kpi.manHours'),
       value: analyticsFormatHours(summary.totalManHours),
+      delta: previousSummary ? analyticsBuildDeltaChip(summary.totalManHours, previousSummary.totalManHours, { higherIsBetter: true }) : '',
+      info: t('analytics.kpi.infoManHours'),
       detail: t('analytics.kpi.troubleTime').replace('{n}', analyticsFormatHours(summary.totalTroubleTime)),
       tone: 'bg-sky-50 text-sky-700',
       icon: 'ri-time-line'
@@ -755,6 +764,7 @@ function renderAnalyticsOverview(data) {
 
   analyticsRenderCardGrid('analyticsOverviewHighlights', overviewCards);
 
+  renderAnalyticsWeeklyDigest(data);
   renderAnalyticsOverviewTrendChart(dailyTrend);
 
   const overviewDrivers = document.getElementById('analyticsOverviewDrivers');
@@ -1400,6 +1410,8 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
 
 function renderAnalyticsMachineTab(data) {
   renderAnalyticsMachineTimeLoss(data.machineTimeLoss || []);
+  renderAnalyticsChangeoverTrend(data.changeoverTrend || null);
+  renderAnalyticsOpcEvents(data.opcEvents || null);
 
   const sources = data.sourceBreakdown || [];
   const topOutputSource = analyticsGetHighestBy(sources, item => Number(item.totalGoodCount || 0));
@@ -1582,6 +1594,9 @@ function renderAnalyticsHotspots(qualityHotspots) {
 }
 
 function renderAnalyticsQualityTab(data) {
+  renderAnalyticsDefectHeatmap(data.defectMatrix || null);
+  renderAnalyticsDefectControlChart(data.dailyTrend || []);
+
   const topDefect = (data.topDefects || [])[0];
   const worstDay = analyticsGetHighestBy(data.dailyTrend || [], item => Number(item.defectRate || 0));
   const worstMachine = analyticsGetHighestBy(data.sourceBreakdown || [], item => Number(item.defectRate || 0));
@@ -1815,6 +1830,7 @@ function renderAnalyticsProductTab(data) {
     }
   ]);
 
+  renderAnalyticsProductDetail(data);
   renderAnalyticsProductsChart(products);
   renderAnalyticsProductHighlights(products);
   renderAnalyticsProductWorkerComparison(data.productWorkerComparison || []);
@@ -1985,8 +2001,10 @@ function renderAnalyticsWorkerScoreboardDaily(dayEntry) {
   const defectTone = dayEntry.defectCount <= 0 ? 'good' : (team && team.defectCount > 0 ? analyticsCompareTone(dayEntry.defectCount, team.defectCount, { higherIsBetter: false }) : 'watch');
   const breakTone = team ? analyticsCompareTone(dayEntry.breakTime, Math.max(team.breakTime, 0.01), { higherIsBetter: false }) : 'neutral';
   const troubleTone = dayEntry.troubleTime <= 0 ? 'good' : dayEntry.troubleTime <= 0.5 ? 'watch' : 'bad';
+  const focusWorker = (analyticsData?.operatorComparison || []).find(worker => worker.name === analyticsWorkerFocusName);
 
   container.innerHTML = [
+    analyticsWorkerScoreTile(focusWorker),
     analyticsScoreTile({
       title: t('analytics.workerFocus.tileOutput'),
       value: analyticsFormatCount(dayEntry.goodCount),
@@ -2061,8 +2079,10 @@ function renderAnalyticsWorkerScoreboardMonthly(monthDays) {
   const defectRate = (totals.goodCount + totals.defectCount) > 0 ? (totals.defectCount / (totals.goodCount + totals.defectCount)) * 100 : 0;
   const defectTone = totals.defectCount <= 0 ? 'good' : defectRate < 2 ? 'watch' : 'bad';
   const troublePerDay = totals.troubleTime / days;
+  const focusWorker = (analyticsData?.operatorComparison || []).find(worker => worker.name === analyticsWorkerFocusName);
 
   container.innerHTML = [
+    analyticsWorkerScoreTile(focusWorker),
     analyticsScoreTile({
       title: t('analytics.workerFocus.tileDaysWorked'),
       value: analyticsFormatNumber(days),
@@ -2784,6 +2804,8 @@ function renderAnalyticsFinanceTab(data) {
     });
   }
 
+  renderAnalyticsFinanceQuadrant(finance);
+
   // Unpriced products
   const unpricedEl = document.getElementById('analyticsFinanceUnpriced');
   if (unpricedEl) {
@@ -2855,6 +2877,607 @@ function analyticsUpdateFinanceTabVisibility(data) {
   }
 }
 
+// ------------------------------------------------------------
+// Worker efficiency score (0-100)
+// ------------------------------------------------------------
+
+// Pace is benchmark-normalized (vs team pace on the same products), so workers
+// on slow products are not unfairly penalized.
+function analyticsComputeWorkerScore(worker) {
+  if (!worker) return null;
+  const paceIndex = worker.paceIndex;
+  const paceComponent = (paceIndex === null || paceIndex === undefined)
+    ? 0.5
+    : Math.min(Math.max(Number(paceIndex), 0), 1.2) / 1.2;
+  const qualityComponent = Math.max(0, 1 - Number(worker.defectRate || 0) / 10);
+  const downtimeComponent = Math.max(0, 1 - Number(worker.downtimeRate || 0) / 30);
+  return Math.round((paceComponent * 50) + (qualityComponent * 30) + (downtimeComponent * 20));
+}
+
+function analyticsWorkerScoreTile(worker) {
+  const score = analyticsComputeWorkerScore(worker);
+  if (score === null) return '';
+
+  const color = score >= 75 ? '#10b981' : score >= 55 ? '#f59e0b' : '#f43f5e';
+  const circumference = 2 * Math.PI * 26;
+  const dash = (score / 100) * circumference;
+
+  return `
+    <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm" title="${analyticsEscapeHtml(t('analytics.workerFocus.scoreInfo'))}">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.workerFocus.tileScore'))}</p>
+        <i class="ri-information-line text-gray-300"></i>
+      </div>
+      <div class="mt-1 flex items-center gap-3">
+        <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="26" fill="none" stroke="#e5e7eb" stroke-width="7"></circle>
+          <circle cx="32" cy="32" r="26" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"
+            stroke-dasharray="${dash.toFixed(1)} ${circumference.toFixed(1)}" transform="rotate(-90 32 32)"></circle>
+          <text x="32" y="37" text-anchor="middle" font-size="17" font-weight="700" fill="#111827">${score}</text>
+        </svg>
+        <p class="text-xs text-gray-400">${analyticsEscapeHtml(t('analytics.workerFocus.scorePeriodNote'))}</p>
+      </div>
+    </article>`;
+}
+
+function analyticsPrintWorkerReport() {
+  document.body.classList.add('analytics-printing-worker');
+  const cleanup = () => document.body.classList.remove('analytics-printing-worker');
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
+  // Fallback for browsers that don't fire afterprint reliably
+  setTimeout(cleanup, 2000);
+}
+
+// ------------------------------------------------------------
+// Overview: previous-period deltas + weekly digest
+// ------------------------------------------------------------
+
+function analyticsBuildDeltaChip(current, previous, { higherIsBetter = true, isRate = false } = {}) {
+  const currentNumber = Number(current ?? 0);
+  const previousNumber = Number(previous ?? 0);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return '';
+  if (previousNumber === 0 && currentNumber === 0) return '';
+
+  let text;
+  let improved;
+  if (isRate) {
+    const diff = currentNumber - previousNumber;
+    if (Math.abs(diff) < 0.05) return '';
+    text = `${diff > 0 ? '▲' : '▼'} ${analyticsFormatNumber(Math.abs(diff), 1)}pt`;
+    improved = higherIsBetter ? diff > 0 : diff < 0;
+  } else {
+    if (previousNumber === 0) return '';
+    const percent = ((currentNumber - previousNumber) / previousNumber) * 100;
+    if (Math.abs(percent) < 0.5) return '';
+    text = `${percent > 0 ? '▲' : '▼'} ${analyticsFormatNumber(Math.abs(percent), 0)}%`;
+    improved = higherIsBetter ? percent > 0 : percent < 0;
+  }
+
+  const toneClass = improved ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600';
+  return `<span class="ml-2 inline-block rounded-lg px-1.5 py-0.5 align-middle text-xs font-semibold ${toneClass}" title="${analyticsEscapeHtml(t('analytics.kpi.deltaTooltip'))}">${text}</span>`;
+}
+
+function renderAnalyticsWeeklyDigest(data) {
+  const digestEl = document.getElementById('analyticsWeeklyDigest');
+  if (!digestEl) return;
+
+  const summary = data.summary || {};
+  const previous = data.previousSummary;
+  const worstBottleneck = (data.machineTimeLoss || [])[0];
+  const topDefect = (data.topDefects || [])[0];
+
+  if (!previous || Number(previous.submissions || 0) === 0 || Number(summary.submissions || 0) === 0) {
+    digestEl.classList.add('hidden');
+    return;
+  }
+
+  const outputChange = Number(previous.totalGoodCount || 0) > 0
+    ? ((Number(summary.totalGoodCount || 0) / Number(previous.totalGoodCount || 1)) - 1) * 100
+    : 0;
+  const sentences = [];
+
+  sentences.push(t('analytics.digest.output')
+    .replace('{direction}', outputChange >= 0 ? t('analytics.digest.up') : t('analytics.digest.down'))
+    .replace('{percent}', analyticsFormatNumber(Math.abs(outputChange), 0))
+    .replace('{pieces}', analyticsFormatNumber(summary.totalGoodCount)));
+
+  sentences.push(t('analytics.digest.defects')
+    .replace('{prev}', analyticsFormatPercent(previous.defectRate))
+    .replace('{now}', analyticsFormatPercent(summary.defectRate))
+    .replace('{verdict}', Number(summary.defectRate || 0) <= Number(previous.defectRate || 0) ? t('analytics.digest.improved') : t('analytics.digest.worsened')));
+
+  if (worstBottleneck && Number(worstBottleneck.lostHoursPerDay || 0) >= 0.25) {
+    sentences.push(t('analytics.digest.bottleneck')
+      .replace('{source}', worstBottleneck.source)
+      .replace('{hours}', analyticsFormatHours(worstBottleneck.lostHoursPerDay)));
+  } else if (topDefect) {
+    sentences.push(t('analytics.digest.topDefect')
+      .replace('{name}', topDefect.name)
+      .replace('{count}', analyticsFormatNumber(topDefect.count)));
+  }
+
+  digestEl.classList.remove('hidden');
+  digestEl.innerHTML = `<i class="ri-chat-smile-2-line mr-2 text-base text-slate-400"></i>${analyticsEscapeHtml(sentences.join(' '))}`;
+}
+
+// ------------------------------------------------------------
+// Product detail view
+// ------------------------------------------------------------
+
+let analyticsProductDetailKey = '';
+
+function analyticsGetProductProfile(key) {
+  return (analyticsData?.productProfiles || []).find(profile => profile.key === key) || null;
+}
+
+function renderAnalyticsProductDetail(data) {
+  const select = document.getElementById('analyticsProductDetailSelect');
+  const headerEl = document.getElementById('analyticsProductDetailHeader');
+  const scoreboardEl = document.getElementById('analyticsProductDetailScoreboard');
+  const defectsEl = document.getElementById('analyticsProductDefectBars');
+  const peopleEl = document.getElementById('analyticsProductPeople');
+  if (!select || !headerEl || !scoreboardEl) return;
+
+  const profiles = data.productProfiles || [];
+  if (profiles.length === 0) {
+    select.innerHTML = '';
+    headerEl.innerHTML = `<p class="text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.productDetail.noData'))}</p>`;
+    scoreboardEl.innerHTML = '';
+    if (defectsEl) defectsEl.innerHTML = '';
+    if (peopleEl) peopleEl.innerHTML = '';
+    analyticsShowChartEmpty('analyticsProductPaceChart', t('analytics.productDetail.noData'));
+    return;
+  }
+
+  if (!profiles.some(profile => profile.key === analyticsProductDetailKey)) {
+    analyticsProductDetailKey = profiles[0].key;
+  }
+
+  select.innerHTML = profiles
+    .map(profile => `<option value="${analyticsEscapeHtml(profile.key)}" ${profile.key === analyticsProductDetailKey ? 'selected' : ''}>${analyticsEscapeHtml(analyticsShortenLabel(analyticsGetProductLabel(profile), 44))}</option>`)
+    .join('');
+
+  const profile = analyticsGetProductProfile(analyticsProductDetailKey);
+  if (!profile) return;
+
+  // Header: photo + identity + cycle-time nudge
+  const financeProduct = data.finance
+    ? (data.finance.products || []).find(product => product.hinban === profile.hinban && product.lhRh === profile.lhRh)
+    : null;
+
+  const nudgeMarkup = (() => {
+    if (!profile.masterRecordId || profile.bestCycleTime <= 0) return '';
+    if (profile.standardCycleTime > 0) {
+      return `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-xs text-gray-600"><i class="ri-timer-line"></i>${analyticsEscapeHtml(t('analytics.productDetail.standardSet').replace('{n}', analyticsFormatNumber(profile.standardCycleTime, 2)))}</span>`;
+    }
+    return `
+      <button type="button" id="analyticsCycleTimeNudgeBtn" data-master-id="${analyticsEscapeHtml(profile.masterRecordId)}" data-cycle-time="${profile.bestCycleTime}"
+        onclick="analyticsSaveStandardCycleTime(this)"
+        class="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700 transition hover:bg-sky-100">
+        <i class="ri-timer-flash-line"></i>
+        ${analyticsEscapeHtml(t('analytics.productDetail.nudgeButton').replace('{n}', analyticsFormatNumber(profile.bestCycleTime, 2)))}
+      </button>`;
+  })();
+
+  headerEl.innerHTML = `
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+      ${profile.imageURL
+        ? `<img src="${analyticsEscapeHtml(profile.imageURL)}" alt="" class="h-28 w-36 rounded-xl border border-gray-100 object-cover" onerror="this.style.display='none'">`
+        : `<div class="flex h-28 w-36 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-gray-300"><i class="ri-image-line text-3xl"></i></div>`}
+      <div class="min-w-0 flex-1">
+        <p class="text-xl font-semibold text-gray-900">${analyticsEscapeHtml(profile.productName || profile.hinban)}</p>
+        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          ${profile.hinban ? `<span class="rounded-lg bg-gray-100 px-2 py-1 font-medium text-gray-600">${analyticsEscapeHtml(profile.hinban)}</span>` : ''}
+          ${profile.lhRh ? `<span class="rounded-lg bg-gray-100 px-2 py-1 font-medium text-gray-600">${analyticsEscapeHtml(profile.lhRh)}</span>` : ''}
+          ${profile.hakoIresu > 0 ? `<span class="rounded-lg bg-gray-100 px-2 py-1 text-gray-600">${analyticsEscapeHtml(t('analytics.productDetail.boxSize').replace('{n}', analyticsFormatNumber(profile.hakoIresu)))}</span>` : ''}
+          ${nudgeMarkup}
+        </div>
+      </div>
+    </div>`;
+
+  // Scoreboard tiles
+  const paceRatio = profile.bestCycleTime > 0 && profile.averageCycleTime > 0
+    ? profile.averageCycleTime / profile.bestCycleTime
+    : 0;
+  const tiles = [
+    analyticsScoreTile({
+      title: t('analytics.productDetail.tilePieces'),
+      value: analyticsFormatNumber(profile.goodCount),
+      detail: t('analytics.productDetail.tilePiecesDetail').replace('{n}', analyticsFormatNumber(profile.submissions)),
+      tone: 'neutral'
+    }),
+    analyticsScoreTile({
+      title: t('analytics.productDetail.tileDefectRate'),
+      value: analyticsFormatPercent(profile.defectRate),
+      detail: t('analytics.productDetail.tileDefectDetail').replace('{n}', analyticsFormatNumber(profile.defectCount)),
+      tone: profile.defectCount === 0 ? 'good' : profile.defectRate < 2 ? 'watch' : 'bad'
+    }),
+    analyticsScoreTile({
+      title: t('analytics.productDetail.tileBestPace'),
+      value: `${analyticsFormatNumber(profile.bestCycleTime, 2)}`,
+      detail: t('analytics.productDetail.tileAvgPaceDetail').replace('{n}', analyticsFormatNumber(profile.averageCycleTime, 2)),
+      tone: paceRatio === 0 ? 'neutral' : paceRatio <= 1.15 ? 'good' : paceRatio <= 1.35 ? 'watch' : 'bad'
+    }),
+    analyticsScoreTile({
+      title: t('analytics.productDetail.tileTrouble'),
+      value: analyticsFormatHours(profile.troubleTime),
+      detail: t('analytics.workerFocus.workedHours').replace('{n}', analyticsFormatHours(profile.manHours)),
+      tone: profile.troubleTime <= 0 ? 'good' : profile.troubleTime <= 1 ? 'watch' : 'bad'
+    }),
+    analyticsScoreTile({
+      title: t('analytics.productDetail.tileIncompleteBoxes'),
+      value: analyticsFormatNumber(profile.incompleteBoxRecords),
+      detail: t('analytics.productDetail.tileIncompleteDetail'),
+      tone: profile.incompleteBoxRecords === 0 ? 'good' : 'watch'
+    })
+  ];
+  if (financeProduct && financeProduct.priced) {
+    tiles.push(analyticsScoreTile({
+      title: t('analytics.productDetail.tileProfit'),
+      value: analyticsFormatCurrency(financeProduct.earnedThisMonth),
+      detail: t('analytics.productDetail.tileProfitDetail').replace('{n}', analyticsFormatCurrency(financeProduct.lostThisMonth)),
+      tone: 'neutral'
+    }));
+  }
+  scoreboardEl.innerHTML = tiles.join('');
+  scoreboardEl.className = `grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-${Math.min(tiles.length, 6)}`;
+
+  // Pace history chart (lower = faster)
+  const paceHistory = profile.paceHistory || [];
+  if (paceHistory.length === 0) {
+    analyticsShowChartEmpty('analyticsProductPaceChart', t('analytics.productDetail.noPaceData'));
+  } else {
+    const markLines = [{
+      yAxis: Math.round(profile.bestCycleTime * 100) / 100,
+      lineStyle: { color: '#10b981', type: 'dashed' },
+      label: { formatter: t('analytics.productDetail.bestPaceLine').replace('{n}', analyticsFormatNumber(profile.bestCycleTime, 2)), color: '#059669' }
+    }];
+    if (profile.standardCycleTime > 0) {
+      markLines.push({
+        yAxis: profile.standardCycleTime,
+        lineStyle: { color: '#64748b', type: 'dotted' },
+        label: { formatter: t('analytics.productDetail.standardLine').replace('{n}', analyticsFormatNumber(profile.standardCycleTime, 2)), color: '#475569' }
+      });
+    }
+
+    analyticsRenderChart('analyticsProductPaceChart', {
+      color: ['#0ea5e9'],
+      tooltip: {
+        trigger: 'axis',
+        formatter: params => {
+          const item = Array.isArray(params) ? params[0] : params;
+          const point = paceHistory[item.dataIndex];
+          if (!point) return '';
+          return [
+            `<strong>${analyticsEscapeHtml(point.date)}</strong>`,
+            `${analyticsEscapeHtml(t('analytics.productDetail.tooltipPace'))}: <strong>${analyticsFormatNumber(point.cycleTime, 2)} ${analyticsEscapeHtml(t('analytics.productDetail.minPerPiece'))}</strong>`,
+            `${analyticsEscapeHtml(t('analytics.productCompare.tooltipPieces'))}: ${analyticsFormatNumber(point.goodCount)}`,
+            `${analyticsEscapeHtml(t('analytics.workerFocus.colMachine'))}: ${analyticsEscapeHtml(point.source)}`,
+            `${analyticsEscapeHtml(t('analytics.workerFocus.colShared'))}: ${analyticsEscapeHtml((point.operators || []).join(', '))}`
+          ].join('<br>');
+        }
+      },
+      grid: { left: 40, right: 48, top: 32, bottom: 24, containLabel: true },
+      xAxis: { type: 'category', data: paceHistory.map(point => point.label), axisTick: { show: false } },
+      yAxis: { type: 'value', name: t('analytics.productDetail.minPerPiece'), splitLine: { lineStyle: { color: '#e2e8f0' } } },
+      series: [{
+        type: 'line',
+        symbolSize: 7,
+        smooth: true,
+        data: paceHistory.map(point => Math.round(point.cycleTime * 100) / 100),
+        markLine: { symbol: 'none', data: markLines }
+      }]
+    });
+  }
+
+  // Defect breakdown as simple horizontal bars
+  if (defectsEl) {
+    const defectTypes = (profile.defectsByType || []).slice(0, 8);
+    if (defectTypes.length === 0) {
+      defectsEl.innerHTML = `<div class="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"><i class="ri-checkbox-circle-line"></i>${analyticsEscapeHtml(t('analytics.productDetail.noDefects'))}</div>`;
+    } else {
+      const maxCount = Math.max(...defectTypes.map(defect => defect.count));
+      defectsEl.innerHTML = defectTypes.map(defect => `
+        <div class="mb-2 flex items-center gap-2 text-sm">
+          <span class="w-36 shrink-0 truncate text-gray-600" title="${analyticsEscapeHtml(defect.name)}">${analyticsEscapeHtml(defect.name)}</span>
+          <div class="h-4 flex-1 rounded bg-gray-100">
+            <div class="h-4 rounded bg-rose-400" style="width:${Math.max((defect.count / maxCount) * 100, 3)}%"></div>
+          </div>
+          <span class="w-10 text-right font-semibold text-gray-800">${analyticsFormatNumber(defect.count)}</span>
+        </div>`).join('');
+    }
+  }
+
+  // Machines & workers who make it
+  if (peopleEl) {
+    const machineChips = (profile.machines || []).map(machine =>
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-700"><i class="ri-cpu-line text-gray-400"></i>${analyticsEscapeHtml(machine.name)} <span class="text-xs text-gray-400">${analyticsFormatNumber(machine.pieces)}</span></span>`).join(' ');
+    const workerChips = (profile.workers || []).map(worker =>
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800"><i class="ri-user-line text-sky-400"></i>${analyticsEscapeHtml(worker.name)} <span class="text-xs text-sky-500">${analyticsFormatCount(worker.pieces)}</span></span>`).join(' ');
+    peopleEl.innerHTML = `<div class="flex flex-wrap gap-2">${machineChips}</div><div class="mt-3 flex flex-wrap gap-2">${workerChips}</div>`;
+  }
+}
+
+function handleAnalyticsProductDetailChange() {
+  const select = document.getElementById('analyticsProductDetailSelect');
+  if (select) analyticsProductDetailKey = select.value;
+  if (analyticsData) renderAnalyticsProductDetail(analyticsData);
+}
+
+async function analyticsSaveStandardCycleTime(button) {
+  const masterRecordId = button?.dataset?.masterId;
+  const cycleTime = Number(button?.dataset?.cycleTime);
+  if (!masterRecordId || !Number.isFinite(cycleTime) || cycleTime <= 0) return;
+
+  button.disabled = true;
+  try {
+    const response = await fetch(`${API_URL}/api/admin/analytics/product-cycle-time`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...analyticsGetAuthHeaders() },
+      body: JSON.stringify({ masterRecordId, cycleTime })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Failed');
+
+    // Reflect the save locally without a full reload
+    const profile = analyticsGetProductProfile(analyticsProductDetailKey);
+    if (profile) profile.standardCycleTime = Number(result.cycleTime) || cycleTime;
+    renderAnalyticsProductDetail(analyticsData);
+  } catch (error) {
+    console.error('cycle time save error:', error);
+    button.disabled = false;
+    alert(t('analytics.productDetail.nudgeError'));
+  }
+}
+
+// ------------------------------------------------------------
+// Quality tab: defect heatmap + control band
+// ------------------------------------------------------------
+
+function renderAnalyticsDefectHeatmap(defectMatrix) {
+  const products = defectMatrix?.products || [];
+  const defectTypes = defectMatrix?.defectTypes || [];
+
+  if (products.length === 0 || defectTypes.length === 0) {
+    analyticsShowChartEmpty('analyticsDefectHeatmap', t('analytics.quality.noHeatmapData'));
+    return;
+  }
+
+  const rows = products.slice().reverse(); // Worst product on top
+  const cells = [];
+  let maxCount = 1;
+  rows.forEach((product, rowIndex) => {
+    product.counts.forEach((count, colIndex) => {
+      if (count > 0) cells.push([colIndex, rowIndex, count]);
+      if (count > maxCount) maxCount = count;
+    });
+  });
+
+  analyticsRenderChart('analyticsDefectHeatmap', {
+    tooltip: {
+      position: 'top',
+      formatter: params => {
+        const product = rows[params.value[1]];
+        return `${analyticsEscapeHtml(analyticsGetProductLabel(product))}<br>${analyticsEscapeHtml(defectTypes[params.value[0]])}: <strong>${analyticsFormatNumber(params.value[2])}</strong>`;
+      }
+    },
+    grid: { left: 8, right: 24, top: 8, bottom: 60, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: defectTypes.map(type => analyticsShortenLabel(type, 12)),
+      axisLabel: { interval: 0, rotate: 28 },
+      splitArea: { show: true }
+    },
+    yAxis: {
+      type: 'category',
+      data: rows.map(product => analyticsShortenLabel(analyticsGetProductLabel(product), 24)),
+      splitArea: { show: true }
+    },
+    visualMap: {
+      min: 0,
+      max: maxCount,
+      calculable: false,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 4,
+      inRange: { color: ['#fef2f2', '#fca5a5', '#dc2626'] }
+    },
+    series: [{
+      type: 'heatmap',
+      data: cells,
+      label: { show: true, formatter: params => params.value[2] },
+      emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.3)' } }
+    }]
+  });
+}
+
+function renderAnalyticsDefectControlChart(dailyTrend) {
+  const days = (dailyTrend || []).filter(day => Number(day.goodCount || 0) + Number(day.defectCount || 0) > 0);
+  if (days.length < 3) {
+    analyticsShowChartEmpty('analyticsDefectControlChart', t('analytics.quality.noControlData'));
+    return;
+  }
+
+  const rates = days.map(day => Number(day.defectRate || 0));
+  const mean = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+  const sigma = Math.sqrt(rates.reduce((sum, rate) => sum + ((rate - mean) ** 2), 0) / rates.length);
+  const upper = mean + 2 * sigma;
+  const lower = Math.max(0, mean - 2 * sigma);
+
+  analyticsRenderChart('analyticsDefectControlChart', {
+    color: ['#ef4444'],
+    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
+    grid: { left: 40, right: 32, top: 32, bottom: 24, containLabel: true },
+    xAxis: { type: 'category', data: days.map(day => day.label), axisTick: { show: false } },
+    yAxis: { type: 'value', name: '%', splitLine: { lineStyle: { color: '#e2e8f0' } } },
+    series: [{
+      name: t('analytics.kpi.defectRate'),
+      type: 'line',
+      symbolSize: 7,
+      data: rates.map(rate => Math.round(rate * 100) / 100),
+      markArea: {
+        silent: true,
+        itemStyle: { color: 'rgba(148, 163, 184, 0.15)' },
+        data: [[{ yAxis: Math.round(lower * 100) / 100 }, { yAxis: Math.round(upper * 100) / 100 }]]
+      },
+      markLine: {
+        symbol: 'none',
+        lineStyle: { color: '#64748b', type: 'dashed' },
+        label: { formatter: t('analytics.quality.controlMeanLabel').replace('{n}', analyticsFormatNumber(mean, 1)) },
+        data: [{ yAxis: Math.round(mean * 100) / 100 }]
+      }
+    }]
+  });
+}
+
+// ------------------------------------------------------------
+// Machine tab: changeover trend + OPC outages
+// ------------------------------------------------------------
+
+function renderAnalyticsChangeoverTrend(changeoverTrend) {
+  const weeks = changeoverTrend?.weeks || [];
+  const series = changeoverTrend?.series || [];
+
+  if (weeks.length === 0 || series.length === 0) {
+    analyticsShowChartEmpty('analyticsChangeoverTrendChart', t('analytics.changeover.noData'));
+    return;
+  }
+
+  analyticsRenderChart('analyticsChangeoverTrendChart', {
+    color: ['#0ea5e9', '#f59e0b', '#8b5cf6', '#10b981', '#ef4444'],
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0 },
+    grid: { left: 40, right: 32, top: 40, bottom: 24, containLabel: true },
+    xAxis: { type: 'category', data: weeks.map(week => week.label), axisTick: { show: false } },
+    yAxis: { type: 'value', name: t('analytics.changeover.yAxisMinutes'), splitLine: { lineStyle: { color: '#e2e8f0' } } },
+    series: series.map(machine => ({
+      name: machine.source,
+      type: 'line',
+      connectNulls: true,
+      symbolSize: 7,
+      data: machine.averageMinutes
+    }))
+  });
+}
+
+function renderAnalyticsOpcEvents(opcEvents) {
+  const container = document.getElementById('analyticsOpcEventsCard');
+  if (!container) return;
+
+  const daily = opcEvents?.daily || [];
+  if (daily.length === 0) {
+    container.innerHTML = `
+      <div class="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <i class="ri-wifi-line text-lg"></i>
+        <span>${analyticsEscapeHtml(t('analytics.opcEvents.noOutages'))}</span>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <p class="mb-3 text-sm text-gray-600">${analyticsEscapeHtml(t('analytics.opcEvents.total').replace('{n}', analyticsFormatNumber(opcEvents.totalConnectionLost)))}</p>
+    <div class="flex flex-wrap gap-2">
+      ${daily.map(day => `
+        <span class="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-sm text-amber-900" title="${analyticsEscapeHtml((day.devices || []).join(', '))}">
+          <i class="ri-wifi-off-line"></i>${analyticsEscapeHtml(day.label)}
+          <span class="text-xs font-semibold">×${analyticsFormatNumber(day.count)}</span>
+        </span>`).join('')}
+    </div>`;
+}
+
+// ------------------------------------------------------------
+// Finance quadrant scatter
+// ------------------------------------------------------------
+
+function renderAnalyticsFinanceQuadrant(finance) {
+  const products = (finance?.products || []).filter(product => product.priced && Number(product.goodCount || 0) > 0);
+  if (products.length === 0) {
+    analyticsShowChartEmpty('analyticsFinanceQuadrantChart', t('analytics.finance.noData'));
+    return;
+  }
+
+  const maxDefectCount = Math.max(1, ...products.map(product => Number(product.defectCount || 0)));
+  const defectColor = rate => rate < 2 ? '#10b981' : rate < 5 ? '#f59e0b' : '#ef4444';
+
+  analyticsRenderChart('analyticsFinanceQuadrantChart', {
+    tooltip: {
+      formatter: params => {
+        const product = products[params.dataIndex];
+        const defectRate = (Number(product.goodCount) + Number(product.defectCount)) > 0
+          ? (Number(product.defectCount) / (Number(product.goodCount) + Number(product.defectCount))) * 100 : 0;
+        return [
+          `<strong>${analyticsEscapeHtml(analyticsGetProductLabel(product))}</strong>`,
+          `${analyticsEscapeHtml(t('analytics.finance.colPieces'))}: ${analyticsFormatNumber(product.goodCount)}`,
+          `${analyticsEscapeHtml(t('analytics.finance.colPrice'))}: ${analyticsFormatCurrency(product.price)}`,
+          `${analyticsEscapeHtml(t('analytics.productCompare.tooltipDefectRate'))}: ${analyticsFormatNumber(defectRate, 1)}%`,
+          `${analyticsEscapeHtml(t('analytics.finance.colLost'))}: ${analyticsFormatCurrency(product.lost)}`
+        ].join('<br>');
+      }
+    },
+    grid: { left: 56, right: 32, top: 32, bottom: 40, containLabel: true },
+    xAxis: { type: 'value', name: t('analytics.finance.quadrantXAxis'), splitLine: { lineStyle: { color: '#e2e8f0' } } },
+    yAxis: { type: 'value', name: t('analytics.finance.quadrantYAxis'), axisLabel: { formatter: value => `¥${Number(value).toLocaleString('ja-JP')}` }, splitLine: { lineStyle: { color: '#e2e8f0' } } },
+    series: [{
+      type: 'scatter',
+      data: products.map(product => {
+        const defectRate = (Number(product.goodCount) + Number(product.defectCount)) > 0
+          ? (Number(product.defectCount) / (Number(product.goodCount) + Number(product.defectCount))) * 100 : 0;
+        return {
+          value: [Number(product.goodCount), Number(product.price)],
+          symbolSize: 12 + (Number(product.defectCount || 0) / maxDefectCount) * 28,
+          itemStyle: { color: defectColor(defectRate), opacity: 0.75 }
+        };
+      })
+    }]
+  });
+}
+
+// ------------------------------------------------------------
+// Saved view state (tab + filters persist across visits)
+// ------------------------------------------------------------
+
+const ANALYTICS_VIEW_STORAGE_KEY = 'analyticsViewState';
+
+function analyticsSaveViewState() {
+  try {
+    localStorage.setItem(ANALYTICS_VIEW_STORAGE_KEY, JSON.stringify({
+      tab: analyticsActiveTab,
+      startDate: document.getElementById('analyticsStartDate')?.value || '',
+      endDate: document.getElementById('analyticsEndDate')?.value || '',
+      source: document.getElementById('analyticsSource')?.value || 'all',
+      lhRh: document.getElementById('analyticsLhRh')?.value || 'all',
+      hinban: document.getElementById('analyticsHinban')?.value || '',
+      productName: document.getElementById('analyticsProductName')?.value || '',
+      operator: document.getElementById('analyticsOperator')?.value || ''
+    }));
+  } catch (error) {
+    console.warn('analytics view state save error:', error);
+  }
+}
+
+function analyticsRestoreViewState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ANALYTICS_VIEW_STORAGE_KEY) || 'null');
+    if (!stored) return;
+
+    if (stored.tab) analyticsActiveTab = stored.tab;
+    const assign = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && value) el.value = value;
+    };
+    assign('analyticsStartDate', stored.startDate);
+    assign('analyticsEndDate', stored.endDate);
+    assign('analyticsHinban', stored.hinban);
+    assign('analyticsProductName', stored.productName);
+    assign('analyticsOperator', stored.operator);
+    // Select values restored after options load; stash for later
+    window.__analyticsPendingSelects = { source: stored.source, lhRh: stored.lhRh };
+  } catch (error) {
+    console.warn('analytics view state restore error:', error);
+  }
+}
+
 function renderAnalyticsActiveTab() {
   if (!analyticsData) return;
 
@@ -2884,7 +3507,7 @@ function renderAnalyticsActiveTab() {
 function renderAnalytics(data) {
   analyticsData = data;
   renderAnalyticsMeta(data.filters || {}, data.summary || {}, data.generatedAt || '');
-  renderAnalyticsKpis(data.summary || {});
+  renderAnalyticsKpis(data.summary || {}, data.previousSummary || null);
   analyticsUpdateFinanceTabVisibility(data);
   renderAnalyticsActiveTab();
 }
@@ -2915,6 +3538,24 @@ async function loadAnalyticsFilterOptions() {
         .concat(values.map(value => `<option value="${analyticsEscapeHtml(value)}">${analyticsEscapeHtml(value)}</option>`))
         .join('');
       lhRhSelect.value = values.includes(currentValue) ? currentValue : 'all';
+    }
+
+    // Apply saved select values now that the options exist, then refresh once
+    const pending = window.__analyticsPendingSelects;
+    if (pending) {
+      window.__analyticsPendingSelects = null;
+      let changed = false;
+      const applySaved = (id, value) => {
+        const select = document.getElementById(id);
+        if (!select || !value || value === 'all') return;
+        if ([...select.options].some(option => option.value === value) && select.value !== value) {
+          select.value = value;
+          changed = true;
+        }
+      };
+      applySaved('analyticsSource', pending.source);
+      applySaved('analyticsLhRh', pending.lhRh);
+      if (changed) loadAnalytics();
     }
   } catch (error) {
     console.error('analytics filter options error:', error);
@@ -2949,6 +3590,7 @@ async function loadAnalytics() {
     }
 
     renderAnalytics(result);
+    analyticsSaveViewState();
   } catch (error) {
     console.error('analytics load error:', error);
     analyticsSetError(error.message || t('analytics.errors.loadFailed'));
@@ -3043,6 +3685,7 @@ function initializeAnalytics() {
   const root = document.getElementById('analyticsRoot');
   if (!root) return;
   if (typeof applyTranslations === 'function') applyTranslations(root);
+  analyticsRestoreViewState();
   analyticsSetDefaultFilters();
   analyticsSyncShiftControls();
   analyticsUpdateTabState();
@@ -3071,4 +3714,7 @@ window.analyticsOpenWorkerReport = analyticsOpenWorkerReport;
 window.handleAnalyticsProductCompareChange = handleAnalyticsProductCompareChange;
 window.setAnalyticsFinanceScope = setAnalyticsFinanceScope;
 window.analyticsResizeChartsSoon = analyticsResizeChartsSoon;
+window.handleAnalyticsProductDetailChange = handleAnalyticsProductDetailChange;
+window.analyticsSaveStandardCycleTime = analyticsSaveStandardCycleTime;
+window.analyticsPrintWorkerReport = analyticsPrintWorkerReport;
 window.analyticsUpdateFilterOptionLabels = analyticsUpdateFilterOptionLabels;

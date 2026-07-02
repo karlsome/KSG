@@ -765,7 +765,66 @@ const translations = {
         attentionAllGood: "No strong warning signals — the team looks balanced in this period.",
         signalDefects: "{name}: defect rate {rate} is well above the team average ({avg}).",
         signalDowntime: "{name}: {hours} of break + trouble time per working day.",
-        signalSlow: "{name}: pace {pph} is well below the team average ({avg})."
+        signalSlow: "{name}: pace {pph} is well below the team average ({avg}).",
+        tileScore: "Efficiency score",
+        scoreInfo: "0-100: pace vs team on the same products (50%) + defect rate (30%) + downtime (20%). Being on slow products does not lower the score.",
+        scorePeriodNote: "For the selected date range",
+        printReport: "Print"
+      },
+
+      productDetail: {
+        title: "Product report",
+        description: "Pick a product to see its photo, pace history, quality breakdown, and who makes it.",
+        noData: "No product data for the current filter.",
+        paceTitle: "Pace history (minutes per piece — lower is faster)",
+        defectsTitle: "Defects on this product",
+        peopleTitle: "Made by",
+        boxSize: "Box: {n} pcs",
+        standardSet: "Standard: {n} min/pc",
+        nudgeButton: "Register best pace ({n} min/pc) as standard",
+        nudgeError: "Failed to save the standard cycle time. Please try again.",
+        tilePieces: "Pieces made",
+        tilePiecesDetail: "{n} production runs",
+        tileDefectRate: "Defect rate",
+        tileDefectDetail: "{n} defects",
+        tileBestPace: "Best pace (min/pc)",
+        tileAvgPaceDetail: "Average: {n} min/pc",
+        tileTrouble: "Trouble time",
+        tileIncompleteBoxes: "Incomplete boxes",
+        tileIncompleteDetail: "Runs not ending on a full box",
+        tileProfit: "Profit this month",
+        tileProfitDetail: "{n} lost to defects",
+        noPaceData: "No cycle-time data for this product yet.",
+        noDefects: "No defects recorded on this product in this period.",
+        bestPaceLine: "Best {n}",
+        standardLine: "Standard {n}",
+        tooltipPace: "Pace",
+        minPerPiece: "min/pc"
+      },
+
+      digest: {
+        output: "Output is {direction} {percent}% vs the previous period ({pieces} pieces).",
+        up: "up",
+        down: "down",
+        defects: "Defect rate {verdict}: {prev} → {now}.",
+        improved: "improved",
+        worsened: "worsened",
+        bottleneck: "Biggest issue: {source} loses {hours} per day to non-production time.",
+        topDefect: "Top defect: {name} ({count} hits)."
+      },
+
+      changeover: {
+        title: "Changeover time trend",
+        description: "Average minutes per changeover, by week. A falling line means changeovers are getting faster.",
+        noData: "No changeovers detected in this period.",
+        yAxisMinutes: "min / changeover"
+      },
+
+      opcEvents: {
+        title: "OPC monitoring outages",
+        description: "Days when the OPC data connection dropped. On these days, \"idle\" time on the bottleneck chart may actually be missing data, not a stopped machine.",
+        noOutages: "No OPC connection losses in this period — machine data is trustworthy.",
+        total: "{n} connection-lost events in this period:"
       },
 
       bottleneck: {
@@ -824,7 +883,11 @@ const translations = {
         colPieces: "Pieces",
         colDefects: "Defects",
         colEarned: "Earned",
-        colLost: "Lost"
+        colLost: "Lost",
+        quadrantTitle: "Where the money risk is",
+        quadrantDesc: "Each dot is a product: right = high volume, up = high profit per piece, red = high defect rate. Big red dots in the top-right are the most expensive quality problems.",
+        quadrantXAxis: "pieces (year)",
+        quadrantYAxis: "profit / piece"
       },
 
       meta: {
@@ -871,7 +934,12 @@ const translations = {
         recordsWithIssues: "Records with defects, trouble, or remarks",
         troubleTime: "{n} trouble time",
         kanbans: "{n} kanbans",
-        products: "{n} products"
+        products: "{n} products",
+        deltaTooltip: "Compared to the previous period of the same length",
+        infoGoodPieces: "Total good pieces submitted in the selected period",
+        infoDefectRate: "Defect rate = defects ÷ (good pieces + defects)",
+        infoIssueRecords: "Records containing defects, trouble time, or remarks",
+        infoManHours: "Man-hours = work time minus breaks and trouble, summed over records"
       },
 
       overview: {
@@ -1052,6 +1120,13 @@ const translations = {
         alertNoProductSignal: "No product quality signal in the current filter.",
         noDefectRecords: "No defect records for the selected filters.",
         noHotspots: "No issue-heavy records for the selected filters.",
+        heatmapTitle: "Which defect happens on which product",
+        heatmapDesc: "Darker cells mean more defects of that type on that product. Read across a row to see a product's weak points.",
+        noHeatmapData: "No defects in the selected period — nothing to map.",
+        controlTitle: "Is the defect rate under control?",
+        controlDesc: "The grey band is the normal range (average ±2σ). Days above the band are real signals worth investigating — not everyday noise.",
+        noControlData: "Not enough daily data to compute a control band.",
+        controlMeanLabel: "Avg {n}%",
         loadingHotspots: "Loading analytics...",
         tableTimestamp: "Timestamp",
         tableProduct: "Product",
@@ -1885,7 +1960,66 @@ const translations = {
         attentionAllGood: "強い警告シグナルはありません。この期間のチームはバランスが取れています。",
         signalDefects: "{name}: 不良率{rate}はチーム平均（{avg}）を大きく上回っています。",
         signalDowntime: "{name}: 1日あたり休憩+トラブル時間が{hours}あります。",
-        signalSlow: "{name}: ペース{pph}はチーム平均（{avg}）を大きく下回っています。"
+        signalSlow: "{name}: ペース{pph}はチーム平均（{avg}）を大きく下回っています。",
+        tileScore: "効率スコア",
+        scoreInfo: "0〜100点: 同一製品でのペース比較（50%）+ 不良率（30%）+ 停止時間（20%）。遅い製品の担当でもスコアは下がりません。",
+        scorePeriodNote: "選択期間の総合評価",
+        printReport: "印刷"
+      },
+
+      productDetail: {
+        title: "製品レポート",
+        description: "製品を選ぶと、写真・ペース履歴・品質内訳・担当者が一目でわかります。",
+        noData: "現在のフィルターに該当する製品データがありません。",
+        paceTitle: "ペース履歴（分/個 — 低いほど速い）",
+        defectsTitle: "この製品の不良内訳",
+        peopleTitle: "生産実績（設備・作業者）",
+        boxSize: "箱入数: {n}個",
+        standardSet: "標準: {n} 分/個",
+        nudgeButton: "実測ベスト（{n} 分/個）を標準値として登録",
+        nudgeError: "標準サイクルタイムの保存に失敗しました。もう一度お試しください。",
+        tilePieces: "生産数",
+        tilePiecesDetail: "{n}回の生産",
+        tileDefectRate: "不良率",
+        tileDefectDetail: "不良 {n}個",
+        tileBestPace: "ベストペース（分/個）",
+        tileAvgPaceDetail: "平均: {n} 分/個",
+        tileTrouble: "トラブル時間",
+        tileIncompleteBoxes: "端数箱",
+        tileIncompleteDetail: "箱単位で終わらなかった生産回数",
+        tileProfit: "今月の粗利",
+        tileProfitDetail: "不良損失 {n}",
+        noPaceData: "この製品のサイクルタイムデータがまだありません。",
+        noDefects: "この期間、この製品に不良はありません。",
+        bestPaceLine: "ベスト {n}",
+        standardLine: "標準 {n}",
+        tooltipPace: "ペース",
+        minPerPiece: "分/個"
+      },
+
+      digest: {
+        output: "生産数は前期間比{percent}%{direction}です（{pieces}個）。",
+        up: "増加",
+        down: "減少",
+        defects: "不良率は{prev}→{now}に{verdict}しました。",
+        improved: "改善",
+        worsened: "悪化",
+        bottleneck: "最大の課題: {source}は1日あたり{hours}の非生産時間があります。",
+        topDefect: "最多不良: {name}（{count}件）。"
+      },
+
+      changeover: {
+        title: "段替え時間トレンド",
+        description: "週ごとの1回あたり平均段替え時間（分）です。線が下がっていれば段替えが速くなっています。",
+        noData: "この期間に段替えは検出されませんでした。",
+        yAxisMinutes: "分/回"
+      },
+
+      opcEvents: {
+        title: "OPC監視の切断",
+        description: "OPCデータ接続が切れた日です。この日はボトルネック分析の「待機」時間が、実は機械停止ではなくデータ欠損の可能性があります。",
+        noOutages: "この期間、OPC接続の切断はありません。設備データは信頼できます。",
+        total: "この期間の接続切断: {n}件"
       },
 
       bottleneck: {
@@ -1944,7 +2078,11 @@ const translations = {
         colPieces: "生産数",
         colDefects: "不良数",
         colEarned: "獲得利益",
-        colLost: "損失"
+        colLost: "損失",
+        quadrantTitle: "収益リスクマップ",
+        quadrantDesc: "各点は製品です。右=生産量が多い、上=1個あたりの粗利が高い、赤=不良率が高い。右上の大きな赤い点が最も高くつく品質問題です。",
+        quadrantXAxis: "生産数（年間）",
+        quadrantYAxis: "粗利/個"
       },
 
       meta: {
@@ -1991,7 +2129,12 @@ const translations = {
         recordsWithIssues: "不良・トラブル・備考を含むデータ",
         troubleTime: "トラブル時間 {n}",
         kanbans: "看板 {n}",
-        products: "製品 {n}種"
+        products: "製品 {n}種",
+        deltaTooltip: "直前の同じ長さの期間との比較",
+        infoGoodPieces: "選択期間に提出された良品の合計数",
+        infoDefectRate: "不良率 = 不良数 ÷（良品数 + 不良数）",
+        infoIssueRecords: "不良・トラブル時間・備考のいずれかを含むデータの件数",
+        infoManHours: "工数 = 作業時間 −（休憩 + トラブル）の合計"
       },
 
       overview: {
@@ -2172,6 +2315,13 @@ const translations = {
         alertNoProductSignal: "現在のフィルターで製品品質シグナルなし。",
         noDefectRecords: "選択したフィルターの不良データがありません。",
         noHotspots: "選択したフィルターの問題レコードがありません。",
+        heatmapTitle: "どの製品にどの不良が出ているか",
+        heatmapDesc: "色が濃いセルほど、その製品にその種類の不良が多く出ています。行を横に見ると製品の弱点がわかります。",
+        noHeatmapData: "選択期間に不良がないため、表示するデータがありません。",
+        controlTitle: "不良率は管理範囲内か？",
+        controlDesc: "グレーの帯が正常範囲（平均±2σ）です。帯を超えた日は日常のばらつきではなく、調査すべき本物のシグナルです。",
+        noControlData: "管理帯を計算するには日次データが足りません。",
+        controlMeanLabel: "平均 {n}%",
         loadingHotspots: "読み込み中...",
         tableTimestamp: "タイムスタンプ",
         tableProduct: "製品",

@@ -3093,6 +3093,357 @@ async function computeSubmittedDBFinance(db, query = {}) {
     };
 }
 
+function addDaysToSubmittedDBDateKey(dateKey, days) {
+    const parsed = parseSubmittedDBCalendarDate(dateKey);
+    if (!parsed) return null;
+    const date = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + days));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Compact summary used for previous-period comparison on the Overview tab
+function computeSubmittedDBLightSummary(records = []) {
+    let goodCount = 0;
+    let defectCount = 0;
+    let manHours = 0;
+    let troubleTime = 0;
+    let issueRecords = 0;
+
+    records.forEach(record => {
+        const defects = getSubmittedDBTotalDefects(record);
+        goodCount += Number(record.good_count ?? 0) || 0;
+        defectCount += defects;
+        manHours += Number(record.man_hours ?? 0) || 0;
+        troubleTime += Number(record.trouble_time ?? 0) || 0;
+        if (defects > 0 || (Number(record.trouble_time ?? 0) || 0) > 0 || String(record.remarks ?? '').trim() !== '') {
+            issueRecords += 1;
+        }
+    });
+
+    return {
+        submissions: records.length,
+        totalGoodCount: goodCount,
+        totalDefectCount: defectCount,
+        defectRate: getSubmittedDBDefectRate(goodCount, defectCount),
+        totalManHours: manHours,
+        totalTroubleTime: troubleTime,
+        totalIssueRecords: issueRecords
+    };
+}
+
+// Defect-type × product matrix for the Quality tab heatmap
+function computeSubmittedDBDefectMatrix(records = []) {
+    const productMap = new Map();
+    const defectTotals = new Map();
+
+    records.forEach(record => {
+        const defects = getSubmittedDBRecordDefects(record);
+        if (defects.length === 0) return;
+
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+        const entry = productMap.get(productKey) || {
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            totalDefects: 0,
+            byType: new Map()
+        };
+
+        defects.forEach(defect => {
+            entry.totalDefects += defect.count;
+            entry.byType.set(defect.name, (entry.byType.get(defect.name) || 0) + defect.count);
+            defectTotals.set(defect.name, (defectTotals.get(defect.name) || 0) + defect.count);
+        });
+
+        productMap.set(productKey, entry);
+    });
+
+    const defectTypes = [...defectTotals.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+        .slice(0, 10)
+        .map(([name]) => name);
+
+    const products = [...productMap.values()]
+        .sort((a, b) => b.totalDefects - a.totalDefects)
+        .slice(0, 12)
+        .map(entry => ({
+            hinban: entry.hinban,
+            productName: entry.productName,
+            lhRh: entry.lhRh,
+            totalDefects: entry.totalDefects,
+            counts: defectTypes.map(type => entry.byType.get(type) || 0)
+        }));
+
+    return { defectTypes, products };
+}
+
+// Per-product deep-dive profiles for the Product tab detail view.
+// Joined with masterDB for the product photo, standard cycle time, and box size.
+function computeSubmittedDBProductProfiles(records = [], masterRecords = []) {
+    const masterById = new Map();
+    const masterByHinbanLhRh = new Map();
+    const masterByHinban = new Map();
+
+    masterRecords.forEach(master => {
+        const id = String(master._id);
+        masterById.set(id, master);
+        const hinban = String(master['品番'] ?? '').trim();
+        const lhRh = String(master['LH/RH'] ?? '').trim();
+        if (hinban) {
+            masterByHinbanLhRh.set(`${hinban}||${lhRh}`, master);
+            if (!masterByHinban.has(hinban)) masterByHinban.set(hinban, master);
+        }
+    });
+
+    const productMap = new Map();
+
+    records.forEach(record => {
+        const productKey = [
+            String(record.hinban ?? '').trim(),
+            String(record.product_name ?? '').trim(),
+            String(record.lh_rh ?? '').trim()
+        ].join('||');
+
+        const entry = productMap.get(productKey) || {
+            key: productKey,
+            hinban: String(record.hinban ?? '').trim(),
+            productName: String(record.product_name ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            masterRecordId: '',
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            manHours: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            incompleteBoxRecords: 0,
+            hakoIresu: 0,
+            defectsByType: new Map(),
+            machines: new Map(),
+            workers: new Map(),
+            paceHistory: []
+        };
+
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defects = getSubmittedDBRecordDefects(record);
+        const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+        const cycleTime = Number(record.cycle_time ?? 0);
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const hakoIresu = Number(record.hako_iresu ?? 0) || 0;
+        const masterRecordId = String(record.master_record_id ?? '').trim();
+
+        entry.submissions += 1;
+        entry.goodCount += goodCount;
+        entry.defectCount += totalDefects;
+        entry.manHours += Number(record.man_hours ?? 0) || 0;
+        entry.breakTime += Number(record.break_time ?? 0) || 0;
+        entry.troubleTime += Number(record.trouble_time ?? 0) || 0;
+        if (masterRecordId && !entry.masterRecordId) entry.masterRecordId = masterRecordId;
+        if (hakoIresu > 0) {
+            entry.hakoIresu = hakoIresu;
+            if (goodCount > 0 && goodCount % hakoIresu !== 0) entry.incompleteBoxRecords += 1;
+        }
+
+        defects.forEach(defect => {
+            entry.defectsByType.set(defect.name, (entry.defectsByType.get(defect.name) || 0) + defect.count);
+        });
+        entry.machines.set(source, (entry.machines.get(source) || 0) + goodCount);
+        getSubmittedDBRecordOperators(record).forEach(name => {
+            entry.workers.set(name, (entry.workers.get(name) || 0) + goodCount);
+        });
+
+        if (Number.isFinite(cycleTime) && cycleTime > 0 && goodCount > 0) {
+            entry.paceHistory.push({
+                date: dateInfo.key,
+                label: dateInfo.label,
+                timestamp: String(record.timestamp ?? ''),
+                cycleTime,
+                goodCount,
+                source,
+                operators: getSubmittedDBRecordOperators(record)
+            });
+        }
+
+        productMap.set(productKey, entry);
+    });
+
+    return [...productMap.values()]
+        .sort((a, b) => b.goodCount - a.goodCount)
+        .slice(0, 30)
+        .map(entry => {
+            const master = (entry.masterRecordId && masterById.get(entry.masterRecordId))
+                || masterByHinbanLhRh.get(`${entry.hinban}||${entry.lhRh}`)
+                || masterByHinban.get(entry.hinban)
+                || null;
+
+            const paceHistory = entry.paceHistory
+                .sort((a, b) => a.date.localeCompare(b.date) || a.timestamp.localeCompare(b.timestamp))
+                .slice(-60);
+            const sortedCycleTimes = paceHistory.map(point => point.cycleTime).sort((a, b) => a - b);
+            // Best demonstrated pace = 25th percentile (robust against one-off outliers)
+            const bestCycleTime = sortedCycleTimes.length > 0
+                ? sortedCycleTimes[Math.floor((sortedCycleTimes.length - 1) * 0.25)]
+                : 0;
+
+            return {
+                key: entry.key,
+                hinban: entry.hinban,
+                productName: entry.productName,
+                lhRh: entry.lhRh,
+                masterRecordId: master ? String(master._id) : entry.masterRecordId,
+                imageURL: master ? String(master.imageURL ?? '').trim() : '',
+                standardCycleTime: master ? Number(String(master.cycleTime ?? '').trim()) || 0 : 0,
+                masterBoxSize: master ? Number(String(master['収容数'] ?? '').trim()) || 0 : 0,
+                submissions: entry.submissions,
+                goodCount: entry.goodCount,
+                defectCount: entry.defectCount,
+                defectRate: getSubmittedDBDefectRate(entry.goodCount, entry.defectCount),
+                manHours: entry.manHours,
+                troubleTime: entry.troubleTime,
+                outputPerHour: entry.manHours > 0 ? entry.goodCount / entry.manHours : 0,
+                incompleteBoxRecords: entry.incompleteBoxRecords,
+                hakoIresu: entry.hakoIresu,
+                bestCycleTime,
+                averageCycleTime: sortedCycleTimes.length > 0
+                    ? sortedCycleTimes.reduce((sum, value) => sum + value, 0) / sortedCycleTimes.length
+                    : 0,
+                defectsByType: [...entry.defectsByType.entries()]
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count),
+                machines: [...entry.machines.entries()]
+                    .map(([name, pieces]) => ({ name, pieces }))
+                    .sort((a, b) => b.pieces - a.pieces),
+                workers: [...entry.workers.entries()]
+                    .map(([name, pieces]) => ({ name, pieces }))
+                    .sort((a, b) => b.pieces - a.pieces)
+                    .slice(0, 10),
+                paceHistory
+            };
+        });
+}
+
+// Weekly changeover trend per machine (Monday-keyed weeks)
+function computeSubmittedDBChangeoverTrend(records = []) {
+    const machineDayMap = new Map();
+
+    records.forEach(record => {
+        const source = String(record.submitted_from ?? '').trim() || 'Unknown';
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const window = getSubmittedDBRecordTimeWindow(record);
+        if (!window || dateInfo.key === 'Unknown') return;
+
+        const key = `${source}||${dateInfo.key}`;
+        const entry = machineDayMap.get(key) || { source, date: dateInfo.key, segments: [] };
+        entry.segments.push({
+            startMinutes: window.startMinutes,
+            endMinutes: window.endMinutes,
+            hinban: String(record.hinban ?? '').trim()
+        });
+        machineDayMap.set(key, entry);
+    });
+
+    const weekOf = dateKey => {
+        const parsed = parseSubmittedDBCalendarDate(dateKey);
+        if (!parsed) return null;
+        const date = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+        const mondayOffset = (date.getUTCDay() + 6) % 7;
+        date.setUTCDate(date.getUTCDate() - mondayOffset);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    };
+
+    const trendMap = new Map(); // `${source}||${week}` -> { minutes, count }
+    const weekSet = new Set();
+    const machineTotals = new Map();
+
+    machineDayMap.forEach(dayEntry => {
+        const week = weekOf(dayEntry.date);
+        if (!week) return;
+
+        const segments = dayEntry.segments.sort((a, b) => a.startMinutes - b.startMinutes);
+        for (let i = 1; i < segments.length; i++) {
+            const gapMinutes = segments[i].startMinutes - segments[i - 1].endMinutes;
+            if (gapMinutes < SUBMITTED_DB_GAP_MIN_MINUTES || gapMinutes > SUBMITTED_DB_GAP_MAX_MINUTES) continue;
+            if (!segments[i].hinban || !segments[i - 1].hinban || segments[i].hinban === segments[i - 1].hinban) continue;
+
+            const key = `${dayEntry.source}||${week}`;
+            const entry = trendMap.get(key) || { minutes: 0, count: 0 };
+            entry.minutes += gapMinutes;
+            entry.count += 1;
+            trendMap.set(key, entry);
+            weekSet.add(week);
+            machineTotals.set(dayEntry.source, (machineTotals.get(dayEntry.source) || 0) + gapMinutes);
+        }
+    });
+
+    const weeks = [...weekSet].sort();
+    const topMachines = [...machineTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([source]) => source);
+
+    return {
+        weeks: weeks.map(week => ({
+            week,
+            label: `${Number(week.slice(5, 7))}/${Number(week.slice(8, 10))}~`
+        })),
+        series: topMachines.map(source => ({
+            source,
+            averageMinutes: weeks.map(week => {
+                const entry = trendMap.get(`${source}||${week}`);
+                return entry && entry.count > 0 ? Math.round((entry.minutes / entry.count) * 10) / 10 : null;
+            }),
+            counts: weeks.map(week => trendMap.get(`${source}||${week}`)?.count || 0)
+        }))
+    };
+}
+
+// OPC monitoring outage counts per day (distinguishes "machine idle" from
+// "monitoring was down" when reading the machine time-loss view)
+async function computeSubmittedDBOpcEvents(db, startDateValue, endDateValue) {
+    try {
+        const start = parseSubmittedDBCalendarDate(startDateValue);
+        const end = parseSubmittedDBCalendarDate(endDateValue);
+        const startDate = start
+            ? new Date(Date.UTC(start.year, start.month - 1, start.day) - 9 * 3600 * 1000)
+            : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+        const endDate = end
+            ? new Date(Date.UTC(end.year, end.month - 1, end.day + 1) - 9 * 3600 * 1000)
+            : new Date();
+
+        const events = await db.collection('opcua_event_log')
+            .find(
+                { eventType: 'connection_lost', timestamp: { $gte: startDate, $lt: endDate } },
+                { projection: { timestamp: 1, device_id: 1 } }
+            )
+            .sort({ timestamp: 1 })
+            .limit(2000)
+            .toArray();
+
+        const dailyMap = new Map();
+        events.forEach(event => {
+            const calendar = getJapanCalendarDate(new Date(event.timestamp));
+            const entry = dailyMap.get(calendar.key) || { date: calendar.key, label: calendar.label, count: 0, devices: new Set() };
+            entry.count += 1;
+            if (event.device_id) entry.devices.add(String(event.device_id));
+            dailyMap.set(calendar.key, entry);
+        });
+
+        return {
+            totalConnectionLost: events.length,
+            daily: [...dailyMap.values()]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(entry => ({ date: entry.date, label: entry.label, count: entry.count, devices: [...entry.devices] }))
+        };
+    } catch (error) {
+        console.error('❌ Error computing OPC events for analytics:', error.message);
+        return { totalConnectionLost: 0, daily: [] };
+    }
+}
+
 app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
@@ -3470,6 +3821,30 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'))
             .slice(0, 10);
 
+        // Benchmark-normalized pace per worker: how fast they run each product
+        // relative to the all-worker pace on that product, weighted by hours.
+        // 1.0 = exactly the team pace; >1 faster; <1 slower.
+        const paceIndexAccumulator = new Map();
+        operatorProductMap.forEach(entry => {
+            if (entry.totalManHours <= 0) return;
+            const benchmark = productWorkerBenchmarkMap.get(entry.contextKey);
+            if (!benchmark || benchmark.totalManHours <= 0 || benchmark.totalGoodCount <= 0) return;
+
+            const workerPace = entry.totalGoodCount / entry.totalManHours;
+            const benchmarkPace = benchmark.totalGoodCount / benchmark.totalManHours;
+            if (benchmarkPace <= 0) return;
+
+            const accumulator = paceIndexAccumulator.get(entry.name) || { weighted: 0, weight: 0 };
+            accumulator.weighted += (workerPace / benchmarkPace) * entry.totalManHours;
+            accumulator.weight += entry.totalManHours;
+            paceIndexAccumulator.set(entry.name, accumulator);
+        });
+        const paceIndexByOperator = new Map(
+            [...paceIndexAccumulator.entries()]
+                .filter(([, acc]) => acc.weight > 0)
+                .map(([name, acc]) => [name, acc.weighted / acc.weight])
+        );
+
         const operatorComparisonAll = [...operatorMap.values()]
             .map(entry => {
                 const dailyPoints = [...entry.dailyMap.values()]
@@ -3506,6 +3881,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                     productCount: entry.productKeys.size,
                     sourceCount: entry.sourceKeys.size,
                     consistencyScore: Math.max(0, 100 - (getSubmittedDBCoefficientOfVariation(outputPerHourSamples) * 100)),
+                    paceIndex: paceIndexByOperator.get(entry.name) ?? null,
                     dailyPoints
                 };
             })
@@ -3591,6 +3967,51 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const machineTimeLoss = computeSubmittedDBMachineTimeLoss(records);
         const operatorDaily = computeSubmittedDBOperatorDaily(records);
         const productWorkerComparison = computeSubmittedDBProductWorkerComparison(records);
+        const defectMatrix = computeSubmittedDBDefectMatrix(records);
+        const changeoverTrend = computeSubmittedDBChangeoverTrend(records);
+
+        // Product profiles need masterDB for photos / standard cycle time / box size
+        let productProfiles = [];
+        try {
+            const masterRecords = await db.collection('masterDB').find({}, {
+                projection: { '品番': 1, 'LH/RH': 1, '製品名': 1, imageURL: 1, cycleTime: 1, '収容数': 1 }
+            }).toArray();
+            productProfiles = computeSubmittedDBProductProfiles(records, masterRecords);
+        } catch (profileError) {
+            console.error('❌ [ADMIN] Error computing product profiles:', profileError);
+            productProfiles = computeSubmittedDBProductProfiles(records, []);
+        }
+
+        // Previous equivalent period (same length, immediately before) for KPI deltas
+        let previousSummary = null;
+        const requestedStartDate = String(req.query.startDate ?? '').trim();
+        const requestedEndDate = String(req.query.endDate ?? '').trim();
+        if (requestedStartDate && requestedEndDate) {
+            try {
+                const startParsed = parseSubmittedDBCalendarDate(requestedStartDate);
+                const endParsed = parseSubmittedDBCalendarDate(requestedEndDate);
+                if (startParsed && endParsed) {
+                    const startUtc = Date.UTC(startParsed.year, startParsed.month - 1, startParsed.day);
+                    const endUtc = Date.UTC(endParsed.year, endParsed.month - 1, endParsed.day);
+                    const lengthDays = Math.round((endUtc - startUtc) / 86400000) + 1;
+                    const previousQuery = {
+                        ...req.query,
+                        startDate: addDaysToSubmittedDBDateKey(requestedStartDate, -lengthDays),
+                        endDate: addDaysToSubmittedDBDateKey(requestedStartDate, -1)
+                    };
+                    const previousRecords = await collection.find(buildSubmittedDBAnalyticsFilter(previousQuery)).toArray();
+                    previousSummary = {
+                        ...computeSubmittedDBLightSummary(previousRecords),
+                        startDate: previousQuery.startDate,
+                        endDate: previousQuery.endDate
+                    };
+                }
+            } catch (previousError) {
+                console.error('❌ [ADMIN] Error computing previous-period summary:', previousError);
+            }
+        }
+
+        const opcEvents = await computeSubmittedDBOpcEvents(db, requestedStartDate, requestedEndDate);
 
         // Finance is restricted: only admin/masterUser roles receive it.
         const financeAllowed = req.userRole === 'admin' || req.userRole === 'masterUser';
@@ -3627,6 +4048,11 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             operatorDaily,
             machineTimeLoss,
             productWorkerComparison,
+            defectMatrix,
+            changeoverTrend,
+            productProfiles,
+            previousSummary,
+            opcEvents,
             finance,
             topProducts,
             sourceBreakdown,
@@ -3638,6 +4064,56 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching analytics:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to load analytics' });
+    }
+});
+
+// POST /api/admin/analytics/product-cycle-time
+// Saves the observed best pace as the product's standard cycle time in masterDB
+// (the "register best pace as standard" nudge on the Product tab detail view).
+app.post('/api/admin/analytics/product-cycle-time', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const { masterRecordId, cycleTime } = req.body || {};
+        const cycleTimeNumber = Number(cycleTime);
+
+        if (!masterRecordId || !ObjectId.isValid(String(masterRecordId))) {
+            return res.status(400).json({ success: false, error: 'Invalid masterRecordId' });
+        }
+        if (!Number.isFinite(cycleTimeNumber) || cycleTimeNumber <= 0 || cycleTimeNumber > 1000) {
+            return res.status(400).json({ success: false, error: 'Invalid cycleTime' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('masterDB');
+        const record = await collection.findOne({ _id: new ObjectId(String(masterRecordId)) });
+        if (!record) {
+            return res.status(404).json({ success: false, error: 'Master record not found' });
+        }
+
+        const newValue = String(Math.round(cycleTimeNumber * 100) / 100);
+        const oldValue = String(record.cycleTime ?? '').trim() || '(なし)';
+
+        await collection.updateOne(
+            { _id: record._id },
+            {
+                $set: { cycleTime: newValue },
+                $push: {
+                    changeHistory: {
+                        timestamp: new Date(),
+                        changedBy: req.username || 'admin',
+                        action: '更新',
+                        changes: [{ field: 'cycleTime', oldValue, newValue }]
+                    }
+                }
+            }
+        );
+
+        console.log(`⏱️ [ADMIN] Standard cycle time set for ${record['品番'] || masterRecordId}: ${oldValue} → ${newValue} (by ${req.username})`);
+        res.json({ success: true, cycleTime: newValue });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error saving product cycle time:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to save cycle time' });
     }
 });
 
