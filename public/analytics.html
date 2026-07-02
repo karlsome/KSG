@@ -120,18 +120,21 @@
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.hinban">Hinban</span>
-            <input id="analyticsHinban" type="text" list="analyticsHinbanList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.filterByHinban" placeholder="Filter by hinban" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsHinbanList"></datalist>
+            <select id="analyticsHinban" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.filterByHinban">Filter by hinban</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.product">Product</span>
-            <input id="analyticsProductName" type="text" list="analyticsProductList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.filterByProduct" placeholder="Filter by product" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsProductList"></datalist>
+            <select id="analyticsProductName" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.filterByProduct">Filter by product</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.workerContains">Worker contains</span>
-            <input id="analyticsOperator" type="text" list="analyticsOperatorList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.searchOperator" placeholder="Search operator" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsOperatorList"></datalist>
+            <select id="analyticsOperator" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.searchOperator">Search operator</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.focusWorkerChart">Focus worker chart</span>

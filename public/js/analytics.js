@@ -3541,9 +3541,9 @@ async function loadAnalyticsFilterOptions() {
     const options = result.options || {};
     analyticsPopulateSelect('analyticsSource', options.sources || [], t('analytics.filters.allSources'));
     analyticsPopulateSelect('analyticsFocusOperator', options.operators || [], t('analytics.filters.autoTopWorker'), true);
-    analyticsPopulateDatalist('analyticsHinbanList', options.hinban || []);
-    analyticsPopulateDatalist('analyticsProductList', options.productNames || []);
-    analyticsPopulateDatalist('analyticsOperatorList', options.operators || []);
+    analyticsPopulateSelect('analyticsHinban', options.hinban || [], t('analytics.filters.filterByHinban'), true);
+    analyticsPopulateSelect('analyticsProductName', options.productNames || [], t('analytics.filters.filterByProduct'), true);
+    analyticsPopulateSelect('analyticsOperator', options.operators || [], t('analytics.filters.searchOperator'), true);
 
     const lhRhSelect = document.getElementById('analyticsLhRh');
     if (lhRhSelect && Array.isArray(options.lhRh) && options.lhRh.length > 0) {
