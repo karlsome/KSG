@@ -42,7 +42,7 @@
     const now = new Date();
     const hoursSinceLogin = (now - loginTime) / (1000 * 60 * 60);
     
-    if (hoursSinceLogin > 12) {
+    if (hoursSinceLogin > 8760) {
       // Token expired, clear and redirect
       localStorage.removeItem('tabletAuth');
       if (authenticatedTablet) {

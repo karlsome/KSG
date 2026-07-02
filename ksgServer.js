@@ -10735,7 +10735,7 @@ app.post("/tabletLogin", async (req, res) => {
         userId: user._id.toString()
       },
       process.env.JWT_SECRET,
-      { expiresIn: '180d' }
+      { expiresIn: '1y' }
     );
 
     res.json({
