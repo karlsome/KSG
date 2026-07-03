@@ -1413,6 +1413,7 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
 function renderAnalyticsMachineTab(data) {
   renderAnalyticsMachineTimeLoss(data.machineTimeLoss || []);
   renderAnalyticsMachineTimeline(data.machineDaily || []);
+  renderAnalyticsMachineTrend(data.machineDaily || []);
   renderAnalyticsChangeoverTrend(data.changeoverTrend || null);
   renderAnalyticsOpcEvents(data.opcEvents || null);
 
@@ -2754,120 +2755,207 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
   `;
 
   container.innerHTML = html;
-  
-  renderAnalyticsMachineTimelineSummary(machines, targetDate);
 }
 
-function renderAnalyticsMachineTimelineSummary(machines, targetDate) {
-  const summaryContainer = document.getElementById('analyticsMachineTimelineSummary');
-  if (!summaryContainer) return;
+function renderAnalyticsMachineTrend(machineDaily) {
+  const containerId = 'analyticsMachineTrendChart';
+  const machines = machineDaily || [];
 
-  if (!machines || machines.length === 0) {
-    summaryContainer.innerHTML = '';
+  if (machines.length === 0) {
+    analyticsShowChartEmpty(containerId, t('analytics.empty.noData'));
     return;
   }
 
+  // Aggregate stats per day across all machines
+  const statsByDate = {};
   const shiftStart = 8 * 60 + 30; // 08:30
   const shiftEnd = 19 * 60; // 19:00
   const totalShiftMins = shiftEnd - shiftStart;
 
-  let cardsHtml = '';
-
+  // Find all unique dates
+  const allDates = new Set();
   machines.forEach(machine => {
-    const dayData = (machine.days || []).find(d => d.date === targetDate);
-    const records = dayData ? dayData.records || [] : [];
-    
-    let segments = records.map(record => {
-      const start = analyticsParseClockMinutes(record.startTime);
-      let end = analyticsParseClockMinutes(record.endTime);
-      if (end < start) end += 24 * 60;
-      return { ...record, start, end };
-    }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
-
-    let totalProducing = 0;
-    let totalTrouble = 0;
-    let totalBreak = 0;
-    let totalChangeover = 0;
-    let totalIdle = 0;
-
-    if (segments.length === 0) {
-      totalIdle = totalShiftMins;
-    } else {
-      let lastEnd = shiftStart;
-
-      segments.forEach((segment, index) => {
-        if (segment.start > lastEnd) {
-          if (index === 0) {
-            totalIdle += (segment.start - lastEnd);
-          } else {
-            const gap = segment.start - lastEnd;
-            const prevSeg = segments[index - 1];
-            const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
-            if (isSameHinban) {
-              totalIdle += gap;
-            } else {
-              totalChangeover += gap;
-            }
-          }
-        }
-
-        const segDuration = segment.end - segment.start;
-        const breakMins = (segment.breakTime || 0) * 60;
-        const troubleMins = (segment.troubleTime || 0) * 60;
-        const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
-
-        totalProducing += producingMins;
-        totalBreak += breakMins;
-        totalTrouble += troubleMins;
-
-        lastEnd = Math.max(lastEnd, segment.end);
-      });
-
-      if (lastEnd < shiftEnd) {
-        totalIdle += (shiftEnd - lastEnd);
-      }
-    }
-
-    const efficiency = totalShiftMins > 0 ? (totalProducing / totalShiftMins) * 100 : 0;
-    
-    // Add stats card for this machine
-    cardsHtml += `
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${analyticsEscapeHtml(machine.source)}">${analyticsEscapeHtml(machine.source)}</h4>
-        
-        <div class="space-y-3">
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}</span>
-            <span class="font-medium text-emerald-600">${efficiency.toFixed(1)}%</span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendProducing'))}</span>
-            <span class="font-medium text-gray-900">${analyticsFormatHours(totalProducing / 60)}</span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendIdle'))}</span>
-            <span class="font-medium text-gray-900">${Math.round(totalIdle)}m</span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendChangeover'))}</span>
-            <span class="font-medium text-gray-900">${Math.round(totalChangeover)}m</span>
-          </div>
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-500">${analyticsEscapeHtml(t('analytics.bottleneck.legendTrouble'))}</span>
-            <span class="font-medium text-rose-600">${Math.round(totalTrouble)}m</span>
-          </div>
-        </div>
-      </div>
-    `;
+    (machine.days || []).forEach(day => {
+      allDates.add(day.date);
+    });
   });
 
-  summaryContainer.innerHTML = `
-    <h3 class="text-sm font-medium text-gray-700 mb-4">${analyticsEscapeHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-      ${cardsHtml}
-    </div>
-  `;
+  const sortedDates = Array.from(allDates).sort();
+
+  sortedDates.forEach(date => {
+    let dayProducing = 0;
+    let dayTrouble = 0;
+    let dayBreak = 0;
+    let dayChangeover = 0;
+    let dayIdle = 0;
+    let machineCountForDay = 0;
+
+    machines.forEach(machine => {
+      const dayData = (machine.days || []).find(d => d.date === date);
+      if (!dayData) return;
+      machineCountForDay++;
+
+      const records = dayData.records || [];
+      let segments = records.map(record => {
+        const start = analyticsParseClockMinutes(record.startTime);
+        let end = analyticsParseClockMinutes(record.endTime);
+        if (end < start) end += 24 * 60;
+        return { ...record, start, end };
+      }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+      if (segments.length === 0) {
+        dayIdle += totalShiftMins;
+      } else {
+        let lastEnd = shiftStart;
+
+        segments.forEach((segment, index) => {
+          if (segment.start > lastEnd) {
+            if (index === 0) {
+              dayIdle += (segment.start - lastEnd);
+            } else {
+              const gap = segment.start - lastEnd;
+              const prevSeg = segments[index - 1];
+              const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+              if (isSameHinban) {
+                dayIdle += gap;
+              } else {
+                dayChangeover += gap;
+              }
+            }
+          }
+
+          const segDuration = segment.end - segment.start;
+          const breakMins = (segment.breakTime || 0) * 60;
+          const troubleMins = (segment.troubleTime || 0) * 60;
+          const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
+
+          dayProducing += producingMins;
+          dayBreak += breakMins;
+          dayTrouble += troubleMins;
+
+          lastEnd = Math.max(lastEnd, segment.end);
+        });
+
+        if (lastEnd < shiftEnd) {
+          dayIdle += (shiftEnd - lastEnd);
+        }
+      }
+    });
+
+    const maxMins = machineCountForDay * totalShiftMins;
+    const efficiency = maxMins > 0 ? (dayProducing / maxMins) * 100 : 0;
+
+    statsByDate[date] = {
+      producingHrs: dayProducing / 60,
+      idleHrs: dayIdle / 60,
+      changeoverHrs: dayChangeover / 60,
+      troubleHrs: (dayTrouble + dayBreak) / 60, // Combined as non-productive mapped to trouble/break
+      efficiency: efficiency
+    };
+  });
+
+  const xAxisData = sortedDates.map(d => {
+    const pt = d.split('-');
+    return `${parseInt(pt[1])}/${parseInt(pt[2])}`;
+  });
+
+  const seriesProducing = sortedDates.map(d => statsByDate[d].producingHrs);
+  const seriesIdle = sortedDates.map(d => statsByDate[d].idleHrs);
+  const seriesChangeover = sortedDates.map(d => statsByDate[d].changeoverHrs);
+  const seriesTrouble = sortedDates.map(d => statsByDate[d].troubleHrs);
+  const seriesEfficiency = sortedDates.map(d => statsByDate[d].efficiency);
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' }
+    },
+    legend: {
+      data: [
+        t('analytics.bottleneck.legendProducing') || 'Producing',
+        t('analytics.bottleneck.legendIdle') || 'Idle',
+        t('analytics.bottleneck.legendChangeover') || 'Changeover',
+        t('analytics.bottleneck.legendTrouble') || 'Trouble',
+        t('analytics.timelineSummary.efficiency') || 'Efficiency'
+      ],
+      bottom: 0,
+      icon: 'circle'
+    },
+    grid: {
+      top: 40,
+      left: 20,
+      right: 20,
+      bottom: 40,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: xAxisData,
+      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      axisLabel: { color: '#6b7280' }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: t('analytics.worker.hours') || 'Hours',
+        nameTextStyle: { color: '#9ca3af', padding: [0, 0, 0, 10] },
+        splitLine: { lineStyle: { color: '#f3f4f6', type: 'dashed' } },
+        axisLabel: { color: '#6b7280' }
+      },
+      {
+        type: 'value',
+        name: '%',
+        min: 0,
+        max: 100,
+        splitLine: { show: false },
+        axisLabel: { color: '#6b7280' }
+      }
+    ],
+    series: [
+      {
+        name: t('analytics.bottleneck.legendProducing') || 'Producing',
+        type: 'bar',
+        stack: 'total',
+        itemStyle: { color: '#34d399' },
+        data: seriesProducing
+      },
+      {
+        name: t('analytics.bottleneck.legendIdle') || 'Idle',
+        type: 'bar',
+        stack: 'total',
+        itemStyle: { color: '#9ca3af' },
+        data: seriesIdle
+      },
+      {
+        name: t('analytics.bottleneck.legendChangeover') || 'Changeover',
+        type: 'bar',
+        stack: 'total',
+        itemStyle: { color: '#fbbf24' },
+        data: seriesChangeover
+      },
+      {
+        name: t('analytics.bottleneck.legendTrouble') || 'Trouble',
+        type: 'bar',
+        stack: 'total',
+        itemStyle: { color: '#fb7185' },
+        data: seriesTrouble
+      },
+      {
+        name: t('analytics.timelineSummary.efficiency') || 'Efficiency',
+        type: 'line',
+        yAxisIndex: 1,
+        symbol: 'circle',
+        symbolSize: 8,
+        itemStyle: { color: '#3b82f6' },
+        lineStyle: { width: 3, shadowColor: 'rgba(59, 130, 246, 0.3)', shadowBlur: 10 },
+        data: seriesEfficiency,
+        tooltip: { valueFormatter: value => value.toFixed(1) + '%' }
+      }
+    ]
+  };
+  analyticsRenderChart(containerId, option);
 }
+
 
 // ------------------------------------------------------------
 // Product tab: worker-vs-worker comparison on the same product

@@ -827,6 +827,11 @@ const translations = {
         yAxisMinutes: "min / changeover"
       },
 
+      machineTrend: {
+        title: "Machine Time Trend",
+        description: "Trend of efficiency, producing time, idle time, and trouble over the selected period."
+      },
+
       opcEvents: {
         title: "OPC monitoring outages",
         description: "Days when the OPC data connection dropped. On these days, \"idle\" time on the bottleneck chart may actually be missing data, not a stopped machine.",
@@ -2036,6 +2041,11 @@ const translations = {
         description: "週ごとの1回あたり平均段替え時間（分）です。線が下がっていれば段替えが速くなっています。",
         noData: "この期間に段替えは検出されませんでした。",
         yAxisMinutes: "分/回"
+      },
+
+      machineTrend: {
+        title: "設備稼働トレンド",
+        description: "選択期間における稼働率、生産時間、アイドル時間、トラブル時間の推移を表示します。"
       },
 
       opcEvents: {

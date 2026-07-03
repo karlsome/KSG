@@ -2820,8 +2820,13 @@ function computeSubmittedDBOperatorDaily(records = []) {
         .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
-function computeSubmittedDBMachineDaily(records = [], liveSessions = []) {
+function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = []) {
     const machineMap = new Map();
+    
+    // Pre-populate with all known machines to ensure they appear even if idle today
+    allMachineNames.forEach(name => {
+        if (name) machineMap.set(name, { source: name, dayMap: new Map() });
+    });
 
     records.forEach(record => {
         const source = String(record.submitted_from ?? '').trim();
@@ -3614,7 +3619,11 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const filter = buildSubmittedDBAnalyticsFilter(req.query);
-        const records = await collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray();
+        const [records, uniqueAllSourcesDocs] = await Promise.all([
+            collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
+            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray()
+        ]);
+        const allMachineNames = (uniqueAllSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
 
         const dailyMap = new Map();
         const defectMap = new Map();
@@ -4124,7 +4133,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             console.error("Failed to fetch live sessions for analytics:", e);
         }
 
-        const machineDaily = computeSubmittedDBMachineDaily(records, liveSessions);
+        const machineDaily = computeSubmittedDBMachineDaily(records, liveSessions, allMachineNames);
         const productWorkerComparison = computeSubmittedDBProductWorkerComparison(records);
         const defectMatrix = computeSubmittedDBDefectMatrix(records);
         const changeoverTrend = computeSubmittedDBChangeoverTrend(records);
@@ -4304,7 +4313,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             date_day: today.day
         };
 
-        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords] = await Promise.all([
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets] = await Promise.all([
             collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
             collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
             collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
@@ -4313,8 +4322,39 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
                 .find({ isStarted: true })
                 .sort({ updatedAt: -1 })
-                .toArray()
+                .toArray(),
+            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray(),
+            db.collection('tabletDB').find({}).toArray()
         ]);
+
+        const allMachineNames = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+
+        const tabletMap = new Map();
+        tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
+        const nowMs = new Date();
+        const liveSessions = sessionRecords.map(session => {
+            const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+            if (!workStartTime) return null;
+            let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+            let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+            const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+            if (session.breakActive && breakStartTime) breakMins += Math.max(0, (nowMs.getTime() - breakStartTime.getTime()) / 60000);
+            const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+            if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
+
+            return {
+                source: tabletMap.get(session.tabletName) || session.tabletName,
+                startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
+                endTime: `${String(nowMs.getHours()).padStart(2, '0')}:${String(nowMs.getMinutes()).padStart(2, '0')}`,
+                breakTime: breakMins / 60,
+                troubleTime: troubleMins / 60,
+                hinban: session.hinban,
+                productName: session.productName,
+                kanbanId: session.kanbanId,
+                operators: normalizeMachineStatusStringList(session.operators),
+                isInProgress: true
+            };
+        }).filter(Boolean);
 
         const operatorMap = new Map();
         const productMap = new Map();
@@ -4636,7 +4676,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             topOperators,
             workerHoursToday,
             dailyTrend: last7Days.map(day => trendMap.get(day.key)),
-            machineDaily: computeSubmittedDBMachineDaily(todayRecords, sessionRecords)
+            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames)
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);

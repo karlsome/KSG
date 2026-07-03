@@ -394,7 +394,14 @@
         </div>
         <div id="analyticsMachineBottleneckVerdict" class="px-6 pt-4"></div>
         <div id="analyticsMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
-        <div id="analyticsMachineTimelineSummary" class="border-t border-gray-100 bg-gray-50/50 p-6"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.machineTrend.title">Machine Time Trend</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.machineTrend.description">Trend of efficiency, producing time, idle time, and trouble over the selected period.</p>
+        </div>
+        <div id="analyticsMachineTrendChart" class="h-[400px] w-full px-2 py-4"></div>
       </section>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
