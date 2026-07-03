@@ -2841,8 +2841,10 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         const operators = getSubmittedDBRecordOperators(record);
 
         const recordRow = {
-            startTime: String(record.start_time ?? '').trim(),
-            endTime: String(record.end_time ?? '').trim(),
+            id: record._id || record.id,
+            isLive: record.isLive || false,
+            startTime: String(record.start_time || record.startTime || '').trim(),
+            endTime: String(record.end_time || record.endTime || '').trim(),
             source,
             productName,
             hinban,
@@ -2907,6 +2909,8 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         };
 
         dayEntry.records.push({
+            id: session.id,
+            isLive: true,
             startTime: String(session.startTime ?? '').trim(),
             endTime: String(session.endTime ?? '').trim(),
             source,
@@ -4116,6 +4120,8 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                     if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
 
                     return {
+                        id: session._id,
+                        isLive: true,
                         source: tabletMap.get(session.tabletName) || session.tabletName,
                         startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
                         endTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
@@ -4343,6 +4349,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
 
             return {
+                id: session._id,
+                isLive: true,
                 source: tabletMap.get(session.tabletName) || session.tabletName,
                 startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
                 endTime: `${String(nowMs.getHours()).padStart(2, '0')}:${String(nowMs.getMinutes()).padStart(2, '0')}`,
@@ -5056,6 +5064,70 @@ app.get('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, re
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching submittedDB record:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to fetch submitted data' });
+    }
+});
+
+app.get('/api/admin/active-session/:id', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const sessionId = req.params?.id;
+        if (!ObjectId.isValid(sessionId)) {
+            return res.status(400).json({ success: false, error: 'Invalid active session ID' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const session = await db.collection(TABLET_ACTIVE_SESSION_COLLECTION).findOne({
+            _id: new ObjectId(sessionId)
+        });
+
+        if (!session) {
+            return res.status(404).json({ success: false, error: 'Active session not found' });
+        }
+
+        const tablet = await db.collection('tabletDB').findOne({ tabletName: session.tabletName });
+        const sourceName = tablet?.設備名 || session.tabletName;
+
+        const nowMs = new Date();
+        const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+        
+        let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+        let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+        const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+        if (session.breakActive && breakStartTime) breakMins += Math.max(0, (nowMs.getTime() - breakStartTime.getTime()) / 60000);
+        const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+        if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
+
+        const startTimeStr = workStartTime ? `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}` : '—';
+        const manHours = workStartTime ? (nowMs.getTime() - workStartTime.getTime()) / 3600000 : 0;
+
+        // Map it to look like a submittedDB record so the modal can reuse it
+        const normalizedData = {
+            _id: session._id,
+            timestamp: workStartTime || nowMs,
+            submitted_from: sourceName,
+            product_name: session.productName || '—',
+            hinban: session.hinban || '—',
+            kanban_id: session.kanbanId || '—',
+            lh_rh: '—',
+            start_time: startTimeStr,
+            end_time: '—',
+            break_time: breakMins / 60,
+            trouble_time: troubleMins / 60,
+            man_hours: manHours,
+            good_count: 0,
+            cycle_time: 0,
+            // Operators fields mapping (assuming up to 4 like dashboard)
+            operator1: session.operators && session.operators[0] ? session.operators[0] : null,
+            operator2: session.operators && session.operators[1] ? session.operators[1] : null,
+            operator3: session.operators && session.operators[2] ? session.operators[2] : null,
+            operator4: session.operators && session.operators[3] ? session.operators[3] : null
+        };
+
+        res.json({ success: true, data: normalizedData });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching active session record:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to fetch active session data' });
     }
 });
 

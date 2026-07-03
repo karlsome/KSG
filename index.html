@@ -892,7 +892,7 @@
       if (footer) footer.textContent = '';
     }
 
-    function renderDashboardSubmissionDetail(record) {
+    function renderDashboardSubmissionDetail(record, isLive = false) {
       const body = document.getElementById('dashboardSubmissionBody');
       const footer = document.getElementById('dashboardSubmissionFooter');
       const date = document.getElementById('dashboardSubmissionDate');
@@ -903,22 +903,26 @@
       const operators = DASHBOARD_OPERATOR_FIELDS.map(field => record[field]).map(name => String(name ?? '').trim()).filter(Boolean);
       const defects = getDashboardSubmissionDefects(record);
       const totalDefects = defects.reduce((sum, item) => sum + item.count, 0);
-      const piecesPerHourValue = formatDashboardPiecesPerHour(record.cycle_time);
+      const piecesPerHourValue = isLive ? '—' : formatDashboardPiecesPerHour(record.cycle_time);
 
       date.textContent = formatDashboardDateTime(record.timestamp);
       title.textContent = record.product_name || dashboardText('detailTitle');
       sub.textContent = [record.hinban, record.kanban_id].filter(Boolean).join(' / ');
       footer.textContent = `${dashboardText('source')}: ${record.submitted_from || '—'}`;
 
+      const goodCountStr = isLive ? '—' : formatDashboardNumber(record.good_count || 0);
+      const cycleTimeStr = isLive ? '—' : formatDashboardNumber(record.cycle_time || 0, 2);
+      const defectsStr = isLive ? '—' : formatDashboardNumber(totalDefects);
+
       body.innerHTML = `
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div class="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
             <p class="text-xs text-emerald-700">${dashboardText('goodPieces')}</p>
-            <p class="mt-2 text-2xl font-semibold text-emerald-600">${formatDashboardNumber(record.good_count || 0)}</p>
+            <p class="mt-2 text-2xl font-semibold text-emerald-600">${goodCountStr}</p>
           </div>
           <div class="rounded-2xl bg-violet-50 px-4 py-3 text-center">
             <p class="text-xs text-violet-700">${dashboardText('cycleTimeShort')}</p>
-            <p class="mt-2 text-2xl font-semibold text-violet-600">${formatDashboardNumber(record.cycle_time || 0, 2)}</p>
+            <p class="mt-2 text-2xl font-semibold text-violet-600">${cycleTimeStr}</p>
           </div>
           <div class="rounded-2xl bg-indigo-50 px-4 py-3 text-center">
             <p class="text-xs text-indigo-700">${dashboardText('piecesPerHourShort')}</p>
@@ -926,7 +930,7 @@
           </div>
           <div class="rounded-2xl bg-rose-50 px-4 py-3 text-center">
             <p class="text-xs text-rose-700">${dashboardText('defects')}</p>
-            <p class="mt-2 text-2xl font-semibold text-rose-600">${formatDashboardNumber(totalDefects)}</p>
+            <p class="mt-2 text-2xl font-semibold text-rose-600">${defectsStr}</p>
           </div>
           <div class="rounded-2xl bg-amber-50 px-4 py-3 text-center">
             <p class="text-xs text-amber-700">${dashboardText('troubleHours')}</p>
@@ -1131,9 +1135,11 @@
 
         let blocksHtml = '';
 
-        const buildBlock = (colorClass, left, width, tooltipStr) => {
-          if (!tooltipStr) return `<div class="absolute top-0 bottom-0 rounded-md ${colorClass}" style="left:${left}%;width:${width}%"></div>`;
-          return `<div class="group absolute top-0 bottom-0 rounded-md ${colorClass} hover:brightness-110 transition-all cursor-pointer" style="left:${left}%;width:${width}%">
+        const buildBlock = (colorClass, left, width, tooltipStr, clickId = null, isLive = false) => {
+          const clickAttr = clickId ? ` onclick="openDashboardSubmissionDetail('${clickId}', ${isLive})" role="button" tabindex="0"` : '';
+          const hoverClass = clickId ? 'hover:brightness-110 transition-all cursor-pointer' : 'hover:brightness-110 transition-all';
+          if (!tooltipStr) return `<div class="absolute top-0 bottom-0 rounded-md ${colorClass} ${hoverClass}" style="left:${left}%;width:${width}%"${clickAttr}></div>`;
+          return `<div class="group absolute top-0 bottom-0 rounded-md ${colorClass} ${hoverClass}" style="left:${left}%;width:${width}%"${clickAttr}>
             <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 w-max rounded bg-gray-800 px-3 py-2 text-left text-xs text-white shadow-lg opacity-0 transition-opacity duration-200 group-hover:delay-500 group-hover:opacity-100 whitespace-pre leading-relaxed">${escapeDashboardHtml(tooltipStr)}</div>
           </div>`;
         };
@@ -1191,21 +1197,21 @@
               const width = toPercent(currentMins + prod1) - left;
               const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
               const name = segment.isInProgress ? lgInProgress : lgProducing;
-              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true));
+              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true), segment.id, segment.isLive);
               currentMins += prod1;
             }
             
             if (troubleMins > 0) {
               const left = toPercent(currentMins);
               const width = toPercent(currentMins + troubleMins) - left;
-              blocksHtml += buildBlock('bg-rose-400', left, width, buildTooltip(lgTrouble, troubleMins, false));
+              blocksHtml += buildBlock('bg-rose-400', left, width, buildTooltip(lgTrouble, troubleMins, false), segment.id, segment.isLive);
               currentMins += troubleMins;
             }
 
             if (breakMins > 0) {
               const left = toPercent(currentMins);
               const width = toPercent(currentMins + breakMins) - left;
-              blocksHtml += buildBlock('bg-purple-400', left, width, buildTooltip(lgBreak, breakMins, false));
+              blocksHtml += buildBlock('bg-purple-400', left, width, buildTooltip(lgBreak, breakMins, false), segment.id, segment.isLive);
               currentMins += breakMins;
             }
 
@@ -1214,7 +1220,7 @@
               const width = toPercent(currentMins + prod2) - left;
               const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
               const name = segment.isInProgress ? lgInProgress : lgProducing;
-              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true));
+              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true), segment.id, segment.isLive);
               currentMins += prod2;
             }
             
@@ -1383,7 +1389,7 @@
       `;
     }
 
-    async function openDashboardSubmissionDetail(recordId) {
+    async function openDashboardSubmissionDetail(recordId, isLive = false) {
       if (!recordId) return;
 
       const modal = document.getElementById('dashboardSubmissionModal');
@@ -1396,7 +1402,8 @@
       renderDashboardSubmissionLoading();
 
       try {
-        const response = await fetch(`${API_URL}/api/admin/submitted-db/${encodeURIComponent(recordId)}`, {
+        const endpoint = isLive ? `/api/admin/active-session/${encodeURIComponent(recordId)}` : `/api/admin/submitted-db/${encodeURIComponent(recordId)}`;
+        const response = await fetch(`${API_URL}${endpoint}`, {
           headers: getDashboardAuthHeaders()
         });
         const result = await response.json();
@@ -1409,7 +1416,7 @@
           throw new Error(result.error || dashboardText('failedToLoadDetails'));
         }
 
-        renderDashboardSubmissionDetail(result.data || {});
+        renderDashboardSubmissionDetail(result.data || {}, isLive);
       } catch (error) {
         const body = document.getElementById('dashboardSubmissionBody');
         const footer = document.getElementById('dashboardSubmissionFooter');
