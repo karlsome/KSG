@@ -752,6 +752,14 @@
             </div>
           </section>
 
+          <section class="mt-6 mb-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900">${dashboardText('machineTimeline') || 'Machine Timeline'}</h3>
+            </div>
+            <div id="dashboardMachineBottleneckVerdict" class="px-6 pt-4"></div>
+            <div id="dashboardMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
+            <div id="dashboardMachineTimelineSummary" class="border-t border-gray-100 bg-gray-50/50 p-6"></div>
+          </section>
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div class="space-y-6 xl:col-span-2">
               <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -884,7 +892,7 @@
       if (footer) footer.textContent = '';
     }
 
-    function renderDashboardSubmissionDetail(record) {
+    function renderDashboardSubmissionDetail(record, isLive = false) {
       const body = document.getElementById('dashboardSubmissionBody');
       const footer = document.getElementById('dashboardSubmissionFooter');
       const date = document.getElementById('dashboardSubmissionDate');
@@ -895,22 +903,26 @@
       const operators = DASHBOARD_OPERATOR_FIELDS.map(field => record[field]).map(name => String(name ?? '').trim()).filter(Boolean);
       const defects = getDashboardSubmissionDefects(record);
       const totalDefects = defects.reduce((sum, item) => sum + item.count, 0);
-      const piecesPerHourValue = formatDashboardPiecesPerHour(record.cycle_time);
+      const piecesPerHourValue = isLive ? '—' : formatDashboardPiecesPerHour(record.cycle_time);
 
       date.textContent = formatDashboardDateTime(record.timestamp);
       title.textContent = record.product_name || dashboardText('detailTitle');
       sub.textContent = [record.hinban, record.kanban_id].filter(Boolean).join(' / ');
       footer.textContent = `${dashboardText('source')}: ${record.submitted_from || '—'}`;
 
+      const goodCountStr = isLive ? '—' : formatDashboardNumber(record.good_count || 0);
+      const cycleTimeStr = isLive ? '—' : formatDashboardNumber(record.cycle_time || 0, 2);
+      const defectsStr = isLive ? '—' : formatDashboardNumber(totalDefects);
+
       body.innerHTML = `
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div class="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
             <p class="text-xs text-emerald-700">${dashboardText('goodPieces')}</p>
-            <p class="mt-2 text-2xl font-semibold text-emerald-600">${formatDashboardNumber(record.good_count || 0)}</p>
+            <p class="mt-2 text-2xl font-semibold text-emerald-600">${goodCountStr}</p>
           </div>
           <div class="rounded-2xl bg-violet-50 px-4 py-3 text-center">
             <p class="text-xs text-violet-700">${dashboardText('cycleTimeShort')}</p>
-            <p class="mt-2 text-2xl font-semibold text-violet-600">${formatDashboardNumber(record.cycle_time || 0, 2)}</p>
+            <p class="mt-2 text-2xl font-semibold text-violet-600">${cycleTimeStr}</p>
           </div>
           <div class="rounded-2xl bg-indigo-50 px-4 py-3 text-center">
             <p class="text-xs text-indigo-700">${dashboardText('piecesPerHourShort')}</p>
@@ -918,7 +930,7 @@
           </div>
           <div class="rounded-2xl bg-rose-50 px-4 py-3 text-center">
             <p class="text-xs text-rose-700">${dashboardText('defects')}</p>
-            <p class="mt-2 text-2xl font-semibold text-rose-600">${formatDashboardNumber(totalDefects)}</p>
+            <p class="mt-2 text-2xl font-semibold text-rose-600">${defectsStr}</p>
           </div>
           <div class="rounded-2xl bg-amber-50 px-4 py-3 text-center">
             <p class="text-xs text-amber-700">${dashboardText('troubleHours')}</p>
@@ -1056,7 +1068,328 @@
         </div>`;
     }
 
-    async function openDashboardSubmissionDetail(recordId) {
+    function dashboardParseClockMinutes(timeStr) {
+      if (!timeStr) return null;
+      const parts = timeStr.split(':');
+      if (parts.length < 2) return null;
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      if (isNaN(hours) || isNaN(minutes)) return null;
+      return hours * 60 + minutes;
+    }
+
+    function renderDashboardMachineTimeline(machineDaily) {
+      const container = document.getElementById('dashboardMachineTimelineContainer');
+      if (!container) return;
+
+      const machines = machineDaily || [];
+      if (machines.length === 0) {
+        container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${escapeDashboardHtml(dashboardText('noData') || 'No data')}</div>`;
+        return;
+      }
+
+      const now = new Date();
+      const targetDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const shiftStart = 8 * 60 + 30; // 08:30
+      const shiftEnd = 19 * 60; // 19:00
+      const span = shiftEnd - shiftStart;
+      const toPercent = minutes => Math.max(0, Math.min(100, ((minutes - shiftStart) / span) * 100));
+
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const showCurrentTimeLine = nowMins >= shiftStart && nowMins <= shiftEnd;
+
+      const lgProducing = t('analytics.bottleneck.legendProducing') || 'Producing';
+      const lgInProgress = t('analytics.bottleneck.legendInProgress') || 'In Progress';
+      const lgBreak = t('analytics.bottleneck.legendBreak') || 'Break';
+      const lgTrouble = t('analytics.bottleneck.legendTrouble') || 'Trouble';
+      const lgChangeover = t('analytics.bottleneck.legendChangeover') || 'Changeover';
+      const lgIdle = t('analytics.bottleneck.legendIdle') || 'Idle';
+
+      let html = `
+        <div class="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-gray-600 mb-2">
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-emerald-400"></div>${escapeDashboardHtml(lgProducing)}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-blue-400 animate-pulse"></div>${escapeDashboardHtml(lgInProgress)}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-rose-400"></div>${escapeDashboardHtml(lgTrouble)}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-purple-400"></div>${escapeDashboardHtml(lgBreak)}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-amber-400"></div>${escapeDashboardHtml(lgChangeover)}</div>
+          <div class="flex items-center gap-1.5"><div class="h-3 w-4 rounded bg-gray-400"></div>${escapeDashboardHtml(lgIdle)}</div>
+        </div>
+        <div class="space-y-4 relative pb-6">
+      `;
+
+      machines.forEach(machine => {
+        const dayData = (machine.days || []).find(d => d.date === targetDate);
+        const records = dayData ? dayData.records || [] : [];
+        
+        let segments = records.map(record => {
+          const start = dashboardParseClockMinutes(record.startTime);
+          let end = dashboardParseClockMinutes(record.endTime);
+          if (end < start) end += 24 * 60;
+          return { ...record, start, end };
+        }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+        segments.forEach(seg => {
+          seg.operatorsList = Array.isArray(seg.operators) ? [...seg.operators] : [];
+        });
+
+        let blocksHtml = '';
+
+        const buildBlock = (colorClass, left, width, tooltipStr, clickId = null, isLive = false) => {
+          const clickAttr = clickId ? ` onclick="openDashboardSubmissionDetail('${clickId}', ${isLive})" role="button" tabindex="0"` : '';
+          const hoverClass = clickId ? 'hover:brightness-110 transition-all cursor-pointer' : 'hover:brightness-110 transition-all';
+          if (!tooltipStr) return `<div class="absolute top-0 bottom-0 rounded-md ${colorClass} ${hoverClass}" style="left:${left}%;width:${width}%"${clickAttr}></div>`;
+          return `<div class="group absolute top-0 bottom-0 rounded-md ${colorClass} ${hoverClass}" style="left:${left}%;width:${width}%"${clickAttr}>
+            <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 w-max rounded bg-gray-800 px-3 py-2 text-left text-xs text-white shadow-lg opacity-0 transition-opacity duration-200 group-hover:delay-500 group-hover:opacity-100 whitespace-pre leading-relaxed">${escapeDashboardHtml(tooltipStr)}</div>
+          </div>`;
+        };
+
+        if (segments.length === 0) {
+          blocksHtml += buildBlock('bg-gray-400', 0, 100, null);
+        } else {
+          let lastEnd = shiftStart;
+
+          segments.forEach((segment, index) => {
+            if (segment.start > lastEnd) {
+              if (index === 0) {
+                const left = toPercent(lastEnd);
+                const width = toPercent(segment.start) - left;
+                if (width > 0) blocksHtml += buildBlock('bg-gray-400', left, width, null);
+              } else {
+                const left = toPercent(lastEnd);
+                const width = toPercent(segment.start) - left;
+                const changeoverMins = segment.start - lastEnd;
+                const startStr = `${String(Math.floor(lastEnd/60)).padStart(2, '0')}:${String(lastEnd%60).padStart(2, '0')}`;
+                const endStr = `${String(Math.floor(segment.start/60)).padStart(2, '0')}:${String(segment.start%60).padStart(2, '0')}`;
+                
+                const prevSeg = segments[index - 1];
+                const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+                
+                const color = isSameHinban ? 'bg-gray-400' : 'bg-amber-400';
+                const label = isSameHinban ? lgIdle : lgChangeover;
+                const tooltipStr = `${label}: ${Math.round(changeoverMins)}m\nTime: ${startStr} - ${endStr}`;
+                
+                if (width > 0) blocksHtml += buildBlock(color, left, width, tooltipStr);
+              }
+            }
+
+            const segDuration = segment.end - segment.start;
+            const breakMins = (segment.breakTime || 0) * 60;
+            const troubleMins = (segment.troubleTime || 0) * 60;
+            const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
+            
+            const hasInterrupt = breakMins > 0 || troubleMins > 0;
+            const prod1 = hasInterrupt ? producingMins / 2 : producingMins;
+            const prod2 = hasInterrupt ? producingMins - prod1 : 0;
+
+            const buildTooltip = (name, mins, isProducing) => {
+              const durationStr = isProducing ? `${(mins / 60).toFixed(2)}h` : `${Math.round(mins)}m`;
+              const hinbanStr = segment.hinban || segment.productName || '-';
+              const kanbanStr = segment.kanbanId || '-';
+              const workerStr = (segment.operators || []).join(', ') || '-';
+              return `${name}: ${durationStr}\n品番: ${hinbanStr}\nKanban ID: ${kanbanStr}\nWorker: ${workerStr}\nTime: ${segment.startTime} - ${segment.endTime}`;
+            };
+            
+            let currentMins = segment.start;
+            
+            if (prod1 > 0) {
+              const left = toPercent(currentMins);
+              const width = toPercent(currentMins + prod1) - left;
+              const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
+              const name = segment.isInProgress ? lgInProgress : lgProducing;
+              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true), segment.id, segment.isLive);
+              currentMins += prod1;
+            }
+            
+            if (troubleMins > 0) {
+              const left = toPercent(currentMins);
+              const width = toPercent(currentMins + troubleMins) - left;
+              blocksHtml += buildBlock('bg-rose-400', left, width, buildTooltip(lgTrouble, troubleMins, false), segment.id, segment.isLive);
+              currentMins += troubleMins;
+            }
+
+            if (breakMins > 0) {
+              const left = toPercent(currentMins);
+              const width = toPercent(currentMins + breakMins) - left;
+              blocksHtml += buildBlock('bg-purple-400', left, width, buildTooltip(lgBreak, breakMins, false), segment.id, segment.isLive);
+              currentMins += breakMins;
+            }
+
+            if (prod2 > 0) {
+              const left = toPercent(currentMins);
+              const width = toPercent(currentMins + prod2) - left;
+              const color = segment.isInProgress ? 'bg-blue-400 animate-pulse' : 'bg-emerald-400';
+              const name = segment.isInProgress ? lgInProgress : lgProducing;
+              blocksHtml += buildBlock(color, left, width, buildTooltip(name, producingMins, true), segment.id, segment.isLive);
+              currentMins += prod2;
+            }
+            
+            lastEnd = Math.max(lastEnd, segment.end);
+          });
+
+          if (lastEnd < shiftEnd) {
+            const left = toPercent(lastEnd);
+            const width = toPercent(shiftEnd) - left;
+            if (width > 0) blocksHtml += buildBlock('bg-gray-400', left, width, null);
+          }
+        }
+
+        html += `
+          <div class="flex items-center gap-4">
+            <div class="w-24 md:w-32 flex-shrink-0 truncate text-right text-sm font-medium text-gray-700" title="${escapeDashboardHtml(machine.source)}">
+              ${escapeDashboardHtml(machine.source)}
+            </div>
+            <div class="relative h-6 flex-grow rounded-md bg-gray-100">
+              ${blocksHtml}
+              ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      let ticksHtml = '';
+      const ticks = [8*60+30, 10*60, 12*60, 14*60, 16*60, 18*60, 19*60];
+      ticks.forEach(mins => {
+        const position = toPercent(mins);
+        const label = `${String(Math.floor((mins / 60) % 24)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+        const translate = position < 2 ? '0' : position > 98 ? '-100%' : '-50%';
+        ticksHtml += `
+          <div class="absolute top-0 text-xs text-gray-400" style="left:${position}%; transform:translateX(${translate})">
+            <div class="mx-auto mb-1 h-1 w-px bg-gray-300"></div>
+            ${label}
+          </div>
+        `;
+      });
+
+      html += `
+          <div class="flex items-center gap-4 mt-2">
+            <div class="w-24 md:w-32 flex-shrink-0"></div>
+            <div class="relative h-6 flex-grow">
+              ${ticksHtml}
+              ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+      renderDashboardMachineTimelineSummary(machines, targetDate);
+    }
+
+    function renderDashboardMachineTimelineSummary(machines, targetDate) {
+      const summaryContainer = document.getElementById('dashboardMachineTimelineSummary');
+      if (!summaryContainer) return;
+
+      if (!machines || machines.length === 0) {
+        summaryContainer.innerHTML = '';
+        return;
+      }
+
+      const shiftStart = 8 * 60 + 30; // 08:30
+      const shiftEnd = 19 * 60; // 19:00
+      const totalShiftMins = shiftEnd - shiftStart;
+
+      let cardsHtml = '';
+
+      machines.forEach(machine => {
+        const dayData = (machine.days || []).find(d => d.date === targetDate);
+        const records = dayData ? dayData.records || [] : [];
+        
+        let segments = records.map(record => {
+          const start = dashboardParseClockMinutes(record.startTime);
+          let end = dashboardParseClockMinutes(record.endTime);
+          if (end < start) end += 24 * 60;
+          return { ...record, start, end };
+        }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
+
+        let totalProducing = 0;
+        let totalTrouble = 0;
+        let totalBreak = 0;
+        let totalChangeover = 0;
+        let totalIdle = 0;
+
+        if (segments.length === 0) {
+          totalIdle = totalShiftMins;
+        } else {
+          let lastEnd = shiftStart;
+
+          segments.forEach((segment, index) => {
+            if (segment.start > lastEnd) {
+              if (index === 0) {
+                totalIdle += (segment.start - lastEnd);
+              } else {
+                const gap = segment.start - lastEnd;
+                const prevSeg = segments[index - 1];
+                const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
+                if (isSameHinban) {
+                  totalIdle += gap;
+                } else {
+                  totalChangeover += gap;
+                }
+              }
+            }
+
+            const segDuration = segment.end - segment.start;
+            const breakMins = (segment.breakTime || 0) * 60;
+            const troubleMins = (segment.troubleTime || 0) * 60;
+            const producingMins = Math.max(0, segDuration - breakMins - troubleMins);
+
+            totalProducing += producingMins;
+            totalBreak += breakMins;
+            totalTrouble += troubleMins;
+
+            lastEnd = Math.max(lastEnd, segment.end);
+          });
+
+          if (lastEnd < shiftEnd) {
+            totalIdle += (shiftEnd - lastEnd);
+          }
+        }
+
+        const efficiency = totalShiftMins > 0 ? (totalProducing / totalShiftMins) * 100 : 0;
+        const prodHr = Math.floor(totalProducing / 60);
+        const prodMn = Math.round(totalProducing % 60);
+        const prodFmt = prodHr > 0 ? `${prodHr}h ${prodMn}m` : `${prodMn}m`;
+        
+        cardsHtml += `
+          <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${escapeDashboardHtml(machine.source)}">${escapeDashboardHtml(machine.source)}</h4>
+            
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}</span>
+                <span class="font-medium text-emerald-600">${efficiency.toFixed(1)}%</span>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendProducing'))}</span>
+                <span class="font-medium text-gray-900">${prodFmt}</span>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendIdle'))}</span>
+                <span class="font-medium text-gray-900">${Math.round(totalIdle)}m</span>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover'))}</span>
+                <span class="font-medium text-gray-900">${Math.round(totalChangeover)}m</span>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble'))}</span>
+                <span class="font-medium text-rose-600">${Math.round(totalTrouble)}m</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      summaryContainer.innerHTML = `
+        <h3 class="text-sm font-medium text-gray-700 mb-4">${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          ${cardsHtml}
+        </div>
+      `;
+    }
+
+    async function openDashboardSubmissionDetail(recordId, isLive = false) {
       if (!recordId) return;
 
       const modal = document.getElementById('dashboardSubmissionModal');
@@ -1069,7 +1402,8 @@
       renderDashboardSubmissionLoading();
 
       try {
-        const response = await fetch(`${API_URL}/api/admin/submitted-db/${encodeURIComponent(recordId)}`, {
+        const endpoint = isLive ? `/api/admin/active-session/${encodeURIComponent(recordId)}` : `/api/admin/submitted-db/${encodeURIComponent(recordId)}`;
+        const response = await fetch(`${API_URL}${endpoint}`, {
           headers: getDashboardAuthHeaders()
         });
         const result = await response.json();
@@ -1082,7 +1416,7 @@
           throw new Error(result.error || dashboardText('failedToLoadDetails'));
         }
 
-        renderDashboardSubmissionDetail(result.data || {});
+        renderDashboardSubmissionDetail(result.data || {}, isLive);
       } catch (error) {
         const body = document.getElementById('dashboardSubmissionBody');
         const footer = document.getElementById('dashboardSubmissionFooter');
@@ -1692,6 +2026,7 @@
       renderDashboardTopOperators(data.topOperators || []);
       renderDashboardWorkerHours(data.workerHoursToday || []);
       renderDashboardMachineStatusTable(data.machineStatus || [], data.machineStatusGeneratedAt || data.generatedAt || '');
+      renderDashboardMachineTimeline(data.machineDaily || []);
     }
 
     async function loadAdminDashboard() {

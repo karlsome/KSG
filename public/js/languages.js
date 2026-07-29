@@ -227,6 +227,7 @@ const translations = {
       selectRaspberryPi: "Select Raspberry Pi...",
       realTimeData: "Real-time Data",
       refresh: "Refresh",
+      scanNodes: "Scan Nodes",
       variables: "Variables",
       combine: "Combine",
 
@@ -673,6 +674,11 @@ const translations = {
       refresh: "Refresh",
       refreshing: "Refreshing...",
 
+      timelineSummary: {
+        title: "Machine Daily Summary",
+        efficiency: "Efficiency"
+      },
+
       filters: {
         startDate: "Start date",
         endDate: "End date",
@@ -709,6 +715,15 @@ const translations = {
         finance: "Finance"
       },
 
+      workerCompare: {
+        title: "Compare Workers",
+        desc: "Select workers to compare their performance over the current analytics date range.",
+        selectWorkers: "Select Workers to Compare:",
+        noSelection: "Please select at least one worker to compare.",
+        checkAll: "Check All",
+        uncheckAll: "Uncheck All"
+      },
+
       workerFocus: {
         title: "Worker report",
         description: "Pick a worker and a day or month to see how they did.",
@@ -722,6 +737,7 @@ const translations = {
         recordsDetails: "Show work records (detail)",
         teamDetails: "Show team comparison charts (advanced)",
         noDayData: "No work records for this worker on the selected day.",
+        compareWorkers: "Compare Workers",
         noMonthData: "No work records for this worker in the selected month.",
         noTimelineData: "No time data recorded for this day.",
         noRecords: "No records to show.",
@@ -821,6 +837,11 @@ const translations = {
         yAxisMinutes: "min / changeover"
       },
 
+      machineTrend: {
+        title: "Machine Time Trend",
+        description: "Trend of efficiency, producing time, idle time, and trouble over the selected period."
+      },
+
       opcEvents: {
         title: "OPC monitoring outages",
         description: "Days when the OPC data connection dropped. On these days, \"idle\" time on the bottleneck chart may actually be missing data, not a stopped machine.",
@@ -835,6 +856,7 @@ const translations = {
         verdict: "{source} loses the most time: {hours} per day not producing (changeover {changeover}, trouble {trouble}, idle {idle}).",
         verdictGood: "No machine is losing significant time in this period.",
         legendProducing: "Producing",
+        legendInProgress: "In-Progress",
         legendBreak: "Break",
         legendTrouble: "Trouble",
         legendChangeover: "Changeover",
@@ -1058,6 +1080,9 @@ const translations = {
       },
 
       machine: {
+        timelineTitle: "Machine Timeline",
+        timelineDescription: "Chronological timeline of machine activity for the selected day.",
+        noTimelineData: "No timeline data available.",
         performanceTitle: "Machine source performance",
         performanceDesc: "Output, downtime, and defect rate by submitted source.",
         spotlightTitle: "Machine spotlight",
@@ -1427,6 +1452,7 @@ const translations = {
       selectRaspberryPi: "Raspberry Piを選択...",
       realTimeData: "リアルタイムデータ",
       refresh: "更新",
+      scanNodes: "ノードスキャン",
       variables: "変数",
       combine: "結合",
 
@@ -1874,6 +1900,11 @@ const translations = {
       refresh: "更新",
       refreshing: "更新中...",
 
+      timelineSummary: {
+        title: "設備の日別サマリー",
+        efficiency: "稼働率"
+      },
+
       filters: {
         startDate: "開始日",
         endDate: "終了日",
@@ -1910,6 +1941,15 @@ const translations = {
         finance: "収益"
       },
 
+      workerCompare: {
+        title: "作業者を比較",
+        desc: "現在の分析期間において、選択した作業者のパフォーマンスを比較します。",
+        selectWorkers: "比較する作業者を選択:",
+        noSelection: "比較する作業者を1人以上選択してください。",
+        checkAll: "すべて選択",
+        uncheckAll: "すべて解除"
+      },
+
       workerFocus: {
         title: "作業者レポート",
         description: "作業者と日（または月）を選ぶと、その成績が一目でわかります。",
@@ -1923,6 +1963,7 @@ const translations = {
         recordsDetails: "作業記録を表示（詳細）",
         teamDetails: "チーム比較グラフを表示（上級者向け）",
         noDayData: "選択した日にこの作業者の記録はありません。",
+        compareWorkers: "作業者を比較",
         noMonthData: "選択した月にこの作業者の記録はありません。",
         noTimelineData: "この日の時間データが記録されていません。",
         noRecords: "表示する記録がありません。",
@@ -2022,6 +2063,11 @@ const translations = {
         yAxisMinutes: "分/回"
       },
 
+      machineTrend: {
+        title: "設備稼働トレンド",
+        description: "選択期間における稼働率、生産時間、アイドル時間、トラブル時間の推移を表示します。"
+      },
+
       opcEvents: {
         title: "OPC監視の切断",
         description: "OPCデータ接続が切れた日です。この日はボトルネック分析の「待機」時間が、実は機械停止ではなくデータ欠損の可能性があります。",
@@ -2036,6 +2082,7 @@ const translations = {
         verdict: "{source}が最も時間を失っています: 1日あたり{hours}が非生産時間（段替え{changeover}、トラブル{trouble}、待機{idle}）。",
         verdictGood: "この期間、大きな時間損失のある設備はありません。",
         legendProducing: "生産",
+        legendInProgress: "進行中",
         legendBreak: "休憩",
         legendTrouble: "トラブル",
         legendChangeover: "段替え",
@@ -2259,6 +2306,9 @@ const translations = {
       },
 
       machine: {
+        timelineTitle: "設備タイムライン",
+        timelineDescription: "選択した日付の設備の稼働状況の時系列タイムラインです。",
+        noTimelineData: "タイムラインデータがありません。",
         performanceTitle: "設備ソース別パフォーマンス",
         performanceDesc: "提出ソース別の生産量、ダウンタイム、不良率です。",
         spotlightTitle: "設備スポットライト",

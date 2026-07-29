@@ -42,7 +42,7 @@
     const now = new Date();
     const hoursSinceLogin = (now - loginTime) / (1000 * 60 * 60);
     
-    if (hoursSinceLogin > 12) {
+    if (hoursSinceLogin > 8760) {
       // Token expired, clear and redirect
       localStorage.removeItem('tabletAuth');
       if (authenticatedTablet) {
@@ -119,6 +119,7 @@ let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
 let currentNGGroup = null; // Store currently active NG group for this product
 let seisanSuStartValue = null; // Starting value of seisanSu when work started
 let currentSeisanSuValue = null; // Current seisanSu value
+let accumulatedWorkCountBeforeReset = 0; // Accumulated work count preserved across OPC resets
 let hakoIresuValue = null; // Store hakoIresu variable value
 let workTimerInterval = null; // Interval for updating work time
 let workStartTime = null; // Timestamp when work started
@@ -779,6 +780,17 @@ try {
   }
 } catch (e) {
   console.error('Failed to restore seisanSuStartValue:', e);
+}
+
+// Restore accumulatedWorkCountBeforeReset from localStorage on load
+try {
+  const savedAccum = localStorage.getItem('accumulatedWorkCountBeforeReset');
+  if (savedAccum !== null && savedAccum !== 'null') {
+    accumulatedWorkCountBeforeReset = parseInt(savedAccum) || 0;
+    console.log('📦 Restored accumulatedWorkCountBeforeReset from localStorage:', accumulatedWorkCountBeforeReset);
+  }
+} catch (e) {
+  console.error('Failed to restore accumulatedWorkCountBeforeReset:', e);
 }
 
 // Restore break/trouble hour accumulators from localStorage
@@ -1985,20 +1997,31 @@ function updateWorkCount() {
   
   // Only calculate if we have a starting value and current value
   if (seisanSuStartValue !== null && currentSeisanSuValue !== null) {
-    const workCount = currentSeisanSuValue - seisanSuStartValue;
+    const currentDelta = currentSeisanSuValue - seisanSuStartValue;
+    const workCount = accumulatedWorkCountBeforeReset + Math.max(0, currentDelta);
     workCountInput.value = Math.max(0, workCount); // Don't allow negative values
     saveFieldToLocalStorage('workCount', workCountInput.value);
-    console.log(`🔢 Work count: ${currentSeisanSuValue} - ${seisanSuStartValue} = ${workCount}`);
+    console.log(`🔢 Work count: accumulated(${accumulatedWorkCountBeforeReset}) + (${currentSeisanSuValue} - ${seisanSuStartValue}) = ${workCount}`);
   } else {
-    workCountInput.value = 0;
-    saveFieldToLocalStorage('workCount', '0');
-    console.log('🔢 Work count: 0 (no starting value set)');
+    // Even with no OPC data, show accumulated count if we have one
+    if (accumulatedWorkCountBeforeReset > 0) {
+      workCountInput.value = accumulatedWorkCountBeforeReset;
+      saveFieldToLocalStorage('workCount', workCountInput.value);
+      console.log(`🔢 Work count: accumulated(${accumulatedWorkCountBeforeReset}) (no current OPC data)`);
+    } else {
+      workCountInput.value = 0;
+      saveFieldToLocalStorage('workCount', '0');
+      console.log('🔢 Work count: 0 (no starting value set)');
+    }
   }
   
   // Update inline work count in defect card header
   const inlineWorkCount = document.getElementById('inlineWorkCount');
   if (inlineWorkCount) {
-    inlineWorkCount.textContent = workCountInput.value;
+    if (inlineWorkCount.textContent !== workCountInput.value) {
+      inlineWorkCount.textContent = workCountInput.value;
+      if (typeof triggerValuePop === 'function') triggerValuePop(inlineWorkCount);
+    }
   }
   
   // Update pass count whenever work count changes
@@ -2047,17 +2070,34 @@ function updateUIWithVariables(variables) {
   if (variables[productionVarName] !== undefined) {
     const value = variables[productionVarName].value;
     if (value !== null && value !== undefined) {
+      const previousSeisanSuBeforeThisUpdate = currentSeisanSuValue;
       currentSeisanSuValue = parseFloat(value);
       console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
 
       // If the machine's counter reset (e.g. after a die/mold changeover) the new
-      // value can drop below the captured start value. Without re-baselining here,
-      // workCount would go negative, get clamped to 0 by updateWorkCount(), and stay
-      // stuck at 0 until the counter climbs back past the old start value.
+      // value can drop below the captured start value. We preserve the accumulated
+      // work count and show a warning modal if the user has unsubmitted data.
       if (seisanSuStartValue !== null && currentSeisanSuValue < seisanSuStartValue) {
-        console.warn(`⚠️ ${productionVarName} counter reset detected (${currentSeisanSuValue} < ${seisanSuStartValue}); re-baselining start value`);
-        seisanSuStartValue = currentSeisanSuValue;
-        localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+        console.warn(`⚠️ ${productionVarName} counter reset detected (${currentSeisanSuValue} < ${seisanSuStartValue})`);
+
+        if (hasUnsubmittedTabletData()) {
+          // Calculate the work count we had BEFORE the reset
+          const previousDelta = Math.max(0, previousSeisanSuBeforeThisUpdate - seisanSuStartValue);
+          accumulatedWorkCountBeforeReset += previousDelta;
+          localStorage.setItem('accumulatedWorkCountBeforeReset', accumulatedWorkCountBeforeReset);
+          console.log(`📦 Preserved accumulated work count: ${accumulatedWorkCountBeforeReset} (added ${previousDelta})`);
+
+          // Re-baseline to the new (reset) value
+          seisanSuStartValue = currentSeisanSuValue;
+          localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+
+          // Show the warning modal
+          showOpcResetModal(accumulatedWorkCountBeforeReset);
+        } else {
+          // No active session — safe to silently re-baseline
+          seisanSuStartValue = currentSeisanSuValue;
+          localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+        }
       }
 
       updateWorkCount();
@@ -2117,10 +2157,12 @@ function resetBasicSettings() {
     document.getElementById('manHours').value = '0';
     console.log('⏹️ Work timer cleared');
     
-    // Reset seisanSu starting value
+    // Reset seisanSu starting value and accumulated count
     seisanSuStartValue = null;
     localStorage.removeItem('seisanSuStartValue');
-    console.log('🔄 Reset seisanSu starting value');
+    accumulatedWorkCountBeforeReset = 0;
+    localStorage.removeItem('accumulatedWorkCountBeforeReset');
+    console.log('🔄 Reset seisanSu starting value and accumulated count');
     updateWorkCount(); // Update to show 0
     
     // Reset defect counters
@@ -2544,10 +2586,12 @@ function clearAllFields() {
     document.getElementById('manHours').value = '0';
     console.log('⏹️ Work timer cleared');
     
-    // Reset seisanSu starting value
+    // Reset seisanSu starting value and accumulated count
     seisanSuStartValue = null;
     localStorage.removeItem('seisanSuStartValue');
-    console.log('🔄 Reset seisanSu starting value');
+    accumulatedWorkCountBeforeReset = 0;
+    localStorage.removeItem('accumulatedWorkCountBeforeReset');
+    console.log('🔄 Reset seisanSu starting value and accumulated count');
     updateWorkCount(); // Update to show 0
     
     // Reset defect counters
@@ -2759,7 +2803,10 @@ function updateDefectSum() {
   
   const defectSumDisplay = document.getElementById('defectSum');
   if (defectSumDisplay) {
-    defectSumDisplay.textContent = total;
+    if (defectSumDisplay.textContent !== String(total)) {
+      defectSumDisplay.textContent = total;
+      if (typeof triggerValuePop === 'function') triggerValuePop(defectSumDisplay);
+    }
   }
   
   console.log('🔴 Total defects (countUp only):', total);
@@ -2823,7 +2870,10 @@ function updatePassCount() {
   // Update inline pass count in defect card header
   const inlinePassCount = document.getElementById('inlinePassCount');
   if (inlinePassCount) {
-    inlinePassCount.textContent = passCount;
+    if (inlinePassCount.textContent !== String(passCount)) {
+      inlinePassCount.textContent = passCount;
+      if (typeof triggerValuePop === 'function') triggerValuePop(inlinePassCount);
+    }
   }
 
   if (hasActiveTabletSession()) {
@@ -2936,4 +2986,52 @@ function attachNGButtonListeners() {
       }
     });
   });
+}
+
+// Trigger a CSS animation to draw the eye to updated numbers
+function triggerValuePop(element) {
+  if (!element) return;
+  element.classList.remove('value-changed');
+  void element.offsetWidth; // trigger reflow
+  element.classList.add('value-changed');
+  setTimeout(() => {
+    if (element) element.classList.remove('value-changed');
+  }, 400);
+}
+
+// ============================================================
+// 🔄 OPC RESET DETECTION MODAL
+// ============================================================
+
+function showOpcResetModal(preservedCount) {
+  const overlay = document.getElementById('opcResetModalOverlay');
+  if (!overlay) return;
+
+  // Update the displayed preserved count
+  const countDisplay = document.getElementById('opcResetPreservedCount');
+  if (countDisplay) {
+    countDisplay.textContent = preservedCount;
+  }
+
+  overlay.classList.add('active');
+  console.log('🔔 Showing OPC reset modal — preserved count:', preservedCount);
+}
+
+function hideOpcResetModal() {
+  const overlay = document.getElementById('opcResetModalOverlay');
+  if (overlay) {
+    overlay.classList.remove('active');
+  }
+}
+
+// User chose to submit current data immediately
+async function opcResetSubmitData() {
+  hideOpcResetModal();
+  await sendData();
+}
+
+// User chose to continue working — accumulated count is already preserved
+function opcResetContinueWorking() {
+  hideOpcResetModal();
+  console.log('✅ User chose to continue working after OPC reset — accumulated count preserved:', accumulatedWorkCountBeforeReset);
 }

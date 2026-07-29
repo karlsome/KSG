@@ -120,18 +120,21 @@
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.hinban">Hinban</span>
-            <input id="analyticsHinban" type="text" list="analyticsHinbanList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.filterByHinban" placeholder="Filter by hinban" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsHinbanList"></datalist>
+            <select id="analyticsHinban" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.filterByHinban">Filter by hinban</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.product">Product</span>
-            <input id="analyticsProductName" type="text" list="analyticsProductList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.filterByProduct" placeholder="Filter by product" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsProductList"></datalist>
+            <select id="analyticsProductName" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.filterByProduct">Filter by product</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.workerContains">Worker contains</span>
-            <input id="analyticsOperator" type="text" list="analyticsOperatorList" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" data-i18n-placeholder="analytics.filters.searchOperator" placeholder="Search operator" onkeydown="handleAnalyticsFilterKeydown(event)">
-            <datalist id="analyticsOperatorList"></datalist>
+            <select id="analyticsOperator" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.searchOperator">Search operator</option>
+            </select>
           </label>
           <label class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.focusWorkerChart">Focus worker chart</span>
@@ -276,6 +279,10 @@
               </div>
               <input id="analyticsWorkerFocusDate" type="date" onchange="handleAnalyticsWorkerFocusChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
               <input id="analyticsWorkerFocusMonth" type="month" onchange="handleAnalyticsWorkerFocusChange()" class="hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+              <button type="button" onclick="openWorkerComparisonModal()" class="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
+                <i class="ri-scales-3-line"></i>
+                <span data-i18n="analytics.workerFocus.compareWorkers">Compare</span>
+              </button>
               <button type="button" onclick="analyticsPrintWorkerReport()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
                 <i class="ri-printer-line"></i>
                 <span data-i18n="analytics.workerFocus.printReport">Print</span>
@@ -382,12 +389,23 @@
 
     <section id="analyticsPanelMachine" data-analytics-panel="machine" class="hidden space-y-6">
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-4">
-          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.bottleneck.title">Bottleneck: where do the hours go?</h3>
-          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.bottleneck.description">Each bar is one machine's average day: green is producing, everything else is lost time. Gaps between records are counted as changeover when the product changed, otherwise as unlogged idle time.</p>
+        <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.machine.timelineTitle">Machine Timeline</h3>
+            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.machine.timelineDescription">Chronological timeline of machine activity for the selected day.</p>
+          </div>
+          <select id="analyticsMachineTimelineDateSelect" class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm" onchange="renderAnalyticsMachineTimeline(analyticsData?.machineDaily, this.value)"></select>
         </div>
         <div id="analyticsMachineBottleneckVerdict" class="px-6 pt-4"></div>
-        <div id="analyticsMachineTimeLossChart" class="h-[380px] px-2 py-4"></div>
+        <div id="analyticsMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.machineTrend.title">Machine Time Trend</h3>
+          <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.machineTrend.description">Trend of efficiency, producing time, idle time, and trouble over the selected period.</p>
+        </div>
+        <div id="analyticsMachineTrendChart" class="h-[400px] w-full px-2 py-4"></div>
       </section>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
@@ -613,5 +631,66 @@
         <div id="analyticsFinanceTable" class="overflow-x-auto border-t border-gray-100"></div>
       </details>
     </section>
+
+    <!-- Worker Comparison Modal -->
+    <div id="analyticsWorkerComparisonModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-gray-900/50 backdrop-blur-sm transition-opacity">
+      <div class="relative w-full max-w-5xl rounded-2xl bg-white p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+        <div class="mb-4 flex items-center justify-between border-b pb-4">
+          <div>
+            <h3 class="text-xl font-bold text-gray-900" data-i18n="analytics.workerCompare.title">Compare Workers</h3>
+            <p class="text-sm text-gray-500" data-i18n="analytics.workerCompare.desc">Select workers to compare their performance over the current analytics date range.</p>
+          </div>
+          <button onclick="closeWorkerComparisonModal()" class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        
+        <div class="mb-6">
+          <div class="mb-2 flex items-center justify-between">
+            <h4 class="text-sm font-medium text-gray-700" data-i18n="analytics.workerCompare.selectWorkers">Select Workers to Compare:</h4>
+            <div class="flex gap-2">
+              <button onclick="analyticsCheckAllWorkers()" class="text-xs font-medium text-blue-600 hover:text-blue-700 transition bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded" data-i18n="analytics.workerCompare.checkAll">Check All</button>
+              <button onclick="analyticsUncheckAllWorkers()" class="text-xs font-medium text-gray-600 hover:text-gray-700 transition bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded" data-i18n="analytics.workerCompare.uncheckAll">Uncheck All</button>
+            </div>
+          </div>
+          <div id="analyticsWorkerCompareCheckboxes" class="flex flex-wrap gap-3 rounded-lg border border-gray-200 p-4 bg-gray-50 max-h-40 overflow-y-auto">
+            <!-- Checkboxes injected here via JS -->
+          </div>
+        </div>
+        
+        <div class="overflow-x-auto rounded-xl border border-gray-200">
+          <table class="w-full text-left text-sm text-gray-600">
+            <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <tr>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('worker')">
+                  <div class="flex items-center gap-1">Worker <i id="sortIcon-worker" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('score')">
+                  <div class="flex items-center gap-1">Efficiency Score <i id="sortIcon-score" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('output')">
+                  <div class="flex items-center gap-1">Total Output <i id="sortIcon-output" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('defects')">
+                  <div class="flex items-center gap-1">Defects <i id="sortIcon-defects" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('workingTime')">
+                  <div class="flex items-center gap-1">Working Time <i id="sortIcon-workingTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('breakTime')">
+                  <div class="flex items-center gap-1">Break Time <i id="sortIcon-breakTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('troubleTime')">
+                  <div class="flex items-center gap-1">Trouble Time <i id="sortIcon-troubleTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="analyticsWorkerCompareTableBody" class="divide-y divide-gray-100 bg-white">
+              <!-- Rows injected here via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>

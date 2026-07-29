@@ -2820,6 +2820,135 @@ function computeSubmittedDBOperatorDaily(records = []) {
         .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
+function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = []) {
+    const machineMap = new Map();
+    
+    // Pre-populate with all known machines to ensure they appear even if idle today
+    allMachineNames.forEach(name => {
+        if (name) machineMap.set(name, { source: name, dayMap: new Map() });
+    });
+
+    records.forEach(record => {
+        const source = String(record.submitted_from ?? '').trim();
+        if (!source) return;
+
+        const dateInfo = getSubmittedDBRecordDateInfo(record);
+        const goodCount = Number(record.good_count ?? 0) || 0;
+        const defects = getSubmittedDBRecordDefects(record);
+        const totalDefects = defects.reduce((sum, defect) => sum + defect.count, 0);
+        const productName = String(record.product_name ?? '').trim();
+        const hinban = String(record.hinban ?? '').trim();
+        const operators = getSubmittedDBRecordOperators(record);
+
+        const recordRow = {
+            id: record._id || record.id,
+            isLive: record.isLive || false,
+            startTime: String(record.start_time || record.startTime || '').trim(),
+            endTime: String(record.end_time || record.endTime || '').trim(),
+            source,
+            productName,
+            hinban,
+            kanbanId: String(record.kanban_id ?? '').trim(),
+            lhRh: String(record.lh_rh ?? '').trim(),
+            goodCount,
+            defectCount: totalDefects,
+            breakTime: Number(record.break_time ?? 0) || 0,
+            troubleTime: Number(record.trouble_time ?? 0) || 0,
+            manHours: Number(record.man_hours ?? 0) || 0,
+            operators,
+            remarks: String(record.remarks ?? '').trim()
+        };
+
+        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        const dayEntry = machineEntry.dayMap.get(dateInfo.key) || {
+            date: dateInfo.key,
+            label: dateInfo.label,
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            manHours: 0,
+            products: new Set(),
+            records: []
+        };
+
+        dayEntry.submissions += 1;
+        dayEntry.goodCount += goodCount;
+        dayEntry.defectCount += totalDefects;
+        dayEntry.breakTime += recordRow.breakTime;
+        dayEntry.troubleTime += recordRow.troubleTime;
+        dayEntry.manHours += recordRow.manHours;
+        if (productName || hinban) dayEntry.products.add(productName || hinban);
+        dayEntry.records.push(recordRow);
+
+        machineEntry.dayMap.set(dateInfo.key, dayEntry);
+        machineMap.set(source, machineEntry);
+    });
+
+    liveSessions.forEach(session => {
+        const source = String(session.source ?? '').trim();
+        if (!source) return;
+
+        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        
+        const dayEntry = machineEntry.dayMap.get(todayKey) || {
+            date: todayKey,
+            label: `${now.getMonth()+1}/${now.getDate()}`,
+            submissions: 0,
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: 0,
+            troubleTime: 0,
+            manHours: 0,
+            products: new Set(),
+            records: []
+        };
+
+        dayEntry.records.push({
+            id: session.id,
+            isLive: true,
+            startTime: String(session.startTime ?? '').trim(),
+            endTime: String(session.endTime ?? '').trim(),
+            source,
+            productName: String(session.productName ?? '').trim(),
+            hinban: String(session.hinban ?? '').trim(),
+            kanbanId: String(session.kanbanId ?? '').trim(),
+            lhRh: '',
+            goodCount: 0,
+            defectCount: 0,
+            breakTime: Number(session.breakTime ?? 0) || 0,
+            troubleTime: Number(session.troubleTime ?? 0) || 0,
+            manHours: 0,
+            operators: session.operators || [],
+            remarks: '',
+            isInProgress: session.isInProgress
+        });
+
+        if (session.productName || session.hinban) dayEntry.products.add(session.productName || session.hinban);
+        
+        machineEntry.dayMap.set(todayKey, dayEntry);
+        machineMap.set(source, machineEntry);
+    });
+
+    return [...machineMap.values()]
+        .map(machineEntry => ({
+            source: machineEntry.source,
+            days: [...machineEntry.dayMap.values()]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(day => ({
+                    ...day,
+                    products: [...day.products],
+                    defectRate: getSubmittedDBDefectRate(day.goodCount, day.defectCount),
+                    records: day.records.sort((a, b) => a.startTime.localeCompare(b.startTime))
+                }))
+        }))
+        .sort((a, b) => a.source.localeCompare(b.source, 'ja'));
+}
+
 // Worker-vs-worker efficiency on the same product (fair comparison because
 // the product, and therefore the cycle time, is held constant).
 function computeSubmittedDBProductWorkerComparison(records = []) {
@@ -3494,7 +3623,11 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const filter = buildSubmittedDBAnalyticsFilter(req.query);
-        const records = await collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray();
+        const [records, uniqueAllSourcesDocs] = await Promise.all([
+            collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
+            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray()
+        ]);
+        const allMachineNames = (uniqueAllSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
 
         const dailyMap = new Map();
         const defectMap = new Map();
@@ -3966,6 +4099,47 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
 
         const machineTimeLoss = computeSubmittedDBMachineTimeLoss(records);
         const operatorDaily = computeSubmittedDBOperatorDaily(records);
+
+        // Fetch active tablet sessions for machine timeline
+        let liveSessions = [];
+        try {
+            const sessions = await db.collection(TABLET_ACTIVE_SESSION_COLLECTION).find({}).toArray();
+            if (sessions.length > 0) {
+                const tablets = await db.collection('tabletDB').find({}).toArray();
+                const tabletMap = new Map();
+                tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
+                const now = new Date();
+                liveSessions = sessions.map(session => {
+                    const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+                    if (!workStartTime) return null;
+                    let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+                    let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+                    const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+                    if (session.breakActive && breakStartTime) breakMins += Math.max(0, (now.getTime() - breakStartTime.getTime()) / 60000);
+                    const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+                    if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
+
+                    return {
+                        id: session._id,
+                        isLive: true,
+                        source: tabletMap.get(session.tabletName) || session.tabletName,
+                        startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
+                        endTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+                        breakTime: breakMins / 60,
+                        troubleTime: troubleMins / 60,
+                        hinban: session.hinban,
+                        productName: session.productName,
+                        kanbanId: session.kanbanId,
+                        operators: normalizeMachineStatusStringList(session.operators),
+                        isInProgress: true
+                    };
+                }).filter(Boolean);
+            }
+        } catch (e) {
+            console.error("Failed to fetch live sessions for analytics:", e);
+        }
+
+        const machineDaily = computeSubmittedDBMachineDaily(records, liveSessions, allMachineNames);
         const productWorkerComparison = computeSubmittedDBProductWorkerComparison(records);
         const defectMatrix = computeSubmittedDBDefectMatrix(records);
         const changeoverTrend = computeSubmittedDBChangeoverTrend(records);
@@ -4046,6 +4220,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
             operatorFocus,
             operatorSkillProfile,
             operatorDaily,
+            machineDaily,
             machineTimeLoss,
             productWorkerComparison,
             defectMatrix,
@@ -4144,7 +4319,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             date_day: today.day
         };
 
-        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords] = await Promise.all([
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets] = await Promise.all([
             collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
             collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
             collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
@@ -4153,8 +4328,41 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
                 .find({ isStarted: true })
                 .sort({ updatedAt: -1 })
-                .toArray()
+                .toArray(),
+            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray(),
+            db.collection('tabletDB').find({}).toArray()
         ]);
+
+        const allMachineNames = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+
+        const tabletMap = new Map();
+        tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
+        const nowMs = new Date();
+        const liveSessions = sessionRecords.map(session => {
+            const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+            if (!workStartTime) return null;
+            let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+            let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+            const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+            if (session.breakActive && breakStartTime) breakMins += Math.max(0, (nowMs.getTime() - breakStartTime.getTime()) / 60000);
+            const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+            if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
+
+            return {
+                id: session._id,
+                isLive: true,
+                source: tabletMap.get(session.tabletName) || session.tabletName,
+                startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
+                endTime: `${String(nowMs.getHours()).padStart(2, '0')}:${String(nowMs.getMinutes()).padStart(2, '0')}`,
+                breakTime: breakMins / 60,
+                troubleTime: troubleMins / 60,
+                hinban: session.hinban,
+                productName: session.productName,
+                kanbanId: session.kanbanId,
+                operators: normalizeMachineStatusStringList(session.operators),
+                isInProgress: true
+            };
+        }).filter(Boolean);
 
         const operatorMap = new Map();
         const productMap = new Map();
@@ -4475,7 +4683,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             topProducts,
             topOperators,
             workerHoursToday,
-            dailyTrend: last7Days.map(day => trendMap.get(day.key))
+            dailyTrend: last7Days.map(day => trendMap.get(day.key)),
+            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames)
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);
@@ -4855,6 +5064,70 @@ app.get('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, re
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching submittedDB record:', error);
         res.status(500).json({ success: false, error: error.message || 'Failed to fetch submitted data' });
+    }
+});
+
+app.get('/api/admin/active-session/:id', validateSubmittedDBAccess, async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const sessionId = req.params?.id;
+        if (!ObjectId.isValid(sessionId)) {
+            return res.status(400).json({ success: false, error: 'Invalid active session ID' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const session = await db.collection(TABLET_ACTIVE_SESSION_COLLECTION).findOne({
+            _id: new ObjectId(sessionId)
+        });
+
+        if (!session) {
+            return res.status(404).json({ success: false, error: 'Active session not found' });
+        }
+
+        const tablet = await db.collection('tabletDB').findOne({ tabletName: session.tabletName });
+        const sourceName = tablet?.設備名 || session.tabletName;
+
+        const nowMs = new Date();
+        const workStartTime = normalizeTabletSessionDate(session.workStartTime);
+        
+        let breakMins = Math.max(0, normalizeTabletSessionNumber(session.totalBreakHours, 0) * 60);
+        let troubleMins = Math.max(0, normalizeTabletSessionNumber(session.totalTroubleHours, 0) * 60);
+        const breakStartTime = normalizeTabletSessionDate(session.breakStartTime);
+        if (session.breakActive && breakStartTime) breakMins += Math.max(0, (nowMs.getTime() - breakStartTime.getTime()) / 60000);
+        const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
+        if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
+
+        const startTimeStr = workStartTime ? `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}` : '—';
+        const manHours = workStartTime ? (nowMs.getTime() - workStartTime.getTime()) / 3600000 : 0;
+
+        // Map it to look like a submittedDB record so the modal can reuse it
+        const normalizedData = {
+            _id: session._id,
+            timestamp: workStartTime || nowMs,
+            submitted_from: sourceName,
+            product_name: session.productName || '—',
+            hinban: session.hinban || '—',
+            kanban_id: session.kanbanId || '—',
+            lh_rh: '—',
+            start_time: startTimeStr,
+            end_time: '—',
+            break_time: breakMins / 60,
+            trouble_time: troubleMins / 60,
+            man_hours: manHours,
+            good_count: 0,
+            cycle_time: 0,
+            // Operators fields mapping (assuming up to 4 like dashboard)
+            operator1: session.operators && session.operators[0] ? session.operators[0] : null,
+            operator2: session.operators && session.operators[1] ? session.operators[1] : null,
+            operator3: session.operators && session.operators[2] ? session.operators[2] : null,
+            operator4: session.operators && session.operators[3] ? session.operators[3] : null
+        };
+
+        res.json({ success: true, data: normalizedData });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error fetching active session record:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to fetch active session data' });
     }
 });
 
@@ -6943,6 +7216,19 @@ app.post('/api/opcua/device-info', async (req, res) => {
     }
 });
 
+// GET /api/factories - Get all factories
+app.get('/api/factories', async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const factories = await db.collection('factory').find({}).toArray();
+        res.json({ success: true, factories });
+    } catch (error) {
+        console.error('❌ Error fetching factories:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch factories' });
+    }
+});
+
 // GET /api/deviceInfo - Get all devices for a company
 app.get('/api/deviceInfo', async (req, res) => {
     try {
@@ -7002,7 +7288,7 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
     try {
         const { ObjectId } = require('mongodb');
         const { deviceId } = req.params;
-        const { company, device_name, owner } = req.body;
+        const { company, device_name, owner, factoryId } = req.body;
         
         if (!company) {
             return res.status(400).json({ error: 'Company parameter required' });
@@ -7018,16 +7304,21 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
         
         const db = mongoClient.db(company);
         
+        const updateData = {
+            device_name,
+            owner,
+            updated_at: new Date()
+        };
+
+        if (factoryId !== undefined) {
+            updateData.factoryId = factoryId;
+        }
+
         const result = await db.collection('deviceInfo').updateOne(
             { _id: new ObjectId(deviceId) },
-            {
-                $set: {
-                    device_name,
-                    owner,
-                    updated_at: new Date()
-                }
-            }
+            { $set: updateData }
         );
+
         
         if (result.matchedCount === 0) {
             return res.status(404).json({ error: 'Device not found' });
@@ -10735,7 +11026,7 @@ app.post("/tabletLogin", async (req, res) => {
         userId: user._id.toString()
       },
       process.env.JWT_SECRET,
-      { expiresIn: '180d' }
+      { expiresIn: '1y' }
     );
 
     res.json({

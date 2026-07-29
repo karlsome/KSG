@@ -74,24 +74,32 @@ async function initializeOPCManagement() {
         
         // Check if there's a previously selected device and auto-select it
         const lastSelectedDevice = localStorage.getItem('opcLastSelectedDevice');
-        if (lastSelectedDevice) {
-            const select = document.getElementById('opc-raspberry-filter');
-            if (select) {
-                select.value = lastSelectedDevice;
+        const select = document.getElementById('opc-raspberry-filter');
+        
+        let initialDevice = lastSelectedDevice;
+        
+        // Handle browser autocomplete/restore where a value is selected but not in localStorage
+        if (!initialDevice && select && select.value) {
+            initialDevice = select.value;
+        }
 
-                currentRaspberryId = lastSelectedDevice;
-                window.opcManagementState.currentRaspberryId = lastSelectedDevice;
+        if (initialDevice && select) {
+            select.value = initialDevice;
+            currentRaspberryId = initialDevice;
+            window.opcManagementState.currentRaspberryId = initialDevice;
 
-                // Reuse preloaded cache when available, otherwise fetch selected device data
-                const cachedDeviceData = window.opcManagementState.allDevicesDataCache[lastSelectedDevice];
-                if (cachedDeviceData) {
-                    window.opcManagementState.rawDataCache = cachedDeviceData;
-                    rawDataCache = cachedDeviceData;
-                    renderRealTimeData(cachedDeviceData);
-                } else {
-                    await loadRealTimeData(lastSelectedDevice);
-                }
+            // Reuse preloaded cache when available, otherwise fetch selected device data
+            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[initialDevice];
+            if (cachedDeviceData) {
+                window.opcManagementState.rawDataCache = cachedDeviceData;
+                rawDataCache = cachedDeviceData;
+                renderRealTimeData(cachedDeviceData);
+            } else {
+                await loadRealTimeData(initialDevice);
             }
+            
+            // Re-render variables now that currentRaspberryId is set
+            renderVariables();
         }
         
         // Initialize WebSocket
@@ -305,6 +313,9 @@ async function handleRaspberryChange(e) {
         localStorage.removeItem('opcLastSelectedDevice');
         clearDataDisplay();
     }
+    
+    // Also re-render variables to filter by selected device
+    renderVariables();
 }
 
 // Load real-time data for selected Raspberry Pi
@@ -1030,8 +1041,20 @@ async function loadVariables() {
 // Render variables in right panel
 function renderVariables() {
     const container = document.getElementById('opc-variables-container');
+    if (!container) return;
     
-    if (variablesCache.length === 0) {
+    let variablesToRender = variablesCache;
+    if (currentRaspberryId) {
+        variablesToRender = variablesCache.filter(variable => {
+            if (variable.raspberryId === currentRaspberryId) return true;
+            if (variable.sourceType === 'combined' && variable.sourceVariables) {
+                return variable.sourceVariables.some(sv => sv.raspberryId === currentRaspberryId);
+            }
+            return false;
+        });
+    }
+    
+    if (variablesToRender.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-price-tag-3-line text-5xl mb-4"></i>
@@ -1058,7 +1081,7 @@ function renderVariables() {
                 <tbody class="bg-white divide-y divide-gray-200">
     `;
     
-    variablesCache.forEach(variable => {
+    variablesToRender.forEach(variable => {
         const value = variable.currentValue !== undefined ? variable.currentValue : '-';
         
         // Get device name and variable name from allDevicesDataCache
