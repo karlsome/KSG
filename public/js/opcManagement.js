@@ -74,24 +74,32 @@ async function initializeOPCManagement() {
         
         // Check if there's a previously selected device and auto-select it
         const lastSelectedDevice = localStorage.getItem('opcLastSelectedDevice');
-        if (lastSelectedDevice) {
-            const select = document.getElementById('opc-raspberry-filter');
-            if (select) {
-                select.value = lastSelectedDevice;
+        const select = document.getElementById('opc-raspberry-filter');
+        
+        let initialDevice = lastSelectedDevice;
+        
+        // Handle browser autocomplete/restore where a value is selected but not in localStorage
+        if (!initialDevice && select && select.value) {
+            initialDevice = select.value;
+        }
 
-                currentRaspberryId = lastSelectedDevice;
-                window.opcManagementState.currentRaspberryId = lastSelectedDevice;
+        if (initialDevice && select) {
+            select.value = initialDevice;
+            currentRaspberryId = initialDevice;
+            window.opcManagementState.currentRaspberryId = initialDevice;
 
-                // Reuse preloaded cache when available, otherwise fetch selected device data
-                const cachedDeviceData = window.opcManagementState.allDevicesDataCache[lastSelectedDevice];
-                if (cachedDeviceData) {
-                    window.opcManagementState.rawDataCache = cachedDeviceData;
-                    rawDataCache = cachedDeviceData;
-                    renderRealTimeData(cachedDeviceData);
-                } else {
-                    await loadRealTimeData(lastSelectedDevice);
-                }
+            // Reuse preloaded cache when available, otherwise fetch selected device data
+            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[initialDevice];
+            if (cachedDeviceData) {
+                window.opcManagementState.rawDataCache = cachedDeviceData;
+                rawDataCache = cachedDeviceData;
+                renderRealTimeData(cachedDeviceData);
+            } else {
+                await loadRealTimeData(initialDevice);
             }
+            
+            // Re-render variables now that currentRaspberryId is set
+            renderVariables();
         }
         
         // Initialize WebSocket
