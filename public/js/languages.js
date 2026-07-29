@@ -715,6 +715,13 @@ const translations = {
         finance: "Finance"
       },
 
+      workerCompare: {
+        title: "Compare Workers",
+        desc: "Select workers to compare their performance over the current analytics date range.",
+        selectWorkers: "Select Workers to Compare:",
+        noSelection: "Please select at least one worker to compare."
+      },
+
       workerFocus: {
         title: "Worker report",
         description: "Pick a worker and a day or month to see how they did.",
@@ -728,6 +735,7 @@ const translations = {
         recordsDetails: "Show work records (detail)",
         teamDetails: "Show team comparison charts (advanced)",
         noDayData: "No work records for this worker on the selected day.",
+        compareWorkers: "Compare Workers",
         noMonthData: "No work records for this worker in the selected month.",
         noTimelineData: "No time data recorded for this day.",
         noRecords: "No records to show.",
@@ -1929,6 +1937,13 @@ const translations = {
         quality: "品質",
         product: "製品",
         finance: "収益"
+      },
+
+      workerCompare: {
+        title: "作業者を比較",
+        desc: "現在の分析期間において、選択した作業者のパフォーマンスを比較します。",
+        selectWorkers: "比較する作業者を選択:",
+        noSelection: "比較する作業者を1人以上選択してください。"
       },
 
       workerFocus: {

@@ -4105,6 +4105,100 @@ function analyticsUpdateFilterOptionLabels() {
   }
 }
 
+// ------------------------------------------------------------
+// Worker Comparison Modal
+// ------------------------------------------------------------
+let selectedWorkersForComparison = new Set();
+
+function openWorkerComparisonModal() {
+  if (!analyticsData) return;
+  const modal = document.getElementById('analyticsWorkerComparisonModal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+  
+  const container = document.getElementById('analyticsWorkerCompareCheckboxes');
+  const allWorkers = (analyticsData.operatorComparison || []).map(w => w.name);
+  allWorkers.sort((a, b) => a.localeCompare(b));
+  
+  if (selectedWorkersForComparison.size === 0 && allWorkers.length > 0) {
+    const currentFocus = document.getElementById('analyticsWorkerFocusSelect')?.value;
+    if (currentFocus && allWorkers.includes(currentFocus)) {
+      selectedWorkersForComparison.add(currentFocus);
+    }
+  }
+
+  if (container) {
+    container.innerHTML = allWorkers.map(w => `
+      <label class="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition">
+        <input type="checkbox" value="${analyticsEscapeHtml(w)}" class="text-blue-600 rounded border-gray-300 focus:ring-blue-500" ${selectedWorkersForComparison.has(w) ? 'checked' : ''} onchange="handleWorkerCompareSelection(this)">
+        <span class="text-sm font-medium text-gray-700">${analyticsEscapeHtml(w)}</span>
+      </label>
+    `).join('');
+  }
+
+  renderWorkerComparisonTable();
+}
+
+function closeWorkerComparisonModal() {
+  const modal = document.getElementById('analyticsWorkerComparisonModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+}
+
+function handleWorkerCompareSelection(checkbox) {
+  if (checkbox.checked) {
+    selectedWorkersForComparison.add(checkbox.value);
+  } else {
+    selectedWorkersForComparison.delete(checkbox.value);
+  }
+  renderWorkerComparisonTable();
+}
+
+function renderWorkerComparisonTable() {
+  const tbody = document.getElementById('analyticsWorkerCompareTableBody');
+  if (!tbody || !analyticsData) return;
+
+  if (selectedWorkersForComparison.size === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">${t('analytics.workerCompare.noSelection') || 'Please select at least one worker to compare.'}</td></tr>`;
+    return;
+  }
+
+  const selectedArray = Array.from(selectedWorkersForComparison);
+  const comparisons = analyticsData.operatorComparison || [];
+  
+  const rows = selectedArray.map(workerName => {
+    const data = comparisons.find(c => c.name === workerName) || {
+      goodCount: 0, defectCount: 0, breakTime: 0, troubleTime: 0, score: 0
+    };
+    
+    let scoreToneClass = "text-gray-500 bg-gray-100";
+    if (data.score >= 90) scoreToneClass = "text-green-700 bg-green-100";
+    else if (data.score >= 70) scoreToneClass = "text-yellow-700 bg-yellow-100";
+    else if (data.score > 0) scoreToneClass = "text-rose-700 bg-rose-100";
+
+    return `
+      <tr class="hover:bg-gray-50 transition">
+        <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(workerName)}</td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${scoreToneClass}">
+            ${data.score > 0 ? Math.round(data.score) : '-'}
+          </span>
+        </td>
+        <td class="px-4 py-3 font-medium text-gray-900">${analyticsFormatCount(data.goodCount || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatCount(data.defectCount || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.breakTime || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.troubleTime || 0)}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
 function initializeAnalytics() {
   const root = document.getElementById('analyticsRoot');
   if (!root) return;
@@ -4142,3 +4236,6 @@ window.handleAnalyticsProductDetailChange = handleAnalyticsProductDetailChange;
 window.analyticsSaveStandardCycleTime = analyticsSaveStandardCycleTime;
 window.analyticsPrintWorkerReport = analyticsPrintWorkerReport;
 window.analyticsUpdateFilterOptionLabels = analyticsUpdateFilterOptionLabels;
+window.openWorkerComparisonModal = openWorkerComparisonModal;
+window.closeWorkerComparisonModal = closeWorkerComparisonModal;
+window.handleWorkerCompareSelection = handleWorkerCompareSelection;

@@ -279,6 +279,10 @@
               </div>
               <input id="analyticsWorkerFocusDate" type="date" onchange="handleAnalyticsWorkerFocusChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
               <input id="analyticsWorkerFocusMonth" type="month" onchange="handleAnalyticsWorkerFocusChange()" class="hidden rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+              <button type="button" onclick="openWorkerComparisonModal()" class="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
+                <i class="ri-scales-3-line"></i>
+                <span data-i18n="analytics.workerFocus.compareWorkers">Compare</span>
+              </button>
               <button type="button" onclick="analyticsPrintWorkerReport()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
                 <i class="ri-printer-line"></i>
                 <span data-i18n="analytics.workerFocus.printReport">Print</span>
@@ -627,5 +631,46 @@
         <div id="analyticsFinanceTable" class="overflow-x-auto border-t border-gray-100"></div>
       </details>
     </section>
+
+    <!-- Worker Comparison Modal -->
+    <div id="analyticsWorkerComparisonModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-gray-900/50 backdrop-blur-sm transition-opacity">
+      <div class="relative w-full max-w-5xl rounded-2xl bg-white p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+        <div class="mb-4 flex items-center justify-between border-b pb-4">
+          <div>
+            <h3 class="text-xl font-bold text-gray-900" data-i18n="analytics.workerCompare.title">Compare Workers</h3>
+            <p class="text-sm text-gray-500" data-i18n="analytics.workerCompare.desc">Select workers to compare their performance over the current analytics date range.</p>
+          </div>
+          <button onclick="closeWorkerComparisonModal()" class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
+            <i class="ri-close-line text-2xl"></i>
+          </button>
+        </div>
+        
+        <div class="mb-6">
+          <h4 class="mb-2 text-sm font-medium text-gray-700" data-i18n="analytics.workerCompare.selectWorkers">Select Workers to Compare:</h4>
+          <div id="analyticsWorkerCompareCheckboxes" class="flex flex-wrap gap-3 rounded-lg border border-gray-200 p-4 bg-gray-50 max-h-40 overflow-y-auto">
+            <!-- Checkboxes injected here via JS -->
+          </div>
+        </div>
+        
+        <div class="overflow-x-auto rounded-xl border border-gray-200">
+          <table class="w-full text-left text-sm text-gray-600">
+            <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <tr>
+                <th class="px-4 py-3 border-b">Worker</th>
+                <th class="px-4 py-3 border-b">Efficiency Score</th>
+                <th class="px-4 py-3 border-b">Total Output</th>
+                <th class="px-4 py-3 border-b">Defects</th>
+                <th class="px-4 py-3 border-b">Working Time</th>
+                <th class="px-4 py-3 border-b">Break Time</th>
+                <th class="px-4 py-3 border-b">Trouble Time</th>
+              </tr>
+            </thead>
+            <tbody id="analyticsWorkerCompareTableBody" class="divide-y divide-gray-100 bg-white">
+              <!-- Rows injected here via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
