@@ -305,6 +305,9 @@ async function handleRaspberryChange(e) {
         localStorage.removeItem('opcLastSelectedDevice');
         clearDataDisplay();
     }
+    
+    // Also re-render variables to filter by selected device
+    renderVariables();
 }
 
 // Load real-time data for selected Raspberry Pi
@@ -1031,7 +1034,18 @@ async function loadVariables() {
 function renderVariables() {
     const container = document.getElementById('opc-variables-container');
     
-    if (variablesCache.length === 0) {
+    let variablesToRender = variablesCache;
+    if (currentRaspberryId) {
+        variablesToRender = variablesCache.filter(variable => {
+            if (variable.raspberryId === currentRaspberryId) return true;
+            if (variable.sourceType === 'combined' && variable.sourceVariables) {
+                return variable.sourceVariables.some(sv => sv.raspberryId === currentRaspberryId);
+            }
+            return false;
+        });
+    }
+    
+    if (variablesToRender.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-price-tag-3-line text-5xl mb-4"></i>
@@ -1058,7 +1072,7 @@ function renderVariables() {
                 <tbody class="bg-white divide-y divide-gray-200">
     `;
     
-    variablesCache.forEach(variable => {
+    variablesToRender.forEach(variable => {
         const value = variable.currentValue !== undefined ? variable.currentValue : '-';
         
         // Get device name and variable name from allDevicesDataCache

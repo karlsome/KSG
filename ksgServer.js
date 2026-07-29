@@ -7275,7 +7275,7 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
     try {
         const { ObjectId } = require('mongodb');
         const { deviceId } = req.params;
-        const { company, device_name, owner } = req.body;
+        const { company, device_name, owner, factoryId } = req.body;
         
         if (!company) {
             return res.status(400).json({ error: 'Company parameter required' });
@@ -7291,16 +7291,21 @@ app.put('/api/deviceInfo/:deviceId', async (req, res) => {
         
         const db = mongoClient.db(company);
         
+        const updateData = {
+            device_name,
+            owner,
+            updated_at: new Date()
+        };
+
+        if (factoryId !== undefined) {
+            updateData.factoryId = factoryId;
+        }
+
         const result = await db.collection('deviceInfo').updateOne(
             { _id: new ObjectId(deviceId) },
-            {
-                $set: {
-                    device_name,
-                    owner,
-                    updated_at: new Date()
-                }
-            }
+            { $set: updateData }
         );
+
         
         if (result.matchedCount === 0) {
             return res.status(404).json({ error: 'Device not found' });

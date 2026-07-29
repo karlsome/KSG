@@ -30,6 +30,11 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+// Fallback for showToast since masterDB.html does not include a toast element
+function showToast(message, type = 'info') {
+  alert(message);
+}
+
 // ====================
 // Language Change Listener
 // ====================
@@ -4025,6 +4030,16 @@ let originalRpiServerData = null;
 
 async function editRpiServer(deviceId) {
   try {
+    if (!Array.isArray(allFactories) || allFactories.length === 0) {
+      const factoriesRes = await fetch(BASE_URL + "getFactories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName: COMPANY })
+      });
+      const factories = await factoriesRes.json();
+      allFactories = Array.isArray(factories) ? factories : [];
+    }
+
     const response = await fetch(`${API_URL}/api/deviceInfo/${deviceId}?company=${COMPANY}`);
     const data = await response.json();
     
@@ -4069,6 +4084,15 @@ function showRpiServerEditModal(device) {
               <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.owner')}</label>
               <input type="text" id="editDeviceOwner" value="${device.owner || ''}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.factory') || 'Factory'}</label>
+              <select id="editDeviceFactory"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <option value="">${t('common.selectFactory') || 'Select Factory'}</option>
+                ${allFactories.map(f => `<option value="${f._id}" ${device.factoryId === f._id ? 'selected' : ''}>${f.name}</option>`).join('')}
+              </select>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -4121,6 +4145,7 @@ function closeRpiServerEditModal() {
 async function saveRpiServer() {
   const deviceName = document.getElementById('editDeviceName').value.trim();
   const owner = document.getElementById('editDeviceOwner').value.trim();
+  const factoryId = document.getElementById('editDeviceFactory').value;
 
   if (!deviceName) {
     showToast(t('masterDB.deviceNameRequired'), 'error');
@@ -4134,7 +4159,8 @@ async function saveRpiServer() {
       body: JSON.stringify({
         company: COMPANY,
         device_name: deviceName,
-        owner: owner
+        owner: owner,
+        factoryId: factoryId
       })
     });
 
