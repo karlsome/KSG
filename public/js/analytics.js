@@ -630,7 +630,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
   const lgDefectRate = t('analytics.kpi.defectRate');
 
   analyticsRenderChart('analyticsTrendChart', {
-    color: ['#0f172a', '#14b8a6', '#f59e0b', '#ef4444'],
+    color: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'],
     tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
     legend: { top: 0, data: [lgGoodPieces, lgManHours, lgIssueRecords, lgDefectRate] },
     grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
@@ -664,7 +664,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
       {
         name: lgManHours,
         type: 'line',
-        smooth: true,
+        smooth: false,
         symbolSize: 7,
         data: dailyTrend.map(item => Number(item.manHours || 0)),
         yAxisIndex: 0
@@ -672,7 +672,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
       {
         name: lgIssueRecords,
         type: 'line',
-        smooth: true,
+        smooth: false,
         symbolSize: 7,
         data: dailyTrend.map(item => Number(item.issueCount || 0)),
         yAxisIndex: 1
@@ -680,7 +680,7 @@ function renderAnalyticsOverviewTrendChart(dailyTrend) {
       {
         name: lgDefectRate,
         type: 'line',
-        smooth: true,
+        smooth: false,
         symbolSize: 7,
         data: dailyTrend.map(item => Number(item.defectRate || 0)),
         yAxisIndex: 1
