@@ -719,7 +719,9 @@ const translations = {
         title: "Compare Workers",
         desc: "Select workers to compare their performance over the current analytics date range.",
         selectWorkers: "Select Workers to Compare:",
-        noSelection: "Please select at least one worker to compare."
+        noSelection: "Please select at least one worker to compare.",
+        checkAll: "Check All",
+        uncheckAll: "Uncheck All"
       },
 
       workerFocus: {
@@ -1943,7 +1945,9 @@ const translations = {
         title: "作業者を比較",
         desc: "現在の分析期間において、選択した作業者のパフォーマンスを比較します。",
         selectWorkers: "比較する作業者を選択:",
-        noSelection: "比較する作業者を1人以上選択してください。"
+        noSelection: "比較する作業者を1人以上選択してください。",
+        checkAll: "すべて選択",
+        uncheckAll: "すべて解除"
       },
 
       workerFocus: {
@@ -1959,6 +1963,7 @@ const translations = {
         recordsDetails: "作業記録を表示（詳細）",
         teamDetails: "チーム比較グラフを表示（上級者向け）",
         noDayData: "選択した日にこの作業者の記録はありません。",
+        compareWorkers: "作業者を比較",
         noMonthData: "選択した月にこの作業者の記録はありません。",
         noTimelineData: "この日の時間データが記録されていません。",
         noRecords: "表示する記録がありません。",
