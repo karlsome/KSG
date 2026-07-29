@@ -4172,26 +4172,29 @@ function renderWorkerComparisonTable() {
   
   const rows = selectedArray.map(workerName => {
     const data = comparisons.find(c => c.name === workerName) || {
-      goodCount: 0, defectCount: 0, breakTime: 0, troubleTime: 0, score: 0
+      totalGoodCount: 0, totalDefectCount: 0, totalManHours: 0, totalBreakTime: 0, totalTroubleTime: 0
     };
     
+    const computedScore = analyticsComputeWorkerScore(data) || 0;
+
     let scoreToneClass = "text-gray-500 bg-gray-100";
-    if (data.score >= 90) scoreToneClass = "text-green-700 bg-green-100";
-    else if (data.score >= 70) scoreToneClass = "text-yellow-700 bg-yellow-100";
-    else if (data.score > 0) scoreToneClass = "text-rose-700 bg-rose-100";
+    if (computedScore >= 90) scoreToneClass = "text-green-700 bg-green-100";
+    else if (computedScore >= 70) scoreToneClass = "text-yellow-700 bg-yellow-100";
+    else if (computedScore > 0) scoreToneClass = "text-rose-700 bg-rose-100";
 
     return `
       <tr class="hover:bg-gray-50 transition">
         <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(workerName)}</td>
         <td class="px-4 py-3">
           <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${scoreToneClass}">
-            ${data.score > 0 ? Math.round(data.score) : '-'}
+            ${computedScore > 0 ? Math.round(computedScore) : '-'}
           </span>
         </td>
-        <td class="px-4 py-3 font-medium text-gray-900">${analyticsFormatCount(data.goodCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatCount(data.defectCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.breakTime || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.troubleTime || 0)}</td>
+        <td class="px-4 py-3 font-medium text-gray-900">${analyticsFormatCount(data.totalGoodCount || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatCount(data.totalDefectCount || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalManHours || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalBreakTime || 0)}</td>
+        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalTroubleTime || 0)}</td>
       </tr>
     `;
   });
