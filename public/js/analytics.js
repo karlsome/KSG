@@ -4158,25 +4158,67 @@ function handleWorkerCompareSelection(checkbox) {
   renderWorkerComparisonTable();
 }
 
+let analyticsWorkerCompareSortCol = 'score';
+let analyticsWorkerCompareSortDesc = true;
+
+window.sortWorkerComparison = function(col) {
+  if (analyticsWorkerCompareSortCol === col) {
+    analyticsWorkerCompareSortDesc = !analyticsWorkerCompareSortDesc;
+  } else {
+    analyticsWorkerCompareSortCol = col;
+    analyticsWorkerCompareSortDesc = true;
+  }
+  renderWorkerComparisonTable();
+};
+
 function renderWorkerComparisonTable() {
   const tbody = document.getElementById('analyticsWorkerCompareTableBody');
   if (!tbody || !analyticsData) return;
 
   if (selectedWorkersForComparison.size === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">${t('analytics.workerCompare.noSelection') || 'Please select at least one worker to compare.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">${t('analytics.workerCompare.noSelection') || 'Please select at least one worker to compare.'}</td></tr>`;
+    
+    // Reset icons
+    const allIcons = document.querySelectorAll('[id^="sortIcon-"]');
+    allIcons.forEach(icon => {
+      icon.className = 'ri-arrow-up-down-line text-gray-400';
+    });
     return;
   }
 
   const selectedArray = Array.from(selectedWorkersForComparison);
   const comparisons = analyticsData.operatorComparison || [];
   
-  const rows = selectedArray.map(workerName => {
+  // 1. Map to row data objects
+  const rowDataList = selectedArray.map(workerName => {
     const data = comparisons.find(c => c.name === workerName) || {
       totalGoodCount: 0, totalDefectCount: 0, totalManHours: 0, totalBreakTime: 0, totalTroubleTime: 0
     };
-    
     const computedScore = analyticsComputeWorkerScore(data) || 0;
+    return { workerName, data, computedScore };
+  });
 
+  // 2. Sort the row data
+  rowDataList.sort((a, b) => {
+    let valA, valB;
+    switch (analyticsWorkerCompareSortCol) {
+      case 'worker': valA = a.workerName.toLowerCase(); valB = b.workerName.toLowerCase(); break;
+      case 'score': valA = a.computedScore; valB = b.computedScore; break;
+      case 'output': valA = Number(a.data.totalGoodCount) || 0; valB = Number(b.data.totalGoodCount) || 0; break;
+      case 'defects': valA = Number(a.data.totalDefectCount) || 0; valB = Number(b.data.totalDefectCount) || 0; break;
+      case 'workingTime': valA = Number(a.data.totalManHours) || 0; valB = Number(b.data.totalManHours) || 0; break;
+      case 'breakTime': valA = Number(a.data.totalBreakTime) || 0; valB = Number(b.data.totalBreakTime) || 0; break;
+      case 'troubleTime': valA = Number(a.data.totalTroubleTime) || 0; valB = Number(b.data.totalTroubleTime) || 0; break;
+      default: valA = a.computedScore; valB = b.computedScore; break;
+    }
+    
+    if (valA < valB) return analyticsWorkerCompareSortDesc ? 1 : -1;
+    if (valA > valB) return analyticsWorkerCompareSortDesc ? -1 : 1;
+    return 0;
+  });
+
+  // 3. Render HTML
+  const rows = rowDataList.map(({ workerName, data, computedScore }) => {
     let scoreToneClass = "text-gray-500 bg-gray-100";
     if (computedScore >= 90) scoreToneClass = "text-green-700 bg-green-100";
     else if (computedScore >= 70) scoreToneClass = "text-yellow-700 bg-yellow-100";
@@ -4200,6 +4242,17 @@ function renderWorkerComparisonTable() {
   });
 
   tbody.innerHTML = rows.join('');
+
+  // 4. Update Sort Icons
+  const allIcons = document.querySelectorAll('[id^="sortIcon-"]');
+  allIcons.forEach(icon => {
+    const colName = icon.id.replace('sortIcon-', '');
+    if (colName === analyticsWorkerCompareSortCol) {
+      icon.className = analyticsWorkerCompareSortDesc ? 'ri-arrow-down-line text-blue-600' : 'ri-arrow-up-line text-blue-600';
+    } else {
+      icon.className = 'ri-arrow-up-down-line text-gray-400';
+    }
+  });
 }
 
 function initializeAnalytics() {

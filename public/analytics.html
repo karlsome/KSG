@@ -656,13 +656,27 @@
           <table class="w-full text-left text-sm text-gray-600">
             <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-500">
               <tr>
-                <th class="px-4 py-3 border-b">Worker</th>
-                <th class="px-4 py-3 border-b">Efficiency Score</th>
-                <th class="px-4 py-3 border-b">Total Output</th>
-                <th class="px-4 py-3 border-b">Defects</th>
-                <th class="px-4 py-3 border-b">Working Time</th>
-                <th class="px-4 py-3 border-b">Break Time</th>
-                <th class="px-4 py-3 border-b">Trouble Time</th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('worker')">
+                  <div class="flex items-center gap-1">Worker <i id="sortIcon-worker" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('score')">
+                  <div class="flex items-center gap-1">Efficiency Score <i id="sortIcon-score" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('output')">
+                  <div class="flex items-center gap-1">Total Output <i id="sortIcon-output" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('defects')">
+                  <div class="flex items-center gap-1">Defects <i id="sortIcon-defects" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('workingTime')">
+                  <div class="flex items-center gap-1">Working Time <i id="sortIcon-workingTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('breakTime')">
+                  <div class="flex items-center gap-1">Break Time <i id="sortIcon-breakTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
+                <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('troubleTime')">
+                  <div class="flex items-center gap-1">Trouble Time <i id="sortIcon-troubleTime" class="ri-arrow-up-down-line text-gray-400"></i></div>
+                </th>
               </tr>
             </thead>
             <tbody id="analyticsWorkerCompareTableBody" class="divide-y divide-gray-100 bg-white">
