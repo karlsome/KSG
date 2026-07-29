@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Kaizen</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.3s ease;
+        }
+        
+        .header {
+            position: absolute;
+            top: 2rem;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .counter-card {
+            background-color: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 1rem 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .counter-title {
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+        }
+
+        .counter-value {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #007bff;
+            margin: 0;
+        }
+
+        .main-content {
+            text-align: center;
+            z-index: 10;
+            width: 90%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .qr-display {
+            font-size: 2.25rem;
+            font-weight: bold;
+            word-break: break-all;
+            max-width: 100%;
+            min-height: 3rem;
+            margin: 1rem 0;
+            padding: 1rem;
+            border-radius: 12px;
+            background-color: #f8f9fa;
+            border: 2px dashed #ced4da;
+            width: 100%;
+        }
+
+        .status-text {
+            font-size: 1.25rem;
+            color: #6c757d;
+            height: 2rem;
+            font-weight: 500;
+        }
+
+        .error-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #dc3545;
+            color: white;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .error-icon {
+            font-size: 12rem;
+            line-height: 1;
+            font-weight: bold;
+            margin-bottom: 1.5rem;
+        }
+
+        .error-text {
+            font-size: 3rem;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 2rem;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .reset-button {
+            padding: 0.75rem 2rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #ffffff;
+            background-color: #dc3545;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px rgba(220, 53, 69, 0.2);
+        }
+        
+        .reset-button:active {
+            background-color: #c82333;
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="counter-card">
+            <div class="counter-title">Total Verified</div>
+            <div class="counter-value" id="counter-display">0</div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="qr-display" id="qr-display">Ready to Scan</div>
+        <div class="status-text" id="status-text">Waiting for first scan...</div>
+    </div>
+
+    <div class="footer">
+        <button class="reset-button" id="reset-button">Reset Counter</button>
+    </div>
+
+    <div class="error-overlay" id="error-overlay">
+        <div class="error-icon">✕</div>
+        <div class="error-text">DEFECT FOUND<br>MISMATCH</div>
+    </div>
+
+    <script>
+        let currentQR = null;
+        let scanCount = 0;
+        let totalMatches = 0;
+        let buffer = "";
+        
+        let audioCtx = null;
+        let bufferTimeout = null;
+
+        const display = document.getElementById("qr-display");
+        const statusText = document.getElementById("status-text");
+        const counter = document.getElementById("counter-display");
+        const errorOverlay = document.getElementById("error-overlay");
+        const resetButton = document.getElementById("reset-button");
+
+        resetButton.addEventListener('click', () => {
+            totalMatches = 0;
+            counter.innerText = totalMatches;
+            
+            scanCount = 0;
+            currentQR = null;
+            
+            display.innerText = "Ready to Scan";
+            display.style.color = "#333333";
+            display.style.borderColor = "#ced4da";
+            display.style.backgroundColor = "#f8f9fa";
+            statusText.innerText = "Waiting for first scan...";
+            
+            resetButton.blur(); // Prevent enter key from triggering click again
+        });
+
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playErrorSound() {
+            initAudio();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            // Unpleasant buzzer sound for error
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.5);
+            
+            gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+
+        function playSuccessSound() {
+            initAudio();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            // Pleasant beep for success
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+            
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.2);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            // Check if it's the Enter key
+            if (e.key === 'Enter') {
+                if (buffer.trim() !== "") {
+                    processScan(buffer.trim());
+                    buffer = ""; // clear buffer
+                }
+            } 
+            // Append single printable characters
+            else if (e.key.length === 1) { 
+                buffer += e.key;
+            }
+            
+            // Reset buffer if typing is too slow (prevent random keypresses from persisting)
+            // A barcode scanner typically inputs characters extremely fast (milliseconds between keystrokes)
+            clearTimeout(bufferTimeout);
+            bufferTimeout = setTimeout(() => {
+                buffer = "";
+            }, 200); 
+        });
+
+        function processScan(scannedValue) {
+            initAudio(); // ensure audio context is active upon first user interaction
+
+            if (scanCount === 0) {
+                // First scan
+                currentQR = scannedValue;
+                scanCount = 1;
+                
+                display.innerText = scannedValue;
+                display.style.color = "#333333";
+                display.style.borderColor = "#007bff";
+                display.style.backgroundColor = "#e7f1ff";
+                statusText.innerText = "Scan again to verify";
+                
+            } else if (scanCount === 1) {
+                // Second scan
+                if (scannedValue === currentQR) {
+                    // Match found
+                    totalMatches++;
+                    counter.innerText = totalMatches;
+                    
+                    display.innerText = scannedValue;
+                    display.style.color = "#155724";
+                    display.style.borderColor = "#28a745";
+                    display.style.backgroundColor = "#d4edda";
+                    statusText.innerText = "Verified! Ready for next item.";
+                    
+                    playSuccessSound();
+                    
+                    // Reset for next pair
+                    scanCount = 0;
+                    currentQR = null;
+                } else {
+                    // Mismatch found!
+                    showError();
+                    
+                    // Reset state
+                    scanCount = 0;
+                    currentQR = null;
+                }
+            }
+        }
+
+        function showError() {
+            playErrorSound();
+            errorOverlay.style.display = 'flex';
+            
+            // Hide the red flash overlay after 2 seconds
+            setTimeout(() => {
+                errorOverlay.style.display = 'none';
+                display.innerText = "Ready to Scan";
+                display.style.color = "#333333";
+                display.style.borderColor = "#ced4da";
+                display.style.backgroundColor = "#f8f9fa";
+                statusText.innerText = "Waiting for first scan...";
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
