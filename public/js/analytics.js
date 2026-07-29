@@ -4158,6 +4158,32 @@ function handleWorkerCompareSelection(checkbox) {
   renderWorkerComparisonTable();
 }
 
+window.analyticsCheckAllWorkers = function() {
+  if (!analyticsData) return;
+  const allWorkers = (analyticsData.operatorComparison || []).map(w => w.name);
+  allWorkers.forEach(w => selectedWorkersForComparison.add(w));
+  
+  const container = document.getElementById('analyticsWorkerCompareCheckboxes');
+  if (container) {
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = true);
+  }
+  
+  renderWorkerComparisonTable();
+};
+
+window.analyticsUncheckAllWorkers = function() {
+  selectedWorkersForComparison.clear();
+  
+  const container = document.getElementById('analyticsWorkerCompareCheckboxes');
+  if (container) {
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
+  }
+  
+  renderWorkerComparisonTable();
+};
+
 let analyticsWorkerCompareSortCol = 'score';
 let analyticsWorkerCompareSortDesc = true;
 
