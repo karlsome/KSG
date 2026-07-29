@@ -1033,6 +1033,7 @@ async function loadVariables() {
 // Render variables in right panel
 function renderVariables() {
     const container = document.getElementById('opc-variables-container');
+    if (!container) return;
     
     let variablesToRender = variablesCache;
     if (currentRaspberryId) {

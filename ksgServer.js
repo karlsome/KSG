@@ -7216,6 +7216,19 @@ app.post('/api/opcua/device-info', async (req, res) => {
     }
 });
 
+// GET /api/factories - Get all factories
+app.get('/api/factories', async (req, res) => {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const factories = await db.collection('factory').find({}).toArray();
+        res.json({ success: true, factories });
+    } catch (error) {
+        console.error('❌ Error fetching factories:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch factories' });
+    }
+});
+
 // GET /api/deviceInfo - Get all devices for a company
 app.get('/api/deviceInfo', async (req, res) => {
     try {

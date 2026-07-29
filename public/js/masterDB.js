@@ -64,22 +64,29 @@ function switchMainTab(tabName) {
   document.getElementById('contentGoogleSheets').classList.add('hidden');
 
   // Remove active class from all tabs
-  document.getElementById('tabMaster').classList.remove('tab-active');
-  document.getElementById('tabMasterNG').classList.remove('tab-active');
-  document.getElementById('tabFactory').classList.remove('tab-active');
-  document.getElementById('tabEquipment').classList.remove('tab-active');
-  document.getElementById('tabRoles').classList.remove('tab-active');
-  document.getElementById('tabDepartment').classList.remove('tab-active');
-  document.getElementById('tabSection').classList.remove('tab-active');
-  document.getElementById('tabRpiServer').classList.remove('tab-active');
-  document.getElementById('tabTablet').classList.remove('tab-active');
-  document.getElementById('tabGoogleSheets').classList.remove('tab-active');
+  const tabIds = [
+    'tabMaster', 'tabMasterNG', 'tabFactory', 'tabEquipment',
+    'tabRoles', 'tabDepartment', 'tabSection', 'tabRpiServer',
+    'tabTablet', 'tabGoogleSheets'
+  ];
+  tabIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove('border-blue-600', 'text-blue-600', 'tab-active');
+      el.classList.add('border-transparent', 'text-gray-700');
+    }
+  });
 
   // Show selected content and activate tab
   currentTab = tabName;
   currentSubTab = 'data'; // Reset to data tab
   document.getElementById(`content${capitalizeFirst(tabName)}`).classList.remove('hidden');
-  document.getElementById(`tab${capitalizeFirst(tabName)}`).classList.add('tab-active');
+  
+  const activeTabEl = document.getElementById(`tab${capitalizeFirst(tabName)}`);
+  if (activeTabEl) {
+    activeTabEl.classList.remove('border-transparent', 'text-gray-700');
+    activeTabEl.classList.add('border-blue-600', 'text-blue-600', 'tab-active');
+  }
 
   // Reset sub-tab buttons (if they exist)
   if (tabName !== 'rpiServer' && tabName !== 'masterNG' && tabName !== 'googleSheets') {
@@ -3926,6 +3933,15 @@ async function loadRpiServers() {
     const data = await response.json();
     
     if (data.success) {
+      if (!Array.isArray(allFactories) || allFactories.length === 0) {
+        const factoriesRes = await fetch(BASE_URL + "getFactories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dbName: COMPANY })
+        });
+        const factories = await factoriesRes.json();
+        allFactories = Array.isArray(factories) ? factories : [];
+      }
       renderRpiServerTable(data.devices);
     } else {
       showToast(t('masterDB.failedToLoadDevices'), 'error');
@@ -3959,6 +3975,7 @@ function renderRpiServerTable(devices) {
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceName')}</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.localIp')}</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.owner')}</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.factory') || 'Factory'}</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.status')}</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.lastSeen')}</th>
             <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">${t('common.actions')}</th>
@@ -3975,6 +3992,9 @@ function renderRpiServerTable(devices) {
 
     const lastUpdated = new Date(device.updated_at).toLocaleString('ja-JP');
     const authorizedUntil = new Date(device.authorized_until).toLocaleDateString('ja-JP');
+
+    const factoryObj = device.factoryId ? allFactories.find(f => f._id === device.factoryId) : null;
+    const factoryName = factoryObj ? factoryObj.name : '-';
 
     html += `
       <tr class="hover:bg-gray-50 transition-colors">
@@ -3993,6 +4013,9 @@ function renderRpiServerTable(devices) {
         </td>
         <td class="px-4 py-3">
           <span class="text-sm">${device.owner || '-'}</span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="text-sm">${factoryName}</span>
         </td>
         <td class="px-4 py-3">${statusBadge}</td>
         <td class="px-4 py-3">
