@@ -7717,6 +7717,33 @@ app.post('/api/opcua/discovered-nodes', validateRaspberryPi, async (req, res) =>
 
         if (nodesToInsert.length > 0) {
             await db.collection('opcua_discovered_nodes').insertMany(nodesToInsert);
+            
+            // Auto-activate all newly discovered nodes in opcua_datapoints
+            const bulkOps = nodesToInsert.map(node => ({
+                updateOne: {
+                    filter: { raspberryId, opcNodeId: node.opcNodeId },
+                    update: {
+                        $set: {
+                            enabled: true,
+                            dataType: node.dataType,
+                            updatedAt: new Date().toISOString()
+                        },
+                        $setOnInsert: {
+                            equipmentId: "",
+                            alertCondition: null,
+                            alertEnabled: false,
+                            description: "",
+                            displayFormat: "number",
+                            label: node.variableName || node.browseName || "auto_discovered",
+                            sortOrder: 0,
+                            unit: "",
+                            createdAt: new Date().toISOString()
+                        }
+                    },
+                    upsert: true
+                }
+            }));
+            await db.collection('opcua_datapoints').bulkWrite(bulkOps);
         }
 
         // Compute newly found nodes (not present in previous scan)
