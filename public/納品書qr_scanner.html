@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Data Extractor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* CSS reset and fonts */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #f9fafb;
+            color: #1f2937;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 2.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 0.5rem;
+        }
+
+        p.subtitle {
+            color: #6b7280;
+            font-size: 1.1rem;
+        }
+
+        /* Status indicator */
+        .status-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #9ca3af; /* Default: waiting */
+            transition: background-color 0.3s;
+        }
+        
+        .status-dot.active {
+            background-color: #10b981;
+        }
+
+        .status-text {
+            color: #6b7280;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        /* Header Data Cards */
+        .header-data {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s ease;
+        }
+
+        .header-data.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .data-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .card-label {
+            color: #6b7280;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .card-value {
+            color: #111827;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        /* Table */
+        .table-container {
+            background: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s ease 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .table-container.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: #f9fafb;
+            padding: 1rem 1.5rem;
+            font-size: 0.85rem;
+            color: #4b5563;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        td {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #f3f4f6;
+            color: #1f2937;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr:hover {
+            background-color: #f9fafb;
+        }
+
+        /* Highlighting badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .badge.highlight {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+        }
+
+        /* Hidden input for scanner */
+        #scannerInput {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Hidden input to capture scanner input without displaying it -->
+    <input type="text" id="scannerInput" autofocus autocomplete="off">
+
+    <div class="container">
+        <header>
+            <h1>QR Invoice Extractor</h1>
+            <p class="subtitle">Scan the QR code to extract delivery information</p>
+            <div class="status-container">
+                <div class="status-dot" id="statusDot"></div>
+                <div class="status-text" id="statusText">Waiting for scan...</div>
+            </div>
+        </header>
+
+        <div class="header-data" id="headerData">
+            <div class="data-card">
+                <span class="card-label">納品書No (Slip No)</span>
+                <span class="card-value" id="slipNoValue">--</span>
+            </div>
+            <div class="data-card">
+                <span class="card-label">発行日 (Created Date)</span>
+                <span class="card-value" id="issueDateValue">--</span>
+            </div>
+            <div class="data-card">
+                <span class="card-label">納入指示日 (Delivery Date)</span>
+                <span class="card-value" id="deliveryDateValue">--</span>
+            </div>
+            <div class="data-card">
+                <span class="card-label">納入指示便 (Delivery Bin)</span>
+                <span class="card-value" id="binValue">--</span>
+            </div>
+        </div>
+
+        <div class="table-container" id="tableContainer">
+            <table>
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>背番号 (Seabango)</th>
+                        <th>品番 (Hinban)</th>
+                        <th>収容数 (Capacity)</th>
+                        <th>箱数 (Box Count)</th>
+                        <th>納入数 (Delivery Qty)</th>
+                    </tr>
+                </thead>
+                <tbody id="itemsTableBody">
+                    <!-- Items will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const scannerInput = document.getElementById('scannerInput');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            
+            const slipNoValue = document.getElementById('slipNoValue');
+            const issueDateValue = document.getElementById('issueDateValue');
+            const deliveryDateValue = document.getElementById('deliveryDateValue');
+            const binValue = document.getElementById('binValue');
+            
+            const headerData = document.getElementById('headerData');
+            const tableContainer = document.getElementById('tableContainer');
+            const itemsTableBody = document.getElementById('itemsTableBody');
+
+            // Keep focus on the hidden input to capture scanner data
+            document.addEventListener('click', () => {
+                scannerInput.focus();
+            });
+
+            // Make sure to capture window focus events
+            window.addEventListener('focus', () => {
+                scannerInput.focus();
+            });
+
+            // Fallback for keyboard capturing if input loses focus somehow
+            let buffer = '';
+            let timeout = null;
+
+            document.addEventListener('keydown', (e) => {
+                // If it's an Enter key, process the buffer
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    let data = scannerInput.value || buffer;
+                    if (data) {
+                        processQRData(data);
+                    }
+                    // Reset
+                    scannerInput.value = '';
+                    buffer = '';
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { // Normal character
+                    // Status update
+                    statusDot.classList.add('active');
+                    statusText.textContent = "Scanning in progress...";
+                    
+                    if (document.activeElement !== scannerInput) {
+                        buffer += e.key;
+                    }
+                    
+                    // Clear timeout and reset status if typing stops
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => {
+                        // If it stopped typing but no Enter was pressed, we might need to process anyway 
+                        // if the scanner doesn't send Enter.
+                        if (buffer.length > 50 || scannerInput.value.length > 50) {
+                             processQRData(scannerInput.value || buffer);
+                             scannerInput.value = '';
+                             buffer = '';
+                        } else {
+                            resetStatus();
+                        }
+                    }, 500); // 500ms delay to consider scan finished without Enter
+                }
+            });
+
+            function resetStatus() {
+                statusDot.classList.remove('active');
+                statusText.textContent = "Waiting for scan...";
+            }
+
+            function formatDate(dateStr) {
+                if (!dateStr || dateStr.length !== 8) return dateStr;
+                return `${dateStr.substring(0, 4)}/${dateStr.substring(4, 6)}/${dateStr.substring(6, 8)}`;
+            }
+
+            function processQRData(qrData) {
+                console.log("Processing Data:", qrData);
+                
+                try {
+                    let result = {
+                        header: {},
+                        items: []
+                    };
+                    
+                    // Header Extraction
+                    const issueDateMatch = qrData.match(/12D(\d{8})/);
+                    if (issueDateMatch) result.header.issueDate = issueDateMatch[1];
+                    
+                    const deliveryDateMatch = qrData.match(/16D(\d{8})/);
+                    if (deliveryDateMatch) result.header.deliveryDate = deliveryDateMatch[1];
+                    
+                    const binMatch = qrData.match(/9D(\d+)10K/);
+                    if (binMatch) result.header.bin = binMatch[1];
+                    
+                    const slipNoMatch = qrData.match(/10K([A-Za-z0-9]+?)(?:06K|$)/);
+                    if (slipNoMatch) result.header.slipNo = slipNoMatch[1];
+
+                    // Items Extraction
+                    const blocks = qrData.split('06K');
+                    
+                    for (let i = 1; i < blocks.length; i++) {
+                        const block = blocks[i];
+                        
+                        // Parse Item Blocks:
+                        // Q (\d+) -> Issue Num (発行番号) e.g., Q4578050
+                        // 20P ([A-Za-z0-9]+) -> Seabango (背番号) e.g., 20PW312
+                        // P ([\w-]+) -> Hinban (品番) e.g., P16267-37100-00
+                        // Q (\d+) -> Capacity (収容数) e.g., Q50
+                        // 4Q (\d+) -> Delivery Qty (納入数) e.g., 4Q550
+                        // 2P -> marks the end of the delivery qty
+                        
+                        const itemRegex = /Q(\d+)20P([A-Za-z0-9]+)P([\w-]+)Q(\d+)4Q(\d+)2P/;
+                        const match = block.match(itemRegex);
+                        
+                        if (match) {
+                            const capacity = parseInt(match[4], 10);
+                            const deliveryQty = parseInt(match[5], 10);
+                            const boxCount = capacity > 0 ? Math.ceil(deliveryQty / capacity) : 0;
+
+                            result.items.push({
+                                issueNum: match[1],
+                                seabango: match[2],
+                                hinban: match[3],
+                                capacity: capacity,
+                                boxCount: boxCount,
+                                deliveryQty: deliveryQty
+                            });
+                        }
+                    }
+                    
+                    if (result.items.length > 0 || result.header.slipNo) {
+                        updateUI(result);
+                    } else {
+                        statusText.textContent = "Invalid QR Data or Pattern Mismatch.";
+                        statusText.style.color = "#ef4444";
+                        setTimeout(() => {
+                            statusText.style.color = "#6b7280";
+                            resetStatus();
+                        }, 3000);
+                    }
+                } catch (err) {
+                    console.error("Error parsing QR", err);
+                    statusText.textContent = "Error parsing QR.";
+                    statusText.style.color = "#ef4444";
+                    setTimeout(() => {
+                            statusText.style.color = "#6b7280";
+                            resetStatus();
+                    }, 3000);
+                }
+            }
+
+            function updateUI(data) {
+                // Update Status
+                statusDot.classList.add('active');
+                statusText.textContent = "Scan successful!";
+                statusText.style.color = "#10b981";
+
+                // Update Header
+                slipNoValue.textContent = data.header.slipNo || 'Not found';
+                issueDateValue.textContent = formatDate(data.header.issueDate) || 'Not found';
+                deliveryDateValue.textContent = formatDate(data.header.deliveryDate) || 'Not found';
+                binValue.textContent = data.header.bin ? `${data.header.bin}便` : 'Not found';
+                
+                headerData.classList.add('visible');
+
+                // Update Table
+                itemsTableBody.innerHTML = '';
+                
+                data.items.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    
+                    // Simple animation stagger
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateY(10px)';
+                    row.style.animation = `slideUp 0.3s ease ${index * 0.05}s forwards`;
+                    
+                    row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td><span class="badge">${item.seabango}</span></td>
+                        <td><strong>${item.hinban}</strong></td>
+                        <td>${item.capacity}</td>
+                        <td><strong>${item.boxCount}</strong></td>
+                        <td><span class="badge highlight">${item.deliveryQty}</span></td>
+                    `;
+                    itemsTableBody.appendChild(row);
+                });
+                
+                tableContainer.classList.add('visible');
+                
+                // Reset status text color after a bit
+                setTimeout(() => {
+                    statusText.style.color = "#6b7280";
+                    resetStatus();
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+</html>
