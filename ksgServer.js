@@ -4121,12 +4121,16 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                     const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
                     if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (now.getTime() - troubleStartTime.getTime()) / 60000);
 
+                    const jstFormatter = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+                    const formattedNow = jstFormatter.format(now).replace(/^24:/, '00:');
+                    let formattedStart = session.startTime || jstFormatter.format(workStartTime).replace(/^24:/, '00:');
+                    
                     return {
                         id: session._id,
                         isLive: true,
                         source: tabletMap.get(session.tabletName) || session.tabletName,
-                        startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
-                        endTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+                        startTime: formattedStart,
+                        endTime: formattedNow,
                         breakTime: breakMins / 60,
                         troubleTime: troubleMins / 60,
                         hinban: session.hinban,
@@ -4350,12 +4354,16 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             const troubleStartTime = normalizeTabletSessionDate(session.troubleStartTime);
             if (session.troubleActive && troubleStartTime) troubleMins += Math.max(0, (nowMs.getTime() - troubleStartTime.getTime()) / 60000);
 
+            const jstFormatter = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+            const formattedNow = jstFormatter.format(nowMs).replace(/^24:/, '00:');
+            let formattedStart = session.startTime || jstFormatter.format(workStartTime).replace(/^24:/, '00:');
+
             return {
                 id: session._id,
                 isLive: true,
                 source: tabletMap.get(session.tabletName) || session.tabletName,
-                startTime: `${String(workStartTime.getHours()).padStart(2, '0')}:${String(workStartTime.getMinutes()).padStart(2, '0')}`,
-                endTime: `${String(nowMs.getHours()).padStart(2, '0')}:${String(nowMs.getMinutes()).padStart(2, '0')}`,
+                startTime: formattedStart,
+                endTime: formattedNow,
                 breakTime: breakMins / 60,
                 troubleTime: troubleMins / 60,
                 hinban: session.hinban,
