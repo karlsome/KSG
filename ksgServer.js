@@ -7837,15 +7837,22 @@ app.post('/api/opcua/admin/raspberry', validateAdminUser, async (req, res) => {
         const { raspberryId, raspberryName, opcua_server_ip, opcua_server_port, poll_interval, enabled } = req.body;
         const db = mongoClient.db(dbName);
         
-        // Validate raspberryId exists in masterUsers.devices
+        // Validate raspberryId exists in masterUsers.devices OR deviceInfo
         const masterDB = mongoClient.db(DB_NAME);
         const masterUser = await masterDB.collection(COLLECTION_NAME).findOne({
             company,
             'devices.uniqueId': raspberryId
         });
         
-        if (!masterUser) {
-            return res.status(400).json({ error: 'Raspberry Pi device not found in masterUsers' });
+        let isValidDevice = !!masterUser;
+        
+        if (!isValidDevice) {
+            const device = await db.collection('deviceInfo').findOne({ device_id: raspberryId });
+            if (device) isValidDevice = true;
+        }
+        
+        if (!isValidDevice) {
+            return res.status(400).json({ error: 'Raspberry Pi device not found in masterUsers or deviceInfo' });
         }
         
         const configData = {

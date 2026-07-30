@@ -76,6 +76,9 @@
                 <button id="tabGoogleSheets" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('googleSheets')">
                     <i class="ri-file-excel-2-line mr-2"></i><span data-i18n="masterDB.tabGoogleSheets"></span>
                 </button>
+                <button id="tabOpcua" class="px-6 py-3 font-medium text-gray-700 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-colors" onclick="switchMainTab('opcua')">
+                    <i class="ri-node-tree mr-2"></i><span>OPCua</span>
+                </button>
 
             </div>
 
@@ -257,6 +260,27 @@
             <div id="contentGoogleSheets" class="p-6 hidden">
                 <div id="googleSheetsTargetContainer">
                     <p class="text-gray-500" data-i18n="common.loading"></p>
+                </div>
+            </div>
+
+            <div id="contentOpcua" class="p-6 hidden">
+                <div class="flex gap-3 mb-4 border-b pb-2">
+                    <button id="opcuaSubTabData" class="px-4 py-2 rounded-lg bg-blue-600 text-white" onclick="switchSubTab('opcua', 'data')">
+                        <i class="ri-table-line mr-2"></i><span>Devices</span>
+                    </button>
+                    <button id="opcuaSubTabHistory" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200" onclick="switchSubTab('opcua', 'history')">
+                        <i class="ri-history-line mr-2"></i><span data-i18n="masterDB.createDeleteHistory"></span>
+                    </button>
+                </div>
+                <div id="opcuaDataContent">
+                    <div id="opcuaTableContainer">
+                        <p class="text-gray-500" data-i18n="common.loading"></p>
+                    </div>
+                </div>
+                <div id="opcuaHistoryContent" class="hidden">
+                    <div id="opcuaHistoryContainer">
+                        <p class="text-gray-500" data-i18n="common.loadingHistory"></p>
+                    </div>
                 </div>
             </div>
 

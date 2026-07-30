@@ -1,5 +1,301 @@
 // masterDB.js for KSG - Enhanced with modals, checkboxes, and activity logging
 
+// ====================
+// OPC UA Configuration Management
+// ====================
+let opcuaDevicesCache = [];
+
+async function loadOpcua() {
+    try {
+        const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+        const response = await fetch(`${API_URL}/api/opcua/admin/raspberries`, {
+            headers: { 'x-session-user': currentUser.username || 'admin' }
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            opcuaDevicesCache = data.raspberries;
+            renderOpcuaTable();
+        } else {
+            console.error('Failed to load OPC UA devices');
+        }
+    } catch (error) {
+        console.error('Error loading OPC UA devices:', error);
+    }
+}
+
+function renderOpcuaTable() {
+    const container = document.getElementById('opcuaTableContainer');
+    
+    if (!opcuaDevicesCache || opcuaDevicesCache.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-12 text-gray-500">
+                <i class="ri-node-tree text-4xl mb-3 block"></i>
+                <p>No OPC UA devices configured.</p>
+                <button onclick="showOpcuaAddModal()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Add OPC UA Device
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    let html = `
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium">OPC UA Devices</h3>
+            <button onclick="showOpcuaAddModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <i class="ri-add-line mr-1"></i> Add Device
+            </button>
+        </div>
+        <div class="overflow-x-auto rounded-lg border border-gray-200">
+            <table class="w-full text-left text-sm text-gray-700">
+                <thead class="bg-gray-50 text-gray-600 uppercase">
+                    <tr>
+                        <th class="px-4 py-3">Device ID</th>
+                        <th class="px-4 py-3">Name</th>
+                        <th class="px-4 py-3">Server IP</th>
+                        <th class="px-4 py-3">Port</th>
+                        <th class="px-4 py-3">Poll (ms)</th>
+                        <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 bg-white">
+    `;
+
+    opcuaDevicesCache.forEach(device => {
+        const isOnline = device.status === 'online';
+        const statusClass = isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
+        
+        html += `
+            <tr class="hover:bg-gray-50 border-b border-gray-200">
+                <td class="px-4 py-3 font-medium text-gray-900">${device.raspberryId}</td>
+                <td class="px-4 py-3">${device.raspberryName}</td>
+                <td class="px-4 py-3">${device.opcua_server_ip}</td>
+                <td class="px-4 py-3">${device.opcua_server_port}</td>
+                <td class="px-4 py-3">${device.poll_interval}</td>
+                <td class="px-4 py-3">
+                    <span class="px-2 py-1 text-xs rounded-full ${statusClass}">
+                        ${device.status || 'offline'}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="editOpcuaDevice('${device.raspberryId}')" class="text-blue-600 hover:text-blue-900 mx-1 p-1" title="Edit">
+                        <i class="ri-edit-line text-lg"></i>
+                    </button>
+                    <button onclick="deleteOpcuaDevice('${device.raspberryId}')" class="text-red-600 hover:text-red-900 mx-1 p-1" title="Delete">
+                        <i class="ri-delete-bin-line text-lg"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+async function showOpcuaAddModal() {
+    currentModalType = 'opcua';
+    isEditMode = true; // force edit mode for new items
+    
+    document.getElementById('modalTitle').textContent = 'Add OPC UA Device';
+    document.getElementById('modalTabHistory').classList.add('hidden'); // Hide history tab for new items
+    document.getElementById('modalEditBtn').classList.add('hidden');
+    document.getElementById('modalSaveBtn').classList.remove('hidden');
+    document.getElementById('modalCancelBtn').classList.remove('hidden');
+    
+    // Fetch available devices from deviceInfo to populate dropdown
+    let availableDevices = [];
+    try {
+        const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+        const company = currentUser.dbName || "KSG";
+        const response = await fetch(`${API_URL}/api/deviceInfo?company=${company}`);
+        const data = await response.json();
+        if (data.success) {
+            availableDevices = data.devices || [];
+        }
+    } catch (e) {
+        console.error('Failed to load device info', e);
+    }
+    
+    let deviceOptions = availableDevices.map(d => 
+        `<option value="${d.device_id}" data-name="${d.device_name}">${d.device_name} (${d.device_id})</option>`
+    ).join('');
+    
+    const bodyHTML = `
+        <form id="opcuaAddForm" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Select Raspberry Pi Device *</label>
+                <select id="opcuaDeviceId" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" required>
+                    <option value="">-- Select Device --</option>
+                    ${deviceOptions}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Device Name *</label>
+                <input type="text" id="opcuaDeviceName" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" required placeholder="ksg3">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">OPC UA Server IP *</label>
+                <input type="text" id="opcuaServerIp" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" required placeholder="192.168.0.77">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">OPC UA Server Port *</label>
+                <input type="number" id="opcuaServerPort" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" value="4840" required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Poll Interval (ms)</label>
+                <input type="number" id="opcuaPollInterval" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" value="5000" min="1000">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Connection Timeout (ms)</label>
+                <input type="number" id="opcuaTimeout" class="w-full border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white" value="60000">
+            </div>
+            <input type="hidden" id="opcuaIsNew" value="true">
+        </form>
+    `;
+    
+    document.getElementById('modalDetailsBody').innerHTML = bodyHTML;
+    
+    // Auto-fill device name when selecting from dropdown
+    document.getElementById('opcuaDeviceId').addEventListener('change', (e) => {
+        const option = e.target.options[e.target.selectedIndex];
+        if (option && option.dataset.name) {
+            document.getElementById('opcuaDeviceName').value = option.dataset.name;
+        }
+    });
+    
+    document.getElementById('detailModal').classList.remove('hidden');
+    switchModalTab('details');
+}
+
+async function editOpcuaDevice(raspberryId) {
+    const device = opcuaDevicesCache.find(d => d.raspberryId === raspberryId);
+    if (!device) return;
+    
+    currentModalType = 'opcua';
+    currentRecordId = raspberryId;
+    isEditMode = false;
+    
+    document.getElementById('modalTitle').textContent = `Edit OPC UA: ${device.raspberryName}`;
+    document.getElementById('modalTabHistory').classList.add('hidden');
+    document.getElementById('modalEditBtn').classList.remove('hidden');
+    document.getElementById('modalSaveBtn').classList.add('hidden');
+    document.getElementById('modalCancelBtn').classList.add('hidden');
+    
+    const bodyHTML = `
+        <form id="opcuaEditForm" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Device ID (Read-only)</label>
+                <input type="text" id="opcuaDeviceId" class="w-full border border-gray-300 rounded-lg shadow-sm bg-gray-50 px-3 py-2" value="${device.raspberryId}" disabled>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Device Name *</label>
+                <input type="text" id="opcuaDeviceName" class="w-full border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-gray-50 px-3 py-2" value="${device.raspberryName}" disabled required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">OPC UA Server IP *</label>
+                <input type="text" id="opcuaServerIp" class="w-full border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-gray-50 px-3 py-2" value="${device.opcua_server_ip}" disabled required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">OPC UA Server Port *</label>
+                <input type="number" id="opcuaServerPort" class="w-full border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-gray-50 px-3 py-2" value="${device.opcua_server_port}" disabled required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Poll Interval (ms)</label>
+                <input type="number" id="opcuaPollInterval" class="w-full border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-gray-50 px-3 py-2" value="${device.poll_interval || 5000}" disabled min="1000">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Connection Timeout (ms)</label>
+                <input type="number" id="opcuaTimeout" class="w-full border border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-gray-50 px-3 py-2" value="${device.connection_timeout || 60000}" disabled>
+            </div>
+            <input type="hidden" id="opcuaIsNew" value="false">
+        </form>
+    `;
+    
+    document.getElementById('modalDetailsBody').innerHTML = bodyHTML;
+    document.getElementById('detailModal').classList.remove('hidden');
+    switchModalTab('details');
+}
+
+async function saveOpcuaModal() {
+    const isNew = document.getElementById('opcuaIsNew').value === 'true';
+    const raspberryId = document.getElementById('opcuaDeviceId').value;
+    const raspberryName = document.getElementById('opcuaDeviceName').value;
+    const opcua_ip = document.getElementById('opcuaServerIp').value;
+    const opcua_port = document.getElementById('opcuaServerPort').value;
+    const poll_interval = document.getElementById('opcuaPollInterval').value;
+    const timeout = document.getElementById('opcuaTimeout').value;
+    
+    if (!raspberryId || !opcua_ip || !opcua_port) {
+        showToast('Please fill all required fields', 'error');
+        return;
+    }
+    
+    const payload = {
+        raspberryId,
+        raspberryName,
+        opcua_server_ip: opcua_ip,
+        opcua_server_port: parseInt(opcua_port, 10),
+        poll_interval: parseInt(poll_interval, 10),
+        timeout: parseInt(timeout, 10)
+    };
+    
+    try {
+        const url = `${API_URL}/api/opcua/admin/raspberry`;
+        const method = 'POST';
+            
+        const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+        
+        const response = await fetch(url, {
+            method,
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-session-user': currentUser.username || 'admin'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            showToast(`OPC UA Device ${isNew ? 'added' : 'updated'} successfully`, 'success');
+            closeDetailModal();
+            loadOpcua();
+        } else {
+            showToast(result.error || 'Failed to save', 'error');
+        }
+    } catch (e) {
+        console.error('Error saving OPC UA config', e);
+        showToast('Network error', 'error');
+    }
+}
+
+async function deleteOpcuaDevice(raspberryId) {
+    if (!confirm('Are you sure you want to remove this OPC UA device configuration?')) return;
+    
+    try {
+        const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+        const response = await fetch(`${API_URL}/api/opcua/admin/raspberry/${raspberryId}`, {
+            method: 'DELETE',
+            headers: { 'x-session-user': currentUser.username || 'admin' }
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('Device deleted successfully', 'success');
+            loadOpcua();
+        } else {
+            showToast(result.error || 'Failed to delete', 'error');
+        }
+    } catch (e) {
+        showToast('Network error', 'error');
+    }
+}
 
 let currentTab = 'master';
 let currentSubTab = 'data';
@@ -62,12 +358,13 @@ function switchMainTab(tabName) {
   document.getElementById('contentRpiServer').classList.add('hidden');
   document.getElementById('contentTablet').classList.add('hidden');
   document.getElementById('contentGoogleSheets').classList.add('hidden');
+  document.getElementById('contentOpcua').classList.add('hidden');
 
   // Remove active class from all tabs
   const tabIds = [
     'tabMaster', 'tabMasterNG', 'tabFactory', 'tabEquipment',
     'tabRoles', 'tabDepartment', 'tabSection', 'tabRpiServer',
-    'tabTablet', 'tabGoogleSheets'
+    'tabTablet', 'tabGoogleSheets', 'tabOpcua'
   ];
   tabIds.forEach(id => {
     const el = document.getElementById(id);
@@ -96,7 +393,7 @@ function switchMainTab(tabName) {
   // Disable/enable 新規登録 button based on tab
   const quickCreateBtn = document.querySelector('button[onclick="showQuickCreateModal()"]');
   if (quickCreateBtn) {
-    if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'googleSheets') {
+    if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'googleSheets' || tabName === 'opcua') {
       quickCreateBtn.disabled = true;
       quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
       quickCreateBtn.classList.remove('hover:bg-green-700');
@@ -148,6 +445,9 @@ function loadTabData(tabName) {
       break;
     case 'department':
       loadDepartments();
+      break;
+    case 'opcua':
+      loadOpcua();
       break;
     case 'section':
       loadSections();
@@ -841,7 +1141,7 @@ async function toggleEditMode() {
   
   // Enable all inputs
   document.querySelectorAll('#modalDetailsBody input, #modalDetailsBody textarea, #modalDetailsBody select').forEach(el => {
-    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay' && el.id !== 'modalNGGroupDisplay' && el.id !== 'modalEquipmentFactoryDisplay') {
+    if (el.id !== 'modalEquipmentDisplay' && el.id !== 'modalFactoryDisplay' && el.id !== 'modalNGGroupDisplay' && el.id !== 'modalEquipmentFactoryDisplay' && el.id !== 'opcuaDeviceId') {
       el.disabled = false;
       el.classList.remove('bg-gray-50');
       el.classList.add('bg-white');
@@ -1079,6 +1379,11 @@ async function saveModalChanges() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const username = currentUser.username || "admin";
+  
+  if (currentModalType === 'opcua') {
+      saveOpcuaModal();
+      return;
+  }
   
   const updateData = {};
   
