@@ -3593,6 +3593,7 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
                     lhRh: { $addToSet: '$lh_rh' },
                     hinban: { $addToSet: '$hinban' },
                     productNames: { $addToSet: '$product_name' },
+                    products: { $addToSet: { hinban: '$hinban', productName: '$product_name' } },
                     ...operatorValueFields
                 }
             }
@@ -3605,6 +3606,7 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
                 lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
                 hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
                 productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
+                products: (optionsDoc.products || []).filter(p => p && (p.hinban || p.productName)),
                 operators: normalizeSubmittedDBOptionList(
                     SUBMITTED_DB_OPERATOR_FIELDS.flatMap(field => optionsDoc[`${field}Values`] || [])
                 )

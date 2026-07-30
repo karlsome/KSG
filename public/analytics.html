@@ -94,23 +94,57 @@
         </div>
       </div>
 
+      <div class="flex flex-wrap gap-2 border-b border-gray-100 pb-2" id="analyticsTabButtons">
+        <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-home-5-line"></i>
+          <span data-i18n="analytics.tabs.overview">Overview</span>
+        </button>
+        <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-team-line"></i>
+          <span data-i18n="analytics.tabs.worker">Worker</span>
+        </button>
+        <button type="button" data-analytics-tab="machine" onclick="setAnalyticsTab('machine')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-cpu-line"></i>
+          <span data-i18n="analytics.tabs.machine">Machine</span>
+        </button>
+        <button type="button" data-analytics-tab="quality" onclick="setAnalyticsTab('quality')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-shield-check-line"></i>
+          <span data-i18n="analytics.tabs.quality">Quality</span>
+        </button>
+        <button type="button" data-analytics-tab="product" onclick="setAnalyticsTab('product')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-box-3-line"></i>
+          <span data-i18n="analytics.tabs.product">Product</span>
+        </button>
+        <button type="button" id="analyticsFinanceTabButton" data-analytics-tab="finance" onclick="setAnalyticsTab('finance')" class="analytics-tab-btn hidden items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-money-cny-circle-line"></i>
+          <span data-i18n="analytics.tabs.finance">Finance</span>
+        </button>
+      </div>
+
       <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.startDate">Start date</span>
-            <input id="analyticsStartDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
-          </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.endDate">End date</span>
-            <input id="analyticsEndDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
-          </label>
-          <label class="block text-sm font-medium text-gray-700">
+          <!-- Always shown: Date Range -->
+          <div id="filter-container-date" class="grid grid-cols-2 gap-4 col-span-1 md:col-span-2 lg:col-span-1">
+            <label class="block text-sm font-medium text-gray-700">
+              <span data-i18n="analytics.filters.startDate">Start date</span>
+              <input id="analyticsStartDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
+            </label>
+            <label class="block text-sm font-medium text-gray-700">
+              <span data-i18n="analytics.filters.endDate">End date</span>
+              <input id="analyticsEndDate" type="date" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onkeydown="handleAnalyticsFilterKeydown(event)">
+            </label>
+          </div>
+
+          <!-- Contextual: Machine Source -->
+          <label id="filter-container-source" class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.machineSource">Machine source</span>
             <select id="analyticsSource" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
               <option value="all" data-i18n="analytics.filters.allSources">All sources</option>
             </select>
           </label>
-          <label class="block text-sm font-medium text-gray-700">
+
+          <!-- Contextual: LH/RH -->
+          <label id="filter-container-lhrh" class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.lhRh">LH/RH</span>
             <select id="analyticsLhRh" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
               <option value="all" data-i18n="analytics.filters.allDirections">All directions</option>
@@ -118,38 +152,37 @@
               <option value="RH">RH</option>
             </select>
           </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.hinban">Hinban</span>
-            <select id="analyticsHinban" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
-              <option value="" data-i18n="analytics.filters.filterByHinban">Filter by hinban</option>
+
+          <!-- Contextual: Product / Hinban (Combined) -->
+          <label id="filter-container-product" class="block text-sm font-medium text-gray-700">
+            <span data-i18n="analytics.filters.product">Product / Hinban</span>
+            <select id="analyticsProductCombined" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="" data-i18n="analytics.filters.filterByProduct">Filter by product or hinban</option>
             </select>
+            <!-- Hidden inputs to keep backward compatibility with getFilters logic -->
+            <input type="hidden" id="analyticsHinban" value="" />
+            <input type="hidden" id="analyticsProductName" value="" />
           </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.product">Product</span>
-            <select id="analyticsProductName" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
-              <option value="" data-i18n="analytics.filters.filterByProduct">Filter by product</option>
-            </select>
-          </label>
-          <label class="block text-sm font-medium text-gray-700">
+
+          <!-- Contextual: Worker -->
+          <label id="filter-container-operator" class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.workerContains">Worker contains</span>
             <select id="analyticsOperator" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
               <option value="" data-i18n="analytics.filters.searchOperator">Search operator</option>
             </select>
           </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.focusWorkerChart">Focus worker chart</span>
-            <select id="analyticsFocusOperator" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
-              <option value="" data-i18n="analytics.filters.autoTopWorker">Auto (top worker)</option>
-            </select>
-          </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.shiftStart">Shift start</span>
-            <input id="analyticsShiftStart" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
-          </label>
-          <label class="block text-sm font-medium text-gray-700">
-            <span data-i18n="analytics.filters.shiftEnd">Shift end</span>
-            <input id="analyticsShiftEnd" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
-          </label>
+
+          <!-- Always shown: Shift -->
+          <div id="filter-container-shift" class="grid grid-cols-2 gap-4 col-span-1 md:col-span-2 lg:col-span-1">
+            <label class="block text-sm font-medium text-gray-700">
+              <span data-i18n="analytics.filters.shiftStart">Shift start</span>
+              <input id="analyticsShiftStart" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
+            </label>
+            <label class="block text-sm font-medium text-gray-700">
+              <span data-i18n="analytics.filters.shiftEnd">Shift end</span>
+              <input id="analyticsShiftEnd" type="time" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="handleAnalyticsShiftChange()">
+            </label>
+          </div>
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-3">
@@ -206,35 +239,6 @@
         <div class="h-3 w-24 animate-pulse rounded bg-gray-200"></div>
         <div class="mt-4 h-8 w-20 animate-pulse rounded bg-gray-100"></div>
       </div>
-    </div>
-  </section>
-
-  <section class="rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
-    <div class="flex flex-wrap gap-2" id="analyticsTabButtons">
-      <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-home-5-line"></i>
-        <span data-i18n="analytics.tabs.overview">Overview</span>
-      </button>
-      <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-team-line"></i>
-        <span data-i18n="analytics.tabs.worker">Worker</span>
-      </button>
-      <button type="button" data-analytics-tab="machine" onclick="setAnalyticsTab('machine')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-cpu-line"></i>
-        <span data-i18n="analytics.tabs.machine">Machine</span>
-      </button>
-      <button type="button" data-analytics-tab="quality" onclick="setAnalyticsTab('quality')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-shield-check-line"></i>
-        <span data-i18n="analytics.tabs.quality">Quality</span>
-      </button>
-      <button type="button" data-analytics-tab="product" onclick="setAnalyticsTab('product')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-box-3-line"></i>
-        <span data-i18n="analytics.tabs.product">Product</span>
-      </button>
-      <button type="button" id="analyticsFinanceTabButton" data-analytics-tab="finance" onclick="setAnalyticsTab('finance')" class="analytics-tab-btn hidden items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-        <i class="ri-money-cny-circle-line"></i>
-        <span data-i18n="analytics.tabs.finance">Finance</span>
-      </button>
     </div>
   </section>
 
@@ -361,9 +365,17 @@
           </section>
 
           <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <div class="border-b border-gray-100 px-6 py-4">
-              <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.consistencyTitle">Consistency Over Time</h3>
-              <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSelectText">Auto-selecting the busiest worker in the current filter.</p>
+            <div class="border-b border-gray-100 px-6 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.worker.consistencyTitle">Consistency Over Time</h3>
+                <p id="analyticsOperatorFocusMeta" class="mt-1 text-sm text-gray-500" data-i18n="analytics.shift.autoSelectText">Auto-selecting the busiest worker in the current filter.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-700" data-i18n="analytics.filters.focusWorkerChart">Focus worker:</span>
+                <select id="analyticsFocusOperator" class="w-48 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm" onchange="loadAnalytics()">
+                  <option value="" data-i18n="analytics.filters.autoTopWorker">Auto (top worker)</option>
+                </select>
+              </div>
             </div>
             <div id="analyticsWorkerConsistencyChart" class="h-[380px] px-2 py-4"></div>
           </section>

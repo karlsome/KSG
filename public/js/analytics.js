@@ -396,8 +396,20 @@ function analyticsBuildParams() {
   const params = new URLSearchParams();
   const startDate = document.getElementById('analyticsStartDate')?.value || '';
   const endDate = document.getElementById('analyticsEndDate')?.value || '';
-  const hinban = document.getElementById('analyticsHinban')?.value.trim() || '';
-  const productName = document.getElementById('analyticsProductName')?.value.trim() || '';
+  
+  let hinban = document.getElementById('analyticsHinban')?.value.trim() || '';
+  let productName = document.getElementById('analyticsProductName')?.value.trim() || '';
+  const combined = document.getElementById('analyticsProductCombined')?.value;
+  if (combined) {
+      try {
+          const parsed = JSON.parse(combined);
+          hinban = parsed.hinban || '';
+          productName = parsed.productName || '';
+      } catch (e) {
+          productName = combined;
+      }
+  }
+
   const operator = document.getElementById('analyticsOperator')?.value.trim() || '';
   const source = document.getElementById('analyticsSource')?.value || 'all';
   const lhRh = document.getElementById('analyticsLhRh')?.value || 'all';
@@ -473,6 +485,17 @@ function analyticsUpdateTabState() {
   document.querySelectorAll('[data-analytics-panel]').forEach(panel => {
     panel.classList.toggle('hidden', panel.getAttribute('data-analytics-panel') !== analyticsActiveTab);
   });
+
+  // Handle filter visibility dynamically
+  const cSource = document.getElementById('filter-container-source');
+  const cLhrh = document.getElementById('filter-container-lhrh');
+  const cProduct = document.getElementById('filter-container-product');
+  const cOperator = document.getElementById('filter-container-operator');
+  
+  if (cSource) cSource.classList.toggle('hidden', !['machine'].includes(analyticsActiveTab));
+  if (cLhrh) cLhrh.classList.toggle('hidden', !['product'].includes(analyticsActiveTab));
+  if (cProduct) cProduct.classList.toggle('hidden', !['quality', 'product', 'finance'].includes(analyticsActiveTab));
+  if (cOperator) cOperator.classList.toggle('hidden', !['worker'].includes(analyticsActiveTab));
 }
 
 function setAnalyticsTab(tabName) {
@@ -3873,6 +3896,7 @@ function analyticsSaveViewState() {
       lhRh: document.getElementById('analyticsLhRh')?.value || 'all',
       hinban: document.getElementById('analyticsHinban')?.value || '',
       productName: document.getElementById('analyticsProductName')?.value || '',
+      productCombined: document.getElementById('analyticsProductCombined')?.value || '',
       operator: document.getElementById('analyticsOperator')?.value || ''
     }));
   } catch (error) {
@@ -3896,7 +3920,7 @@ function analyticsRestoreViewState() {
     assign('analyticsProductName', stored.productName);
     assign('analyticsOperator', stored.operator);
     // Select values restored after options load; stash for later
-    window.__analyticsPendingSelects = { source: stored.source, lhRh: stored.lhRh };
+    window.__analyticsPendingSelects = { source: stored.source, lhRh: stored.lhRh, productCombined: stored.productCombined };
   } catch (error) {
     console.warn('analytics view state restore error:', error);
   }
@@ -3950,9 +3974,19 @@ async function loadAnalyticsFilterOptions() {
     const options = result.options || {};
     analyticsPopulateSelect('analyticsSource', options.sources || [], t('analytics.filters.allSources'));
     analyticsPopulateSelect('analyticsFocusOperator', options.operators || [], t('analytics.filters.autoTopWorker'), true);
-    analyticsPopulateSelect('analyticsHinban', options.hinban || [], t('analytics.filters.filterByHinban'), true);
-    analyticsPopulateSelect('analyticsProductName', options.productNames || [], t('analytics.filters.filterByProduct'), true);
     analyticsPopulateSelect('analyticsOperator', options.operators || [], t('analytics.filters.searchOperator'), true);
+
+    const combinedSelect = document.getElementById('analyticsProductCombined');
+    if (combinedSelect) {
+      const currentValue = combinedSelect.value;
+      const combinedOptions = (options.products || []).map(p => {
+        const text = (p.productName && p.hinban) ? `${p.productName} (${p.hinban})` : (p.productName || p.hinban);
+        const val = JSON.stringify({ hinban: p.hinban || '', productName: p.productName || '' });
+        return `<option value='${analyticsEscapeHtml(val)}'>${analyticsEscapeHtml(text)}</option>`;
+      });
+      combinedSelect.innerHTML = `<option value="">${analyticsEscapeHtml(t('analytics.filters.filterByProduct'))}</option>` + combinedOptions.join('');
+      combinedSelect.value = currentValue || '';
+    }
 
     const lhRhSelect = document.getElementById('analyticsLhRh');
     if (lhRhSelect && Array.isArray(options.lhRh) && options.lhRh.length > 0) {
@@ -3979,6 +4013,7 @@ async function loadAnalyticsFilterOptions() {
       };
       applySaved('analyticsSource', pending.source);
       applySaved('analyticsLhRh', pending.lhRh);
+      applySaved('analyticsProductCombined', pending.productCombined);
       if (changed) loadAnalytics();
     }
   } catch (error) {
@@ -4029,7 +4064,7 @@ async function loadAnalytics() {
 function resetAnalyticsFilters() {
   analyticsSetDefaultFilters(true);
 
-  ['analyticsHinban', 'analyticsProductName', 'analyticsOperator'].forEach(id => {
+  ['analyticsHinban', 'analyticsProductName', 'analyticsProductCombined', 'analyticsOperator'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
