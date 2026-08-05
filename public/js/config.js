@@ -4,9 +4,11 @@
 // For local development:
 //const API_URL = 'http://localhost:3000';
 //const BASE_URL = 'http://localhost:3000/';
+//const API_URL = 'http://192.168.0.77:3000';
+//const BASE_URL = 'http://192.168.0.77:3000/';
 
 // For production (uncomment these and comment out localhost):
- const API_URL = 'https://ksg.freyaaccess.com';
- const BASE_URL = 'https://ksg.freyaaccess.com/';
+const API_URL = 'https://ksg.freyaaccess.com';
+const BASE_URL = 'https://ksg.freyaaccess.com/';
 
 const COMPANY = localStorage.getItem('company') || 'KSG';
