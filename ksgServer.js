@@ -10114,30 +10114,6 @@ app.post("/updateMasterRecord", async (req, res) => {
       return res.status(404).json({ error: "Record not found" });
     }
 
-    // Handle image upload to Firebase if provided
-    if (updateData.imageBase64) {
-      const crypto = require('crypto');
-      const buffer = Buffer.from(updateData.imageBase64, 'base64');
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const partNumber = oldRecord.品番 || oldRecord.材料品番 || 'unknown';
-      const fileName = `${partNumber}_${timestamp}.jpg`;
-      const filePath = `${dbName}/masterImages/${fileName}`;
-      const file = admin.storage().bucket().file(filePath);
-      const downloadToken = crypto.randomBytes(16).toString('hex');
-
-      await file.save(buffer, {
-        metadata: {
-          contentType: 'image/jpeg',
-          metadata: {
-            firebaseStorageDownloadTokens: downloadToken
-          }
-        }
-      });
-
-      updateData.imageURL = `https://firebasestorage.googleapis.com/v0/b/${file.bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
-      delete updateData.imageBase64;
-    }
-
     // Build change history
     const changes = [];
     for (const [key, newValue] of Object.entries(updateData)) {
