@@ -499,7 +499,7 @@ function startEditingUser(userId) {
   });
   
   // Replace factory display div with tagging system
-  const factoryCell = document.querySelector(`#userRow-${userId} td:nth-child(8)`);
+  const factoryCell = document.querySelector(`#userRow-${userId} td:nth-child(9)`);
   if (factoryCell) {
     // Initialize selected factories from user data (handle both array and CSV string formats)
     selectedUserFactories = user.factory 
@@ -533,7 +533,7 @@ function startEditingUser(userId) {
   }
   
   // Replace equipment display div with tagging system
-  const equipmentCell = document.querySelector(`#userRow-${userId} td:nth-child(9)`);
+  const equipmentCell = document.querySelector(`#userRow-${userId} td:nth-child(10)`);
   if (equipmentCell) {
     // Initialize selected equipment from user data (handle both array and CSV string formats)
     selectedUserEquipment = user.equipment 
