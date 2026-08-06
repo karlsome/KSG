@@ -299,6 +299,9 @@ async function deleteOpcuaDevice(raspberryId) {
 
 let currentTab = 'master';
 let currentSubTab = 'data';
+let masterSearchQuery = '';
+let masterSortField = '';
+let masterSortOrder = 'asc';
 let allMasterData = [];
 let allFactories = [];
 let allEquipment = [];
@@ -582,6 +585,39 @@ function renderMasterTable(data) {
   const role = currentUser.role || "member";
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
+  let filteredData = [...data];
+  
+  if (masterSearchQuery) {
+    const q = masterSearchQuery.toLowerCase();
+    filteredData = filteredData.filter(record => 
+      (record.品番 || '').toLowerCase().includes(q) ||
+      (record.製品名 || '').toLowerCase().includes(q) ||
+      (record.kanbanID || '').toLowerCase().includes(q) ||
+      (record.設備 || '').toLowerCase().includes(q) ||
+      (record.工場 || '').toLowerCase().includes(q) ||
+      (record['LH/RH'] || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (masterSortField) {
+    filteredData.sort((a, b) => {
+      let valA = a[masterSortField] || '';
+      let valB = b[masterSortField] || '';
+      
+      if (['cycleTime', 'grossProfit', '収容数', '検査メンバー数'].includes(masterSortField)) {
+         valA = parseFloat(valA) || 0;
+         valB = parseFloat(valB) || 0;
+         return masterSortOrder === 'asc' ? valA - valB : valB - valA;
+      }
+      
+      valA = String(valA).toLowerCase();
+      valB = String(valB).toLowerCase();
+      if (valA < valB) return masterSortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return masterSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
   const headers = [
     { key: "品番", label: t('masterDB.productNumber') },
     { key: "製品名", label: t('masterDB.productName') },
@@ -603,19 +639,36 @@ function renderMasterTable(data) {
           <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelectedItems')} (<span id="masterSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">Total: ${data.length} ${t('masterDB.recordCount')}</div>
+      <div class="flex items-center gap-4">
+        <div class="relative">
+          <i class="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+          <input type="text" placeholder="${t('common.search')}..." class="pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 w-64" value="${escapeHtml(masterSearchQuery)}" oninput="handleMasterSearch(this.value)">
+        </div>
+        <div class="text-sm text-gray-600">Total: ${filteredData.length} ${t('masterDB.recordCount')}</div>
+      </div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded"></th>
-            ${headers.map(h => `<th class="px-4 py-3 text-left font-semibold text-gray-700">${h.label}</th>`).join("")}
+            ${headers.map(h => {
+              const isSorted = masterSortField === h.key;
+              const sortIcon = isSorted ? (masterSortOrder === 'asc' ? 'ri-sort-asc' : 'ri-sort-desc') : 'ri-arrow-up-down-line text-gray-300';
+              return `
+                <th class="px-4 py-3 text-left font-semibold text-gray-700 cursor-pointer hover:bg-gray-200 select-none whitespace-nowrap" onclick="handleMasterSort('${h.key}')">
+                  <div class="flex items-center gap-2">
+                    ${h.label}
+                    <i class="${sortIcon}"></i>
+                  </div>
+                </th>
+              `;
+            }).join("")}
             <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('common.image')}</th>
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          ${data.map(record => `
+          ${filteredData.length > 0 ? filteredData.map(record => `
             <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
               <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
               ${headers.map(h => {
@@ -640,7 +693,7 @@ function renderMasterTable(data) {
                 ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">${t('common.noImage')}</span>`}
               </td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="12" class="px-4 py-8 text-center text-gray-500">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -650,6 +703,21 @@ function renderMasterTable(data) {
   selectedItems = [];
   updateSelectedCount('master');
 }
+
+window.handleMasterSearch = function(query) {
+  masterSearchQuery = query;
+  renderMasterTable(allMasterData);
+};
+
+window.handleMasterSort = function(field) {
+  if (masterSortField === field) {
+    masterSortOrder = masterSortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    masterSortField = field;
+    masterSortOrder = 'asc';
+  }
+  renderMasterTable(allMasterData);
+};
 
 // ====================
 // Checkbox & Selection Functions
