@@ -64,8 +64,8 @@ function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
     });
 }
 
-app.use(express.json());
-
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Serve static files
 app.use(express.static('public'));
 
@@ -10112,6 +10112,61 @@ app.post("/updateMasterRecord", async (req, res) => {
     const oldRecord = await masterDB.findOne({ _id: new ObjectId(recordId) });
     if (!oldRecord) {
       return res.status(404).json({ error: "Record not found" });
+    }
+
+    // Handle image upload to Firebase if provided
+    if (updateData.imageBase64) {
+      const crypto = require('crypto');
+      const buffer = Buffer.from(updateData.imageBase64, 'base64');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const partNumber = oldRecord.品番 || oldRecord.材料品番 || 'unknown';
+      const fileName = `${partNumber}_${timestamp}.jpg`;
+      const filePath = `${dbName}/masterImages/${fileName}`;
+      const file = admin.storage().bucket().file(filePath);
+      const downloadToken = crypto.randomBytes(16).toString('hex');
+
+      await file.save(buffer, {
+        metadata: {
+          contentType: 'image/jpeg',
+          metadata: {
+            firebaseStorageDownloadTokens: downloadToken
+          }
+        }
+      });
+
+      updateData.imageURL = `https://firebasestorage.googleapis.com/v0/b/${file.bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+      delete updateData.imageBase64;
+      
+      // Delete the old image from Firebase Storage if it exists
+      if (oldRecord.imageURL) {
+        try {
+          const urlParts = oldRecord.imageURL.split('/o/');
+          if (urlParts.length > 1) {
+            const pathAndQuery = urlParts[1].split('?')[0];
+            const oldFilePath = decodeURIComponent(pathAndQuery);
+            await admin.storage().bucket().file(oldFilePath).delete();
+          }
+        } catch (e) {
+          console.error("Error deleting old image from Firebase:", e);
+        }
+      }
+    } else if (updateData.removeImage) {
+      updateData.imageURL = null;
+      delete updateData.removeImage;
+      
+      // Delete the image from Firebase Storage
+      if (oldRecord.imageURL) {
+        try {
+          const urlParts = oldRecord.imageURL.split('/o/');
+          if (urlParts.length > 1) {
+            const pathAndQuery = urlParts[1].split('?')[0];
+            const oldFilePath = decodeURIComponent(pathAndQuery);
+            await admin.storage().bucket().file(oldFilePath).delete();
+          }
+        } catch (e) {
+          console.error("Error deleting image from Firebase during removal:", e);
+        }
+      }
     }
 
     // Build change history

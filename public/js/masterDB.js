@@ -808,16 +808,30 @@ function renderModalDetails(type, data) {
     case 'master':
       detailsHTML = `
         ${data.imageURL ? `
-          <div class="mb-6">
+          <div class="mb-6 relative">
             <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
-            <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-md w-full rounded-lg shadow" />
+            <div id="imagePreviewContainer" class="relative inline-block">
+              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-md w-full rounded-lg shadow" />
+              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 hover:bg-red-700 shadow-md" onclick="removeImage()">
+                <i class="ri-delete-bin-line"></i>
+              </button>
+            </div>
+            <p id="noImageText" class="text-gray-500 mb-2 hidden">${t('common.noImage')}</p>
             <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
+            <input type="hidden" id="removeImageFlag" value="false" />
           </div>
         ` : `
           <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
-            <p class="text-gray-500 mb-2">${t('common.noImage')}</p>
-            <input type="file" id="modalImageUpload" accept="image/*" class="hidden w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
+            <div id="imagePreviewContainer" class="relative inline-block w-full">
+              <img id="modalImage" src="" alt="Product" class="hidden max-w-md w-full rounded-lg shadow" />
+              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 hover:bg-red-700 shadow-md" onclick="removeImage()">
+                <i class="ri-delete-bin-line"></i>
+              </button>
+            </div>
+            <p id="noImageText" class="text-gray-500 mb-2">${t('common.noImage')}</p>
+            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
+            <input type="hidden" id="removeImageFlag" value="false" />
           </div>
         `}
         <div class="grid grid-cols-2 gap-4">
@@ -1152,6 +1166,13 @@ async function toggleEditMode() {
   const imageUpload = document.getElementById('modalImageUpload');
   if (imageUpload) imageUpload.classList.remove('hidden');
   
+  // Show remove image button if image exists
+  const removeImageBtn = document.getElementById('removeImageBtn');
+  const modalImage = document.getElementById('modalImage');
+  if (removeImageBtn && modalImage && !modalImage.classList.contains('hidden') && modalImage.src) {
+    removeImageBtn.classList.remove('hidden');
+  }
+  
   // Toggle buttons
   document.getElementById('modalEditBtn').classList.add('hidden');
   document.getElementById('modalSaveBtn').classList.remove('hidden');
@@ -1469,6 +1490,12 @@ async function saveModalChanges() {
   if (imageFile && imageFile.files.length > 0) {
     const base64 = await fileToBase64(imageFile.files[0]);
     updateData.imageBase64 = base64;
+  } else {
+    // If no new image was uploaded, check if the image was removed
+    const removeImageFlag = document.getElementById('removeImageFlag');
+    if (removeImageFlag && removeImageFlag.value === 'true') {
+      updateData.removeImage = true;
+    }
   }
   
   try {
@@ -1511,11 +1538,37 @@ function previewImage() {
   if (file) {
     const reader = new FileReader();
     reader.onload = (e) => {
-      document.getElementById('modalImage').src = e.target.result;
+      const modalImage = document.getElementById('modalImage');
+      const noImageText = document.getElementById('noImageText');
+      const removeImageBtn = document.getElementById('removeImageBtn');
+      const removeImageFlag = document.getElementById('removeImageFlag');
+      
+      modalImage.src = e.target.result;
+      modalImage.classList.remove('hidden');
+      if (noImageText) noImageText.classList.add('hidden');
+      if (removeImageBtn) removeImageBtn.classList.remove('hidden');
+      if (removeImageFlag) removeImageFlag.value = 'false';
     };
     reader.readAsDataURL(file);
   }
 }
+
+window.removeImage = function() {
+  const modalImage = document.getElementById('modalImage');
+  const modalImageUpload = document.getElementById('modalImageUpload');
+  const removeImageBtn = document.getElementById('removeImageBtn');
+  const removeImageFlag = document.getElementById('removeImageFlag');
+  const noImageText = document.getElementById('noImageText');
+
+  if (modalImage) {
+    modalImage.src = '';
+    modalImage.classList.add('hidden');
+  }
+  if (modalImageUpload) modalImageUpload.value = '';
+  if (removeImageBtn) removeImageBtn.classList.add('hidden');
+  if (removeImageFlag) removeImageFlag.value = 'true';
+  if (noImageText) noImageText.classList.remove('hidden');
+};
 
 // ====================
 // Delete Confirmation Functions
@@ -3261,8 +3314,64 @@ function updateQuickTabletEquipmentDropdown() {
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
+    console.log(`[ImageUpload] Original file size: ${(file.size / 1024 / 1024).toFixed(2)} MB (${file.type})`);
+    
+    if (!file.type.startsWith('image/')) {
+      console.log(`[ImageUpload] Not an image, skipping compression.`);
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 1200;
+        const MAX_HEIGHT = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        console.log(`[ImageUpload] Original dimensions: ${width}x${height}`);
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        console.log(`[ImageUpload] Compressed dimensions: ${width}x${height}`);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        // Fill white background in case of transparent images
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const base64 = dataUrl.split(',')[1];
+        
+        // Calculate rough size of base64 string
+        const sizeInBytes = (base64.length * (3/4)) - 2;
+        console.log(`[ImageUpload] Compressed approximate size: ${(sizeInBytes / 1024).toFixed(2)} KB`);
+        
+        resolve(base64);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
