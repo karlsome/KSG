@@ -1047,8 +1047,11 @@ function renderVariables() {
     if (currentRaspberryId) {
         variablesToRender = variablesCache.filter(variable => {
             if (variable.raspberryId === currentRaspberryId) return true;
-            if (variable.sourceType === 'combined' && variable.sourceVariables) {
-                return variable.sourceVariables.some(sv => sv.raspberryId === currentRaspberryId);
+            if (variable.sourceType === 'combined' && Array.isArray(variable.sourceVariables)) {
+                return variable.sourceVariables.some(sourceVarName => {
+                    const sourceVar = variablesCache.find(v => v.variableName === sourceVarName);
+                    return sourceVar && sourceVar.raspberryId === currentRaspberryId;
+                });
             }
             return false;
         });
@@ -1128,7 +1131,8 @@ function renderVariables() {
         // Build full source path with device name
         let fullSourcePath = '';
         if (variable.sourceType === 'combined') {
-            fullSourcePath = t('opcManagement.combinedVariable');
+            const sources = (variable.sourceVariables || []).join(', ');
+            fullSourcePath = `${t('opcManagement.combinedVariable')}${sources ? `: ${sources}` : ''}`;
         } else {
             fullSourcePath = deviceDisplay ? `${deviceDisplay}.${sourceVariableName}` : sourceVariableName;
             if (variable.arrayIndex !== null) {
@@ -1219,15 +1223,10 @@ function renderVariables() {
 
 // Update variable values based on all devices data
 function updateVariableValues() {
+    // Pass 1: Compute single/array variable values first
     variablesCache.forEach(variable => {
-        if (variable.sourceType === 'combined') {
-            // Handle combined variables
-            variable.currentValue = calculateCombinedValue(variable);
-        } else {
-            // Handle single conversion variables
-            // Get data from the variable's source device
+        if (variable.sourceType !== 'combined') {
             const deviceData = allDevicesDataCache[variable.raspberryId];
-            
             if (!deviceData || !deviceData.datapoints) {
                 return; // Skip if device data not loaded yet
             }
@@ -1254,6 +1253,41 @@ function updateVariableValues() {
                     const fromType = variable.conversionFromType || 'uint16'; // Default fallback
                     const toType = variable.conversionToType || variable.conversionType || 'none';
                     variable.currentValue = applyConversion(rawValue, fromType, toType);
+                } else {
+                    variable.currentValue = '-';
+                }
+                variable.quality = datapoint.quality || 'Unknown';
+                variable.timestamp = datapoint.timestamp || null;
+            }
+        }
+    });
+    
+    // Pass 2: Compute combined variables using resolved source values and metadata
+    variablesCache.forEach(variable => {
+        if (variable.sourceType === 'combined') {
+            variable.currentValue = calculateCombinedValue(variable);
+            
+            if (Array.isArray(variable.sourceVariables) && variable.sourceVariables.length > 0) {
+                const sourceVars = variable.sourceVariables
+                    .map(name => variablesCache.find(v => v.variableName === name))
+                    .filter(Boolean);
+                
+                const qualities = sourceVars.map(v => v.quality).filter(Boolean);
+                if (qualities.includes('Bad')) {
+                    variable.quality = 'Bad';
+                } else if (qualities.includes('Uncertain')) {
+                    variable.quality = 'Uncertain';
+                } else if (qualities.length > 0 && qualities.every(q => q === 'Good' || q === '良好')) {
+                    variable.quality = 'Good';
+                } else {
+                    variable.quality = 'Unknown';
+                }
+                
+                const timestamps = sourceVars.map(v => v.timestamp).filter(Boolean);
+                if (timestamps.length > 0) {
+                    variable.timestamp = timestamps.reduce((oldest, ts) => {
+                        return new Date(ts) < new Date(oldest) ? ts : oldest;
+                    });
                 }
             }
         }
