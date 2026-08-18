@@ -2402,7 +2402,7 @@ function showCreateEquipmentForm() {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label class="block text-sm font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
-              <input type="text" id="newEqKanbanVar" class="w-full px-3 py-2 border rounded-lg" placeholder="kenyokiRHKanban" value="kenyokiRHKanban" />
+              <input type="text" id="newEqKanbanVar" class="w-full px-3 py-2 border rounded-lg" placeholder="例: kenyokiRHKanban（なしの場合は空白）" value="" />
               <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
             </div>
             <div>
@@ -2467,7 +2467,7 @@ async function submitNewEquipment() {
     工場: selectedFactories,
     description: document.getElementById("newEqDescription").value.trim(),
     opcVariables: {
-      kanbanVariable: document.getElementById("newEqKanbanVar")?.value.trim() || "kenyokiRHKanban",
+      kanbanVariable: document.getElementById("newEqKanbanVar")?.value.trim() || "",
       productionCountVariable: document.getElementById("newEqProductionVar")?.value.trim() || "seisanSu",
       boxQuantityVariable: document.getElementById("newEqBoxQtyVar")?.value.trim() || "hakoIresu"
     },
@@ -3087,8 +3087,9 @@ async function showQuickCreateModal() {
         const productionSelect = document.getElementById('quickEquipmentProductionVar');
         const boxQtySelect = document.getElementById('quickEquipmentBoxQtyVar');
         
-        if (kanbanSelect && opcVariables.includes('kenyokiRHKanban')) {
-          kanbanSelect.value = 'kenyokiRHKanban';
+        // Do not force default for kanban variable so it stays blank unless chosen
+        if (kanbanSelect) {
+          kanbanSelect.value = '';
         }
         if (productionSelect && opcVariables.includes('seisanSu')) {
           productionSelect.value = 'seisanSu';
@@ -3253,7 +3254,7 @@ async function submitQuickCreate() {
           工場: selectedQuickEquipmentFactories,
           description: document.getElementById("quickEquipmentDesc").value.trim(),
           opcVariables: {
-            kanbanVariable: document.getElementById("quickEquipmentKanbanVar")?.value.trim() || "kenyokiRHKanban",
+            kanbanVariable: document.getElementById("quickEquipmentKanbanVar")?.value.trim() || "",
             productionCountVariable: document.getElementById("quickEquipmentProductionVar")?.value.trim() || "seisanSu",
             boxQuantityVariable: document.getElementById("quickEquipmentBoxQtyVar")?.value.trim() || "hakoIresu"
           },

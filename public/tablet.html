@@ -4,18 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>検査カウンター - Kasugai Kakou</title>
+  <!-- Google Fonts: Noto Sans JP & Nunito Sans for crystal-clear Japanese & Latin typography on high-DPI tablets -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800;900&family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
     }
 
     body {
-      font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-      background: #f8f9fa;
+      font-family: 'Nunito Sans', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
+      background: #f1f5f9;
+      color: #0f172a;
       min-height: 100vh;
       padding: 20px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      transform: translate3d(0, 0, 0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     body.scroll-locked {
@@ -25,15 +39,19 @@
     .container {
       max-width: 1200px;
       margin: 0 auto;
+      transform: translateZ(0);
     }
 
     .card {
-      background: white;
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
       padding: 16px;
       margin-bottom: 16px;
-      border: 1px solid #e8e8e8;
+      border: 1.5px solid #cbd5e1;
+      transform: translateZ(0);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
     }
 
     .card-header {
@@ -42,13 +60,13 @@
       align-items: center;
       margin-bottom: 15px;
       padding-bottom: 10px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1.5px solid #e2e8f0;
     }
 
     .card-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #5a7d9a;
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
       letter-spacing: 0.5px;
       display: flex;
       align-items: center;
@@ -60,9 +78,9 @@
       display: none;
       align-items: center;
       gap: 8px;
-      font-weight: 500;
-      color: #424242;
-      font-size: 11px;
+      font-weight: 600;
+      color: #334155;
+      font-size: 12px;
     }
 
     .inline-info.visible {
@@ -70,19 +88,19 @@
     }
 
     .inline-info .info-divider {
-      color: #e0e0e0;
-      font-weight: 300;
+      color: #94a3b8;
+      font-weight: 400;
     }
 
     .reset-button {
       background: #ffebee;
       color: #c62828;
-      border: 1px solid #ffcdd2;
-      padding: 6px 12px;
-      border-radius: 4px;
+      border: 1.5px solid #ffcdd2;
+      padding: 6px 14px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 700;
       transition: all 0.2s;
     }
 
@@ -98,18 +116,19 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 15px;
-      background: white;
-      padding: 15px 20px;
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-      border: 1px solid #e8e8e8;
+      margin-bottom: 16px;
+      background: #ffffff;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      border: 1.5px solid #cbd5e1;
+      transform: translateZ(0);
     }
 
     .title {
-      font-size: 22px;
-      font-weight: 600;
-      color: #424242;
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
     }
 
     .connection-status {
@@ -177,10 +196,10 @@
 
     .info-header {
       background: transparent;
-      color: #9e9e9e;
+      color: #475569;
       padding: 0 4px 4px 4px;
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 700;
       text-align: left;
       border-radius: 0;
       letter-spacing: 0.3px;
@@ -229,10 +248,10 @@
 
     .field-label {
       background: transparent;
-      color: #9e9e9e;
+      color: #475569;
       padding: 0 4px 4px 4px;
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 700;
       text-align: left;
       border-radius: 0;
       letter-spacing: 0.3px;
@@ -241,19 +260,22 @@
     }
 
     .field-input {
-      border: 1px solid #e0e0e0;
+      border: 1.5px solid #cbd5e1;
       padding: 10px;
-      font-size: 14px;
-      border-radius: 4px;
-      background: #fafafa;
+      font-size: 15px;
+      font-weight: 600;
+      color: #0f172a;
+      border-radius: 6px;
+      background: #ffffff;
       width: 100%;
-      transition: border-color 0.2s ease;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .field-input:focus {
       outline: none;
-      border-color: #c5dff0;
-      background: white;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      background: #ffffff;
     }
 
     select.field-input {
@@ -261,19 +283,19 @@
     }
 
     .send-button {
-      background: #e8f4fc;
-      color: #5a7d9a;
-      border: 1px solid #c5dff0;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1.5px solid #bfdbfe;
       padding: 12px 20px;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 700;
       width: 100%;
     }
 
     .send-button:hover {
-      background: #dbeaf5;
+      background: #dbeafe;
     }
 
     .button-section {
@@ -290,11 +312,11 @@
 
     .button-header {
       background: transparent;
-      color: #9e9e9e;
+      color: #475569;
       padding: 0 4px 4px 4px;
       border-radius: 0;
-      font-size: 11px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 700;
       text-align: left;
       letter-spacing: 0.3px;
       border-bottom: none;
@@ -327,12 +349,12 @@
     }
 
     .action-button {
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 14px;
+      font-weight: 700;
       text-align: center;
       transition: all 0.2s ease;
       height: 44px;
@@ -340,56 +362,56 @@
       align-items: center;
       justify-content: center;
       padding: 0 10px;
-      color: #5a7d9a;
+      color: #1e293b;
     }
 
     .action-button:hover {
-      background: #e8f4fc;
-      border-color: #c5dff0;
+      background: #f8fafc;
+      border-color: #94a3b8;
     }
 
     .action-button:active {
-      background: #dbeaf5;
+      background: #f1f5f9;
     }
 
     .action-button.complete {
-      background: #e8f5e9;
-      border-color: #a5d6a7;
-      color: #4a8c4f;
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+      color: #047857;
       font-size: 16px;
       animation: none;
     }
 
     .action-button.disabled {
-      background: #f5f5f5;
-      border-color: #eeeeee;
-      color: #bdbdbd;
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #94a3b8;
       cursor: not-allowed;
       pointer-events: none;
     }
 
     #startWorkButton.start-ready {
-      background: #22c55e;
-      border-color: #16a34a;
+      background: #16a34a;
+      border-color: #15803d;
       color: #ffffff;
-      box-shadow: 0 6px 14px rgba(34, 197, 94, 0.18);
+      box-shadow: 0 6px 14px rgba(22, 163, 74, 0.22);
       animation: startReadyPulse 1.8s ease-in-out infinite;
     }
 
     #startWorkButton.start-ready:hover {
-      background: #16a34a;
-      border-color: #15803d;
+      background: #15803d;
+      border-color: #166534;
     }
 
     #startWorkButton.start-ready:active {
-      background: #15803d;
+      background: #166534;
     }
 
     #sendDataButton.submit-ready {
       background: #2563eb;
       border-color: #1d4ed8;
       color: #ffffff;
-      box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+      box-shadow: 0 6px 14px rgba(37, 99, 235, 0.22);
       animation: submitReadyPulse 1.8s ease-in-out infinite;
     }
 
@@ -405,22 +427,22 @@
     @keyframes startReadyPulse {
       0%, 100% {
         transform: scale(1);
-        box-shadow: 0 6px 14px rgba(34, 197, 94, 0.18);
+        box-shadow: 0 6px 14px rgba(22, 163, 74, 0.22);
       }
       50% {
         transform: scale(1.02);
-        box-shadow: 0 10px 18px rgba(34, 197, 94, 0.26);
+        box-shadow: 0 10px 18px rgba(22, 163, 74, 0.32);
       }
     }
 
     @keyframes submitReadyPulse {
       0%, 100% {
         transform: scale(1);
-        box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+        box-shadow: 0 6px 14px rgba(37, 99, 235, 0.22);
       }
       50% {
         transform: scale(1.02);
-        box-shadow: 0 10px 18px rgba(37, 99, 235, 0.26);
+        box-shadow: 0 10px 18px rgba(37, 99, 235, 0.32);
       }
     }
 
@@ -442,27 +464,28 @@
     }
 
     .counter-display {
-      background: #f5f5f5;
-      color: #424242;
+      background: #ffffff;
+      color: #0f172a;
       padding: 8px 12px;
-      border-radius: 4px;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
-      font-weight: bold;
+      font-size: 26px;
+      font-weight: 800;
       font-family: 'Courier New', monospace;
       cursor: pointer;
       transition: all 0.2s;
-      border: 1px solid #e0e0e0;
+      border: 1.5px solid #cbd5e1;
     }
 
     .counter-display:hover {
-      background: #eeeeee;
+      background: #f8fafc;
+      border-color: #94a3b8;
     }
 
     .counter-display:active {
-      background: #e0e0e0;
+      background: #f1f5f9;
     }
 
     .counter-number {
@@ -470,30 +493,32 @@
     }
 
     .counter-button {
-      background: #ffebee;
-      border: 1px solid #ffcdd2;
-      padding: 12px;
-      border-radius: 4px;
+      background: #fff1f2;
+      border: 1.5px solid #fecdd3;
+      padding: 12px 8px;
+      border-radius: 6px;
       cursor: pointer;
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 700;
       text-align: center;
-      color: #c62828;
+      color: #be123c;
       transition: all 0.2s ease;
     }
 
     .counter-button:hover {
-      background: #ffcdd2;
+      background: #ffe4e6;
+      border-color: #fda4af;
     }
 
     .counter-button.shoulder {
-      background: #fff3e0;
-      border: 1px solid #ffcc80;
-      color: #e65100;
+      background: #f0fdf4;
+      border: 1.5px solid #bbf7d0;
+      color: #15803d;
     }
 
     .counter-button.shoulder:hover {
-      background: #ffe0b2;
+      background: #dcfce7;
+      border-color: #86efac;
     }
 
     /* Defect counter locked state */
@@ -1038,13 +1063,205 @@
       background: #e65100;
       color: white;
     }
+
+    /* Product Selection Modal Styles */
+    .product-select-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    .product-select-modal-overlay.active {
+      display: flex;
+    }
+
+    .product-select-modal {
+      background: #ffffff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 760px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      overflow: hidden;
+      animation: modal-appear 0.2s ease-out;
+    }
+
+    .product-select-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 20px 24px 16px 24px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .product-select-modal-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+
+    .product-select-modal-subtitle {
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    .product-select-close-btn {
+      background: #f1f5f9;
+      border: none;
+      border-radius: 8px;
+      width: 36px;
+      height: 36px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .product-select-close-btn:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .product-select-search-box {
+      padding: 12px 24px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .product-select-search-box input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 2px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .product-select-search-box input:focus {
+      border-color: #3b82f6;
+    }
+
+    .product-select-grid {
+      padding: 16px 24px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+      max-height: 50vh;
+    }
+
+    .product-select-card {
+      background: #ffffff;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+
+    .product-select-card:hover {
+      border-color: #3b82f6;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    }
+
+    .product-select-card.selected {
+      background: #eff6ff;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px #bfdbfe;
+    }
+
+    .product-select-card-hinban {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e293b;
+      word-break: break-all;
+    }
+
+    .product-select-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #2563eb;
+    }
+
+    .product-select-card-meta {
+      font-size: 12px;
+      color: #64748b;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .product-select-card-badge {
+      display: inline-block;
+      background: #f1f5f9;
+      color: #475569;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .product-select-actions {
+      padding: 14px 24px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: flex-end;
+      background: #f8fafc;
+    }
+
+    .product-select-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .product-select-btn.secondary {
+      background: #e2e8f0;
+      color: #334155;
+    }
+
+    .product-select-btn.secondary:hover {
+      background: #cbd5e1;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <!-- Header -->
     <div class="header">
-      <div class="title">検査カウンター（<span id="productNameDisplay">看板なし</span><span id="kanbanIdDisplay"></span>）</div>
+      <div class="title" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span>検査カウンター（<span id="productNameDisplay">なし</span><span id="kanbanIdDisplay"></span>）</span>
+        <button id="changeProductBtn" type="button" onclick="openProductSelectModal()" style="display: none; background: #eff6ff; color: #1d4ed8; border: 1.5px solid #bfdbfe; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; vertical-align: middle; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: all 0.2s;">
+          📦 製品選択 / 変更
+        </button>
+      </div>
       <div class="logo">
         <img src="https://www.ksgi.co.jp/wp/wp-content/themes/ksgi/assets/images/common/logo.png" alt="Kasugai Kakou Logo" style="height: 80px;">
       </div>
@@ -1289,6 +1506,31 @@
       <div class="opc-reset-actions">
         <button class="opc-reset-button secondary" type="button" onclick="opcResetContinueWorking()">継続する / Continue</button>
         <button class="opc-reset-button primary" type="button" onclick="opcResetSubmitData()">データを送信 / Submit data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Selection Modal (For Equipments without Kanban Variable) -->
+  <div class="product-select-modal-overlay" id="productSelectModalOverlay">
+    <div class="product-select-modal" role="dialog" aria-modal="true" aria-labelledby="productSelectModalTitle">
+      <div class="product-select-header">
+        <div>
+          <div class="product-select-modal-title" id="productSelectModalTitle">📦 対象製品を選択してください</div>
+          <div class="product-select-modal-subtitle" id="productSelectModalSubtitle">この設備にはかんばん変数が設定されていないため、製品を手動選択します。</div>
+        </div>
+        <button class="product-select-close-btn" type="button" onclick="closeProductSelectModal()">✕</button>
+      </div>
+
+      <div class="product-select-search-box">
+        <input type="text" id="productSelectSearchInput" placeholder="🔍 品番または製品名で絞り込み..." oninput="filterProductSelectList(this.value)">
+      </div>
+
+      <div class="product-select-grid" id="productSelectGrid">
+        <div style="text-align: center; padding: 20px; color: #78909c;">読み込み中...</div>
+      </div>
+
+      <div class="product-select-actions">
+        <button class="product-select-btn secondary" type="button" onclick="closeProductSelectModal()">閉じる / Close</button>
       </div>
     </div>
   </div>

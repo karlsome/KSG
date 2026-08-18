@@ -132,10 +132,12 @@ let totalTroubleHours = 0; // Total accumulated machine trouble time in hours
 
 // 🆕 Equipment-specific OPC variable mappings (loaded dynamically)
 let variableMappings = {
-  kanban: 'kenyokiRHKanban',           // Default: For product title/lookup
+  kanban: '',                          // Clean default: Only set if equipment config has it
   productionCount: 'seisanSu',          // Default: For 作業数 calculation
   boxQuantity: 'hakoIresu'              // Default: For 合格数追加 display
 };
+let isManualProductSelectionMode = false; // Flag indicating equipment has no kanbanVariable
+let equipmentProductsList = []; // Cached list of products for current equipment
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
 const IGNORED_KANBAN_NOISE_VALUES = new Set(['9999']);
 const kanbanProductCache = new Map(); // entries: { product, cachedAt }
@@ -557,7 +559,7 @@ function applyProductContext(product, options = {}) {
   const productNameDisplay = document.getElementById('productNameDisplay');
   const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
   if (productNameDisplay) {
-    productNameDisplay.textContent = options.preserveMissingTitle ? '看板なし' : (currentProductName || '看板なし');
+    productNameDisplay.textContent = options.preserveMissingTitle ? 'なし' : (currentProductName || 'なし');
   }
   if (kanbanIdDisplay) {
     kanbanIdDisplay.textContent = options.preserveMissingTitle ? '' : (acceptedKanban ? ', ' + acceptedKanban : '');
@@ -588,12 +590,13 @@ function clearCurrentProductContext() {
   kenyokiRHKanbanValue = null;
   localStorage.removeItem('tablet_currentProductName');
   localStorage.removeItem('tablet_kanbanID');
+  localStorage.removeItem('tablet_lastKnownKanbanID');
   resetKanbanConflictState();
 
   const productNameDisplay = document.getElementById('productNameDisplay');
   const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
   if (productNameDisplay) {
-    productNameDisplay.textContent = '看板なし';
+    productNameDisplay.textContent = 'なし';
   }
   if (kanbanIdDisplay) {
     kanbanIdDisplay.textContent = '';
@@ -643,20 +646,36 @@ async function resolveProductContextForSubmit() {
   }
 
   const fallbackKanban = getLastKnownKanban() || (isUsableKanbanValue(kenyokiRHKanbanValue) ? normalizeKanbanValue(kenyokiRHKanbanValue) : null);
-  if (!fallbackKanban) {
-    return { kanbanId: null, product: null };
+  if (fallbackKanban) {
+    try {
+      const product = await fetchValidatedProductByKanban(fallbackKanban);
+      return {
+        kanbanId: normalizeKanbanValue(product.kanbanID) || fallbackKanban,
+        product
+      };
+    } catch (error) {
+      console.error(`❌ Failed to resolve fallback kanban "${fallbackKanban}" before submit:`, error);
+      return { kanbanId: fallbackKanban, product: null };
+    }
   }
 
-  try {
-    const product = await fetchValidatedProductByKanban(fallbackKanban);
-    return {
-      kanbanId: normalizeKanbanValue(product.kanbanID) || fallbackKanban,
-      product
-    };
-  } catch (error) {
-    console.error(`❌ Failed to resolve fallback kanban "${fallbackKanban}" before submit:`, error);
-    return { kanbanId: fallbackKanban, product: null };
+  // If no kanban is found/used (e.g. manual product mode), resolve via currentProductId
+  if (currentProductId) {
+    try {
+      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+      const data = await response.json();
+      if (data.success && data.product) {
+        return {
+          kanbanId: normalizeKanbanValue(data.product.kanbanID) || '',
+          product: data.product
+        };
+      }
+    } catch (error) {
+      console.error(`❌ Failed to resolve product by currentProductId "${currentProductId}" before submit:`, error);
+    }
   }
+
+  return { kanbanId: null, product: null };
 }
 
 async function hydrateInProgressProductContextFromFallback(options = {}) {
@@ -1177,22 +1196,32 @@ function restoreAllFields() {
     
     // Restore product name and kanban ID for inline info
     const savedProductName = localStorage.getItem('tablet_currentProductName');
-    if (savedProductName !== null) {
+    const productNameDisplay = document.getElementById('productNameDisplay');
+    const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+
+    if (savedProductName) {
       currentProductName = savedProductName;
-      const productNameDisplay = document.getElementById('productNameDisplay');
-      if (productNameDisplay && savedProductName) {
+      if (productNameDisplay) {
         productNameDisplay.textContent = savedProductName;
       }
       console.log(`📦 Restored currentProductName:`, savedProductName);
+    } else if (productNameDisplay) {
+      productNameDisplay.textContent = 'なし';
     }
     
-    const savedKanbanID = getLastKnownKanban();
-    if (savedKanbanID) {
-      const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
-      if (kanbanIdDisplay) {
-        kanbanIdDisplay.textContent = ', ' + savedKanbanID;
+    // Only restore kanban ID if not in manual product mode
+    if (!isManualProductSelectionMode) {
+      const savedKanbanID = getLastKnownKanban();
+      if (savedKanbanID) {
+        if (kanbanIdDisplay) {
+          kanbanIdDisplay.textContent = ', ' + savedKanbanID;
+        }
+        console.log(`📦 Restored kanbanID:`, savedKanbanID);
+      } else if (kanbanIdDisplay) {
+        kanbanIdDisplay.textContent = '';
       }
-      console.log(`📦 Restored kanbanID:`, savedKanbanID);
+    } else if (kanbanIdDisplay) {
+      kanbanIdDisplay.textContent = '';
     }
     
     // Restore kensaMembers to show/hide poster cells correctly
@@ -1523,8 +1552,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('🏭 Factory:', currentFactory, '| ⚙️ Equipment:', currentEquipment);
   
   // Get product ID from URL (optional)
-  currentProductId = getURLParameter('product') || 'aaa'; // Default to 'aaa' for testing
-  console.log('📦 Product ID:', currentProductId);
+  currentProductId = getURLParameter('product') || '';
+  if (currentProductId) {
+    console.log('📦 Product ID from URL:', currentProductId);
+  }
   
   // 🆕 Load equipment configuration FIRST (to get variable mappings)
   await loadEquipmentConfig();
@@ -1738,22 +1769,68 @@ async function loadEquipmentConfig() {
       
       // Update variable mappings with equipment-specific values
       if (equipment.opcVariables) {
+        const kanbanVar = equipment.opcVariables.kanbanVariable ? equipment.opcVariables.kanbanVariable.trim() : '';
         variableMappings = {
-          kanban: equipment.opcVariables.kanbanVariable || 'kenyokiRHKanban',
+          kanban: kanbanVar,
           productionCount: equipment.opcVariables.productionCountVariable || 'seisanSu',
           boxQuantity: equipment.opcVariables.boxQuantityVariable || 'hakoIresu'
         };
+        isManualProductSelectionMode = !kanbanVar;
         
         console.log('');
         console.log('📋 OPC VARIABLE MAPPINGS FOR THIS TABLET');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log(`設備名 (Equipment): ${equipment.設備名 || 'N/A'}`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log(`📊 製品看板変数 (Kanban Variable): ${variableMappings.kanban}`);
+        console.log(`📊 製品看板変数 (Kanban Variable): ${variableMappings.kanban || '(None - Manual Product Selection Mode)'}`);
         console.log(`📈 生産数変数 (Production Count Variable): ${variableMappings.productionCount}`);
         console.log(`📦 箱入数変数 (Box Quantity Variable): ${variableMappings.boxQuantity}`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('');
+
+        const changeProductBtn = document.getElementById('changeProductBtn');
+        if (isManualProductSelectionMode) {
+          if (changeProductBtn) {
+            changeProductBtn.style.display = 'inline-block';
+          }
+
+          // Clear any stale OPC kanban references from previous sessions
+          kenyokiRHKanbanValue = null;
+          latestObservedKanbanValue = null;
+          localStorage.removeItem('tablet_kanbanID');
+          localStorage.removeItem('tablet_lastKnownKanbanID');
+
+          // Fetch products assigned to this equipment (or factory)
+          const eqName = equipment.設備名 || currentEquipment;
+          const factory = equipment.工場 || currentFactory;
+          const products = await loadProductsForEquipment(eqName, factory);
+          
+          // If work is already in progress, keep what was restored or active
+          const workInProgress = !!document.getElementById('startTime')?.value;
+          if (!workInProgress) {
+            const savedProductId = localStorage.getItem(`tablet_manualProductId_${eqName}`);
+            const savedProduct = savedProductId ? products.find(p => p.品番 === savedProductId) : null;
+
+            if (savedProduct) {
+              console.log('📦 Restored previously selected product for equipment:', savedProduct);
+              applyProductContext(savedProduct, { kanbanId: savedProduct.kanbanID || '' });
+            } else if (products.length === 1) {
+              console.log('🎯 Single product line detected! Auto-selecting product:', products[0]);
+              applyProductContext(products[0], { kanbanId: products[0].kanbanID || '' });
+              localStorage.setItem(`tablet_manualProductId_${eqName}`, products[0].品番);
+            } else {
+              console.log('📦 No product selected yet. Prompting selection modal...');
+              clearCurrentProductContext();
+              if (products.length > 1) {
+                openProductSelectModal();
+              }
+            }
+          }
+        } else {
+          if (changeProductBtn) {
+            changeProductBtn.style.display = 'none';
+          }
+        }
       }
     } else {
       console.warn('⚠️ Failed to load equipment config:', data.error);
@@ -1775,10 +1852,121 @@ async function loadEquipmentConfig() {
   }
 }
 
+// Helper function to load products matching equipment
+async function loadProductsForEquipment(equipmentName, factory) {
+  try {
+    const encodedEq = encodeURIComponent(equipmentName || '');
+    const encodedFactory = encodeURIComponent(factory || '');
+    const response = await fetch(`${API_URL}/api/tablet/products-by-equipment/${encodedEq}?factory=${encodedFactory}`);
+    const data = await response.json();
+    if (data.success && Array.isArray(data.products)) {
+      equipmentProductsList = data.products;
+      console.log(`📦 Loaded ${equipmentProductsList.length} products for equipment:`, equipmentProductsList);
+      return equipmentProductsList;
+    }
+  } catch (error) {
+    console.error('❌ Error loading products for equipment:', error);
+  }
+  return [];
+}
+
+// Product Selector Modal Management
+function renderProductSelectGrid(productsToRender) {
+  const grid = document.getElementById('productSelectGrid');
+  if (!grid) return;
+
+  if (!productsToRender || productsToRender.length === 0) {
+    grid.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8; grid-column: 1 / -1;">該当する製品が見つかりません / No products found</div>';
+    return;
+  }
+
+  grid.innerHTML = productsToRender.map(p => {
+    const isSelected = p.品番 === currentProductId;
+    return `
+      <div class="product-select-card ${isSelected ? 'selected' : ''}" onclick="selectProductFromModal('${encodeURIComponent(p.品番)}')">
+        <div class="product-select-card-hinban">${escapeHtml(p.品番 || '')}</div>
+        <div class="product-select-card-name">${escapeHtml(p.製品名 || '')}</div>
+        <div class="product-select-card-meta">
+          ${p['LH/RH'] ? `<span class="product-select-card-badge">${escapeHtml(p['LH/RH'])}</span>` : ''}
+          ${p.設備 ? `<span class="product-select-card-badge">${escapeHtml(p.設備)}</span>` : ''}
+          ${p.kanbanID ? `<span class="product-select-card-badge">KB: ${escapeHtml(p.kanbanID)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openProductSelectModal() {
+  const modal = document.getElementById('productSelectModalOverlay');
+  const searchInput = document.getElementById('productSelectSearchInput');
+  if (searchInput) searchInput.value = '';
+  renderProductSelectGrid(equipmentProductsList);
+  if (modal) {
+    modal.classList.add('active');
+    if (searchInput) {
+      setTimeout(() => searchInput.focus(), 100);
+    }
+  }
+}
+
+function closeProductSelectModal() {
+  const modal = document.getElementById('productSelectModalOverlay');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+function filterProductSelectList(query) {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) {
+    renderProductSelectGrid(equipmentProductsList);
+    return;
+  }
+
+  const filtered = equipmentProductsList.filter(p => {
+    return (p.品番 || '').toLowerCase().includes(q) ||
+           (p.製品名 || '').toLowerCase().includes(q) ||
+           (p.kanbanID || '').toLowerCase().includes(q);
+  });
+  renderProductSelectGrid(filtered);
+}
+
+function selectProductFromModal(encodedProductId) {
+  const productId = decodeURIComponent(encodedProductId);
+  const selected = equipmentProductsList.find(p => p.品番 === productId);
+  if (!selected) return;
+
+  console.log('👉 Operator manually selected product:', selected);
+  applyProductContext(selected, {
+    kanbanId: selected.kanbanID || ''
+  });
+
+  // Save manual selection to localStorage for this equipment
+  if (currentEquipment) {
+    localStorage.setItem(`tablet_manualProductId_${currentEquipment}`, selected.品番);
+  }
+
+  closeProductSelectModal();
+  checkStartButtonState();
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 async function loadProductInfo() {
-  // Don't load from URL parameter anymore
-  // Product will be loaded when kenyokiRHKanban value comes in
-  console.log('👁️ Waiting for kenyokiRHKanban value to load product info...');
+  if (isManualProductSelectionMode) {
+    console.log('📦 Manual product selection mode is active.');
+    return;
+  }
+  // Product will be loaded when kanban value comes in
+  console.log('👁️ Waiting for OPC kanban value to load product info...');
 }
 
 // Load product info by kanbanID (called when kenyokiRHKanban value updates)
@@ -1893,7 +2081,7 @@ function updateInlineInfo() {
   // Update product name
   const inlineProductName = document.getElementById('inlineProductName');
   if (inlineProductName) {
-    inlineProductName.textContent = currentProductName || '-';
+    inlineProductName.textContent = currentProductName || 'なし';
   }
   
   // Update LH/RH
@@ -1909,7 +2097,7 @@ function updateInlineInfo() {
   if (inlineKanbanId) {
     // Get kanban value from the display (remove comma prefix if present)
     let kanbanValue = kanbanIdDisplay ? kanbanIdDisplay.textContent.replace(/^,\s*/, '') : '';
-    inlineKanbanId.textContent = kanbanValue || '-';
+    inlineKanbanId.textContent = kanbanValue || 'なし';
   }
   
   // Update Posters (dynamic - show only those with values)
@@ -2053,15 +2241,17 @@ function updateUIWithVariables(variables) {
   const productionVarName = variableMappings.productionCount;
   const boxQtyVarName = variableMappings.boxQuantity;
   
-  // Check kanban variable for start button validation AND product loading
-  const observedKanbanValue = variables[kanbanVarName] !== undefined
-    ? normalizeKanbanValue(variables[kanbanVarName].value)
-    : null;
+  // Check kanban variable for start button validation AND product loading (if configured)
+  if (kanbanVarName) {
+    const observedKanbanValue = variables[kanbanVarName] !== undefined
+      ? normalizeKanbanValue(variables[kanbanVarName].value)
+      : null;
 
-  if (observedKanbanValue !== latestObservedKanbanValue) {
-    latestObservedKanbanValue = observedKanbanValue;
-    console.log(`📊 ${kanbanVarName} raw value updated:`, observedKanbanValue);
-    void handleObservedKanbanValue(observedKanbanValue);
+    if (observedKanbanValue !== latestObservedKanbanValue) {
+      latestObservedKanbanValue = observedKanbanValue;
+      console.log(`📊 ${kanbanVarName} raw value updated:`, observedKanbanValue);
+      void handleObservedKanbanValue(observedKanbanValue);
+    }
   }
   
   // Track production count variable for work count calculation.
@@ -2250,22 +2440,27 @@ function checkStartButtonState() {
   }
   
   // Button is enabled ONLY when:
-  // 1. kenyokiRHKanban has a valid value (not null, empty, null bytes, or known scanner noise)
+  // 1. If kanban is configured -> valid kanban value received
+  //    If manual product mode -> valid product selected (currentProductId)
   // 2. poster1 is selected
   // 3. startTime is empty (no value yet)
-  const hasKanbanValue = isUsableKanbanValue(kenyokiRHKanbanValue);
+  const hasValidProduct = isManualProductSelectionMode
+    ? Boolean(currentProductId)
+    : isUsableKanbanValue(kenyokiRHKanbanValue);
   const hasPoster1 = poster1Select.value !== '';
   const startTimeEmpty = startTimeInput.value === '';
   
   console.log('🔍 Start button conditions:', {
-    hasKanbanValue,
+    hasValidProduct,
+    isManualProductSelectionMode,
+    currentProductId,
     hasPoster1,
     startTimeEmpty,
     kanbanValue: kenyokiRHKanbanValue,
     poster1Value: poster1Select.value
   });
   
-  if (hasKanbanValue && hasPoster1 && startTimeEmpty) {
+  if (hasValidProduct && hasPoster1 && startTimeEmpty) {
     // Enable button
     startButton.classList.remove('disabled');
     startButton.classList.add('start-ready');
@@ -2838,13 +3033,15 @@ function updateDefectCounterState() {
   const poster1 = document.getElementById('poster1');
   const poster1Empty = !poster1 || poster1.value === '';
 
-  const noKanban = !isUsableKanbanValue(kenyokiRHKanbanValue);
+  const noProductOrKanban = isManualProductSelectionMode
+    ? !currentProductId
+    : !isUsableKanbanValue(kenyokiRHKanbanValue);
   const breakActive = breakStartTime !== null;
   const troubleActive = troubleStartTime !== null;
 
-  if (noKanban || poster1Empty || breakActive || troubleActive) {
+  if (noProductOrKanban || poster1Empty || breakActive || troubleActive) {
     defectCard.classList.add('defect-locked');
-    console.log('🔒 Defect counters locked:', { noKanban, poster1Empty, breakActive, troubleActive });
+    console.log('🔒 Defect counters locked:', { noProductOrKanban, isManualProductSelectionMode, currentProductId, poster1Empty, breakActive, troubleActive });
   } else {
     defectCard.classList.remove('defect-locked');
     console.log('🔓 Defect counters unlocked');

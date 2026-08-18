@@ -1768,6 +1768,18 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
         }
         
         console.log(`📦 [TABLET] Served product info for: ${productId}, kensaMembers: ${product.kensaMembers || 2}`);
+
+        // Fetch associated NG group if assigned
+        let ngGroup = null;
+        if (product.ngGroupId) {
+            try {
+                const { ObjectId } = require('mongodb');
+                ngGroup = await db.collection('ngGroups').findOne({ _id: new ObjectId(product.ngGroupId) });
+            } catch (e) {
+                console.warn('⚠️ [TABLET] Failed to load ngGroup for product:', e.message);
+            }
+        }
+
         res.json({
             success: true,
             product: {
@@ -1777,7 +1789,10 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
                 'LH/RH': product['LH/RH'],
                 kensaMembers: product.kensaMembers || 2,
                 工場: product.工場,
-                設備: product.設備
+                設備: product.設備,
+                kanbanID: product.kanbanID || '',
+                ngGroupId: product.ngGroupId || null,
+                ngGroup: ngGroup
             }
         });
         
@@ -1786,6 +1801,85 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
         res.status(500).json({ 
             success: false, 
             error: 'Failed to fetch product' 
+        });
+    }
+});
+
+// Get all products matching equipment (with factory fallback) for manual selection
+app.get('/api/tablet/products-by-equipment/:equipmentName', async (req, res) => {
+    const equipmentName = decodeURIComponent(req.params.equipmentName || '').trim();
+    const factory = decodeURIComponent(req.query.factory || '').trim();
+
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({
+                success: false,
+                error: 'Database not connected'
+            });
+        }
+
+        const db = mongoClient.db('KSG');
+        const collection = db.collection('masterDB');
+
+        let products = [];
+        if (equipmentName) {
+            // Find products assigned to this equipment
+            products = await collection.find({ 設備: equipmentName }).toArray();
+        }
+
+        // If no products match this specific equipment name, fallback to factory
+        if (products.length === 0 && factory) {
+            products = await collection.find({ 工場: factory }).toArray();
+        }
+
+        // If still no products, fetch all products
+        if (products.length === 0) {
+            products = await collection.find({}).limit(100).toArray();
+        }
+
+        // Collect all distinct ngGroupIds to fetch in a single query
+        const { ObjectId } = require('mongodb');
+        const ngGroupIds = [...new Set(products.map(p => p.ngGroupId).filter(Boolean))];
+        let ngGroupsMap = new Map();
+
+        if (ngGroupIds.length > 0) {
+            try {
+                const validObjectIds = ngGroupIds
+                    .filter(id => ObjectId.isValid(id))
+                    .map(id => new ObjectId(id));
+                const ngGroups = await db.collection('ngGroups').find({ _id: { $in: validObjectIds } }).toArray();
+                ngGroups.forEach(g => ngGroupsMap.set(String(g._id), g));
+            } catch (e) {
+                console.warn('⚠️ [TABLET] Failed to load ngGroups in bulk:', e.message);
+            }
+        }
+
+        const formattedProducts = products.map(p => ({
+            _id: String(p._id),
+            品番: p.品番,
+            製品名: p.製品名,
+            'LH/RH': p['LH/RH'],
+            kensaMembers: p.kensaMembers || 2,
+            工場: p.工場,
+            設備: p.設備,
+            kanbanID: p.kanbanID || '',
+            ngGroupId: p.ngGroupId || null,
+            ngGroup: p.ngGroupId ? (ngGroupsMap.get(String(p.ngGroupId)) || null) : null
+        }));
+
+        console.log(`📦 [TABLET] Served ${formattedProducts.length} products for equipment: "${equipmentName}" (factory: "${factory}")`);
+
+        res.json({
+            success: true,
+            count: formattedProducts.length,
+            products: formattedProducts
+        });
+
+    } catch (error) {
+        console.error('❌ [TABLET] Error fetching products for equipment:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch products for equipment'
         });
     }
 });
@@ -1957,15 +2051,15 @@ app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
             });
         }
         
-        // Return equipment config with default values if opcVariables not set
-        const opcVariables = equipment.opcVariables || {
-            kanbanVariable: 'kenyokiRHKanban',
-            productionCountVariable: 'seisanSu',
-            boxQuantityVariable: 'hakoIresu'
+        // Return equipment config with clean mappings (no forced fallback to kenyokiRHKanban)
+        const opcVariables = {
+            kanbanVariable: equipment.opcVariables?.kanbanVariable ? equipment.opcVariables.kanbanVariable.trim() : '',
+            productionCountVariable: equipment.opcVariables?.productionCountVariable || 'seisanSu',
+            boxQuantityVariable: equipment.opcVariables?.boxQuantityVariable || 'hakoIresu'
         };
         
         console.log(`📱 [TABLET] Served equipment config for tablet: ${tabletName} → Equipment: ${equipmentName}`);
-        console.log(`   Variables: kanban=${opcVariables.kanbanVariable}, production=${opcVariables.productionCountVariable}, box=${opcVariables.boxQuantityVariable}`);
+        console.log(`   Variables: kanban=${opcVariables.kanbanVariable || '(none - manual product selection)'}, production=${opcVariables.productionCountVariable}, box=${opcVariables.boxQuantityVariable}`);
         
         res.json({
             success: true,
