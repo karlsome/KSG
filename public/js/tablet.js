@@ -1871,12 +1871,38 @@ async function loadProductsForEquipment(equipmentName, factory) {
 }
 
 // Product Selector Modal Management
+function populateProductSelectDropdown() {
+  const dropdown = document.getElementById('productSelectFilterDropdown');
+  if (!dropdown) return;
+
+  // Extract unique sorted 製品名 values
+  const productNames = [...new Set(equipmentProductsList.map(p => p.製品名).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+
+  dropdown.innerHTML = `
+    <option value="">📦 すべての製品名を表示 / Show All (${equipmentProductsList.length}件)</option>
+    ${productNames.map(name => {
+      const count = equipmentProductsList.filter(p => p.製品名 === name).length;
+      return `<option value="${escapeHtml(name)}">${escapeHtml(name)} (${count}品番)</option>`;
+    }).join('')}
+  `;
+}
+
+function filterProductSelectByDropdown(selectedName) {
+  if (!selectedName) {
+    renderProductSelectGrid(equipmentProductsList);
+    return;
+  }
+
+  const filtered = equipmentProductsList.filter(p => p.製品名 === selectedName);
+  renderProductSelectGrid(filtered);
+}
+
 function renderProductSelectGrid(productsToRender) {
   const grid = document.getElementById('productSelectGrid');
   if (!grid) return;
 
   if (!productsToRender || productsToRender.length === 0) {
-    grid.innerHTML = '<div style="text-align: center; padding: 20px; color: #94a3b8; grid-column: 1 / -1;">該当する製品が見つかりません / No products found</div>';
+    grid.innerHTML = '<div style="text-align: center; padding: 24px; color: #94a3b8; font-weight: 600; grid-column: 1 / -1;">該当する製品が見つかりません / No products found</div>';
     return;
   }
 
@@ -1898,14 +1924,12 @@ function renderProductSelectGrid(productsToRender) {
 
 function openProductSelectModal() {
   const modal = document.getElementById('productSelectModalOverlay');
-  const searchInput = document.getElementById('productSelectSearchInput');
-  if (searchInput) searchInput.value = '';
+  const dropdown = document.getElementById('productSelectFilterDropdown');
+  populateProductSelectDropdown();
+  if (dropdown) dropdown.value = '';
   renderProductSelectGrid(equipmentProductsList);
   if (modal) {
     modal.classList.add('active');
-    if (searchInput) {
-      setTimeout(() => searchInput.focus(), 100);
-    }
   }
 }
 
@@ -1914,21 +1938,6 @@ function closeProductSelectModal() {
   if (modal) {
     modal.classList.remove('active');
   }
-}
-
-function filterProductSelectList(query) {
-  const q = (query || '').toLowerCase().trim();
-  if (!q) {
-    renderProductSelectGrid(equipmentProductsList);
-    return;
-  }
-
-  const filtered = equipmentProductsList.filter(p => {
-    return (p.品番 || '').toLowerCase().includes(q) ||
-           (p.製品名 || '').toLowerCase().includes(q) ||
-           (p.kanbanID || '').toLowerCase().includes(q);
-  });
-  renderProductSelectGrid(filtered);
 }
 
 function selectProductFromModal(encodedProductId) {
