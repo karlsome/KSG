@@ -20,23 +20,24 @@ let _sdbModalEditMode = false;
 
 const SDB_FIXED_KEYS = new Set([
   '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
-  'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
+  '工場', 'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
   'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
   'other_description', 'start_time', 'end_time', 'break_time',
   'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+  'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
   'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 
 const SDB_EXPORT_ORDER = [
   'timestamp', 'deleted_at', 'trash_expires_at', 'deleted_by', 'deleted_by_role',
-  'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
+  '工場', 'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
   'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
   'start_time', 'end_time', 'break_time', 'trouble_time',
   'other_description', 'remarks', 'excluded_man_hours', 'submitted_from', 'is_deleted'
 ];
 
 const SDB_MODAL_STRING_FIELDS = new Set([
-  'hinban', 'product_name', 'kanban_id', 'lh_rh',
+  '工場', 'hinban', 'product_name', 'kanban_id', 'lh_rh',
   'operator1', 'operator2', 'other_description', 'start_time', 'end_time', 'remarks'
 ]);
 
@@ -1117,6 +1118,7 @@ function sdbRenderModal(record) {
   }
 
   const footerBits = [];
+  if (record.工場) footerBits.push(`工場: ${record.工場}`);
   if (record.submitted_from) footerBits.push(`送信元: ${record.submitted_from}`);
   if (record.is_deleted) {
     const deletedAt = record.deleted_at ? new Date(record.deleted_at).toLocaleString('ja-JP') : '';

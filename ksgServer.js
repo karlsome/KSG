@@ -266,17 +266,20 @@ async function resolveTabletSubmissionMasterRecord(db, submissionData = {}) {
         }
     }
 
+    const hinban = normalizeGoogleSheetString(submissionData.品番 || submissionData.hinban);
+    if (hinban) {
+        const record = await db.collection('masterDB').findOne({ 品番: hinban });
+        if (record) {
+            return record;
+        }
+    }
+
     const kanbanId = normalizeGoogleSheetString(submissionData.kanbanID || submissionData.kanban_id);
     if (kanbanId) {
         const record = await db.collection('masterDB').findOne({ kanbanID: kanbanId });
         if (record) {
             return record;
         }
-    }
-
-    const hinban = normalizeGoogleSheetString(submissionData.品番 || submissionData.hinban);
-    if (hinban) {
-        return db.collection('masterDB').findOne({ 品番: hinban });
     }
 
     return null;
@@ -2125,7 +2128,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
 
         // Known fixed keys — everything else is a dynamic defect field
         const KNOWN_KEYS = new Set([
-            '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH',
+            '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH', '工場',
             '技能員①', '技能員②', '良品数', '工数',
             'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
             'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys'
@@ -2146,8 +2149,9 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
         const totalWorkCount = (parseInt(submissionData['良品数']) || 0) + totalDefectCount;
         const cycleTime = totalWorkCount > 0 ? parseFloat((manHours * 60 / totalWorkCount).toFixed(2)) : 0;
         const submittedFrom = req.user.tabletName || 'tablet';
+        const factory = req.tablet?.factoryLocation || submissionData.工場 || req.user?.factoryLocation || '';
         console.log(`⏱️ [TABLET] cycle_time: ${cycleTime} min/piece (${totalWorkCount} total pieces, ${manHours}h)`);
-        console.log(`📍 [TABLET] Submission source resolved as: ${submittedFrom}`);
+        console.log(`📍 [TABLET] Submission source resolved as: ${submittedFrom}, Factory: ${factory}`);
 
         // Build final data: fixed metadata → dynamic defects → fixed trailing fields
         const finalData = {
@@ -2155,6 +2159,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             date_year: now.getFullYear(),
             date_month: now.getMonth() + 1,
             date_day: now.getDate(),
+            工場: factory,
             hinban: submissionData.品番 || '',
             product_name: submissionData.製品名 || '',
             kanban_id: submissionData.kanbanID || '',

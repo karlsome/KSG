@@ -545,9 +545,22 @@ function applyProductContext(product, options = {}) {
   currentProductId = product.品番 || '';
   currentProductName = product['製品名'] || '';
 
-  if (acceptedKanban) {
-    kenyokiRHKanbanValue = acceptedKanban;
-    persistLastKnownKanban(acceptedKanban);
+  if (isManualProductSelectionMode) {
+    kenyokiRHKanbanValue = null;
+    latestObservedKanbanValue = null;
+    localStorage.removeItem('tablet_kanbanID');
+    localStorage.removeItem('tablet_lastKnownKanbanID');
+  } else {
+    if (acceptedKanban) {
+      kenyokiRHKanbanValue = acceptedKanban;
+      persistLastKnownKanban(acceptedKanban);
+    }
+  }
+
+  if (currentProductId) {
+    localStorage.setItem('tablet_currentProductId', currentProductId);
+  } else {
+    localStorage.removeItem('tablet_currentProductId');
   }
 
   if (currentProductName) {
@@ -589,6 +602,7 @@ function clearCurrentProductContext() {
   currentProductName = '';
   kenyokiRHKanbanValue = null;
   localStorage.removeItem('tablet_currentProductName');
+  localStorage.removeItem('tablet_currentProductId');
   localStorage.removeItem('tablet_kanbanID');
   localStorage.removeItem('tablet_lastKnownKanbanID');
   resetKanbanConflictState();
@@ -608,6 +622,30 @@ function clearCurrentProductContext() {
 }
 
 async function resolveProductContextForSubmit() {
+  if (isManualProductSelectionMode) {
+    if (currentProductId) {
+      try {
+        const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+        const data = await response.json();
+        if (data.success && data.product) {
+          return {
+            kanbanId: normalizeKanbanValue(data.product.kanbanID) || '',
+            product: data.product
+          };
+        }
+      } catch (error) {
+        console.error(`❌ Failed to resolve product by currentProductId "${currentProductId}" before submit:`, error);
+      }
+    }
+    return {
+      kanbanId: '',
+      product: currentProductId ? {
+        品番: currentProductId,
+        製品名: currentProductName || document.getElementById('productNameDisplay')?.textContent || ''
+      } : null
+    };
+  }
+
   const lockedKanban = hasUnsubmittedTabletData() ? getCurrentRecordKanban() : null;
 
   if (lockedKanban) {
@@ -659,7 +697,7 @@ async function resolveProductContextForSubmit() {
     }
   }
 
-  // If no kanban is found/used (e.g. manual product mode), resolve via currentProductId
+  // If no kanban is found/used (e.g. manual product mode fallback), resolve via currentProductId
   if (currentProductId) {
     try {
       const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
@@ -681,9 +719,37 @@ async function resolveProductContextForSubmit() {
 async function hydrateInProgressProductContextFromFallback(options = {}) {
   const { preserveMissingTitle = false } = options;
   const workInProgress = !!document.getElementById('startTime')?.value;
-  const fallbackKanban = getLastKnownKanban();
 
-  if (!workInProgress || !fallbackKanban) {
+  if (!workInProgress) {
+    return false;
+  }
+
+  if (isManualProductSelectionMode) {
+    const eqName = currentEquipment;
+    const manualProductId = currentProductId || localStorage.getItem('tablet_currentProductId') || (eqName ? localStorage.getItem(`tablet_manualProductId_${eqName}`) : null);
+    if (!manualProductId) {
+      return false;
+    }
+    try {
+      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(manualProductId)}`);
+      const data = await response.json();
+      if (data.success && data.product) {
+        applyProductContext(data.product, {
+          kanbanId: data.product.kanbanID || '',
+          preserveMissingTitle
+        });
+        console.log('♻️ Restored manual in-progress product context:', data.product);
+        return true;
+      }
+    } catch (error) {
+      console.error('❌ Failed to restore manual in-progress product context:', error);
+      return false;
+    }
+    return false;
+  }
+
+  const fallbackKanban = getLastKnownKanban();
+  if (!fallbackKanban) {
     return false;
   }
 
@@ -702,6 +768,9 @@ async function hydrateInProgressProductContextFromFallback(options = {}) {
 }
 
 async function handleObservedKanbanValue(rawKanbanValue) {
+  if (isManualProductSelectionMode) {
+    return;
+  }
   const requestId = ++latestKanbanValidationRequestId;
   const normalizedKanban = normalizeKanbanValue(rawKanbanValue);
   const workInProgress = hasUnsubmittedTabletData();
@@ -1196,8 +1265,13 @@ function restoreAllFields() {
     
     // Restore product name and kanban ID for inline info
     const savedProductName = localStorage.getItem('tablet_currentProductName');
+    const savedProductId = localStorage.getItem('tablet_currentProductId');
     const productNameDisplay = document.getElementById('productNameDisplay');
     const kanbanIdDisplay = document.getElementById('kanbanIdDisplay');
+
+    if (savedProductId) {
+      currentProductId = savedProductId;
+    }
 
     if (savedProductName) {
       currentProductName = savedProductName;
@@ -2663,11 +2737,17 @@ async function sendData() {
       if (resolvedProductName) {
         localStorage.setItem('tablet_currentProductName', resolvedProductName);
       }
-      persistLastKnownKanban(resolvedProduct.kanbanID || resolvedKanbanID);
+      if (resolvedProductId) {
+        localStorage.setItem('tablet_currentProductId', resolvedProductId);
+      }
+      if (!isManualProductSelectionMode) {
+        persistLastKnownKanban(resolvedProduct.kanbanID || resolvedKanbanID);
+      }
       console.log('✅ Resolved product data from master before submit:', {
         kanbanID: resolvedProduct.kanbanID || resolvedKanbanID,
         品番: resolvedProductId,
-        製品名: resolvedProductName
+        製品名: resolvedProductName,
+        masterRecordId: resolvedProduct._id || resolvedProduct.masterRecordId || ''
       });
     }
 
@@ -2684,9 +2764,12 @@ async function sendData() {
     
     // Prepare submission data
     const submissionData = {
+      工場: currentFactory || '',
       品番: resolvedProductId,
       製品名: resolvedProductName,
-      kanbanID: resolvedKanbanID || '',
+      kanbanID: isManualProductSelectionMode ? '' : (resolvedKanbanID || ''),
+      masterRecordId: resolvedProduct?._id ? String(resolvedProduct._id) : (resolvedProduct?.masterRecordId || ''),
+      ngGroupId: resolvedProduct?.ngGroupId || '',
       hakoIresu: hakoIresuValue || 0,
       'LH/RH': document.getElementById('lhRh')?.value || '',
       '技能員①': poster1Value,

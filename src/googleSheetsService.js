@@ -8,6 +8,7 @@ const PRE_DEFECT_EXPORT_FIELDS = [
   { key: 'date_year', header: '日付（年）', aliases: ['年', '日付(年)', 'date_year'] },
   { key: 'date_month', header: '日付（月）', aliases: ['月', '日付(月)', 'date_month'] },
   { key: 'date_day', header: '日付（日）', aliases: ['日', '日付(日)', 'date_day'] },
+  { key: '工場', header: '工場', aliases: ['factory', '工場名', 'factoryLocation', 'factory_location'] },
   { key: 'hinban', header: '品番', aliases: ['品目番号', 'product_number'] },
   { key: 'product_name', header: '製品名', aliases: ['product_name'] },
   { key: 'kanban_id', header: 'かんばんID', aliases: ['kanbanID', 'kanban_id'] },
