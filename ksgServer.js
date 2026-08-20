@@ -5040,6 +5040,7 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             { operator2: { $regex: req.query.operator, $options: 'i' } }
         ];
         if (req.query.lhRh && req.query.lhRh !== 'all') baseFilter.lh_rh = req.query.lhRh;
+        if (req.query.factory && req.query.factory !== 'all') baseFilter.工場 = req.query.factory;
         if (req.query.kanbanId)    baseFilter.kanban_id   = { $regex: req.query.kanbanId,    $options: 'i' };
 
         const filter = {
@@ -7329,7 +7330,8 @@ app.post('/api/opcua/device-info', async (req, res) => {
 app.get('/api/factories', async (req, res) => {
     try {
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
-        const db = mongoClient.db(req.dbName || 'KSG');
+        const dbName = req.query.company || req.query.dbName || req.headers['x-session-db-name'] || req.dbName || 'KSG';
+        const db = mongoClient.db(dbName);
         const factories = await db.collection('factory').find({}).toArray();
         res.json({ success: true, factories });
     } catch (error) {

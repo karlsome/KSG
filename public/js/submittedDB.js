@@ -117,8 +117,10 @@ function clearSubmittedDBFilters() {
   });
 
   const lhEl = document.getElementById('sdbFilterLhRh');
+  const factoryEl = document.getElementById('sdbFilterFactory');
   const limitEl = document.getElementById('sdbFilterLimit');
   if (lhEl) lhEl.value = 'all';
+  if (factoryEl) factoryEl.value = 'all';
   if (limitEl) limitEl.value = '100';
 
   _sdbCurrentPage = 1;
@@ -431,6 +433,7 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
     { key: 'product_name', label: '製品名' },
     { key: 'kanban_id', label: '看板ID' },
     { key: 'lh_rh', label: 'LH/RH' },
+    { key: '工場', label: '工場' },
     { key: 'operator1', label: '作業者①' },
     { key: 'operator2', label: '作業者②' },
     { key: 'good_count', label: '良品数' },
@@ -566,6 +569,7 @@ function sdbBuildParams(options = {}) {
   const productName = document.getElementById('sdbFilterProductName')?.value.trim();
   const operator = document.getElementById('sdbFilterOperator')?.value.trim();
   const lhRh = document.getElementById('sdbFilterLhRh')?.value;
+  const factory = document.getElementById('sdbFilterFactory')?.value;
   const limit = document.getElementById('sdbFilterLimit')?.value || '100';
 
   if (startDate) params.set('startDate', startDate);
@@ -575,6 +579,7 @@ function sdbBuildParams(options = {}) {
   if (productName) params.set('productName', productName);
   if (operator) params.set('operator', operator);
   if (lhRh && lhRh !== 'all') params.set('lhRh', lhRh);
+  if (factory && factory !== 'all') params.set('factory', factory);
 
   params.set('view', _sdbView);
   params.set('sortField', _sdbSortField);
@@ -1350,6 +1355,35 @@ function closeSdbDetail(e) {
   document.body.style.overflow = '';
 }
 
+async function sdbLoadFactories() {
+  const selectEl = document.getElementById('sdbFilterFactory');
+  if (!selectEl) return;
+
+  try {
+    const authUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+    const company = authUser.company || authUser.dbName || 'KSG';
+    const res = await fetch(`${API_URL}/api/factories?company=${encodeURIComponent(company)}`, {
+      headers: sdbGetAuthHeaders()
+    });
+    const result = await res.json();
+    if (result.success && Array.isArray(result.factories)) {
+      const currentValue = selectEl.value;
+      const factoryNames = result.factories
+        .map(f => (typeof f === 'string' ? f : f.name))
+        .filter(Boolean);
+
+      selectEl.innerHTML = '<option value="all">全て</option>' +
+        factoryNames.map(name => `<option value="${sdbEscapeHtml(name)}">${sdbEscapeHtml(name)}</option>`).join('');
+
+      if (currentValue && selectEl.querySelector(`option[value="${CSS.escape(currentValue)}"]`)) {
+        selectEl.value = currentValue;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load factories for submittedDB filter:', err);
+  }
+}
+
 function initializeSubmittedDB() {
   _sdbCurrentPage = 1;
   _sdbSortField = 'timestamp';
@@ -1364,6 +1398,7 @@ function initializeSubmittedDB() {
   sdbResetSelection();
   updateSubmittedDBTabs();
   updateSubmittedDBToolbar();
+  sdbLoadFactories();
   loadSubmittedDB();
 }
 

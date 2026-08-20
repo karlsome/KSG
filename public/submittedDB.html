@@ -85,6 +85,12 @@
                     </select>
                 </div>
                 <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium text-gray-600">工場</label>
+                    <select id="sdbFilterFactory" class="px-3 py-2 border border-gray-300 rounded-lg text-sm min-w-28" onchange="loadSubmittedDB()">
+                        <option value="all">全て</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-gray-600">表示件数</label>
                     <select id="sdbFilterLimit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm" onchange="loadSubmittedDB()">
                         <option value="50">50件</option>
