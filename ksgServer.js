@@ -1759,9 +1759,20 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
         // Use KSG database
         const db = mongoClient.db('KSG');
         const collection = db.collection('masterDB');
+        const { ObjectId } = require('mongodb');
         
-        // Query product by 品番
-        const product = await collection.findOne({ 品番: productId });
+        // Query product by _id if valid ObjectId, else by 品番
+        let product = null;
+        if (ObjectId.isValid(productId) && productId.length === 24) {
+            try {
+                product = await collection.findOne({ _id: new ObjectId(productId) });
+            } catch (e) {
+                product = null;
+            }
+        }
+        if (!product) {
+            product = await collection.findOne({ 品番: productId });
+        }
         
         if (!product) {
             return res.status(404).json({
