@@ -550,7 +550,13 @@ function applyProductContext(product, options = {}) {
     latestObservedKanbanValue = null;
     localStorage.removeItem('tablet_kanbanID');
     localStorage.removeItem('tablet_lastKnownKanbanID');
+    if (acceptedKanban) {
+      localStorage.setItem('tablet_manualKanbanId', acceptedKanban);
+    } else {
+      localStorage.removeItem('tablet_manualKanbanId');
+    }
   } else {
+    localStorage.removeItem('tablet_manualKanbanId');
     if (acceptedKanban) {
       kenyokiRHKanbanValue = acceptedKanban;
       persistLastKnownKanban(acceptedKanban);
@@ -603,6 +609,7 @@ function clearCurrentProductContext() {
   kenyokiRHKanbanValue = null;
   localStorage.removeItem('tablet_currentProductName');
   localStorage.removeItem('tablet_currentProductId');
+  localStorage.removeItem('tablet_manualKanbanId');
   localStorage.removeItem('tablet_kanbanID');
   localStorage.removeItem('tablet_lastKnownKanbanID');
   resetKanbanConflictState();
@@ -1283,8 +1290,16 @@ function restoreAllFields() {
       productNameDisplay.textContent = 'なし';
     }
     
-    // Only restore kanban ID if not in manual product mode
-    if (!isManualProductSelectionMode) {
+    // Restore kanban ID display
+    if (isManualProductSelectionMode) {
+      const savedManualKanbanId = localStorage.getItem('tablet_manualKanbanId');
+      if (savedManualKanbanId) {
+        if (kanbanIdDisplay) {
+          kanbanIdDisplay.textContent = ', ' + savedManualKanbanId;
+        }
+        console.log(`📦 Restored manual kanbanID:`, savedManualKanbanId);
+      }
+    } else {
       const savedKanbanID = getLastKnownKanban();
       if (savedKanbanID) {
         if (kanbanIdDisplay) {
@@ -1294,8 +1309,6 @@ function restoreAllFields() {
       } else if (kanbanIdDisplay) {
         kanbanIdDisplay.textContent = '';
       }
-    } else if (kanbanIdDisplay) {
-      kanbanIdDisplay.textContent = '';
     }
     
     // Restore kensaMembers to show/hide poster cells correctly
@@ -1882,7 +1895,7 @@ async function loadEquipmentConfig() {
           // If work is already in progress, keep what was restored or active
           const workInProgress = !!document.getElementById('startTime')?.value;
           if (!workInProgress) {
-            const savedProductId = localStorage.getItem(`tablet_manualProductId_${eqName}`);
+            const savedProductId = (eqName ? localStorage.getItem(`tablet_manualProductId_${eqName}`) : null) || localStorage.getItem('tablet_currentProductId');
             const savedProduct = savedProductId ? products.find(p => p.品番 === savedProductId) : null;
 
             if (savedProduct) {
@@ -1891,7 +1904,9 @@ async function loadEquipmentConfig() {
             } else if (products.length === 1) {
               console.log('🎯 Single product line detected! Auto-selecting product:', products[0]);
               applyProductContext(products[0], { kanbanId: products[0].kanbanID || '' });
-              localStorage.setItem(`tablet_manualProductId_${eqName}`, products[0].品番);
+              if (eqName) {
+                localStorage.setItem(`tablet_manualProductId_${eqName}`, products[0].品番);
+              }
             } else {
               console.log('📦 No product selected yet. Prompting selection modal...');
               clearCurrentProductContext();
@@ -2767,7 +2782,7 @@ async function sendData() {
       工場: currentFactory || '',
       品番: resolvedProductId,
       製品名: resolvedProductName,
-      kanbanID: isManualProductSelectionMode ? '' : (resolvedKanbanID || ''),
+      kanbanID: (resolvedProduct?.kanbanID || resolvedKanbanID || ''),
       masterRecordId: resolvedProduct?._id ? String(resolvedProduct._id) : (resolvedProduct?.masterRecordId || ''),
       ngGroupId: resolvedProduct?.ngGroupId || '',
       hakoIresu: hakoIresuValue || 0,
