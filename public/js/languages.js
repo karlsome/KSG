@@ -132,7 +132,13 @@ const translations = {
       noTopProducts: "No product data for today.",
       noTopOperators: "No operator data for today.",
       noWorkerHoursToday: "No worker-hour data for today.",
-      noTrendData: "No trend data for the last 7 days."
+      noTrendData: "No trend data for the last 7 days.",
+      machineTimeline: "Machine Timeline",
+      shiftStart: "Shift Start",
+      shiftEnd: "Shift End",
+      from: "From",
+      to: "To",
+      resetShift: "Reset"
     },
 
     // User Management Page
@@ -1357,7 +1363,13 @@ const translations = {
       noTopProducts: "本日の製品データはありません。",
       noTopOperators: "本日の作業者データはありません。",
       noWorkerHoursToday: "本日の作業時間データはありません。",
-      noTrendData: "直近7日分のデータはありません。"
+      noTrendData: "直近7日分のデータはありません。",
+      machineTimeline: "設備タイムライン",
+      shiftStart: "稼働開始",
+      shiftEnd: "稼働終了",
+      from: "開始",
+      to: "終了",
+      resetShift: "リセット"
     },
 
     // User Management Page

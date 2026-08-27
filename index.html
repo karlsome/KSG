@@ -753,8 +753,22 @@
           </section>
 
           <section class="mt-6 mb-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <div class="border-b border-gray-100 px-6 py-4">
+            <div class="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
               <h3 class="text-lg font-semibold text-gray-900">${dashboardText('machineTimeline') || 'Machine Timeline'}</h3>
+              <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2 text-sm text-gray-600">
+                  <label for="dashboardTimelineStart" class="text-xs font-medium text-gray-500">${dashboardText('from') || 'From'}</label>
+                  <input id="dashboardTimelineStart" type="time" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none" value="${dashboardGetTimelineShift().start}" onchange="handleDashboardTimelineShiftChange()">
+                </div>
+                <div class="flex items-center gap-2 text-sm text-gray-600">
+                  <label for="dashboardTimelineEnd" class="text-xs font-medium text-gray-500">${dashboardText('to') || 'To'}</label>
+                  <input id="dashboardTimelineEnd" type="time" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none" value="${dashboardGetTimelineShift().end}" onchange="handleDashboardTimelineShiftChange()">
+                </div>
+                <button onclick="resetDashboardTimelineShift()" title="${dashboardText('resetShift') || 'Reset'}" class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 hover:text-gray-900">
+                  <i class="ri-restart-line"></i>
+                  <span>${dashboardText('resetShift') || 'Reset'}</span>
+                </button>
+              </div>
             </div>
             <div id="dashboardMachineBottleneckVerdict" class="px-6 pt-4"></div>
             <div id="dashboardMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
@@ -1068,6 +1082,72 @@
         </div>`;
     }
 
+    const DASHBOARD_TIMELINE_SHIFT_KEY = 'dashboardMachineTimelineShift';
+    const DASHBOARD_DEFAULT_TIMELINE_SHIFT = { start: '08:30', end: '19:00' };
+
+    function dashboardGetTimelineShift() {
+      try {
+        const stored = localStorage.getItem(DASHBOARD_TIMELINE_SHIFT_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed.start === 'string' && typeof parsed.end === 'string') {
+            const sMins = dashboardParseClockMinutes(parsed.start);
+            const eMins = dashboardParseClockMinutes(parsed.end);
+            if (sMins !== null && eMins !== null) {
+              return { start: parsed.start, end: parsed.end };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse dashboard timeline shift from localStorage:', e);
+      }
+      return { ...DASHBOARD_DEFAULT_TIMELINE_SHIFT };
+    }
+
+    function dashboardSaveTimelineShift(shift) {
+      try {
+        localStorage.setItem(DASHBOARD_TIMELINE_SHIFT_KEY, JSON.stringify(shift));
+      } catch (e) {
+        console.warn('Failed to save dashboard timeline shift to localStorage:', e);
+      }
+    }
+
+    function dashboardResetTimelineShift() {
+      try {
+        localStorage.removeItem(DASHBOARD_TIMELINE_SHIFT_KEY);
+      } catch (e) {
+        console.warn('Failed to clear dashboard timeline shift from localStorage:', e);
+      }
+    }
+
+    function handleDashboardTimelineShiftChange() {
+      const startEl = document.getElementById('dashboardTimelineStart');
+      const endEl = document.getElementById('dashboardTimelineEnd');
+      if (!startEl || !endEl) return;
+
+      const startVal = startEl.value || DASHBOARD_DEFAULT_TIMELINE_SHIFT.start;
+      const endVal = endEl.value || DASHBOARD_DEFAULT_TIMELINE_SHIFT.end;
+
+      dashboardSaveTimelineShift({ start: startVal, end: endVal });
+      if (adminDashboardData && adminDashboardData.machineDaily) {
+        renderDashboardMachineTimeline(adminDashboardData.machineDaily);
+      }
+    }
+
+    function resetDashboardTimelineShift() {
+      dashboardResetTimelineShift();
+      const startEl = document.getElementById('dashboardTimelineStart');
+      const endEl = document.getElementById('dashboardTimelineEnd');
+      if (startEl) startEl.value = DASHBOARD_DEFAULT_TIMELINE_SHIFT.start;
+      if (endEl) endEl.value = DASHBOARD_DEFAULT_TIMELINE_SHIFT.end;
+      if (adminDashboardData && adminDashboardData.machineDaily) {
+        renderDashboardMachineTimeline(adminDashboardData.machineDaily);
+      }
+    }
+
+    window.handleDashboardTimelineShiftChange = handleDashboardTimelineShiftChange;
+    window.resetDashboardTimelineShift = resetDashboardTimelineShift;
+
     function dashboardParseClockMinutes(timeStr) {
       if (!timeStr) return null;
       const parts = timeStr.split(':');
@@ -1088,16 +1168,26 @@
         return;
       }
 
+      const shiftProfile = dashboardGetTimelineShift();
+      const startEl = document.getElementById('dashboardTimelineStart');
+      const endEl = document.getElementById('dashboardTimelineEnd');
+      if (startEl && startEl.value !== shiftProfile.start) startEl.value = shiftProfile.start;
+      if (endEl && endEl.value !== shiftProfile.end) endEl.value = shiftProfile.end;
+
       const now = new Date();
       const targetDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       
-      const shiftStart = 8 * 60 + 30; // 08:30
-      const shiftEnd = 19 * 60; // 19:00
-      const span = shiftEnd - shiftStart;
+      const shiftStart = dashboardParseClockMinutes(shiftProfile.start) ?? (8 * 60 + 30);
+      let shiftEnd = dashboardParseClockMinutes(shiftProfile.end) ?? (19 * 60);
+      if (shiftEnd <= shiftStart) {
+        shiftEnd += 24 * 60;
+      }
+      const span = Math.max(1, shiftEnd - shiftStart);
       const toPercent = minutes => Math.max(0, Math.min(100, ((minutes - shiftStart) / span) * 100));
 
       const nowMins = now.getHours() * 60 + now.getMinutes();
-      const showCurrentTimeLine = nowMins >= shiftStart && nowMins <= shiftEnd;
+      const currentMarkerMins = (nowMins < shiftStart && shiftEnd > 1440) ? nowMins + 1440 : nowMins;
+      const showCurrentTimeLine = currentMarkerMins >= shiftStart && currentMarkerMins <= shiftEnd;
 
       const lgProducing = t('analytics.bottleneck.legendProducing') || 'Producing';
       const lgInProgress = t('analytics.bottleneck.legendInProgress') || 'In Progress';
@@ -1123,9 +1213,15 @@
         const records = dayData ? dayData.records || [] : [];
         
         let segments = records.map(record => {
-          const start = dashboardParseClockMinutes(record.startTime);
+          let start = dashboardParseClockMinutes(record.startTime);
           let end = dashboardParseClockMinutes(record.endTime);
-          if (end < start) end += 24 * 60;
+          if (start !== null && end !== null) {
+            if (end < start) end += 24 * 60;
+            if (shiftEnd > 1440 && start < shiftStart && (start + 1440) < shiftEnd) {
+              start += 1440;
+              end += 1440;
+            }
+          }
           return { ...record, start, end };
         }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
 
@@ -1159,8 +1255,8 @@
                 const left = toPercent(lastEnd);
                 const width = toPercent(segment.start) - left;
                 const changeoverMins = segment.start - lastEnd;
-                const startStr = `${String(Math.floor(lastEnd/60)).padStart(2, '0')}:${String(lastEnd%60).padStart(2, '0')}`;
-                const endStr = `${String(Math.floor(segment.start/60)).padStart(2, '0')}:${String(segment.start%60).padStart(2, '0')}`;
+                const startStr = `${String(Math.floor((lastEnd/60)%24)).padStart(2, '0')}:${String(lastEnd%60).padStart(2, '0')}`;
+                const endStr = `${String(Math.floor((segment.start/60)%24)).padStart(2, '0')}:${String(segment.start%60).padStart(2, '0')}`;
                 
                 const prevSeg = segments[index - 1];
                 const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
@@ -1241,17 +1337,31 @@
             </div>
             <div class="relative h-6 flex-grow rounded-md bg-gray-100">
               ${blocksHtml}
-              ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+              ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(currentMarkerMins)}%"></div>` : ''}
             </div>
           </div>
         `;
       });
 
       let ticksHtml = '';
-      const ticks = [8*60+30, 10*60, 12*60, 14*60, 16*60, 18*60, 19*60];
+      const step = span > 720 ? 120 : (span > 360 ? 60 : 30);
+      const ticks = [shiftStart];
+      let firstTick = Math.ceil(shiftStart / step) * step;
+      if (firstTick === shiftStart) firstTick += step;
+      for (let m = firstTick; m < shiftEnd; m += step) {
+        if (m - shiftStart >= (step > 60 ? 30 : 15) && shiftEnd - m >= (step > 60 ? 30 : 15)) {
+          ticks.push(m);
+        }
+      }
+      if (!ticks.includes(shiftEnd)) {
+        ticks.push(shiftEnd);
+      }
+
       ticks.forEach(mins => {
         const position = toPercent(mins);
-        const label = `${String(Math.floor((mins / 60) % 24)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+        const hours = Math.floor((mins / 60) % 24);
+        const minutes = mins % 60;
+        const label = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         const translate = position < 2 ? '0' : position > 98 ? '-100%' : '-50%';
         ticksHtml += `
           <div class="absolute top-0 text-xs text-gray-400" style="left:${position}%; transform:translateX(${translate})">
@@ -1266,17 +1376,17 @@
             <div class="w-24 md:w-32 flex-shrink-0"></div>
             <div class="relative h-6 flex-grow">
               ${ticksHtml}
-              ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+              ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(currentMarkerMins)}%"></div>` : ''}
             </div>
           </div>
         </div>
       `;
 
       container.innerHTML = html;
-      renderDashboardMachineTimelineSummary(machines, targetDate);
+      renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd);
     }
 
-    function renderDashboardMachineTimelineSummary(machines, targetDate) {
+    function renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd) {
       const summaryContainer = document.getElementById('dashboardMachineTimelineSummary');
       if (!summaryContainer) return;
 
@@ -1285,9 +1395,15 @@
         return;
       }
 
-      const shiftStart = 8 * 60 + 30; // 08:30
-      const shiftEnd = 19 * 60; // 19:00
-      const totalShiftMins = shiftEnd - shiftStart;
+      if (shiftStart === undefined || shiftEnd === undefined) {
+        const shiftProfile = dashboardGetTimelineShift();
+        shiftStart = dashboardParseClockMinutes(shiftProfile.start) ?? (8 * 60 + 30);
+        shiftEnd = dashboardParseClockMinutes(shiftProfile.end) ?? (19 * 60);
+        if (shiftEnd <= shiftStart) {
+          shiftEnd += 24 * 60;
+        }
+      }
+      const totalShiftMins = Math.max(1, shiftEnd - shiftStart);
 
       let cardsHtml = '';
 
@@ -1296,9 +1412,15 @@
         const records = dayData ? dayData.records || [] : [];
         
         let segments = records.map(record => {
-          const start = dashboardParseClockMinutes(record.startTime);
+          let start = dashboardParseClockMinutes(record.startTime);
           let end = dashboardParseClockMinutes(record.endTime);
-          if (end < start) end += 24 * 60;
+          if (start !== null && end !== null) {
+            if (end < start) end += 24 * 60;
+            if (shiftEnd > 1440 && start < shiftStart && (start + 1440) < shiftEnd) {
+              start += 1440;
+              end += 1440;
+            }
+          }
           return { ...record, start, end };
         }).filter(s => s.start !== null && s.end !== null).sort((a, b) => a.start - b.start);
 

@@ -2594,16 +2594,21 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
     ).join('');
   }
 
-  const shiftStart = 8 * 60 + 30; // 08:30
-  const shiftEnd = 19 * 60; // 19:00
-  const span = shiftEnd - shiftStart;
+  const shiftProfile = analyticsGetShiftProfile();
+  const shiftStart = analyticsParseClockMinutes(shiftProfile.start) ?? (8 * 60 + 30);
+  let shiftEnd = analyticsParseClockMinutes(shiftProfile.end) ?? (19 * 60);
+  if (shiftEnd <= shiftStart) {
+    shiftEnd += 24 * 60;
+  }
+  const span = Math.max(1, shiftEnd - shiftStart);
   const toPercent = minutes => Math.max(0, Math.min(100, ((minutes - shiftStart) / span) * 100));
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const isToday = targetDate === todayStr;
   const nowMins = now.getHours() * 60 + now.getMinutes();
-  const showCurrentTimeLine = isToday && nowMins >= shiftStart && nowMins <= shiftEnd;
+  const currentMarkerMins = (nowMins < shiftStart && shiftEnd > 1440) ? nowMins + 1440 : nowMins;
+  const showCurrentTimeLine = isToday && currentMarkerMins >= shiftStart && currentMarkerMins <= shiftEnd;
 
   const lgProducing = t('analytics.bottleneck.legendProducing');
   const lgInProgress = t('analytics.bottleneck.legendInProgress');
@@ -2747,17 +2752,31 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
         </div>
         <div class="relative h-6 flex-grow rounded-md bg-gray-100">
           ${blocksHtml}
-          ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+          ${showCurrentTimeLine ? `<div class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(currentMarkerMins)}%"></div>` : ''}
         </div>
       </div>
     `;
   });
 
   let ticksHtml = '';
-  const ticks = [8*60+30, 10*60, 12*60, 14*60, 16*60, 18*60, 19*60];
+  const step = span > 720 ? 120 : (span > 360 ? 60 : 30);
+  const ticks = [shiftStart];
+  let firstTick = Math.ceil(shiftStart / step) * step;
+  if (firstTick === shiftStart) firstTick += step;
+  for (let m = firstTick; m < shiftEnd; m += step) {
+    if (m - shiftStart >= (step > 60 ? 30 : 15) && shiftEnd - m >= (step > 60 ? 30 : 15)) {
+      ticks.push(m);
+    }
+  }
+  if (!ticks.includes(shiftEnd)) {
+    ticks.push(shiftEnd);
+  }
+
   ticks.forEach(mins => {
     const position = toPercent(mins);
-    const label = `${String(Math.floor((mins / 60) % 24)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    const hours = Math.floor((mins / 60) % 24);
+    const minutes = mins % 60;
+    const label = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     const translate = position < 2 ? '0' : position > 98 ? '-100%' : '-50%';
     ticksHtml += `
       <div class="absolute top-0 text-xs text-gray-400" style="left:${position}%; transform:translateX(${translate})">
@@ -2772,7 +2791,7 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
         <div class="w-24 md:w-32 flex-shrink-0"></div>
         <div class="relative h-6 flex-grow">
           ${ticksHtml}
-          ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(nowMins)}%"></div>` : ''}
+          ${showCurrentTimeLine ? `<div class="absolute top-0 -bottom-2 w-0.5 bg-red-500 z-20 pointer-events-none" style="left:${toPercent(currentMarkerMins)}%"></div>` : ''}
         </div>
       </div>
     </div>
@@ -2792,9 +2811,13 @@ function renderAnalyticsMachineTrend(machineDaily) {
 
   // Aggregate stats per day across all machines
   const statsByDate = {};
-  const shiftStart = 8 * 60 + 30; // 08:30
-  const shiftEnd = 19 * 60; // 19:00
-  const totalShiftMins = shiftEnd - shiftStart;
+  const shiftProfile = analyticsGetShiftProfile();
+  const shiftStart = analyticsParseClockMinutes(shiftProfile.start) ?? (8 * 60 + 30);
+  let shiftEnd = analyticsParseClockMinutes(shiftProfile.end) ?? (19 * 60);
+  if (shiftEnd <= shiftStart) {
+    shiftEnd += 24 * 60;
+  }
+  const totalShiftMins = Math.max(1, shiftEnd - shiftStart);
 
   // Find all unique dates
   const allDates = new Set();
