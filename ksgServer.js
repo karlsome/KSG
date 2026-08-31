@@ -6781,8 +6781,12 @@ io.on('connection', (socket) => {
                 }))
             });
             
-            // Also emit to general tablets (backward compatibility)
-            io.emit('opcua_realtime_update', broadcastData);
+            // Also emit to monitor/layout clients (backward compatibility) — scoped to this
+            // company's room only. Previously this was an unscoped io.emit() that sent every
+            // OPC UA change to every connected socket across every company; monitor_register
+            // now joins sockets to opcua_${dbName}, so scoping here changes only who else
+            // receives a copy, not timing, payload, or the intended recipients.
+            io.to(`opcua_${dbName}`).emit('opcua_realtime_update', broadcastData);
             
             // 🔥 IMPORTANT: Broadcast updated variables to all tablets subscribed to this company
             // This ensures tablets get real-time updates when OPC UA data changes
@@ -6809,7 +6813,16 @@ io.on('connection', (socket) => {
             socket.join(`equipment_${data.equipmentId}`);
             console.log(`📱 Tablet joined room: equipment_${data.equipmentId}`);
         }
-        
+
+        // Join this company's OPC UA room so the scoped opcua_realtime_update broadcast
+        // (see 'opcua_data_change' handler) reaches this socket. Callers that already know
+        // their company (e.g. opcua-monitor.js) can join immediately; callers that only know
+        // a raspberryId (e.g. layout-renderer.html) get joined below once we resolve it.
+        if (data.company) {
+            socket.join(`opcua_${data.company}`);
+            console.log(`📱 Monitor ${socket.id} joined room: opcua_${data.company}`);
+        }
+
         // Send latest cached datapoint values immediately
         try {
             if (!mongoClient || !data.raspberryId) {
@@ -6831,7 +6844,14 @@ io.on('connection', (socket) => {
                 console.log(`⚠️ Raspberry Pi ${data.raspberryId} not found in any user's devices`);
                 return;
             }
-            
+
+            // Join the resolved company's room too, in case this socket registered with only
+            // a raspberryId (no data.company was sent, so the join above didn't run).
+            if (!data.company) {
+                socket.join(`opcua_${user.dbName}`);
+                console.log(`📱 Monitor ${socket.id} joined room: opcua_${user.dbName} (resolved from raspberryId)`);
+            }
+
             // Get latest values from opcua_realtime collection
             const db = mongoClient.db(user.dbName);
             const realtimeData = await db.collection('opcua_realtime')
