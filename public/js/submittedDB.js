@@ -494,7 +494,7 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
       }
 
       if (col.key === '__pieces_per_hour') {
-        const piecesPerHour = sdbFormatPiecesPerHour(record.cycle_time);
+        const piecesPerHour = sdbFormatPiecesPerHour(record);
         return `<td class="px-3 py-2 text-sm font-medium text-indigo-700 whitespace-nowrap">${piecesPerHour}</td>`;
       }
 
@@ -766,14 +766,51 @@ function sdbRoundMetric(value, digits = 2) {
   return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
 }
 
-function sdbGetPiecesPerHour(cycleTime) {
-  const safeCycleTime = Number(cycleTime ?? 0);
-  if (!Number.isFinite(safeCycleTime) || safeCycleTime <= 0) return null;
-  return 60 / safeCycleTime;
+function sdbGetRecordDefectCount(record = {}) {
+  return Object.keys(record)
+    .filter(key => !SDB_FIXED_KEYS.has(key))
+    .reduce((sum, key) => {
+      const defectCount = Number(record[key] ?? 0);
+      return sum + (Number.isFinite(defectCount) && defectCount > 0 ? Math.trunc(defectCount) : 0);
+    }, 0);
 }
 
-function sdbFormatPiecesPerHour(cycleTime, digits = 2) {
-  const piecesPerHour = sdbGetPiecesPerHour(cycleTime);
+function sdbGetRecordTotalCount(record = {}) {
+  const goodCount = Math.max(0, Math.trunc(Number(record.good_count ?? 0) || 0));
+  return goodCount + sdbGetRecordDefectCount(record);
+}
+
+function sdbGetPiecesPerHour(target, manHours = null, fallbackCycleTime = null) {
+  if (target && typeof target === 'object') {
+    const record = target;
+    const hours = Math.max(0, Number(record.man_hours ?? 0) || 0);
+    const totalCount = sdbGetRecordTotalCount(record);
+    if (hours > 0 && totalCount > 0) {
+      return totalCount / hours;
+    }
+    const ct = Math.max(0, Number(record.cycle_time ?? 0) || 0);
+    if (ct > 0) {
+      return 60 / ct;
+    }
+    return null;
+  }
+
+  const totalCount = Number(target ?? 0);
+  const hours = Number(manHours ?? 0);
+  if (Number.isFinite(totalCount) && totalCount > 0 && Number.isFinite(hours) && hours > 0) {
+    return totalCount / hours;
+  }
+
+  const ct = Number(fallbackCycleTime != null ? fallbackCycleTime : target);
+  if (Number.isFinite(ct) && ct > 0) {
+    return 60 / ct;
+  }
+
+  return null;
+}
+
+function sdbFormatPiecesPerHour(target, manHours = null, fallbackCycleTime = null, digits = 2) {
+  const piecesPerHour = sdbGetPiecesPerHour(target, manHours, fallbackCycleTime);
   if (piecesPerHour === null) return '—';
   return sdbRoundMetric(piecesPerHour, digits).toFixed(digits);
 }
@@ -830,8 +867,29 @@ function sdbGetModalDefectFieldKeys(record = {}) {
     .sort((a, b) => a.localeCompare(b, 'ja'));
 }
 
-function sdbRefreshModalPiecesPerHour(cycleTime) {
-  sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(cycleTime));
+function sdbRefreshModalPiecesPerHour(explicitCycleTime = null) {
+  const record = sdbGetModalRecord();
+  if (!record) {
+    sdbSetModalElementContent('sdbModalPiecesPerHour', '—');
+    return;
+  }
+
+  if (_sdbModalEditMode) {
+    const effectiveGoodCount = Math.max(0, Math.trunc(sdbGetModalNumericValue('good_count', Number(record.good_count ?? 0) || 0)));
+    const defectTotal = sdbGetModalDefectFieldKeys(record).reduce((sum, key) => {
+      const defectCount = Math.max(0, Math.trunc(sdbGetModalNumericValue(key, Number(record[key] ?? 0) || 0)));
+      return sum + defectCount;
+    }, 0);
+    const totalCount = effectiveGoodCount + defectTotal;
+    const manHours = Math.max(0, sdbGetModalNumericValue('man_hours', Number(record.man_hours ?? 0) || 0));
+    const cycleTime = explicitCycleTime != null
+      ? Number(explicitCycleTime) || 0
+      : Math.max(0, sdbGetModalNumericValue('cycle_time', Number(record.cycle_time ?? 0) || 0));
+
+    sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(totalCount, manHours, cycleTime));
+  } else {
+    sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(record));
+  }
 }
 
 function sdbRecalculateModalMetrics(source = 'time') {
@@ -886,12 +944,12 @@ function sdbRecalculateModalMetrics(source = 'time') {
     cycleTimeField.value = recalculatedCycleTime.toFixed(2);
   }
 
-  sdbRefreshModalPiecesPerHour(sdbGetModalNumericValue('cycle_time', Number(record.cycle_time ?? 0) || 0));
+  sdbRefreshModalPiecesPerHour();
 }
 
 function sdbBindModalAutoCalculations(record) {
   if (!record || !_sdbModalEditMode) {
-    sdbRefreshModalPiecesPerHour(record?.cycle_time ?? 0);
+    sdbRefreshModalPiecesPerHour();
     return;
   }
 
@@ -920,7 +978,7 @@ function sdbBindModalAutoCalculations(record) {
     if (field) field.addEventListener('input', () => sdbRecalculateModalMetrics('time'));
   });
 
-  sdbRefreshModalPiecesPerHour(sdbGetModalNumericValue('cycle_time', Number(record.cycle_time ?? 0) || 0));
+  sdbRefreshModalPiecesPerHour();
 }
 
 function sdbBuildModalInput(fieldKey, value, options = {}) {
@@ -1067,7 +1125,7 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalCT', isEditing
     ? sdbBuildModalInput('cycle_time', record.cycle_time ?? 0, { type: 'number', min: '0', step: '0.01', className: `${metricInputClass} text-purple-600` })
     : (record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—'), { html: isEditing });
-  sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(record.cycle_time));
+  sdbSetModalElementContent('sdbModalPiecesPerHour', sdbFormatPiecesPerHour(record));
   sdbSetModalElementContent('sdbModalLhRh', isEditing
     ? sdbBuildModalSelect('lh_rh', record.lh_rh, [
         { value: '', label: '—' },
