@@ -979,36 +979,43 @@ function renderAnalyticsProductivityTab(data) {
         `;
       }
 
+      const displayProduct = (op.productName && op.productName !== machineName && !machineName.includes(op.productName))
+        ? `${machineName} (${op.productName})`
+        : machineName;
+
       html += `
         <div class="productivity-worker-card w-full rounded-2xl border border-gray-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col space-y-4">
           <div>
-            <!-- Sheet Card Header -->
-            <div class="border-b border-gray-100 pb-3">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">${analyticsEscapeHtml(machineName)}</span>
-                <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badgeBg}">
+            <!-- Sheet Card Header: Large Prominent Worker Name - Product Name -->
+            <div class="border-b border-gray-100 pb-3.5 space-y-3">
+              <!-- Top Row: Large Eye-Catching Title & Achievement Badge -->
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
+                  <span class="text-gray-900">${analyticsEscapeHtml(op.operatorName)}</span>
+                  <span class="text-gray-300 font-normal mx-2">-</span>
+                  <span class="text-indigo-700">${analyticsEscapeHtml(displayProduct)}</span>
+                </h3>
+
+                <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-2xs ${badgeBg}">
                   ${op.achievementRate}% 達成
                 </span>
               </div>
 
-              <div class="mt-2 flex flex-wrap items-baseline justify-between gap-3">
-                <h4 class="text-base font-semibold text-gray-900">
-                  出来高（生産性） 当月平均: <span class="tabular-nums font-semibold ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr} ヶ/1人h</span>
-                </h4>
-                <div class="inline-flex items-center gap-2 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-1">
-                  <span class="text-xs font-medium text-indigo-500">氏名</span>
-                  <span class="text-sm font-semibold text-indigo-900">${analyticsEscapeHtml(op.operatorName)}</span>
-                </div>
-              </div>
-
-              <div class="mt-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div class="flex items-center gap-2">
-                  <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                    目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${target}</strong> ヶ/1人h
-                  </span>
-                  <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                    警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${warning}</strong> ヶ/1人h
-                  </span>
+              <!-- Sub Row: Monthly Average & Target / Warning References -->
+              <div class="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs">
+                <div class="flex flex-wrap items-center gap-3">
+                  <div class="text-sm font-semibold text-gray-700">
+                    出来高（生産性） 当月平均: <span class="text-base tabular-nums font-bold ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr} ヶ/1人h</span>
+                  </div>
+                  <div class="hidden sm:block text-gray-200">|</div>
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                      目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${target}</strong> ヶ/1人h
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                      警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${warning}</strong> ヶ/1人h
+                    </span>
+                  </div>
                 </div>
                 <div class="text-xs font-medium text-rose-500">
                   ※ ${warning}/1人h以下の場合は理由を確認
@@ -1236,11 +1243,34 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
 }
 
 function printAnalyticsProductivityWhiteboard() {
+  const originalTitle = document.title;
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  let monthNumber = '';
+  if (monthInput && monthInput.value) {
+    const parts = monthInput.value.split(/[-/]/);
+    if (parts.length === 2 && Number(parts[1])) {
+      monthNumber = parseInt(parts[1], 10);
+    }
+  }
+  if (!monthNumber) {
+    monthNumber = new Date().getMonth() + 1;
+  }
+
+  document.title = `生産性 グラフ - ${monthNumber}月分`;
   document.body.classList.add('analytics-printing-productivity');
-  window.print();
-  window.setTimeout(() => {
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    document.title = originalTitle;
     document.body.classList.remove('analytics-printing-productivity');
-  }, 1000);
+    window.removeEventListener('afterprint', cleanup);
+  };
+
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
+  window.setTimeout(cleanup, 2000);
 }
 
 function renderAnalyticsOverview(data) {

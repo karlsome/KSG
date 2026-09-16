@@ -4999,6 +4999,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
             const manHours = Math.max(0, Number(record.man_hours ?? 0) || 0);
             const cycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
             const kanbanId = String(record.kanban_id ?? '').trim();
+            const productName = String(record.product_name ?? '').trim();
             const remarks = String(record.remarks ?? '').trim();
 
             let day = Number(record.date_day ?? 0);
@@ -5028,6 +5029,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                         hours: 0,
                         cycleTimes: [],
                         kanbans: new Set(),
+                        productNames: new Set(),
                         remarks: []
                     });
                 }
@@ -5036,6 +5038,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 dayEntry.hours += attributedHours;
                 if (cycleTime > 0) dayEntry.cycleTimes.push(cycleTime);
                 if (kanbanId) dayEntry.kanbans.add(kanbanId);
+                if (productName) dayEntry.productNames.add(productName);
                 if (remarks && !dayEntry.remarks.includes(remarks)) {
                     dayEntry.remarks.push(remarks);
                 }
@@ -5059,13 +5062,17 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 let opHours = 0;
                 const dailyData = [];
 
-                // Collect working days
+                // Collect working days & product names
                 const sortedDays = Array.from(dayMap.keys()).sort((a, b) => a - b);
+                const opProductNames = new Set();
 
                 sortedDays.forEach(day => {
                     const d = dayMap.get(day);
                     opPieces += d.pieces;
                     opHours += d.hours;
+                    if (d.productNames) {
+                        d.productNames.forEach(p => opProductNames.add(p));
+                    }
 
                     let oneHrPc = null;
                     if (d.hours > 0 && d.pieces > 0) {
@@ -5104,6 +5111,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 operatorsList.push({
                     operatorName,
                     source,
+                    productName: Array.from(opProductNames).join(', '),
                     monthlyPieces: Math.round(opPieces * 10) / 10,
                     monthlyHours: Math.round(opHours * 100) / 100,
                     monthlyAvg1hPc,
