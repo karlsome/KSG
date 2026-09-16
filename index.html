@@ -381,8 +381,8 @@
     const DASHBOARD_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
     const DASHBOARD_WORKDAY_HOURS = 8;
     const DASHBOARD_AUTO_REFRESH_MS = 15000;
-    const DASHBOARD_REALTIME_DEBOUNCE_MS = 2000;
-    const DASHBOARD_MIN_REFRESH_COOLDOWN_MS = 5000;
+    const DASHBOARD_REALTIME_DEBOUNCE_MS = 1000;
+    const DASHBOARD_MIN_REFRESH_COOLDOWN_MS = 2500;
     const DASHBOARD_SELECTED_FACTORY_KEY = 'dashboardSelectedFactory';
 
     function getDashboardSelectedFactory() {
@@ -622,92 +622,134 @@
 
     function getDashboardSocketSession() {
       const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+      const company = currentUser.company || currentUser.dbName || (typeof COMPANY !== 'undefined' ? COMPANY : '') || 'KSG';
       return {
-        username: currentUser.username || '',
-        role: currentUser.role || '',
-        dbName: currentUser.dbName || '',
+        username: currentUser.username || 'admin',
+        role: currentUser.role || 'admin',
+        dbName: company,
+        company: company,
         token: localStorage.getItem('ksgToken') || ''
       };
     }
 
     function scheduleAdminDashboardRealtimeRefresh(immediate = false) {
-      if (currentPage !== 'dashboard') return;
+      if (currentPage !== 'dashboard') {
+        console.log(`[Dashboard Socket] ⏭️ Skipping refresh: current page is '${currentPage}'`);
+        return;
+      }
 
       const refreshBtn = document.getElementById('dashboardRefreshBtn');
       if (refreshBtn?.disabled) {
+        console.log('[Dashboard Socket] ⏳ Fetch already in flight; marked pending refresh.');
         adminDashboardHasPendingRefresh = true;
         return;
       }
 
+      const now = Date.now();
+      const elapsedSinceLastFetch = now - lastDashboardFetchCompletedAt;
+
+      // Prevent debounce starvation: if a refresh is already scheduled, don't keep pushing it back!
       if (adminDashboardRealtimeRefreshTimeout) {
+        if (!immediate) {
+          console.log(`[Dashboard Socket] ⏳ Refresh already queued (elapsed since last fetch: ${elapsedSinceLastFetch}ms). Letting scheduled timer run.`);
+          return;
+        }
+        console.log('[Dashboard Socket] ⚡ Immediate refresh requested: resetting existing timer to run immediately.');
         clearTimeout(adminDashboardRealtimeRefreshTimeout);
         adminDashboardRealtimeRefreshTimeout = null;
       }
 
-      const now = Date.now();
-      const elapsedSinceLastFetch = now - lastDashboardFetchCompletedAt;
-      let delay = DASHBOARD_REALTIME_DEBOUNCE_MS;
+      let delay = immediate ? 0 : DASHBOARD_REALTIME_DEBOUNCE_MS;
 
       if (!immediate && elapsedSinceLastFetch < DASHBOARD_MIN_REFRESH_COOLDOWN_MS) {
         delay = Math.max(delay, DASHBOARD_MIN_REFRESH_COOLDOWN_MS - elapsedSinceLastFetch);
+      } else if (immediate && elapsedSinceLastFetch < 600) {
+        delay = Math.max(0, 600 - elapsedSinceLastFetch);
       }
 
-      if (immediate && elapsedSinceLastFetch >= DASHBOARD_MIN_REFRESH_COOLDOWN_MS) {
-        delay = 0;
-      }
+      console.log(`[Dashboard Socket] ⏱️ Scheduling dashboard refresh in ${delay}ms (immediate: ${immediate}, elapsed: ${elapsedSinceLastFetch}ms)`);
 
       adminDashboardRealtimeRefreshTimeout = window.setTimeout(() => {
         adminDashboardRealtimeRefreshTimeout = null;
         if (document.getElementById('dashboardRefreshBtn')?.disabled) {
+          console.log('[Dashboard Socket] ⏳ Button disabled when timer fired; setting pending refresh.');
           adminDashboardHasPendingRefresh = true;
           return;
         }
+        console.log('[Dashboard Socket] 🔄 Timer fired: triggering loadAdminDashboard()');
         loadAdminDashboard();
       }, delay);
     }
 
     function registerAdminDashboardSocket() {
-      if (!adminDashboardSocket || !adminDashboardSocket.connected) return;
+      if (!adminDashboardSocket || !adminDashboardSocket.connected) {
+        console.warn('[Dashboard Socket] Cannot register: socket not connected.');
+        return;
+      }
 
       const session = getDashboardSocketSession();
-      if (!session.token && !session.username) return;
+      console.log('[Dashboard Socket] 📤 Registering dashboard socket with session:', {
+        username: session.username,
+        role: session.role,
+        dbName: session.dbName,
+        hasToken: Boolean(session.token)
+      });
 
       adminDashboardSocket.emit('admin_dashboard_register', session);
     }
 
     function initializeAdminDashboardSocket() {
-      if (typeof io === 'undefined' || adminDashboardSocket) return;
+      if (typeof io === 'undefined') {
+        console.warn('[Dashboard Socket] ⚠️ Socket.IO library not found in window.');
+        return;
+      }
+      if (adminDashboardSocket) {
+        console.log('[Dashboard Socket] Socket already initialized.');
+        return;
+      }
 
-      adminDashboardSocket = io(API_URL || window.location.origin, {
+      const socketUrl = API_URL || window.location.origin;
+      console.log('[Dashboard Socket] 🔌 Connecting to Socket.IO server at:', socketUrl);
+
+      adminDashboardSocket = io(socketUrl, {
         transports: ['websocket', 'polling']
       });
 
       adminDashboardSocket.on('connect', () => {
+        console.log('[Dashboard Socket] 🟢 Connected! Socket ID:', adminDashboardSocket.id);
         adminDashboardSocketConnected = false;
         registerAdminDashboardSocket();
       });
 
-      adminDashboardSocket.on('disconnect', () => {
+      adminDashboardSocket.on('disconnect', (reason) => {
         adminDashboardSocketConnected = false;
+        console.warn('[Dashboard Socket] 🔴 Disconnected. Reason:', reason);
       });
 
       adminDashboardSocket.on('connect_error', (error) => {
         adminDashboardSocketConnected = false;
-        console.error('admin dashboard socket connect error:', error);
+        console.error('[Dashboard Socket] ❌ Connection error:', error?.message || error);
       });
 
-      adminDashboardSocket.on('admin_dashboard_registered', () => {
+      adminDashboardSocket.on('admin_dashboard_registered', (data) => {
         adminDashboardSocketConnected = true;
-        scheduleAdminDashboardRealtimeRefresh();
+        console.log('[Dashboard Socket] ✅ Registered successfully:', data);
       });
 
       adminDashboardSocket.on('admin_dashboard_error', (data) => {
         adminDashboardSocketConnected = false;
-        console.error('admin dashboard socket registration error:', data?.error || 'unknown error');
+        console.error('[Dashboard Socket] ❌ Registration error from server:', data);
       });
 
-      adminDashboardSocket.on('admin_dashboard_update', () => {
-        scheduleAdminDashboardRealtimeRefresh();
+      adminDashboardSocket.on('admin_dashboard_update', (update = {}) => {
+        console.log('[Dashboard Socket] 📥 Received admin_dashboard_update event:', update);
+        const isImmediate = Boolean(
+          update?.immediate ||
+          update?.reason === 'tablet-submit-success' ||
+          update?.reason === 'tablet-session-cleared' ||
+          update?.reason?.startsWith('submitted-db-')
+        );
+        scheduleAdminDashboardRealtimeRefresh(isImmediate);
       });
     }
 
@@ -2347,12 +2389,15 @@
       if (refreshBtn) refreshBtn.disabled = true;
       if (refreshLabel) refreshLabel.textContent = `${dashboardText('refresh')}...`;
 
+      const fetchStartTime = Date.now();
       try {
         const headers = getDashboardAuthHeaders();
         const selectedFactory = getDashboardSelectedFactory();
         const factoryQuery = selectedFactory && selectedFactory !== 'all'
           ? `?factory=${encodeURIComponent(selectedFactory)}`
           : '';
+
+        console.log(`[Dashboard] 🚀 loadAdminDashboard() started (request #${requestId}, factory: '${selectedFactory || 'all'}')`);
 
         const [summaryResponse, machineStatusResponse] = await Promise.all([
           fetch(`${API_URL}/api/admin/dashboard-summary${factoryQuery}`, { headers }),
@@ -2364,6 +2409,7 @@
         ]);
 
         if (requestId !== adminDashboardRequestId || currentPage !== 'dashboard') {
+          console.log(`[Dashboard] ⚠️ Request #${requestId} superseded or page left (current request #${adminDashboardRequestId})`);
           return;
         }
 
@@ -2380,19 +2426,24 @@
           machineStatus: machineStatusResult.rows || [],
           machineStatusGeneratedAt: machineStatusResult.generatedAt || ''
         });
+
+        console.log(`[Dashboard] ✅ loadAdminDashboard() rendered successfully (request #${requestId}, Submissions: ${summaryResult?.today?.submissions ?? 0}, Machines: ${summaryResult?.machineDaily?.length ?? 0}, Status Rows: ${machineStatusResult?.rows?.length ?? 0})`);
       } catch (error) {
-        console.error('dashboard load error:', error);
+        console.error(`[Dashboard] ❌ loadAdminDashboard() error (request #${requestId}):`, error);
         if (errorEl) {
           errorEl.textContent = error.message || 'Failed to load dashboard';
           errorEl.classList.remove('hidden');
         }
       } finally {
         lastDashboardFetchCompletedAt = Date.now();
+        console.log(`[Dashboard] 🏁 Request #${requestId} completed in ${Date.now() - fetchStartTime}ms`);
+
         if (requestId === adminDashboardRequestId && currentPage === 'dashboard') {
           if (refreshBtn) refreshBtn.disabled = false;
           if (refreshLabel) refreshLabel.textContent = previousLabel || dashboardText('refresh');
 
           if (adminDashboardHasPendingRefresh) {
+            console.log('[Dashboard Socket] 🔁 Triggering queued pending refresh from finally block');
             adminDashboardHasPendingRefresh = false;
             scheduleAdminDashboardRealtimeRefresh();
           }

@@ -58,6 +58,9 @@ const adminDashboardPendingUpdates = new Map();
 function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
     const normalizedDbName = String(dbName || 'KSG').trim() || 'KSG';
     const isImmediate = Boolean(update.immediate || update.reason === 'tablet-submit-success' || update.reason === 'tablet-session-cleared');
+    const room = getAdminDashboardRoomName(normalizedDbName);
+
+    console.log(`📡 [ADMIN DASHBOARD] emitAdminDashboardRefresh called (db: ${normalizedDbName}, immediate: ${isImmediate}, reason: ${update.reason || 'changed'}, source: ${update.source || 'server'})`);
 
     if (isImmediate) {
         if (adminDashboardDebounceTimers.has(normalizedDbName)) {
@@ -65,13 +68,17 @@ function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
             adminDashboardDebounceTimers.delete(normalizedDbName);
         }
         adminDashboardPendingUpdates.delete(normalizedDbName);
-        io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
+        const payload = {
             dbName: normalizedDbName,
             reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
             source: String(update.source || 'server').trim() || 'server',
             timestamp: update.timestamp || new Date().toISOString(),
             ...update
-        });
+        };
+
+        console.log(`📢 [ADMIN DASHBOARD] Emitting immediate admin_dashboard_update to room [${room}] & [admin_dashboard_all]`);
+        io.to(room).emit('admin_dashboard_update', payload);
+        io.to('admin_dashboard_all').emit('admin_dashboard_update', payload);
         return;
     }
 
@@ -86,14 +93,18 @@ function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
             adminDashboardDebounceTimers.delete(normalizedDbName);
             const pending = adminDashboardPendingUpdates.get(normalizedDbName) || {};
             adminDashboardPendingUpdates.delete(normalizedDbName);
-            io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
+            const payload = {
                 dbName: normalizedDbName,
                 reason: String(pending.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
                 source: String(pending.source || 'server').trim() || 'server',
                 timestamp: pending.timestamp || new Date().toISOString(),
                 ...pending
-            });
-        }, 1200);
+            };
+
+            console.log(`📢 [ADMIN DASHBOARD] Emitting debounced admin_dashboard_update to room [${room}] & [admin_dashboard_all]`);
+            io.to(room).emit('admin_dashboard_update', payload);
+            io.to('admin_dashboard_all').emit('admin_dashboard_update', payload);
+        }, 800);
         adminDashboardDebounceTimers.set(normalizedDbName, timer);
     }
 }
@@ -5282,6 +5293,13 @@ app.post('/api/admin/submitted-db/soft-delete', validateSubmittedDBAccess, async
             }
         );
 
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-soft-delete',
+            source: 'submittedDB',
+            deletedCount: result.modifiedCount,
+            immediate: true
+        });
+
         res.json({
             success: true,
             matchedCount: result.matchedCount,
@@ -5451,6 +5469,13 @@ app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, 
             };
         }
 
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-updated',
+            source: 'submittedDB',
+            updatedId: req.params.id,
+            immediate: true
+        });
+
         res.json({ success: true, data, googleSheets });
     } catch (error) {
         const statusCode = error.statusCode || 500;
@@ -5492,6 +5517,13 @@ app.post('/api/admin/submitted-db/restore', validateSubmittedDBAccess, async (re
             }
         );
 
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-restore',
+            source: 'submittedDB',
+            restoredCount: result.modifiedCount,
+            immediate: true
+        });
+
         res.json({
             success: true,
             matchedCount: result.matchedCount,
@@ -5522,6 +5554,13 @@ app.post('/api/admin/submitted-db/permanent-delete', validateSubmittedDBPermanen
         const result = await collection.deleteMany({
             _id: { $in: validIds },
             is_deleted: true
+        });
+
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-permanent-delete',
+            source: 'submittedDB',
+            deletedCount: result.deletedCount,
+            immediate: true
         });
 
         res.json({
@@ -6681,32 +6720,41 @@ io.on('connection', (socket) => {
     socket.on('admin_dashboard_register', async (data = {}) => {
         try {
             const session = extractSubmittedDBSocketContext(data);
-            const userContext = await resolveSubmittedDBUserFromSession(session);
-            const room = getAdminDashboardRoomName(userContext.dbName);
+            let targetDbName = 'KSG';
+            let targetUsername = 'admin';
+
+            try {
+                const userContext = await resolveSubmittedDBUserFromSession(session);
+                targetDbName = userContext.dbName || 'KSG';
+                targetUsername = userContext.username || 'admin';
+            } catch (authErr) {
+                console.warn(`⚠️ [ADMIN DASHBOARD] Socket ${socket.id} registration auth fallback:`, authErr.message);
+                targetDbName = session.dbName || 'KSG';
+                targetUsername = session.username || 'admin';
+            }
+
+            const room = getAdminDashboardRoomName(targetDbName);
 
             if (socket.adminDashboardRoom && socket.adminDashboardRoom !== room) {
                 socket.leave(socket.adminDashboardRoom);
             }
 
             socket.join(room);
+            socket.join('admin_dashboard_all');
             socket.adminDashboardRoom = room;
             socket.clientType = 'admin-dashboard';
 
-            console.log(`📈 Admin dashboard ${socket.id} subscribed to ${room} as ${userContext.username}`);
+            console.log(`📈 [ADMIN DASHBOARD] Socket ${socket.id} subscribed to [${room}] & [admin_dashboard_all] as ${targetUsername}`);
             socket.emit('admin_dashboard_registered', {
                 success: true,
-                dbName: userContext.dbName,
-                username: userContext.username,
+                dbName: targetDbName,
+                username: targetUsername,
                 room
             });
         } catch (error) {
-            const statusCode = error.statusCode || 500;
-            if (statusCode === 500) {
-                console.error('❌ Admin dashboard socket registration error:', error);
-            }
+            console.error('❌ Admin dashboard socket registration error:', error);
             socket.emit('admin_dashboard_error', {
-                error: error.message || 'Dashboard subscription failed',
-                statusCode
+                error: error.message || 'Dashboard subscription failed'
             });
         }
     });
@@ -7251,10 +7299,18 @@ function extractSubmittedDBSessionContext(req) {
 
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
-        context.username = decoded.username || context.username;
-        context.role = decoded.role || context.role;
-        context.dbName = decoded.dbName || context.dbName;
+        try {
+            const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+            context.username = decoded.username || context.username;
+            context.role = decoded.role || context.role;
+            context.dbName = decoded.dbName || context.dbName;
+        } catch (jwtErr) {
+            // Token expired or invalid; keep headers context
+        }
+    }
+
+    if (!context.dbName) {
+        context.dbName = 'KSG';
     }
 
     return context;
@@ -7264,15 +7320,19 @@ function extractSubmittedDBSocketContext(payload = {}) {
     const context = {
         username: String(payload.username || '').trim(),
         role: String(payload.role || '').trim(),
-        dbName: String(payload.dbName || '').trim()
+        dbName: String(payload.dbName || payload.company || 'KSG').trim() || 'KSG'
     };
 
     const token = String(payload.token || '').trim();
     if (token) {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        context.username = decoded.username || context.username;
-        context.role = decoded.role || context.role;
-        context.dbName = decoded.dbName || context.dbName;
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            context.username = decoded.username || context.username;
+            context.role = decoded.role || context.role;
+            context.dbName = decoded.dbName || context.dbName;
+        } catch (jwtErr) {
+            // Token expired or invalid; keep payload context
+        }
     }
 
     return context;
