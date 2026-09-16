@@ -214,16 +214,16 @@ const translations = {
       accessDenied: "Access denied",
 
       // Confirmation messages
-  confirmDelete: "Are you sure you want to delete this user?",
+      confirmDelete: "Are you sure you want to delete this user?",
 
-  // Password reset
-  resetPassword: "Reset Password",
-  newPassword: "New Password",
-  confirmPassword: "Confirm Password",
-  resetPasswordTitle: "Reset User Password",
-  passwordsDoNotMatch: "Passwords do not match",
-  passwordResetSuccess: "Password reset successfully",
-  passwordResetFailed: "Failed to reset password"
+      // Password reset
+      resetPassword: "Reset Password",
+      newPassword: "New Password",
+      confirmPassword: "Confirm Password",
+      resetPasswordTitle: "Reset User Password",
+      passwordsDoNotMatch: "Passwords do not match",
+      passwordResetSuccess: "Password reset successfully",
+      passwordResetFailed: "Failed to reset password"
     },
 
     // OPC Management Page
@@ -715,6 +715,7 @@ const translations = {
       },
 
       tabs: {
+        productivity: "Productivity",
         overview: "Overview",
         worker: "Worker",
         machine: "Machine",
@@ -977,6 +978,37 @@ const translations = {
         infoManHours: "Man-hours = work time minus breaks and trouble, summed over records",
         infoActiveWorkers: "Number of distinct workers appearing on records in the selected period",
         infoActiveMachines: "Number of distinct machines (submission sources) in the selected period"
+      },
+
+      productivity: {
+        activityBanner: "Productivity Improvement Activity",
+        targetLabel: "Target",
+        warningLabel: "Warning Line",
+        warningNotice: "Please confirm reason if below {n}/1person-h",
+        monthAvgLabel: "Monthly Avg",
+        piecesPerHourUnit: "pcs/1person-h",
+        nameLabel: "Name",
+        equipmentLabel: "Equipment",
+        allEquipments: "All Equipments",
+        allWorkers: "All Workers",
+        targetInputLabel: "Target (1h/pc)",
+        warningInputLabel: "Warning Line",
+        monthLabel: "Target Month",
+        filterWorker: "Worker",
+        filterEquipment: "Equipment",
+        totalPieces: "Total Good Count (良品数)",
+        totalHours: "Total Hours",
+        overallProductivity: "Overall Productivity",
+        targetAchievement: "Achievers / Rate",
+        printWhiteboard: "Print Sheets",
+        tableDate: "Date",
+        tableLine: "Line",
+        tablePieces: "Output (良品数)",
+        tableHours: "Hours",
+        tablePiecesPerHour: "Output / 1person-h",
+        tableRemarks: "Reason / Remarks",
+        noDataForMonth: "No productivity data recorded for this month.",
+        noDataForWorker: "No records for this worker on this equipment."
       },
 
       overview: {
@@ -1448,16 +1480,16 @@ const translations = {
       accessDenied: "アクセスが拒否されました",
 
       // Confirmation messages
-  confirmDelete: "このユーザーを削除してもよろしいですか？",
+      confirmDelete: "このユーザーを削除してもよろしいですか？",
 
-  // Password reset
-  resetPassword: "パスワードリセット",
-  newPassword: "新しいパスワード",
-  confirmPassword: "パスワード確認",
-  resetPasswordTitle: "ユーザーパスワードのリセット",
-  passwordsDoNotMatch: "パスワードが一致しません",
-  passwordResetSuccess: "パスワードが正常にリセットされました",
-  passwordResetFailed: "パスワードのリセットに失敗しました"
+      // Password reset
+      resetPassword: "パスワードリセット",
+      newPassword: "新しいパスワード",
+      confirmPassword: "パスワード確認",
+      resetPasswordTitle: "ユーザーパスワードのリセット",
+      passwordsDoNotMatch: "パスワードが一致しません",
+      passwordResetSuccess: "パスワードが正常にリセットされました",
+      passwordResetFailed: "パスワードのリセットに失敗しました"
     },
 
     // OPC Management Page
@@ -1911,7 +1943,7 @@ const translations = {
 
     // Analytics Page
     analytics: {
-      title: "アナリティクス",
+      title: "分析",
       description: "全体の状況、作業者のパフォーマンス、設備の安定性、品質リスク、製品動向を管理者が把握しやすい形で整理しています。",
       lastUpdated: "最終更新：",
       refresh: "更新",
@@ -1950,6 +1982,7 @@ const translations = {
       },
 
       tabs: {
+        productivity: "生産性",
         overview: "概要",
         worker: "作業者",
         machine: "設備",
@@ -2212,6 +2245,37 @@ const translations = {
         infoManHours: "工数 = 作業時間 −（休憩 + トラブル）の合計",
         infoActiveWorkers: "選択期間のデータに登場する作業者の人数",
         infoActiveMachines: "選択期間のデータに登場する設備（提出元）の数"
+      },
+
+      productivity: {
+        activityBanner: "生産性向上活動",
+        targetLabel: "目標",
+        warningLabel: "警戒ライン",
+        warningNotice: "{n}/1人h以下の場合は理由を確認",
+        monthAvgLabel: "当月平均",
+        piecesPerHourUnit: "ヶ/1人h",
+        nameLabel: "氏名",
+        equipmentLabel: "設備",
+        allEquipments: "全ての設備",
+        allWorkers: "全ての作業者",
+        targetInputLabel: "目標 (1人h)",
+        warningInputLabel: "警戒ライン",
+        monthLabel: "対象月",
+        filterWorker: "作業者",
+        filterEquipment: "設備",
+        totalPieces: "総良品数",
+        totalHours: "総実工数",
+        overallProductivity: "全体生産性 (1人h)",
+        targetAchievement: "目標達成率",
+        printWhiteboard: "シート印刷",
+        tableDate: "日付",
+        tableLine: "ライン",
+        tablePieces: "出来高（良品数）",
+        tableHours: "時間",
+        tablePiecesPerHour: "出来高/1人h",
+        tableRemarks: "理由 / 備考",
+        noDataForMonth: "対象月の生産性データがありません。",
+        noDataForWorker: "この作業者の稼働実績はありません。"
       },
 
       overview: {

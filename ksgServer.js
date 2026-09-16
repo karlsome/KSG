@@ -4896,6 +4896,284 @@ async function handleAnalyticsMoMRequest(req, res) {
 app.get('/api/admin/analytics/mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
 app.get('/api/admin/analytics/machine-mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
 
+// --------------------------------------------------------------------------
+// GET /api/admin/analytics/productivity
+// Aggregates monthly worker productivity (1h/pc = 加工数 / 工数) per 設備 (machine)
+// Displays daily productivity points, target lines, and paper-sheet data table
+// --------------------------------------------------------------------------
+async function handleAnalyticsProductivityRequest(req, res) {
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ success: false, error: 'Database not connected' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+
+        const now = new Date();
+        let targetYear = now.getFullYear();
+        let targetMonth = now.getMonth() + 1;
+
+        if (req.query.month) {
+            const parts = String(req.query.month).trim().split(/[-/]/).map(Number);
+            if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+                targetYear = parts[0];
+                targetMonth = parts[1];
+            }
+        }
+
+        const target = Number(req.query.target) > 0 ? Number(req.query.target) : 220;
+        const warning = Number(req.query.warning) > 0 ? Number(req.query.warning) : 210;
+        const requestedSource = String(req.query.source ?? '').trim();
+        const requestedOperator = String(req.query.operator ?? '').trim();
+        const requestedFactory = String(req.query.factory ?? '').trim();
+
+        const baseMonthFilter = {
+            is_deleted: { $ne: true },
+            date_year: targetYear,
+            date_month: targetMonth
+        };
+        if (requestedFactory && requestedFactory !== 'all') {
+            baseMonthFilter['工場'] = requestedFactory;
+        }
+
+        // Fetch available sources and operators for filter options (without using .distinct to comply with MongoDB apiStrict:true)
+        const allMonthDocs = await collection.find(baseMonthFilter).project({
+            submitted_from: 1,
+            operator1: 1,
+            operator2: 1,
+            operator3: 1,
+            operator4: 1
+        }).toArray();
+
+        const availableSourcesSet = new Set();
+        const availableOperatorsSet = new Set();
+        (allMonthDocs || []).forEach(doc => {
+            const sourceName = String(doc.submitted_from ?? '').trim();
+            if (sourceName) availableSourcesSet.add(sourceName);
+            SUBMITTED_DB_OPERATOR_FIELDS.forEach(field => {
+                const name = String(doc[field] ?? '').trim();
+                if (name) availableOperatorsSet.add(name);
+            });
+        });
+        const sortedSources = Array.from(availableSourcesSet).sort((a, b) => a.localeCompare(b, 'ja'));
+        const sortedOperators = Array.from(availableOperatorsSet).sort((a, b) => a.localeCompare(b, 'ja'));
+
+        // Query filtered records
+        const queryFilter = { ...baseMonthFilter };
+        if (requestedSource && requestedSource !== 'all') {
+            queryFilter.submitted_from = requestedSource;
+        }
+        if (requestedOperator && requestedOperator !== 'all') {
+            const safeOp = escapeSubmittedDBRegex(requestedOperator);
+            queryFilter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(f => ({
+                [f]: { $regex: safeOp, $options: 'i' }
+            }));
+        }
+
+        const records = await collection.find(queryFilter)
+            .sort({ date_day: 1, timestamp: 1 })
+            .toArray();
+
+        const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+
+        // Data structure for aggregation:
+        // map: source -> Map(operator -> Map(day -> { pieces, hours, cycleTimes: [], kanbans: Set, remarks: [] }))
+        const sourceMap = new Map();
+
+        records.forEach(record => {
+            const source = String(record.submitted_from ?? '').trim() || '未指定';
+            const operators = getSubmittedDBRecordOperators(record);
+            const targetOperators = operators.length > 0 ? operators : ['(未設定)'];
+
+            // If an operator filter was specified, only include matching operators
+            const matchingOperators = (requestedOperator && requestedOperator !== 'all')
+                ? targetOperators.filter(op => op.toLowerCase().includes(requestedOperator.toLowerCase()))
+                : targetOperators;
+
+            if (matchingOperators.length === 0) return;
+
+            const operatorCount = Math.max(operators.length, 1);
+            const goodCount = Math.max(0, Number(record.good_count ?? 0) || 0);
+            const totalPieces = goodCount; // 良品数 (good_count from submitted data page)
+            const manHours = Math.max(0, Number(record.man_hours ?? 0) || 0);
+            const cycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
+            const kanbanId = String(record.kanban_id ?? '').trim();
+            const remarks = String(record.remarks ?? '').trim();
+
+            let day = Number(record.date_day ?? 0);
+            if (!day || day < 1 || day > daysInMonth) {
+                if (record.timestamp) {
+                    day = new Date(record.timestamp).getDate();
+                }
+            }
+            if (!day || day < 1 || day > daysInMonth) return;
+
+            const attributedPieces = totalPieces / operatorCount;
+            const attributedHours = manHours / operatorCount;
+
+            if (!sourceMap.has(source)) {
+                sourceMap.set(source, new Map());
+            }
+            const opMap = sourceMap.get(source);
+
+            matchingOperators.forEach(op => {
+                if (!opMap.has(op)) {
+                    opMap.set(op, new Map());
+                }
+                const dayMap = opMap.get(op);
+                if (!dayMap.has(day)) {
+                    dayMap.set(day, {
+                        pieces: 0,
+                        hours: 0,
+                        cycleTimes: [],
+                        kanbans: new Set(),
+                        remarks: []
+                    });
+                }
+                const dayEntry = dayMap.get(day);
+                dayEntry.pieces += attributedPieces;
+                dayEntry.hours += attributedHours;
+                if (cycleTime > 0) dayEntry.cycleTimes.push(cycleTime);
+                if (kanbanId) dayEntry.kanbans.add(kanbanId);
+                if (remarks && !dayEntry.remarks.includes(remarks)) {
+                    dayEntry.remarks.push(remarks);
+                }
+            });
+        });
+
+        // Format machines and operators output
+        const machines = [];
+        let grandTotalPieces = 0;
+        let grandTotalHours = 0;
+        let grandAchievedCount = 0;
+        let totalWorkerCards = 0;
+
+        for (const [source, opMap] of sourceMap.entries()) {
+            let machinePieces = 0;
+            let machineHours = 0;
+            const operatorsList = [];
+
+            for (const [operatorName, dayMap] of opMap.entries()) {
+                let opPieces = 0;
+                let opHours = 0;
+                const dailyData = [];
+
+                // Collect working days
+                const sortedDays = Array.from(dayMap.keys()).sort((a, b) => a - b);
+
+                sortedDays.forEach(day => {
+                    const d = dayMap.get(day);
+                    opPieces += d.pieces;
+                    opHours += d.hours;
+
+                    let oneHrPc = null;
+                    if (d.hours > 0 && d.pieces > 0) {
+                        oneHrPc = Math.round((d.pieces / d.hours) * 100) / 100;
+                    } else if (d.cycleTimes.length > 0) {
+                        const avgCt = d.cycleTimes.reduce((a, b) => a + b, 0) / d.cycleTimes.length;
+                        if (avgCt > 0) oneHrPc = Math.round((60 / avgCt) * 100) / 100;
+                    }
+
+                    dailyData.push({
+                        day,
+                        dateLabel: `${targetMonth}/${day}`,
+                        kanban: Array.from(d.kanbans).join(' ') || '-',
+                        pieces: Math.round(d.pieces * 10) / 10,
+                        hours: Math.round(d.hours * 100) / 100,
+                        oneHrPc,
+                        remarks: d.remarks.join('; ')
+                    });
+                });
+
+                const monthlyAvg1hPc = opHours > 0
+                    ? Math.round((opPieces / opHours) * 100) / 100
+                    : null;
+                const achievementRate = (monthlyAvg1hPc && target > 0)
+                    ? Math.round((monthlyAvg1hPc / target) * 1000) / 10
+                    : 0;
+
+                if (monthlyAvg1hPc && monthlyAvg1hPc >= target) {
+                    grandAchievedCount += 1;
+                }
+                totalWorkerCards += 1;
+
+                machinePieces += opPieces;
+                machineHours += opHours;
+
+                operatorsList.push({
+                    operatorName,
+                    source,
+                    monthlyPieces: Math.round(opPieces * 10) / 10,
+                    monthlyHours: Math.round(opHours * 100) / 100,
+                    monthlyAvg1hPc,
+                    target,
+                    warning,
+                    achievementRate,
+                    dailyData
+                });
+            }
+
+            // Sort operators alphabetically
+            operatorsList.sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'ja'));
+
+            const machineAvg1hPc = machineHours > 0
+                ? Math.round((machinePieces / machineHours) * 100) / 100
+                : null;
+
+            grandTotalPieces += machinePieces;
+            grandTotalHours += machineHours;
+
+            machines.push({
+                machineName: source,
+                monthlyPieces: Math.round(machinePieces * 10) / 10,
+                monthlyHours: Math.round(machineHours * 100) / 100,
+                monthlyAvg1hPc: machineAvg1hPc,
+                operatorCount: operatorsList.length,
+                operators: operatorsList
+            });
+        }
+
+        // Sort machines alphabetically
+        machines.sort((a, b) => a.machineName.localeCompare(b.machineName, 'ja'));
+
+        const overall1hPc = grandTotalHours > 0
+            ? Math.round((grandTotalPieces / grandTotalHours) * 100) / 100
+            : null;
+
+        res.json({
+            success: true,
+            month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+            year: targetYear,
+            monthNumber: targetMonth,
+            target,
+            warning,
+            daysInMonth,
+            summary: {
+                totalMachines: machines.length,
+                totalOperators: totalWorkerCards,
+                totalPieces: Math.round(grandTotalPieces * 10) / 10,
+                totalHours: Math.round(grandTotalHours * 100) / 100,
+                overall1hPc,
+                achievedCount: grandAchievedCount,
+                achievementRate: (overall1hPc && target > 0)
+                    ? Math.round((overall1hPc / target) * 1000) / 10
+                    : 0
+            },
+            filterOptions: {
+                availableSources: sortedSources,
+                availableOperators: sortedOperators
+            },
+            machines
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error calculating Productivity analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to calculate productivity analytics' });
+    }
+}
+
+app.get('/api/admin/analytics/productivity', validateSubmittedDBAccess, handleAnalyticsProductivityRequest);
+
 // POST /api/admin/analytics/product-cycle-time
 // Saves the observed best pace as the product's standard cycle time in masterDB
 // (the "register best pace as standard" nudge on the Product tab detail view).

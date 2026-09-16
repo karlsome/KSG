@@ -72,6 +72,30 @@
         border: none;
         box-shadow: none;
       }
+
+      /* Print mode: isolate productivity sheets for whiteboard */
+      body.analytics-printing-productivity * {
+        visibility: hidden;
+      }
+      body.analytics-printing-productivity #analyticsProductivityContainer,
+      body.analytics-printing-productivity #analyticsProductivityContainer * {
+        visibility: visible;
+      }
+      body.analytics-printing-productivity #analyticsProductivityContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body.analytics-printing-productivity .productivity-worker-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 24px;
+        border: 1px solid #d1d5db !important;
+        box-shadow: none !important;
+      }
     }
   </style>
 
@@ -95,9 +119,9 @@
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-gray-100 pb-2" id="analyticsTabButtons">
-        <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-          <i class="ri-home-5-line"></i>
-          <span data-i18n="analytics.tabs.overview">Overview</span>
+        <button type="button" data-analytics-tab="productivity" onclick="setAnalyticsTab('productivity')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-line-chart-line"></i>
+          <span data-i18n="analytics.tabs.productivity">生産性</span>
         </button>
         <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
           <i class="ri-team-line"></i>
@@ -247,27 +271,99 @@
   </section>
 
   <div class="space-y-6">
-    <section id="analyticsPanelOverview" data-analytics-panel="overview" class="space-y-6">
-      <div id="analyticsWeeklyDigest" class="hidden rounded-2xl border border-slate-100 bg-slate-50 px-5 py-4 text-sm leading-relaxed text-slate-700"></div>
-
-      <div id="analyticsOverviewHighlights" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
-
-      <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)]">
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.overview.outputTrendTitle">Output and issue trend</h3>
-            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.overview.outputTrendDesc">See whether production, labor, and issues are moving together or drifting apart.</p>
+    <section id="analyticsPanelProductivity" data-analytics-panel="productivity" class="space-y-6">
+      <!-- Productivity Control Bar -->
+      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex items-center gap-3">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 shadow-sm">
+              <i class="ri-line-chart-line text-2xl"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-xl font-bold text-gray-900" data-i18n="analytics.productivity.activityBanner">生産性向上活動</h2>
+                <span id="analyticsProductivityBadgeTarget" class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                  <span data-i18n="analytics.productivity.targetLabel">目標</span>: <span id="analyticsProductivityTargetDisplay">220</span> ヶ/1人h
+                </span>
+              </div>
+              <p class="text-xs text-gray-500 mt-0.5">1h/pc（出来高/1人h = 良品数 ÷ 実工数）の月次・日別稼働推移</p>
+            </div>
           </div>
-          <div id="analyticsTrendChart" class="h-[380px] px-2 py-4"></div>
-        </section>
 
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.overview.attentionTitle">What needs attention</h3>
-            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.overview.attentionDesc">Shortlist of the biggest quality, labor, and machine signals in the selected range.</p>
+          <!-- Filters & Controls -->
+          <div class="flex flex-wrap items-center gap-3">
+            <!-- Month Picker -->
+            <label class="flex flex-col text-xs font-semibold text-gray-600">
+              <span data-i18n="analytics.productivity.monthLabel">対象月</span>
+              <input id="analyticsProductivityMonth" type="month" onchange="loadAnalyticsProductivity()" class="mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            </label>
+
+            <!-- 設備 (Source) Selector -->
+            <label class="flex flex-col text-xs font-semibold text-gray-600">
+              <span data-i18n="analytics.productivity.equipmentLabel">設備</span>
+              <select id="analyticsProductivitySource" onchange="loadAnalyticsProductivity()" class="mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-w-[150px]">
+                <option value="all" data-i18n="analytics.productivity.allEquipments">全ての設備</option>
+              </select>
+            </label>
+
+            <!-- 作業者 (Operator) Selector -->
+            <label class="flex flex-col text-xs font-semibold text-gray-600">
+              <span data-i18n="analytics.productivity.filterWorker">作業者</span>
+              <select id="analyticsProductivityOperator" onchange="loadAnalyticsProductivity()" class="mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-w-[140px]">
+                <option value="all" data-i18n="analytics.productivity.allWorkers">全ての作業者</option>
+              </select>
+            </label>
+
+            <!-- 目標 (Target) Input -->
+            <label class="flex flex-col text-xs font-semibold text-gray-600 w-24">
+              <span data-i18n="analytics.productivity.targetInputLabel">目標 (1人h)</span>
+              <input id="analyticsProductivityTarget" type="number" min="1" value="220" onchange="handleAnalyticsProductivityTargetChange()" class="mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-indigo-700 shadow-sm transition hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center">
+            </label>
+
+            <!-- 警戒ライン (Warning) Input -->
+            <label class="flex flex-col text-xs font-semibold text-gray-600 w-24">
+              <span data-i18n="analytics.productivity.warningInputLabel">警戒ライン</span>
+              <input id="analyticsProductivityWarning" type="number" min="1" value="210" onchange="handleAnalyticsProductivityTargetChange()" class="mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-amber-700 shadow-sm transition hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center">
+            </label>
+
+            <!-- Action Buttons -->
+            <div class="flex items-end gap-2 pt-5">
+              <button type="button" onclick="loadAnalyticsProductivity()" class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-100">
+                <i class="ri-refresh-line"></i>
+                <span data-i18n="analytics.refresh">更新</span>
+              </button>
+              <button type="button" onclick="printAnalyticsProductivityWhiteboard()" class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">
+                <i class="ri-printer-line"></i>
+                <span data-i18n="analytics.productivity.printWhiteboard">シート印刷</span>
+              </button>
+            </div>
           </div>
-          <div id="analyticsOverviewDrivers" class="p-6"></div>
-        </section>
+        </div>
+
+        <!-- KPI Summary Cards -->
+        <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-gray-100 pt-4" id="analyticsProductivityKpis">
+          <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+            <span class="text-xs text-gray-500" data-i18n="analytics.productivity.totalPieces">総加工数</span>
+            <div id="analyticsProductivityKpiPieces" class="mt-1 text-xl font-bold text-gray-900">-</div>
+          </div>
+          <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+            <span class="text-xs text-gray-500" data-i18n="analytics.productivity.totalHours">総実工数</span>
+            <div id="analyticsProductivityKpiHours" class="mt-1 text-xl font-bold text-gray-900">-</div>
+          </div>
+          <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+            <span class="text-xs text-indigo-700" data-i18n="analytics.productivity.overallProductivity">全体生産性 (1人h)</span>
+            <div id="analyticsProductivityKpiAvg1hPc" class="mt-1 text-xl font-bold text-indigo-900">-</div>
+          </div>
+          <div class="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+            <span class="text-xs text-emerald-700" data-i18n="analytics.productivity.targetAchievement">目標達成率</span>
+            <div id="analyticsProductivityKpiAchieve" class="mt-1 text-xl font-bold text-emerald-900">-</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Whiteboard Content Container -->
+      <div id="analyticsProductivityContainer" class="space-y-8">
+        <!-- Dynamic Equipment Sections & Worker Productivity Cards injected here -->
       </div>
     </section>
 

@@ -11,7 +11,7 @@ window.addEventListener('languageChanged', () => {
 
 let analyticsRequestId = 0;
 let analyticsCharts = {};
-let analyticsActiveTab = 'overview';
+let analyticsActiveTab = 'productivity';
 let analyticsData = null;
 const ANALYTICS_SHIFT_STORAGE_KEY = 'analyticsWorkerShiftProfile';
 const ANALYTICS_DEFAULT_SHIFT_LABEL = '__analytics_default_shift__';
@@ -486,12 +486,14 @@ function analyticsUpdateTabState() {
     panel.classList.toggle('hidden', panel.getAttribute('data-analytics-panel') !== analyticsActiveTab);
   });
 
-  // Toggle global filters and scope summary when on MoM tab
+  // Toggle global filters and scope summary when on MoM or Productivity tab
   const isMoM = analyticsActiveTab === 'mom';
+  const isProductivity = analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview';
+  const hideGlobalFilters = isMoM || isProductivity;
   const globalFilterCard = document.getElementById('analyticsGlobalFilterCard');
-  if (globalFilterCard) globalFilterCard.classList.toggle('hidden', isMoM);
+  if (globalFilterCard) globalFilterCard.classList.toggle('hidden', hideGlobalFilters);
   const scopeSummary = document.getElementById('analyticsScopeSummarySection');
-  if (scopeSummary) scopeSummary.classList.toggle('hidden', isMoM);
+  if (scopeSummary) scopeSummary.classList.toggle('hidden', hideGlobalFilters);
 
   // Handle filter visibility dynamically
   const cSource = document.getElementById('filter-container-source');
@@ -506,9 +508,12 @@ function analyticsUpdateTabState() {
 }
 
 function setAnalyticsTab(tabName) {
-  analyticsActiveTab = tabName || 'overview';
+  analyticsActiveTab = tabName || 'productivity';
   analyticsUpdateTabState();
-  if (analyticsActiveTab === 'mom') {
+  if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
+    initAnalyticsProductivity();
+    loadAnalyticsProductivity();
+  } else if (analyticsActiveTab === 'mom') {
     initAnalyticsMoM(analyticsData);
     loadAnalyticsMoM();
   } else {
@@ -653,204 +658,592 @@ function renderAnalyticsKpis(summary, previousSummary = null) {
   analyticsRenderCardGrid('analyticsKpiGrid', cards);
 }
 
-function renderAnalyticsOverviewTrendChart(dailyTrend) {
-  if (!Array.isArray(dailyTrend) || dailyTrend.length === 0) {
-    analyticsShowChartEmpty('analyticsTrendChart', t('analytics.overview.noTrendData'));
+// ==========================================================================
+// Productivity (生産性) Tab Implementation
+// Replicates physical factory whiteboard (220/1人h活動)
+// ==========================================================================
+let analyticsProductivityData = null;
+let analyticsProductivityCharts = new Map();
+
+function initAnalyticsProductivity() {
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    monthInput.value = `${y}-${m}`;
+  }
+  handleAnalyticsProductivityTargetChange(false);
+}
+
+function handleAnalyticsProductivityTargetChange(shouldReload = true) {
+  const targetInput = document.getElementById('analyticsProductivityTarget');
+  const targetDisplay = document.getElementById('analyticsProductivityTargetDisplay');
+  if (targetInput && targetDisplay) {
+    targetDisplay.textContent = targetInput.value || '220';
+  }
+  if (shouldReload) {
+    loadAnalyticsProductivity();
+  }
+}
+
+async function loadAnalyticsProductivity() {
+  const container = document.getElementById('analyticsProductivityContainer');
+  if (!container) return;
+
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  const sourceSelect = document.getElementById('analyticsProductivitySource');
+  const operatorSelect = document.getElementById('analyticsProductivityOperator');
+  const targetInput = document.getElementById('analyticsProductivityTarget');
+  const warningInput = document.getElementById('analyticsProductivityWarning');
+
+  const month = monthInput?.value || '';
+  const source = sourceSelect?.value || 'all';
+  const operator = operatorSelect?.value || 'all';
+  const target = Number(targetInput?.value) > 0 ? Number(targetInput.value) : 220;
+  const warning = Number(warningInput?.value) > 0 ? Number(warningInput.value) : 210;
+
+  // Show loading state
+  container.innerHTML = `
+    <div class="flex items-center justify-center py-16 text-gray-400">
+      <div class="flex flex-col items-center gap-3">
+        <div class="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
+        <p class="text-sm font-medium text-gray-500">生産性データを集計中...</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    const params = new URLSearchParams();
+    if (month) params.set('month', month);
+    if (source && source !== 'all') params.set('source', source);
+    if (operator && operator !== 'all') params.set('operator', operator);
+    params.set('target', target);
+    params.set('warning', warning);
+
+    const response = await fetch(`${API_URL}/api/admin/analytics/productivity?${params.toString()}`, {
+      headers: analyticsGetAuthHeaders()
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load productivity data');
+    }
+
+    analyticsProductivityData = result;
+
+    // Update filter dropdown options dynamically while preserving selection
+    if (sourceSelect && result.filterOptions) {
+      const currentVal = sourceSelect.value || 'all';
+      const sourceOptions = (result.filterOptions.availableSources || []);
+      const optsHtml = [`<option value="all">${t('analytics.productivity.allEquipments') || '全ての設備'}</option>`];
+      sourceOptions.forEach(s => {
+        optsHtml.push(`<option value="${analyticsEscapeHtml(s)}">${analyticsEscapeHtml(s)}</option>`);
+      });
+      sourceSelect.innerHTML = optsHtml.join('');
+      if (sourceOptions.includes(currentVal) || currentVal === 'all') {
+        sourceSelect.value = currentVal;
+      }
+    }
+
+    if (operatorSelect && result.filterOptions) {
+      const currentOp = operatorSelect.value || 'all';
+      const opOptions = (result.filterOptions.availableOperators || []);
+      const opHtml = [`<option value="all">${t('analytics.productivity.allWorkers') || '全ての作業者'}</option>`];
+      opOptions.forEach(op => {
+        opHtml.push(`<option value="${analyticsEscapeHtml(op)}">${analyticsEscapeHtml(op)}</option>`);
+      });
+      operatorSelect.innerHTML = opHtml.join('');
+      if (opOptions.includes(currentOp) || currentOp === 'all') {
+        operatorSelect.value = currentOp;
+      }
+    }
+
+    // Render KPIs
+    const kpiPieces = document.getElementById('analyticsProductivityKpiPieces');
+    const kpiHours = document.getElementById('analyticsProductivityKpiHours');
+    const kpiAvg = document.getElementById('analyticsProductivityKpiAvg1hPc');
+    const kpiAchieve = document.getElementById('analyticsProductivityKpiAchieve');
+
+    if (kpiPieces) kpiPieces.textContent = analyticsFormatNumber(result.summary?.totalPieces || 0);
+    if (kpiHours) kpiHours.textContent = analyticsFormatHours(result.summary?.totalHours || 0);
+    if (kpiAvg) {
+      kpiAvg.textContent = result.summary?.overall1hPc
+        ? `${result.summary.overall1hPc.toFixed(1)} ヶ/1人h`
+        : '-';
+    }
+    if (kpiAchieve) {
+      const achieved = result.summary?.achievedCount || 0;
+      const totalOps = result.summary?.totalOperators || 0;
+      const rate = result.summary?.achievementRate || 0;
+      kpiAchieve.textContent = `${achieved} / ${totalOps} (${rate}%)`;
+    }
+
+    renderAnalyticsProductivityTab(result);
+  } catch (error) {
+    console.error('loadAnalyticsProductivity error:', error);
+    container.innerHTML = `
+      <div class="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-center text-rose-700">
+        <p class="font-bold">データの取得に失敗しました</p>
+        <p class="mt-1 text-xs text-rose-600">${analyticsEscapeHtml(error.message)}</p>
+        <button type="button" onclick="loadAnalyticsProductivity()" class="mt-3 inline-flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+          再試行
+        </button>
+      </div>
+    `;
+  }
+}
+
+function disposeAnalyticsProductivityCharts() {
+  analyticsProductivityCharts.forEach((chart, id) => {
+    try {
+      if (chart && typeof chart.dispose === 'function') {
+        chart.dispose();
+      }
+    } catch (e) {
+      console.warn('Error disposing chart:', id, e);
+    }
+  });
+  analyticsProductivityCharts.clear();
+}
+
+function renderAnalyticsProductivityTab(data) {
+  const container = document.getElementById('analyticsProductivityContainer');
+  if (!container) return;
+
+  disposeAnalyticsProductivityCharts();
+
+  if (!data || !data.machines || data.machines.length === 0) {
+    container.innerHTML = `
+      <div class="rounded-2xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
+          <i class="ri-bar-chart-2-line text-2xl"></i>
+        </div>
+        <h3 class="mt-4 text-base font-semibold text-gray-900">${t('analytics.productivity.noDataForMonth') || '対象月の生産性データがありません。'}</h3>
+        <p class="mt-1 text-xs text-gray-500">上部の対象月または設備・作業者のフィルターを変更してください。</p>
+      </div>
+    `;
     return;
   }
 
-  const lgGoodPieces = t('analytics.kpi.goodPieces');
-  const lgManHours = t('analytics.kpi.manHours');
-  const lgIssueRecords = t('analytics.kpi.issueRecords');
-  const lgDefectRate = t('analytics.kpi.defectRate');
+  const daysInMonth = data.daysInMonth || 30;
+  const target = data.target || 220;
+  const warning = data.warning || 210;
+  const monthNumber = data.monthNumber || '';
 
-  analyticsRenderChart('analyticsTrendChart', {
-    color: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'],
-    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: [lgGoodPieces, lgManHours, lgIssueRecords, lgDefectRate] },
-    grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: dailyTrend.map(item => item.label),
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: '#cbd5e1' } }
-    },
-    yAxis: [
-      {
-        type: 'value',
-        name: t('analytics.machine.yAxisPiecesHours'),
-        splitLine: { lineStyle: { color: '#e2e8f0' } }
-      },
-      {
-        type: 'value',
-        name: '% / Issues',
-        splitLine: { show: false }
+  let html = '';
+  let chartCounter = 0;
+  const pendingCharts = [];
+
+  data.machines.forEach(machine => {
+    const machineName = machine.machineName || '未指定';
+    const machineAvgStr = machine.monthlyAvg1hPc != null ? `${machine.monthlyAvg1hPc.toFixed(1)} ヶ/1人h` : '-';
+    const operators = machine.operators || [];
+
+    html += `
+      <section class="space-y-4">
+        <!-- 設備 Whiteboard Header Banner (styled like physical magnet) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-100 via-amber-50 to-yellow-100 px-5 py-3.5 shadow-sm">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-black tracking-wider text-white shadow-sm">
+              設備
+            </span>
+            <h3 class="text-lg font-black text-gray-900 tracking-tight">${analyticsEscapeHtml(machineName)}</h3>
+            <span class="inline-flex items-center rounded-full bg-white/80 border border-amber-200 px-3 py-0.5 text-xs font-bold text-amber-900 shadow-sm">
+              第3目標: ${target}/1h
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-4 text-xs font-semibold text-gray-700">
+            <div>作業者: <span class="text-base font-black text-gray-900">${machine.operatorCount}</span> 名</div>
+            <div class="hidden sm:block text-gray-300">|</div>
+            <div>月間良品数: <span class="text-base font-black text-gray-900">${analyticsFormatNumber(machine.monthlyPieces)}</span> 個</div>
+            <div class="hidden sm:block text-gray-300">|</div>
+            <div>月間工数: <span class="text-base font-black text-gray-900">${analyticsFormatHours(machine.monthlyHours)}</span> h</div>
+            <div class="hidden sm:block text-gray-300">|</div>
+            <div>設備平均: <span class="text-base font-black text-indigo-700">${machineAvgStr}</span></div>
+          </div>
+        </div>
+
+        <!-- 3-Column Responsive Grid matching physical whiteboard cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
+    `;
+
+    operators.forEach(op => {
+      chartCounter++;
+      const chartDomId = `prodWorkerChart_${chartCounter}`;
+      const isAchieved = op.monthlyAvg1hPc && op.monthlyAvg1hPc >= target;
+      const isBelowWarning = op.monthlyAvg1hPc && op.monthlyAvg1hPc < warning;
+
+      let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      if (isBelowWarning) {
+        badgeBg = 'bg-rose-50 text-rose-700 border-rose-200';
+      } else if (!isAchieved) {
+        badgeBg = 'bg-amber-50 text-amber-700 border-amber-200';
       }
-    ],
-    series: [
-      {
-        name: lgGoodPieces,
-        type: 'bar',
-        barMaxWidth: 24,
-        data: dailyTrend.map(item => Number(item.goodCount || 0)),
-        itemStyle: { borderRadius: [8, 8, 0, 0] },
-        yAxisIndex: 0
-      },
-      {
-        name: lgManHours,
-        type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.manHours || 0)),
-        yAxisIndex: 0
-      },
-      {
-        name: lgIssueRecords,
-        type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.issueCount || 0)),
-        yAxisIndex: 1
-      },
-      {
-        name: lgDefectRate,
-        type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.defectRate || 0)),
-        yAxisIndex: 1
+
+      const opAvgStr = op.monthlyAvg1hPc != null ? op.monthlyAvg1hPc.toFixed(1) : '-';
+
+      // Build 5-Row Data Table (日付, ライン, 加工数, 時間, 出来高/1人h, 理由)
+      const dailyDataMap = new Map();
+      (op.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
+
+      const activeDays = (op.dailyData || []).map(d => d.day);
+
+      let tableHtml = '';
+      if (activeDays.length === 0) {
+        tableHtml = `<div class="p-4 text-center text-xs text-gray-400">実績データなし</div>`;
+      } else {
+        const rowDates = [];
+        const rowLines = [];
+        const rowPieces = [];
+        const rowHours = [];
+        const rowRate = [];
+        const rowRemarks = [];
+        let hasAnyRemark = false;
+
+        activeDays.forEach(day => {
+          const item = dailyDataMap.get(day);
+          const dateStr = item ? item.dateLabel : `${monthNumber}/${day}`;
+          const kanban = item?.kanban || '-';
+          const pieces = item ? analyticsFormatNumber(item.pieces) : '-';
+          const hours = item ? item.hours.toFixed(2) : '-';
+          const rateVal = item?.oneHrPc;
+          let rateCellClass = 'text-gray-700';
+          let rateBgClass = '';
+
+          if (rateVal != null) {
+            if (rateVal >= target) {
+              rateCellClass = 'text-emerald-700 font-bold';
+              rateBgClass = 'bg-emerald-50/70';
+            } else if (rateVal >= warning) {
+              rateCellClass = 'text-amber-700 font-bold';
+              rateBgClass = 'bg-amber-50/70';
+            } else {
+              rateCellClass = 'text-rose-700 font-bold';
+              rateBgClass = 'bg-rose-50/70';
+            }
+          }
+
+          const rateStr = rateVal != null ? Math.round(rateVal) : '-';
+          const remark = item?.remarks || '';
+          if (remark) hasAnyRemark = true;
+
+          rowDates.push(`<th class="px-2 py-1 text-center font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap">${dateStr}</th>`);
+          rowLines.push(`<td class="px-2 py-1 text-center text-xs font-semibold text-gray-600 border-r border-gray-200 whitespace-nowrap">${analyticsEscapeHtml(kanban)}</td>`);
+          rowPieces.push(`<td class="px-2 py-1 text-right text-xs font-medium text-gray-800 border-r border-gray-200 whitespace-nowrap">${pieces}</td>`);
+          rowHours.push(`<td class="px-2 py-1 text-right text-xs font-medium text-gray-800 border-r border-gray-200 whitespace-nowrap">${hours}</td>`);
+          rowRate.push(`<td class="px-2 py-1 text-center text-xs ${rateCellClass} ${rateBgClass} border-r border-gray-200 whitespace-nowrap font-mono">${rateStr}</td>`);
+          if (remark) {
+            rowRemarks.push(`<td class="px-2 py-1 text-xs text-rose-600 border-r border-gray-200 max-w-[120px] truncate" title="${analyticsEscapeHtml(remark)}">${analyticsEscapeHtml(remark)}</td>`);
+          } else {
+            rowRemarks.push(`<td class="px-2 py-1 text-xs text-gray-300 border-r border-gray-200 text-center">-</td>`);
+          }
+        });
+
+        tableHtml = `
+          <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <table class="w-full text-xs text-left border-collapse">
+              <tbody>
+                <tr class="bg-gray-100 border-b border-gray-200">
+                  <th class="px-2.5 py-1.5 font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-gray-100 shadow-[1px_0_0_0_#e5e7eb] z-10 w-24">日付</th>
+                  ${rowDates.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">ライン</th>
+                  ${rowLines.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">出来高</th>
+                  ${rowPieces.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">時間</th>
+                  ${rowHours.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 bg-slate-50/60 font-semibold">
+                  <th class="px-2.5 py-1.5 font-bold text-indigo-900 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-slate-100 shadow-[1px_0_0_0_#e5e7eb] z-10">出来高/1人h</th>
+                  ${rowRate.join('')}
+                </tr>
+                ${hasAnyRemark ? `
+                <tr class="bg-rose-50/30">
+                  <th class="px-2.5 py-1 text-xs font-bold text-rose-700 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-rose-50 shadow-[1px_0_0_0_#e5e7eb] z-10">理由</th>
+                  ${rowRemarks.join('')}
+                </tr>
+                ` : ''}
+              </tbody>
+            </table>
+          </div>
+        `;
       }
-    ]
+
+      html += `
+        <div class="productivity-worker-card rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+          <div>
+            <!-- Sheet Card Header -->
+            <div class="border-b border-gray-100 pb-3">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">${analyticsEscapeHtml(machineName)}</span>
+                <span class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-bold ${badgeBg}">
+                  ${op.achievementRate}% 達成
+                </span>
+              </div>
+
+              <div class="mt-2 flex flex-wrap items-baseline justify-between gap-2">
+                <h4 class="text-base font-black text-gray-900 tracking-tight">
+                  出来高（生産性） ${target}/1人h活動
+                </h4>
+                <div class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 border border-indigo-100 px-2.5 py-1">
+                  <span class="text-xs text-indigo-500 font-semibold">氏名</span>
+                  <span class="text-sm font-black text-indigo-950">${analyticsEscapeHtml(op.operatorName)}</span>
+                </div>
+              </div>
+
+              <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div class="flex items-center gap-3">
+                  <div>
+                    当月平均: <span class="text-sm font-black ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr}</span> ヶ/1人h
+                  </div>
+                  <div class="text-gray-300">|</div>
+                  <div>
+                    目標: <span class="font-bold text-gray-800">${target}</span> ヶ/1人h
+                  </div>
+                </div>
+                <div class="text-[11px] text-rose-600 font-medium">
+                  ※ ${warning}/1人h以下の場合は理由を確認
+                </div>
+              </div>
+            </div>
+
+            <!-- ECharts Line Graph Container -->
+            <div id="${chartDomId}" class="h-64 w-full my-3"></div>
+          </div>
+
+          <!-- 5-Row Data Table Container -->
+          <div class="mt-2">
+            ${tableHtml}
+          </div>
+        </div>
+      `;
+
+      pendingCharts.push({
+        domId: chartDomId,
+        operator: op,
+        machine,
+        daysInMonth,
+        target,
+        warning
+      });
+    });
+
+    html += `
+        </div>
+      </section>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Initialize ECharts for each worker card
+  pendingCharts.forEach(item => {
+    initWorkerProductivityChart(item);
   });
 }
 
-function renderAnalyticsOverview(data) {
-  const dailyTrend = data.dailyTrend || [];
-  const topDefect = (data.topDefects || [])[0];
-  const busiestWorker = analyticsGetHighestBy(data.operatorComparison || [], item => Number(item.totalManHours || 0));
-  const unstableMachine = analyticsGetHighestBy(data.sourceBreakdown || [], item => Number(item.totalTroubleTime || 0));
-  const leadProduct = analyticsGetHighestBy(data.topProducts || [], item => Number(item.totalGoodCount || 0));
-  const worstDay = analyticsGetHighestBy(dailyTrend, item => Number(item.issueCount || 0));
+function initWorkerProductivityChart({ domId, operator, daysInMonth, target, warning }) {
+  const chartDom = document.getElementById(domId);
+  if (!chartDom || typeof echarts === 'undefined') return;
 
-  const overviewCards = [
-    {
-      eyebrow: t('analytics.overview.mainDefectDriver'),
-      value: topDefect ? analyticsEscapeHtml(topDefect.name) : t('analytics.overview.noDefects'),
-      detail: topDefect
-        ? t('analytics.overview.defectHits').replace('{n}', analyticsFormatNumber(topDefect.count))
-        : t('analytics.overview.noQualityLoss'),
-      tone: 'bg-rose-50 text-rose-700',
-      icon: 'ri-error-warning-line'
-    },
-    {
-      eyebrow: t('analytics.overview.mostLoadedWorker'),
-      value: busiestWorker ? analyticsEscapeHtml(busiestWorker.name) : t('analytics.overview.noWorkerData'),
-      detail: busiestWorker
-        ? t('analytics.overview.workerHoursRecords')
-            .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
-            .replace('{records}', analyticsFormatNumber(busiestWorker.submissions))
-        : t('analytics.overview.noWorkerActivity'),
-      tone: 'bg-sky-50 text-sky-700',
-      icon: 'ri-user-star-line'
-    },
-    {
-      eyebrow: t('analytics.overview.mostUnstableMachine'),
-      value: unstableMachine ? analyticsEscapeHtml(unstableMachine.source) : t('analytics.overview.noMachineData'),
-      detail: unstableMachine
-        ? t('analytics.overview.machineTroubleRate')
-            .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
-            .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
-        : t('analytics.overview.noMachineActivity'),
-      tone: 'bg-amber-50 text-amber-700',
-      icon: 'ri-cpu-line'
-    },
-    {
-      eyebrow: t('analytics.overview.leadProduct'),
-      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : t('analytics.overview.noProductData'),
-      detail: leadProduct
-        ? t('analytics.overview.productGoodDefect')
-            .replace('{good}', analyticsFormatNumber(leadProduct.totalGoodCount))
-            .replace('{rate}', analyticsFormatPercent(leadProduct.defectRate))
-        : t('analytics.overview.noProductActivity'),
-      tone: 'bg-emerald-50 text-emerald-700',
-      icon: 'ri-box-3-line'
+  const chart = echarts.init(chartDom);
+  analyticsProductivityCharts.set(domId, chart);
+
+  const dailyDataMap = new Map();
+  (operator.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
+
+  const xCategories = [];
+  const seriesData = [];
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    xCategories.push(String(day));
+    const d = dailyDataMap.get(day);
+    if (d && d.oneHrPc != null) {
+      seriesData.push({
+        value: d.oneHrPc,
+        dateLabel: d.dateLabel,
+        kanban: d.kanban,
+        pieces: d.pieces,
+        hours: d.hours,
+        remarks: d.remarks
+      });
+    } else {
+      seriesData.push(null);
     }
-  ];
-
-  const worstBottleneck = (data.machineTimeLoss || [])[0];
-  if (worstBottleneck && Number(worstBottleneck.lostHoursPerDay || 0) >= 0.25) {
-    overviewCards.push({
-      eyebrow: t('analytics.overview.biggestBottleneck'),
-      value: analyticsEscapeHtml(worstBottleneck.source),
-      detail: t('analytics.overview.bottleneckDetail').replace('{hours}', analyticsFormatHours(worstBottleneck.lostHoursPerDay)),
-      tone: 'bg-violet-50 text-violet-700',
-      icon: 'ri-hourglass-line'
-    });
   }
 
-  if (data.finance) {
-    const monthEntry = (data.finance.monthly || []).find(entry => entry.month === data.finance.monthKey);
-    overviewCards.push({
-      eyebrow: t('analytics.overview.profitThisMonth'),
-      value: analyticsFormatCurrency(monthEntry?.earned || 0),
-      detail: t('analytics.overview.profitLostDetail').replace('{n}', analyticsFormatCurrency(monthEntry?.lost || 0)),
-      tone: 'bg-emerald-50 text-emerald-700',
-      icon: 'ri-money-cny-circle-line'
-    });
-  }
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(255, 255, 255, 0.96)',
+      borderColor: '#e5e7eb',
+      borderWidth: 1,
+      textStyle: { color: '#1f2937', fontSize: 12 },
+      formatter: function(params) {
+        if (!params || params.data == null) return '';
+        const d = params.data;
+        const val = typeof d === 'object' ? d.value : d;
+        const pieces = d.pieces != null ? analyticsFormatNumber(d.pieces) : '-';
+        const hours = d.hours != null ? d.hours.toFixed(2) : '-';
+        const kanban = d.kanban || '-';
+        const remarks = d.remarks || '';
 
-  analyticsRenderCardGrid('analyticsOverviewHighlights', overviewCards);
+        return `
+          <div class="font-sans">
+            <div class="font-bold text-gray-900 border-b border-gray-100 pb-1 mb-1">
+              ${d.dateLabel || ('Day ' + params.name)} (${operator.operatorName})
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">出来高/1人h:</span>
+              <span class="font-bold ${val >= target ? 'text-emerald-600' : (val < warning ? 'text-rose-600' : 'text-amber-600')}">${val} ヶ/1人h</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">良品数:</span>
+              <span class="font-semibold text-gray-800">${pieces} 個</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">実工数:</span>
+              <span class="font-semibold text-gray-800">${hours} h</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">ライン/看板:</span>
+              <span class="font-semibold text-indigo-700">${analyticsEscapeHtml(kanban)}</span>
+            </div>
+            ${remarks ? `
+              <div class="mt-1 pt-1 border-t border-rose-100 text-xs text-rose-600">
+                <span class="font-bold">理由:</span> ${analyticsEscapeHtml(remarks)}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+    },
+    grid: {
+      top: 30,
+      left: 36,
+      right: 48,
+      bottom: 24,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: xCategories,
+      axisLabel: {
+        fontSize: 10,
+        color: '#6b7280',
+        interval: 1
+      },
+      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      axisTick: { alignWithLabel: true }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'ヶ/1人h',
+      nameTextStyle: { color: '#6b7280', fontSize: 10, align: 'right' },
+      min: function(val) {
+        const floorTarget = warning - 30;
+        const currentMin = val.min || target;
+        return Math.max(0, Math.floor(Math.min(currentMin, floorTarget) / 10) * 10);
+      },
+      max: function(val) {
+        const ceilTarget = target + 40;
+        const currentMax = val.max || target;
+        return Math.ceil(Math.max(currentMax, ceilTarget) / 10) * 10;
+      },
+      splitLine: {
+        lineStyle: { color: '#f3f4f6', type: 'dashed' }
+      },
+      axisLabel: {
+        fontSize: 10,
+        color: '#6b7280'
+      }
+    },
+    series: [
+      {
+        name: '出来高/1人h',
+        type: 'line',
+        connectNulls: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: {
+          width: 2,
+          color: '#4f46e5'
+        },
+        itemStyle: {
+          color: function(params) {
+            if (!params || params.data == null) return '#4f46e5';
+            const val = typeof params.data === 'object' ? params.data.value : params.data;
+            if (val >= target) return '#10b981'; // Green
+            if (val >= warning) return '#f59e0b'; // Amber
+            return '#ef4444'; // Red
+          }
+        },
+        data: seriesData,
+        markLine: {
+          symbol: ['none', 'none'],
+          silent: false,
+          data: [
+            {
+              yAxis: target,
+              name: '目標',
+              lineStyle: {
+                color: '#dc2626',
+                width: 1.8,
+                type: 'solid'
+              },
+              label: {
+                show: true,
+                position: 'end',
+                formatter: `目標 ${target}`,
+                color: '#dc2626',
+                fontSize: 10,
+                fontWeight: 'bold'
+              }
+            },
+            {
+              yAxis: warning,
+              name: '警戒',
+              lineStyle: {
+                color: '#f97316',
+                width: 1.2,
+                type: 'dashed'
+              },
+              label: {
+                show: true,
+                position: 'end',
+                formatter: `警戒 ${warning}`,
+                color: '#ea580c',
+                fontSize: 9
+              }
+            }
+          ]
+        }
+      }
+    ]
+  };
 
-  renderAnalyticsWeeklyDigest(data);
-  renderAnalyticsOverviewTrendChart(dailyTrend);
+  chart.setOption(option);
+}
 
-  const overviewDrivers = document.getElementById('analyticsOverviewDrivers');
-  if (overviewDrivers) {
-    const machineAlert = unstableMachine
-      ? t('analytics.overview.machineAlertText')
-          .replace('{source}', analyticsEscapeHtml(unstableMachine.source))
-          .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
-          .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
-      : t('analytics.overview.noMachineAlert');
-    const workerAlert = busiestWorker
-      ? t('analytics.overview.workerAlertText')
-          .replace('{name}', analyticsEscapeHtml(busiestWorker.name))
-          .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
-          .replace('{issues}', analyticsFormatNumber(busiestWorker.issueCount))
-      : t('analytics.overview.noWorkerAlert');
-    const dayAlert = worstDay
-      ? t('analytics.overview.dayAlertText')
-          .replace('{day}', analyticsEscapeHtml(worstDay.label))
-          .replace('{issues}', analyticsFormatNumber(worstDay.issueCount))
-          .replace('{rate}', analyticsFormatPercent(worstDay.defectRate))
-      : t('analytics.overview.noDayPattern');
+function printAnalyticsProductivityWhiteboard() {
+  document.body.classList.add('analytics-printing-productivity');
+  window.print();
+  window.setTimeout(() => {
+    document.body.classList.remove('analytics-printing-productivity');
+  }, 1000);
+}
 
-    const qualitySignalText = topDefect
-      ? t('analytics.overview.qualitySignalText')
-          .replace('{name}', analyticsEscapeHtml(topDefect.name))
-          .replace('{count}', analyticsFormatNumber(topDefect.count))
-      : t('analytics.overview.noDefectSignal');
-
-    overviewDrivers.innerHTML = `
-      <div class="space-y-4">
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.qualitySignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${qualitySignalText}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.machineSignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${machineAlert}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.laborSignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${workerAlert}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.dailyPattern'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${dayAlert}</p>
-        </div>
-      </div>`;
-  }
+function renderAnalyticsOverview(data) {
+  initAnalyticsProductivity();
+  loadAnalyticsProductivity();
 }
 
 function renderAnalyticsWorkerProductivityChart(operatorComparison, shiftProfile) {
@@ -4888,7 +5281,9 @@ function analyticsRestoreViewState() {
     const stored = JSON.parse(localStorage.getItem(ANALYTICS_VIEW_STORAGE_KEY) || 'null');
     if (!stored) return;
 
-    if (stored.tab) analyticsActiveTab = stored.tab;
+    if (stored.tab) {
+      analyticsActiveTab = stored.tab === 'overview' ? 'productivity' : stored.tab;
+    }
     const assign = (id, value) => {
       const el = document.getElementById(id);
       if (el && value) el.value = value;
@@ -4928,9 +5323,11 @@ function renderAnalyticsActiveTab() {
       initAnalyticsMoM(analyticsData);
       loadAnalyticsMoM();
       break;
+    case 'productivity':
     case 'overview':
     default:
-      renderAnalyticsOverview(analyticsData);
+      initAnalyticsProductivity();
+      loadAnalyticsProductivity();
       break;
   }
 }
@@ -5308,12 +5705,19 @@ function initializeAnalytics() {
   analyticsSyncShiftControls();
   analyticsUpdateTabState();
   loadAnalyticsFilterOptions();
+  if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
+    initAnalyticsProductivity();
+    loadAnalyticsProductivity();
+  }
   loadAnalytics();
 }
 
 window.addEventListener('resize', () => {
   Object.values(analyticsCharts).forEach(chart => {
     if (chart) chart.resize();
+  });
+  analyticsProductivityCharts.forEach(chart => {
+    if (chart && typeof chart.resize === 'function') chart.resize();
   });
 });
 
@@ -5346,3 +5750,7 @@ window.setAnalyticsMoMChartMode = setAnalyticsMoMChartMode;
 window.loadAnalyticsMoM = loadAnalyticsMoM;
 window.handleAnalyticsMachineMoMChange = handleAnalyticsMoMFilterChange;
 window.loadAnalyticsMachineMoM = loadAnalyticsMoM;
+window.initAnalyticsProductivity = initAnalyticsProductivity;
+window.loadAnalyticsProductivity = loadAnalyticsProductivity;
+window.handleAnalyticsProductivityTargetChange = handleAnalyticsProductivityTargetChange;
+window.printAnalyticsProductivityWhiteboard = printAnalyticsProductivityWhiteboard;
