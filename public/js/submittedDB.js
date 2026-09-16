@@ -922,14 +922,14 @@ function sdbRecalculateModalMetrics(source = 'time') {
   const baselineCycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
 
   if ((source === 'time' || source === 'man_hours') && baselineCycleTime > 0 && effectiveManHours > 0) {
-    const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / baselineCycleTime));
+    const totalPieces = Math.max(0, Math.floor(((effectiveManHours * 60) / baselineCycleTime) + 1e-9));
     goodCountField.value = String(Math.max(0, totalPieces - defectTotal));
   }
 
   if (source === 'cycle_time') {
     const desiredCycleTime = Math.max(0, sdbGetModalNumericValue('cycle_time', baselineCycleTime));
     if (desiredCycleTime > 0 && effectiveManHours > 0) {
-      const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / desiredCycleTime));
+      const totalPieces = Math.max(0, Math.floor(((effectiveManHours * 60) / desiredCycleTime) + 1e-9));
       goodCountField.value = String(Math.max(0, totalPieces - defectTotal));
     }
   }
