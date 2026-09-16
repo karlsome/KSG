@@ -2380,12 +2380,25 @@ function getSubmittedDBAllDefectCount(record = {}) {
 
 function applySubmittedDBDerivedUpdates(existingData = {}, updates = {}) {
     const hasOwn = key => Object.prototype.hasOwnProperty.call(updates, key);
+    const isChanged = (key) => {
+        if (!hasOwn(key)) return false;
+        const valA = updates[key];
+        const valB = existingData[key];
+        if (valA === valB) return false;
+        if (valA === undefined || valA === null) return valB !== undefined && valB !== null;
+        if (valB === undefined || valB === null) return true;
+        if (typeof valA === 'number' || typeof valB === 'number') {
+            return Number(valA) !== Number(valB);
+        }
+        return String(valA).trim() !== String(valB).trim();
+    };
+
     const mergedData = { ...existingData, ...updates };
-    const timeFieldsChanged = ['start_time', 'end_time', 'break_time', 'trouble_time'].some(hasOwn);
-    const cycleTimeChanged = hasOwn('cycle_time');
-    const manHoursChanged = hasOwn('man_hours');
-    const goodCountChanged = hasOwn('good_count');
-    const defectFieldsChanged = Object.keys(updates).some(key => !SUBMITTED_DB_FIXED_FIELDS.has(key));
+    const timeFieldsChanged = ['start_time', 'end_time', 'break_time', 'trouble_time'].some(isChanged);
+    const cycleTimeChanged = isChanged('cycle_time');
+    const manHoursChanged = isChanged('man_hours');
+    const goodCountChanged = isChanged('good_count');
+    const defectFieldsChanged = Object.keys(updates).some(key => !SUBMITTED_DB_FIXED_FIELDS.has(key) && isChanged(key));
 
     if (timeFieldsChanged) {
         const calculatedManHours = calculateSubmittedDBManHours(
@@ -2400,30 +2413,32 @@ function applySubmittedDBDerivedUpdates(existingData = {}, updates = {}) {
             mergedData.man_hours = calculatedManHours;
         }
 
-        const baselineCycleTime = Math.max(0, Number(existingData.cycle_time ?? 0) || 0);
-        const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
-        if (baselineCycleTime > 0 && effectiveManHours > 0) {
-            const defectCount = getSubmittedDBAllDefectCount(mergedData);
-            const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / baselineCycleTime));
-            const derivedGoodCount = Math.max(0, totalPieces - defectCount);
-            updates.good_count = derivedGoodCount;
-            mergedData.good_count = derivedGoodCount;
+        if (!goodCountChanged) {
+            const baselineCycleTime = Math.max(0, Number(existingData.cycle_time ?? 0) || 0);
+            const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
+            if (baselineCycleTime > 0 && effectiveManHours > 0) {
+                const defectCount = getSubmittedDBAllDefectCount(mergedData);
+                const totalPieces = Math.max(0, Math.floor(((effectiveManHours * 60) / baselineCycleTime) + 1e-9));
+                const derivedGoodCount = Math.max(0, totalPieces - defectCount);
+                updates.good_count = derivedGoodCount;
+                mergedData.good_count = derivedGoodCount;
+            }
         }
     }
 
-    if (cycleTimeChanged) {
+    if (cycleTimeChanged && !goodCountChanged) {
         const desiredCycleTime = Math.max(0, Number(mergedData.cycle_time ?? 0) || 0);
         const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
         if (desiredCycleTime > 0 && effectiveManHours > 0) {
             const defectCount = getSubmittedDBAllDefectCount(mergedData);
-            const totalPieces = Math.max(0, Math.floor((effectiveManHours * 60) / desiredCycleTime));
+            const totalPieces = Math.max(0, Math.floor(((effectiveManHours * 60) / desiredCycleTime) + 1e-9));
             const derivedGoodCount = Math.max(0, totalPieces - defectCount);
             updates.good_count = derivedGoodCount;
             mergedData.good_count = derivedGoodCount;
         }
     }
 
-    const shouldRecalculateCycleTime = timeFieldsChanged || (!cycleTimeChanged && (manHoursChanged || goodCountChanged || defectFieldsChanged));
+    const shouldRecalculateCycleTime = goodCountChanged || defectFieldsChanged || timeFieldsChanged || (!cycleTimeChanged && manHoursChanged);
     if (shouldRecalculateCycleTime) {
         const effectiveManHours = Math.max(0, Number(mergedData.man_hours ?? 0) || 0);
         const goodCount = Math.max(0, Number(mergedData.good_count ?? 0) || 0);
