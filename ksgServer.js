@@ -2964,18 +2964,27 @@ function computeSubmittedDBOperatorDaily(records = []) {
         .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
-function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = []) {
+function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = [], machineFactoryMap = null) {
     const machineMap = new Map();
-    
+
+    const getFactoryFor = (name, fallback = '') => {
+        if (machineFactoryMap && machineFactoryMap.has(name)) {
+            const f = machineFactoryMap.get(name);
+            if (f && f !== 'その他') return f;
+        }
+        return fallback || 'その他';
+    };
+
     // Pre-populate with all known machines to ensure they appear even if idle today
     allMachineNames.forEach(name => {
-        if (name) machineMap.set(name, { source: name, dayMap: new Map() });
+        if (name) machineMap.set(name, { source: name, factory: getFactoryFor(name), dayMap: new Map() });
     });
 
     records.forEach(record => {
         const source = String(record.submitted_from ?? '').trim();
         if (!source) return;
 
+        const recordFactory = String(record.工場 ?? '').trim();
         const dateInfo = getSubmittedDBRecordDateInfo(record);
         const goodCount = Number(record.good_count ?? 0) || 0;
         const defects = getSubmittedDBRecordDefects(record);
@@ -3003,7 +3012,11 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
             remarks: String(record.remarks ?? '').trim()
         };
 
-        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        const machineEntry = machineMap.get(source) || { source, factory: getFactoryFor(source, recordFactory), dayMap: new Map() };
+        if ((!machineEntry.factory || machineEntry.factory === 'その他') && recordFactory) {
+            machineEntry.factory = recordFactory;
+        }
+
         const dayEntry = machineEntry.dayMap.get(dateInfo.key) || {
             date: dateInfo.key,
             label: dateInfo.label,
@@ -3034,11 +3047,15 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         const source = String(session.source ?? '').trim();
         if (!source) return;
 
-        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
-        
+        const sessionFactory = String(session.factoryLocation || session.工場 || '').trim();
+        const machineEntry = machineMap.get(source) || { source, factory: getFactoryFor(source, sessionFactory), dayMap: new Map() };
+        if ((!machineEntry.factory || machineEntry.factory === 'その他') && sessionFactory) {
+            machineEntry.factory = sessionFactory;
+        }
+
         const now = new Date();
         const todayKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        
+
         const dayEntry = machineEntry.dayMap.get(todayKey) || {
             date: todayKey,
             label: `${now.getMonth()+1}/${now.getDate()}`,
@@ -3073,7 +3090,7 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         });
 
         if (session.productName || session.hinban) dayEntry.products.add(session.productName || session.hinban);
-        
+
         machineEntry.dayMap.set(todayKey, dayEntry);
         machineMap.set(source, machineEntry);
     });
@@ -3081,6 +3098,7 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
     return [...machineMap.values()]
         .map(machineEntry => ({
             source: machineEntry.source,
+            factory: getFactoryFor(machineEntry.source, machineEntry.factory),
             days: [...machineEntry.dayMap.values()]
                 .sort((a, b) => a.date.localeCompare(b.date))
                 .map(day => ({
@@ -3090,7 +3108,16 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
                     records: day.records.sort((a, b) => a.startTime.localeCompare(b.startTime))
                 }))
         }))
-        .sort((a, b) => a.source.localeCompare(b.source, 'ja'));
+        .sort((a, b) => {
+            const fa = a.factory || '';
+            const fb = b.factory || '';
+            if (fa !== fb) {
+                if (fa === 'その他') return 1;
+                if (fb === 'その他') return -1;
+                return fa.localeCompare(fb, 'ja');
+            }
+            return a.source.localeCompare(b.source, 'ja');
+        });
 }
 
 // Worker-vs-worker efficiency on the same product (fair comparison because
@@ -4505,13 +4532,47 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
                 .toArray(),
             collection.aggregate(aggregatePipeline).toArray(),
             db.collection('tabletDB').find(tabletFilter).toArray(),
-            db.collection('equipment').find(equipmentFilter, { projection: { 設備名: 1 } }).toArray()
+            db.collection('equipment').find(equipmentFilter, { projection: { 設備名: 1, 工場: 1 } }).toArray()
         ]);
 
         const equipmentNames = (equipmentDocs || []).map(e => String(e.設備名 || '').trim()).filter(Boolean);
         const tabletNames = (tablets || []).map(t => String(t.設備名 || t.tabletName || '').trim()).filter(Boolean);
         const submittedSources = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
         const allMachineNames = [...new Set([...equipmentNames, ...tabletNames, ...submittedSources])];
+
+        const machineFactoryMap = new Map();
+        (equipmentDocs || []).forEach(e => {
+            const name = String(e.設備名 || '').trim();
+            const factories = normalizeMachineStatusStringList(e.工場);
+            if (name && factories.length > 0) {
+                machineFactoryMap.set(name, factories[0]);
+            }
+        });
+        (tablets || []).forEach(t => {
+            const eqName = String(t.設備名 || '').trim();
+            const tabName = String(t.tabletName || '').trim();
+            const factory = String(t.factoryLocation || t.工場 || '').trim();
+            if (factory) {
+                if (eqName && !machineFactoryMap.has(eqName)) machineFactoryMap.set(eqName, factory);
+                if (tabName && !machineFactoryMap.has(tabName)) machineFactoryMap.set(tabName, factory);
+            }
+        });
+        (sessionRecords || []).forEach(s => {
+            const eqName = String(s.equipmentName || '').trim();
+            const tabName = String(s.tabletName || '').trim();
+            const factory = String(s.factoryLocation || s.工場 || '').trim();
+            if (factory) {
+                if (eqName && !machineFactoryMap.has(eqName)) machineFactoryMap.set(eqName, factory);
+                if (tabName && !machineFactoryMap.has(tabName)) machineFactoryMap.set(tabName, factory);
+            }
+        });
+        (todayRecords || []).forEach(r => {
+            const source = String(r.submitted_from || '').trim();
+            const factory = String(r.工場 || '').trim();
+            if (source && factory && !machineFactoryMap.has(source)) {
+                machineFactoryMap.set(source, factory);
+            }
+        });
 
         const tabletMap = new Map();
         tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
@@ -4533,7 +4594,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             return {
                 id: session._id,
                 isLive: true,
-                source: tabletMap.get(session.tabletName) || session.tabletName,
+                source: tabletMap.get(session.tabletName) || session.equipmentName || session.tabletName,
+                factoryLocation: session.factoryLocation || session.工場 || '',
                 startTime: formattedStart,
                 endTime: formattedNow,
                 breakTime: breakMins / 60,
@@ -4867,7 +4929,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             topOperators,
             workerHoursToday,
             dailyTrend: last7Days.map(day => trendMap.get(day.key)),
-            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames)
+            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames, machineFactoryMap)
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);

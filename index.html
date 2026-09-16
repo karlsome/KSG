@@ -1506,9 +1506,24 @@
       }
       const totalShiftMins = Math.max(1, shiftEnd - shiftStart);
 
-      let cardsHtml = '';
+      const resolveMachineFactory = (machine) => {
+        if (machine && machine.factory && String(machine.factory).trim() && machine.factory !== 'その他') {
+          return String(machine.factory).trim();
+        }
+        if (adminDashboardData && Array.isArray(adminDashboardData.machineStatus)) {
+          const matched = adminDashboardData.machineStatus.find(ms =>
+            ms.machineName === machine.source ||
+            ms.machineKey === machine.source ||
+            ms.tabletName === machine.source
+          );
+          if (matched && matched.factory && String(matched.factory).trim()) {
+            return String(matched.factory).trim();
+          }
+        }
+        return (machine && machine.factory) || 'その他';
+      };
 
-      machines.forEach(machine => {
+      const renderMachineCard = (machine) => {
         const dayData = (machine.days || []).find(d => d.date === targetDate);
         const records = dayData ? dayData.records || [] : [];
         
@@ -1574,8 +1589,8 @@
         const prodMn = Math.round(totalProducing % 60);
         const prodFmt = prodHr > 0 ? `${prodHr}h ${prodMn}m` : `${prodMn}m`;
         
-        cardsHtml += `
-          <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+        return `
+          <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:shadow-md">
             <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${escapeDashboardHtml(machine.source)}">${escapeDashboardHtml(machine.source)}</h4>
             
             <div class="space-y-3">
@@ -1602,12 +1617,59 @@
             </div>
           </div>
         `;
+      };
+
+      // Group machines by factory
+      const factoryMap = new Map();
+      machines.forEach(machine => {
+        const factory = resolveMachineFactory(machine);
+        if (!factoryMap.has(factory)) {
+          factoryMap.set(factory, []);
+        }
+        factoryMap.get(factory).push(machine);
+      });
+
+      // Sort factory names: known factories in alphabetical order, 'その他' last
+      const sortedFactoryNames = [...factoryMap.keys()].sort((a, b) => {
+        if (a === 'その他') return 1;
+        if (b === 'その他') return -1;
+        return a.localeCompare(b, 'ja');
+      });
+
+      let factoryGroupsHtml = '';
+      sortedFactoryNames.forEach(factoryName => {
+        const groupMachines = factoryMap.get(factoryName) || [];
+        const cardsHtml = groupMachines.map(renderMachineCard).join('');
+
+        factoryGroupsHtml += `
+          <div class="space-y-3">
+            <div class="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-gray-100 shadow-sm">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 text-xs shadow-xs">
+                  <i class="ri-building-line"></i>
+                </span>
+                <h4 class="text-sm font-semibold text-gray-800">${escapeDashboardHtml(factoryName)}</h4>
+              </div>
+              <span class="text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200/60 px-2.5 py-0.5 rounded-full">
+                ${groupMachines.length}
+              </span>
+            </div>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              ${cardsHtml}
+            </div>
+          </div>
+        `;
       });
 
       summaryContainer.innerHTML = `
-        <h3 class="text-sm font-medium text-gray-700 mb-4">${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          ${cardsHtml}
+        <div class="space-y-6">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-medium text-gray-700">${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
+            <span class="text-xs font-medium text-gray-400">
+              ${machines.length}
+            </span>
+          </div>
+          ${factoryGroupsHtml}
         </div>
       `;
     }
