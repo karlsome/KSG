@@ -842,31 +842,33 @@ function renderAnalyticsProductivityTab(data) {
 
     html += `
       <section class="space-y-4">
-        <!-- 設備 Whiteboard Header Banner (styled like physical magnet) -->
-        <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-100 via-amber-50 to-yellow-100 px-5 py-3.5 shadow-sm">
-          <div class="flex items-center gap-3">
-            <span class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-black tracking-wider text-white shadow-sm">
-              設備
-            </span>
-            <h3 class="text-lg font-black text-gray-900 tracking-tight">${analyticsEscapeHtml(machineName)}</h3>
-            <span class="inline-flex items-center rounded-full bg-white/80 border border-amber-200 px-3 py-0.5 text-xs font-bold text-amber-900 shadow-sm">
-              第3目標: ${target}/1h
-            </span>
-          </div>
+        <!-- 設備 Whiteboard Header Banner (styled consistently with MoM Tab) -->
+        <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shadow-2xs">
+                <i class="ri-cpu-line text-lg"></i>
+              </div>
+              <h3 class="text-base font-semibold text-gray-900">${analyticsEscapeHtml(machineName)}</h3>
+              <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                第3目標: ${target}/1h
+              </span>
+            </div>
 
-          <div class="flex flex-wrap items-center gap-4 text-xs font-semibold text-gray-700">
-            <div>作業者: <span class="text-base font-black text-gray-900">${machine.operatorCount}</span> 名</div>
-            <div class="hidden sm:block text-gray-300">|</div>
-            <div>月間良品数: <span class="text-base font-black text-gray-900">${analyticsFormatNumber(machine.monthlyPieces)}</span> 個</div>
-            <div class="hidden sm:block text-gray-300">|</div>
-            <div>月間工数: <span class="text-base font-black text-gray-900">${analyticsFormatHours(machine.monthlyHours)}</span> h</div>
-            <div class="hidden sm:block text-gray-300">|</div>
-            <div>設備平均: <span class="text-base font-black text-indigo-700">${machineAvgStr}</span></div>
+            <div class="flex flex-wrap items-center gap-4 text-xs font-medium text-gray-500">
+              <div>作業者: <span class="text-sm font-semibold text-gray-900 tabular-nums">${machine.operatorCount}</span> 名</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>月間良品数: <span class="text-sm font-semibold text-gray-900 tabular-nums">${analyticsFormatNumber(machine.monthlyPieces)}</span> 個</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>月間工数: <span class="text-sm font-semibold text-gray-900 tabular-nums">${analyticsFormatHours(machine.monthlyHours)}</span> h</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>設備平均: <span class="text-sm font-semibold text-indigo-600 tabular-nums">${machineAvgStr}</span></div>
+            </div>
           </div>
         </div>
 
-        <!-- 3-Column Responsive Grid matching physical whiteboard cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
+        <!-- Full-Width Stacked Cards (Graph + Table sequence per worker, all month with no horizontal scrolling) -->
+        <div class="space-y-8">
     `;
 
     operators.forEach(op => {
@@ -884,7 +886,7 @@ function renderAnalyticsProductivityTab(data) {
 
       const opAvgStr = op.monthlyAvg1hPc != null ? op.monthlyAvg1hPc.toFixed(1) : '-';
 
-      // Build 5-Row Data Table (日付, ライン, 加工数, 時間, 出来高/1人h, 理由)
+      // Build 5-Row Data Table (日付, ライン, 良品数, 時間, 出来高/1人h, 理由)
       const dailyDataMap = new Map();
       (op.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
 
@@ -892,7 +894,7 @@ function renderAnalyticsProductivityTab(data) {
 
       let tableHtml = '';
       if (activeDays.length === 0) {
-        tableHtml = `<div class="p-4 text-center text-xs text-gray-400">実績データなし</div>`;
+        tableHtml = `<div class="p-4 text-center text-xs text-gray-400 font-medium">実績データなし</div>`;
       } else {
         const rowDates = [];
         const rowLines = [];
@@ -914,13 +916,13 @@ function renderAnalyticsProductivityTab(data) {
 
           if (rateVal != null) {
             if (rateVal >= target) {
-              rateCellClass = 'text-emerald-700 font-bold';
+              rateCellClass = 'text-emerald-700 font-semibold';
               rateBgClass = 'bg-emerald-50/70';
             } else if (rateVal >= warning) {
-              rateCellClass = 'text-amber-700 font-bold';
+              rateCellClass = 'text-amber-700 font-semibold';
               rateBgClass = 'bg-amber-50/70';
             } else {
-              rateCellClass = 'text-rose-700 font-bold';
+              rateCellClass = 'text-rose-700 font-semibold';
               rateBgClass = 'bg-rose-50/70';
             }
           }
@@ -929,45 +931,45 @@ function renderAnalyticsProductivityTab(data) {
           const remark = item?.remarks || '';
           if (remark) hasAnyRemark = true;
 
-          rowDates.push(`<th class="px-2 py-1 text-center font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap">${dateStr}</th>`);
-          rowLines.push(`<td class="px-2 py-1 text-center text-xs font-semibold text-gray-600 border-r border-gray-200 whitespace-nowrap">${analyticsEscapeHtml(kanban)}</td>`);
-          rowPieces.push(`<td class="px-2 py-1 text-right text-xs font-medium text-gray-800 border-r border-gray-200 whitespace-nowrap">${pieces}</td>`);
-          rowHours.push(`<td class="px-2 py-1 text-right text-xs font-medium text-gray-800 border-r border-gray-200 whitespace-nowrap">${hours}</td>`);
-          rowRate.push(`<td class="px-2 py-1 text-center text-xs ${rateCellClass} ${rateBgClass} border-r border-gray-200 whitespace-nowrap font-mono">${rateStr}</td>`);
+          rowDates.push(`<th class="px-2.5 py-1.5 text-center text-xs font-semibold text-gray-600 border-r border-gray-100 whitespace-nowrap">${dateStr}</th>`);
+          rowLines.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-gray-600 border-r border-gray-100 whitespace-nowrap">${analyticsEscapeHtml(kanban)}</td>`);
+          rowPieces.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-900 border-r border-gray-100 whitespace-nowrap">${pieces}</td>`);
+          rowHours.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-500 border-r border-gray-100 whitespace-nowrap">${hours}</td>`);
+          rowRate.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${rateCellClass} ${rateBgClass} border-r border-gray-100 whitespace-nowrap">${rateStr}</td>`);
           if (remark) {
-            rowRemarks.push(`<td class="px-2 py-1 text-xs text-rose-600 border-r border-gray-200 max-w-[120px] truncate" title="${analyticsEscapeHtml(remark)}">${analyticsEscapeHtml(remark)}</td>`);
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-rose-600 border-r border-gray-100 max-w-[140px] truncate" title="${analyticsEscapeHtml(remark)}">${analyticsEscapeHtml(remark)}</td>`);
           } else {
-            rowRemarks.push(`<td class="px-2 py-1 text-xs text-gray-300 border-r border-gray-200 text-center">-</td>`);
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100">-</td>`);
           }
         });
 
         tableHtml = `
-          <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-2xs">
             <table class="w-full text-xs text-left border-collapse">
               <tbody>
-                <tr class="bg-gray-100 border-b border-gray-200">
-                  <th class="px-2.5 py-1.5 font-bold text-gray-700 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-gray-100 shadow-[1px_0_0_0_#e5e7eb] z-10 w-24">日付</th>
+                <tr class="bg-gray-50 border-b border-gray-100">
+                  <th class="px-3 py-1.5 text-left font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-gray-50 shadow-[1px_0_0_0_#f3f4f6] z-10 w-28">日付</th>
                   ${rowDates.join('')}
                 </tr>
                 <tr class="border-b border-gray-100 hover:bg-gray-50/50">
-                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">ライン</th>
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">ライン</th>
                   ${rowLines.join('')}
                 </tr>
                 <tr class="border-b border-gray-100 hover:bg-gray-50/50">
-                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">出来高</th>
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">良品数</th>
                   ${rowPieces.join('')}
                 </tr>
                 <tr class="border-b border-gray-100 hover:bg-gray-50/50">
-                  <th class="px-2.5 py-1 font-bold text-gray-600 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#e5e7eb] z-10">時間</th>
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">時間</th>
                   ${rowHours.join('')}
                 </tr>
-                <tr class="border-b border-gray-100 bg-slate-50/60 font-semibold">
-                  <th class="px-2.5 py-1.5 font-bold text-indigo-900 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-slate-100 shadow-[1px_0_0_0_#e5e7eb] z-10">出来高/1人h</th>
+                <tr class="border-b border-gray-100 bg-indigo-50/30">
+                  <th class="px-3 py-1.5 text-left font-semibold text-indigo-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-indigo-50/50 shadow-[1px_0_0_0_#f3f4f6] z-10">出来高/1人h</th>
                   ${rowRate.join('')}
                 </tr>
                 ${hasAnyRemark ? `
                 <tr class="bg-rose-50/30">
-                  <th class="px-2.5 py-1 text-xs font-bold text-rose-700 border-r border-gray-200 whitespace-nowrap sticky left-0 bg-rose-50 shadow-[1px_0_0_0_#e5e7eb] z-10">理由</th>
+                  <th class="px-3 py-1 text-left text-xs font-semibold text-rose-600 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-rose-50 shadow-[1px_0_0_0_#f3f4f6] z-10">理由</th>
                   ${rowRemarks.join('')}
                 </tr>
                 ` : ''}
@@ -978,49 +980,48 @@ function renderAnalyticsProductivityTab(data) {
       }
 
       html += `
-        <div class="productivity-worker-card rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+        <div class="productivity-worker-card w-full rounded-2xl border border-gray-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col space-y-4">
           <div>
             <!-- Sheet Card Header -->
             <div class="border-b border-gray-100 pb-3">
               <div class="flex items-center justify-between gap-2">
-                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">${analyticsEscapeHtml(machineName)}</span>
-                <span class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-bold ${badgeBg}">
+                <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">${analyticsEscapeHtml(machineName)}</span>
+                <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badgeBg}">
                   ${op.achievementRate}% 達成
                 </span>
               </div>
 
-              <div class="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-                <h4 class="text-base font-black text-gray-900 tracking-tight">
-                  出来高（生産性） ${target}/1人h活動
+              <div class="mt-2 flex flex-wrap items-baseline justify-between gap-3">
+                <h4 class="text-base font-semibold text-gray-900">
+                  出来高（生産性） 当月平均: <span class="tabular-nums font-semibold ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr} ヶ/1人h</span>
                 </h4>
-                <div class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 border border-indigo-100 px-2.5 py-1">
-                  <span class="text-xs text-indigo-500 font-semibold">氏名</span>
-                  <span class="text-sm font-black text-indigo-950">${analyticsEscapeHtml(op.operatorName)}</span>
+                <div class="inline-flex items-center gap-2 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-1">
+                  <span class="text-xs font-medium text-indigo-500">氏名</span>
+                  <span class="text-sm font-semibold text-indigo-900">${analyticsEscapeHtml(op.operatorName)}</span>
                 </div>
               </div>
 
-              <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div class="flex items-center gap-3">
-                  <div>
-                    当月平均: <span class="text-sm font-black ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr}</span> ヶ/1人h
-                  </div>
-                  <div class="text-gray-300">|</div>
-                  <div>
-                    目標: <span class="font-bold text-gray-800">${target}</span> ヶ/1人h
-                  </div>
+              <div class="mt-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                    目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${target}</strong> ヶ/1人h
+                  </span>
+                  <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                    警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${warning}</strong> ヶ/1人h
+                  </span>
                 </div>
-                <div class="text-[11px] text-rose-600 font-medium">
+                <div class="text-xs font-medium text-rose-500">
                   ※ ${warning}/1人h以下の場合は理由を確認
                 </div>
               </div>
             </div>
 
-            <!-- ECharts Line Graph Container -->
-            <div id="${chartDomId}" class="h-64 w-full my-3"></div>
+            <!-- ECharts Line Graph Container (Full Width, Spacious) -->
+            <div id="${chartDomId}" class="h-80 w-full my-3"></div>
           </div>
 
-          <!-- 5-Row Data Table Container -->
-          <div class="mt-2">
+          <!-- 5-Row Data Table Container (All Month, Zero Scroll on desktop) -->
+          <div class="w-full mt-2">
             ${tableHtml}
           </div>
         </div>
@@ -1097,29 +1098,29 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
         const remarks = d.remarks || '';
 
         return `
-          <div class="font-sans">
-            <div class="font-bold text-gray-900 border-b border-gray-100 pb-1 mb-1">
+          <div class="font-sans text-xs">
+            <div class="font-semibold text-gray-900 border-b border-gray-100 pb-1 mb-1">
               ${d.dateLabel || ('Day ' + params.name)} (${operator.operatorName})
             </div>
             <div class="flex justify-between gap-4 text-xs py-0.5">
               <span class="text-gray-500">出来高/1人h:</span>
-              <span class="font-bold ${val >= target ? 'text-emerald-600' : (val < warning ? 'text-rose-600' : 'text-amber-600')}">${val} ヶ/1人h</span>
+              <span class="font-semibold tabular-nums ${val >= target ? 'text-emerald-600' : (val < warning ? 'text-rose-600' : 'text-amber-600')}">${val} ヶ/1人h</span>
             </div>
             <div class="flex justify-between gap-4 text-xs py-0.5">
               <span class="text-gray-500">良品数:</span>
-              <span class="font-semibold text-gray-800">${pieces} 個</span>
+              <span class="font-medium text-gray-900 tabular-nums">${pieces} 個</span>
             </div>
             <div class="flex justify-between gap-4 text-xs py-0.5">
               <span class="text-gray-500">実工数:</span>
-              <span class="font-semibold text-gray-800">${hours} h</span>
+              <span class="font-medium text-gray-600 tabular-nums">${hours} h</span>
             </div>
             <div class="flex justify-between gap-4 text-xs py-0.5">
               <span class="text-gray-500">ライン/看板:</span>
-              <span class="font-semibold text-indigo-700">${analyticsEscapeHtml(kanban)}</span>
+              <span class="font-medium text-indigo-700">${analyticsEscapeHtml(kanban)}</span>
             </div>
             ${remarks ? `
               <div class="mt-1 pt-1 border-t border-rose-100 text-xs text-rose-600">
-                <span class="font-bold">理由:</span> ${analyticsEscapeHtml(remarks)}
+                <span class="font-semibold">理由:</span> ${analyticsEscapeHtml(remarks)}
               </div>
             ` : ''}
           </div>
@@ -1127,10 +1128,10 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
       }
     },
     grid: {
-      top: 30,
-      left: 36,
-      right: 48,
-      bottom: 24,
+      top: 35,
+      left: 45,
+      right: 60,
+      bottom: 25,
       containLabel: true
     },
     xAxis: {
@@ -1139,9 +1140,9 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
       axisLabel: {
         fontSize: 10,
         color: '#6b7280',
-        interval: 1
+        interval: 0
       },
-      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      axisLine: { lineStyle: { color: '#cbd5e1' } },
       axisTick: { alignWithLabel: true }
     },
     yAxis: {
@@ -1159,7 +1160,7 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
         return Math.ceil(Math.max(currentMax, ceilTarget) / 10) * 10;
       },
       splitLine: {
-        lineStyle: { color: '#f3f4f6', type: 'dashed' }
+        lineStyle: { color: '#f1f5f9' }
       },
       axisLabel: {
         fontSize: 10,
@@ -1174,7 +1175,7 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
         symbol: 'circle',
         symbolSize: 6,
         lineStyle: {
-          width: 2,
+          width: 2.5,
           color: '#4f46e5'
         },
         itemStyle: {
@@ -1205,7 +1206,7 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
                 formatter: `目標 ${target}`,
                 color: '#dc2626',
                 fontSize: 10,
-                fontWeight: 'bold'
+                fontWeight: '500'
               }
             },
             {
@@ -1221,7 +1222,8 @@ function initWorkerProductivityChart({ domId, operator, daysInMonth, target, war
                 position: 'end',
                 formatter: `警戒 ${warning}`,
                 color: '#ea580c',
-                fontSize: 9
+                fontSize: 9,
+                fontWeight: '500'
               }
             }
           ]

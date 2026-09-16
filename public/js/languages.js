@@ -2267,7 +2267,7 @@ const translations = {
         totalHours: "総実工数",
         overallProductivity: "全体生産性 (1人h)",
         targetAchievement: "目標達成率",
-        printWhiteboard: "シート印刷",
+        printWhiteboard: "印刷",
         tableDate: "日付",
         tableLine: "ライン",
         tablePieces: "出来高（良品数）",
