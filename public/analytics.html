@@ -285,9 +285,6 @@
                   <i class="ri-line-chart-line text-lg"></i>
                 </div>
                 <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.productivity.activityBanner">生産性向上活動</h3>
-                <span id="analyticsProductivityBadgeTarget" class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
-                  <span data-i18n="analytics.productivity.targetLabel">目標</span>: <span id="analyticsProductivityTargetDisplay">220</span> ヶ/1人h
-                </span>
               </div>
               <p class="mt-1 text-sm text-gray-500">
                 1h/pc（出来高/1人h = 良品数 ÷ 実工数）の月次・日別稼働推移
@@ -330,18 +327,6 @@
                 <option value="all" data-i18n="analytics.productivity.allWorkers">全ての作業者</option>
               </select>
             </div>
-
-            <!-- 目標 (Target) Input -->
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs font-medium text-gray-500" data-i18n="analytics.productivity.targetInputLabel">目標 (1人h):</span>
-              <input id="analyticsProductivityTarget" type="number" min="1" value="220" onchange="handleAnalyticsProductivityTargetChange()" class="w-20 rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-sm font-semibold text-indigo-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer text-center">
-            </div>
-
-            <!-- 警戒ライン (Warning) Input -->
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs font-medium text-gray-500" data-i18n="analytics.productivity.warningInputLabel">警戒ライン:</span>
-              <input id="analyticsProductivityWarning" type="number" min="1" value="210" onchange="handleAnalyticsProductivityTargetChange()" class="w-20 rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-sm font-semibold text-amber-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer text-center">
-            </div>
           </div>
         </div>
       </section>
@@ -380,19 +365,19 @@
           </div>
         </div>
         <div class="space-y-5 px-6 py-5" id="analyticsWorkerReportBody">
-          <div id="analyticsWorkerInsight" class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"></div>
+          <div id="analyticsWorkerInsight" class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700"></div>
           <div id="analyticsWorkerScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"></div>
           <div id="analyticsWorkerDailySection">
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.timelineTitle">Day timeline</p>
+            <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.timelineTitle">Day timeline</p>
             <div id="analyticsWorkerDayTimeline"></div>
           </div>
           <div id="analyticsWorkerMonthlySection" class="hidden space-y-5">
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.calendarTitle">Month at a glance (click a day for details)</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.calendarTitle">Month at a glance (click a day for details)</p>
               <div id="analyticsWorkerCalendar"></div>
             </div>
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.monthTrendTitle">Daily output this month</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.monthTrendTitle">Daily output this month</p>
               <div id="analyticsWorkerMonthChart" class="h-[300px]"></div>
             </div>
           </div>
@@ -616,16 +601,16 @@
           <div id="analyticsProductDetailHeader"></div>
           <div id="analyticsProductDetailScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"></div>
           <div>
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.paceTitle">Pace history (minutes per piece — lower is faster)</p>
+            <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.paceTitle">Pace history (minutes per piece — lower is faster)</p>
             <div id="analyticsProductPaceChart" class="h-[300px]"></div>
           </div>
           <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.defectsTitle">Defects on this product</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.defectsTitle">Defects on this product</p>
               <div id="analyticsProductDefectBars"></div>
             </div>
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.peopleTitle">Made by</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.peopleTitle">Made by</p>
               <div id="analyticsProductPeople"></div>
             </div>
           </div>
@@ -915,7 +900,7 @@
         
         <div class="overflow-x-auto rounded-xl border border-gray-200">
           <table class="w-full text-left text-sm text-gray-600">
-            <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-700">
               <tr>
                 <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('worker')">
                   <div class="flex items-center gap-1">Worker <i id="sortIcon-worker" class="ri-arrow-up-down-line text-gray-400"></i></div>

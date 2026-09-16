@@ -428,8 +428,11 @@ const translations = {
       equipment: "Equipment",
       factory: "Factory",
       cycleTime: "Cycle Time",
+      grossProfit: "Gross Profit / pc (¥)",
       inspectionMembers: "Inspection Members",
       capacity: "Capacity",
+      target: "Target (1h)",
+      warning: "Warning Line",
       productImage: "Product Image",
 
       // Factory
@@ -1697,6 +1700,8 @@ const translations = {
       grossProfit: "粗利 / pc (￥)",
       inspectionMembers: "検査メンバー数",
       capacity: "収容数",
+      target: "目標 (1人h)",
+      warning: "警戒ライン",
       productImage: "製品画像",
 
       // Factory

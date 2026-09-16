@@ -4922,11 +4922,44 @@ async function handleAnalyticsProductivityRequest(req, res) {
             }
         }
 
-        const target = Number(req.query.target) > 0 ? Number(req.query.target) : 220;
-        const warning = Number(req.query.warning) > 0 ? Number(req.query.warning) : 210;
+        const defaultTarget = Number(req.query.target) > 0 ? Number(req.query.target) : 220;
+        const defaultWarning = Number(req.query.warning) > 0 ? Number(req.query.warning) : 210;
         const requestedSource = String(req.query.source ?? '').trim();
         const requestedOperator = String(req.query.operator ?? '').trim();
         const requestedFactory = String(req.query.factory ?? '').trim();
+
+        // Load masterDB records for product-level 目標 and 警戒 settings
+        const masterCollection = db.collection('masterDB');
+        const masterDocs = await masterCollection.find({}).project({
+            品番: 1,
+            製品名: 1,
+            設備: 1,
+            kanbanID: 1,
+            目標: 1,
+            警戒: 1
+        }).toArray();
+
+        const masterByProduct = new Map();
+        const masterByHinban = new Map();
+        const masterByEquipment = new Map();
+
+        (masterDocs || []).forEach(m => {
+            const pName = String(m.製品名 ?? '').trim().toLowerCase();
+            const hinban = String(m.品番 ?? '').trim().toLowerCase();
+            const equip = String(m.設備 ?? '').trim().toLowerCase();
+            const targetVal = (m.目標 !== undefined && m.目標 !== null && m.目標 !== '') ? Number(m.目標) : null;
+            const warningVal = (m.警戒 !== undefined && m.警戒 !== null && m.警戒 !== '') ? Number(m.警戒) : null;
+
+            if (pName && !masterByProduct.has(pName)) {
+                masterByProduct.set(pName, { target: targetVal, warning: warningVal });
+            }
+            if (hinban && !masterByHinban.has(hinban)) {
+                masterByHinban.set(hinban, { target: targetVal, warning: warningVal });
+            }
+            if (equip && !masterByEquipment.has(equip)) {
+                masterByEquipment.set(equip, { target: targetVal, warning: warningVal });
+            }
+        });
 
         const baseMonthFilter = {
             is_deleted: { $ne: true },
@@ -5000,6 +5033,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
             const cycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
             const kanbanId = String(record.kanban_id ?? '').trim();
             const productName = String(record.product_name ?? '').trim();
+            const hinban = String(record.hinban ?? '').trim();
             const remarks = String(record.remarks ?? '').trim();
 
             let day = Number(record.date_day ?? 0);
@@ -5030,6 +5064,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                         cycleTimes: [],
                         kanbans: new Set(),
                         productNames: new Set(),
+                        hinbans: new Set(),
                         remarks: []
                     });
                 }
@@ -5039,6 +5074,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 if (cycleTime > 0) dayEntry.cycleTimes.push(cycleTime);
                 if (kanbanId) dayEntry.kanbans.add(kanbanId);
                 if (productName) dayEntry.productNames.add(productName);
+                if (hinban) dayEntry.hinbans.add(hinban);
                 if (remarks && !dayEntry.remarks.includes(remarks)) {
                     dayEntry.remarks.push(remarks);
                 }
@@ -5065,6 +5101,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 // Collect working days & product names
                 const sortedDays = Array.from(dayMap.keys()).sort((a, b) => a - b);
                 const opProductNames = new Set();
+                const opHinbans = new Set();
 
                 sortedDays.forEach(day => {
                     const d = dayMap.get(day);
@@ -5072,6 +5109,9 @@ async function handleAnalyticsProductivityRequest(req, res) {
                     opHours += d.hours;
                     if (d.productNames) {
                         d.productNames.forEach(p => opProductNames.add(p));
+                    }
+                    if (d.hinbans) {
+                        d.hinbans.forEach(h => opHinbans.add(h));
                     }
 
                     let oneHrPc = null;
@@ -5093,14 +5133,48 @@ async function handleAnalyticsProductivityRequest(req, res) {
                     });
                 });
 
+                // Determine per-product / per-machine target and warning from masterDB
+                let cardTarget = null;
+                let cardWarning = null;
+
+                // 1. Match by product names
+                for (const p of opProductNames) {
+                    const m = masterByProduct.get(p.toLowerCase());
+                    if (m) {
+                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    }
+                }
+                // 2. Match by hinbans
+                if (cardTarget == null || cardWarning == null) {
+                    for (const h of opHinbans) {
+                        const m = masterByHinban.get(h.toLowerCase());
+                        if (m) {
+                            if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                            if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                        }
+                    }
+                }
+                // 3. Match by equipment / source
+                if (cardTarget == null || cardWarning == null) {
+                    const m = masterByEquipment.get(source.toLowerCase());
+                    if (m) {
+                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    }
+                }
+
+                if (cardTarget == null) cardTarget = defaultTarget;
+                if (cardWarning == null) cardWarning = defaultWarning;
+
                 const monthlyAvg1hPc = opHours > 0
                     ? Math.round((opPieces / opHours) * 100) / 100
                     : null;
-                const achievementRate = (monthlyAvg1hPc && target > 0)
-                    ? Math.round((monthlyAvg1hPc / target) * 1000) / 10
+                const achievementRate = (monthlyAvg1hPc && cardTarget > 0)
+                    ? Math.round((monthlyAvg1hPc / cardTarget) * 1000) / 10
                     : 0;
 
-                if (monthlyAvg1hPc && monthlyAvg1hPc >= target) {
+                if (monthlyAvg1hPc && monthlyAvg1hPc >= cardTarget) {
                     grandAchievedCount += 1;
                 }
                 totalWorkerCards += 1;
@@ -5115,8 +5189,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
                     monthlyPieces: Math.round(opPieces * 10) / 10,
                     monthlyHours: Math.round(opHours * 100) / 100,
                     monthlyAvg1hPc,
-                    target,
-                    warning,
+                    target: cardTarget,
+                    warning: cardWarning,
                     achievementRate,
                     dailyData
                 });
@@ -5132,8 +5206,14 @@ async function handleAnalyticsProductivityRequest(req, res) {
             grandTotalPieces += machinePieces;
             grandTotalHours += machineHours;
 
+            const machineMaster = masterByEquipment.get(source.toLowerCase());
+            const machineTarget = (machineMaster && machineMaster.target != null && machineMaster.target > 0) ? machineMaster.target : defaultTarget;
+            const machineWarning = (machineMaster && machineMaster.warning != null && machineMaster.warning > 0) ? machineMaster.warning : defaultWarning;
+
             machines.push({
                 machineName: source,
+                target: machineTarget,
+                warning: machineWarning,
                 monthlyPieces: Math.round(machinePieces * 10) / 10,
                 monthlyHours: Math.round(machineHours * 100) / 100,
                 monthlyAvg1hPc: machineAvg1hPc,
@@ -5154,8 +5234,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
             month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
             year: targetYear,
             monthNumber: targetMonth,
-            target,
-            warning,
+            target: defaultTarget,
+            warning: defaultWarning,
             daysInMonth,
             summary: {
                 totalMachines: machines.length,
@@ -5164,8 +5244,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 totalHours: Math.round(grandTotalHours * 100) / 100,
                 overall1hPc,
                 achievedCount: grandAchievedCount,
-                achievementRate: (overall1hPc && target > 0)
-                    ? Math.round((overall1hPc / target) * 1000) / 10
+                achievementRate: (overall1hPc && defaultTarget > 0)
+                    ? Math.round((overall1hPc / defaultTarget) * 1000) / 10
                     : 0
             },
             filterOptions: {

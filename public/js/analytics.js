@@ -318,12 +318,12 @@ function analyticsGetCardValueLayoutClass(card = {}) {
 
 function analyticsGetSummaryCardsMarkup(cards = []) {
   return cards.map(card => `
-    <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+    <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-gray-200">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-medium text-gray-500">${card.title || card.eyebrow || ''}${card.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(card.info)}"></i>` : ''}</p>
-          <p class="mt-4 max-w-full font-semibold leading-tight ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}${card.delta || ''}</p>
-          <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.detail || card.subtext || ''}</p>
+          <p class="text-xs font-medium text-gray-500">${card.title || card.eyebrow || ''}${card.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(card.info)}"></i>` : ''}</p>
+          <p class="mt-3 max-w-full font-semibold leading-tight tracking-tight tabular-nums ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}${card.delta || ''}</p>
+          <p class="mt-1 text-xs text-gray-400 font-medium tabular-nums truncate" title="${analyticsEscapeHtml(card.detail || card.subtext || '')}">${card.detail || card.subtext || ''}</p>
         </div>
         ${card.icon ? `<div class="shrink-0 rounded-2xl px-3 py-2 ${card.tone || 'bg-gray-100 text-gray-700'}"><i class="${card.icon} text-xl"></i></div>` : ''}
       </div>
@@ -543,7 +543,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
       value: t('analytics.meta.rangeValuePattern')
         .replace('{start}', analyticsEscapeHtml(filters.startDate || t('analytics.meta.all')))
         .replace('{end}', analyticsEscapeHtml(filters.endDate || t('analytics.meta.all'))),
-      tone: 'border-slate-100 bg-slate-50'
+      tone: 'border-gray-100 bg-gray-50'
     },
     {
       label: t('analytics.meta.records'),
@@ -696,12 +696,11 @@ async function loadAnalyticsProductivity() {
   const operatorSelect = document.getElementById('analyticsProductivityOperator');
   const targetInput = document.getElementById('analyticsProductivityTarget');
   const warningInput = document.getElementById('analyticsProductivityWarning');
-
   const month = monthInput?.value || '';
   const source = sourceSelect?.value || 'all';
   const operator = operatorSelect?.value || 'all';
-  const target = Number(targetInput?.value) > 0 ? Number(targetInput.value) : 220;
-  const warning = Number(warningInput?.value) > 0 ? Number(warningInput.value) : 210;
+  const target = targetInput && Number(targetInput.value) > 0 ? Number(targetInput.value) : null;
+  const warning = warningInput && Number(warningInput.value) > 0 ? Number(warningInput.value) : null;
 
   // Show loading state
   container.innerHTML = `
@@ -718,8 +717,8 @@ async function loadAnalyticsProductivity() {
     if (month) params.set('month', month);
     if (source && source !== 'all') params.set('source', source);
     if (operator && operator !== 'all') params.set('operator', operator);
-    params.set('target', target);
-    params.set('warning', warning);
+    if (target != null) params.set('target', target);
+    if (warning != null) params.set('warning', warning);
 
     const response = await fetch(`${API_URL}/api/admin/analytics/productivity?${params.toString()}`, {
       headers: analyticsGetAuthHeaders()
@@ -874,8 +873,10 @@ function renderAnalyticsProductivityTab(data) {
     operators.forEach(op => {
       chartCounter++;
       const chartDomId = `prodWorkerChart_${chartCounter}`;
-      const isAchieved = op.monthlyAvg1hPc && op.monthlyAvg1hPc >= target;
-      const isBelowWarning = op.monthlyAvg1hPc && op.monthlyAvg1hPc < warning;
+      const opTarget = (op.target != null && op.target > 0) ? op.target : target;
+      const opWarning = (op.warning != null && op.warning > 0) ? op.warning : warning;
+      const isAchieved = op.monthlyAvg1hPc && op.monthlyAvg1hPc >= opTarget;
+      const isBelowWarning = op.monthlyAvg1hPc && op.monthlyAvg1hPc < opWarning;
 
       let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
       if (isBelowWarning) {
@@ -915,10 +916,10 @@ function renderAnalyticsProductivityTab(data) {
           let rateBgClass = '';
 
           if (rateVal != null) {
-            if (rateVal >= target) {
+            if (rateVal >= opTarget) {
               rateCellClass = 'text-emerald-700 font-semibold';
               rateBgClass = 'bg-emerald-50/70';
-            } else if (rateVal >= warning) {
+            } else if (rateVal >= opWarning) {
               rateCellClass = 'text-amber-700 font-semibold';
               rateBgClass = 'bg-amber-50/70';
             } else {
@@ -1010,15 +1011,15 @@ function renderAnalyticsProductivityTab(data) {
                   <div class="hidden sm:block text-gray-200">|</div>
                   <div class="flex items-center gap-2">
                     <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                      目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${target}</strong> ヶ/1人h
+                      目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${opTarget}</strong> ヶ/1人h
                     </span>
                     <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                      警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${warning}</strong> ヶ/1人h
+                      警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${opWarning}</strong> ヶ/1人h
                     </span>
                   </div>
                 </div>
                 <div class="text-xs font-medium text-rose-500">
-                  ※ ${warning}/1人h以下の場合は理由を確認
+                  ※ ${opWarning}/1人h以下の場合は理由を確認
                 </div>
               </div>
             </div>
@@ -1039,8 +1040,8 @@ function renderAnalyticsProductivityTab(data) {
         operator: op,
         machine,
         daysInMonth,
-        target,
-        warning
+        target: opTarget,
+        warning: opWarning
       });
     });
 
@@ -1622,38 +1623,38 @@ function renderAnalyticsWorkerTable(operatorComparison, shiftProfile) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableWorker'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShared'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDays'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgShift'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableOutputHour'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShiftUtil'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDowntime'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDefectRate'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgCT'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableWorker'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableShared'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDays'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableAvgShift'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableOutputHour'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableShiftUtil'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDowntime'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableAvgCT'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedWorkers.map(worker => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(worker.name)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.activeDays)}</td>
-            <td class="px-6 py-4">${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(worker, shiftProfile))}</td>
-            <td class="px-6 py-4">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(analyticsGetWorkerShiftUtilization(worker, shiftProfile))}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(worker.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(worker.downtimeRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(worker.defectRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.averageCycleTime, 2)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(worker.name)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(worker.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.activeDays)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(worker, shiftProfile))}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPercent(analyticsGetWorkerShiftUtilization(worker, shiftProfile))}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(worker.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPercent(worker.downtimeRate)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(worker.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(worker.defectRate)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.averageCycleTime, 2)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1809,22 +1810,22 @@ function renderAnalyticsMachineCards(sourceBreakdown) {
     .slice(0, 4);
 
   if (topSources.length === 0) {
-    container.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.machine.noMachineCards'))}</div>`;
+    container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.machine.noMachineCards'))}</div>`;
     return;
   }
 
   container.innerHTML = `<div class="space-y-4">${topSources.map(source => `
-    <article class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+    <article class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <p class="text-sm font-semibold text-slate-900">${analyticsEscapeHtml(source.source)}</p>
-          <p class="mt-1 text-xs text-slate-500">${analyticsEscapeHtml(t('analytics.machine.cardSubtext').replace('{records}', analyticsFormatNumber(source.submissions)).replace('{issues}', analyticsFormatNumber(source.issueCount)))}</p>
+          <p class="text-sm font-semibold text-gray-900">${analyticsEscapeHtml(source.source)}</p>
+          <p class="mt-1 text-xs text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardSubtext').replace('{records}', analyticsFormatNumber(source.submissions)).replace('{issues}', analyticsFormatNumber(source.issueCount)))}</p>
         </div>
-        <span class="rounded-full bg-white px-2 py-1 text-xs font-medium text-slate-600">${analyticsFormatPercent(source.defectRate)}</span>
+        <span class="rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-2xs">${analyticsFormatPercent(source.defectRate)}</span>
       </div>
-      <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardGood'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardTrouble'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
+      <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-500">
+        <div class="rounded-xl bg-white p-3 shadow-2xs"><span class="block text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardGood'))}</span><span class="mt-1 block text-sm font-semibold tracking-tight tabular-nums text-gray-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
+        <div class="rounded-xl bg-white p-3 shadow-2xs"><span class="block text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardTrouble'))}</span><span class="mt-1 block text-sm font-semibold tracking-tight tabular-nums text-gray-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
       </div>
     </article>`).join('')}</div>`;
 }
@@ -1843,28 +1844,28 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableSource'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableGood'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableTrouble'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableSource'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableGood'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableDefectRate'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedSources.map(source => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(source.source)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.totalGoodCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(source.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(source.totalTroubleTime)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(source.defectRate)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(source.source)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(source.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(source.totalGoodCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(source.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(source.totalTroubleTime || 0) > 0 ? 'text-amber-600 font-medium' : 'text-gray-600'}">${analyticsFormatHours(source.totalTroubleTime)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(source.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(source.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(source.defectRate)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -2938,21 +2939,21 @@ function renderAnalyticsQualityAlerts(data) {
 
   container.innerHTML = `
     <div class="space-y-4">
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertTopDefect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${topDefectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertTopDefect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${topDefectText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertWorstDay'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${worstDayText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertWorstDay'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${worstDayText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertMachineInspect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${machineInspectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertMachineInspect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${machineInspectText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertProductInspect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${productInspectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertProductInspect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${productInspectText}</p>
       </div>
     </div>`;
 }
@@ -2962,39 +2963,39 @@ function renderAnalyticsHotspots(qualityHotspots) {
   if (!container) return;
 
   if (!Array.isArray(qualityHotspots) || qualityHotspots.length === 0) {
-    container.innerHTML = `<div class="px-6 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.quality.noHotspots'))}</div>`;
+    container.innerHTML = `<div class="px-6 py-10 text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.quality.noHotspots'))}</div>`;
     return;
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTimestamp'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableProduct'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableWorker'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableDefectFocus'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTrouble'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableRemarks'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableTimestamp'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableProduct'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableWorker'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableDefectFocus'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableRemarks'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${qualityHotspots.map(item => {
           const issueSummary = item.topDefects && item.topDefects.length
             ? item.topDefects.map(defect => `${analyticsEscapeHtml(defect.name)} (${analyticsFormatNumber(defect.count)})`).join(', ')
             : analyticsEscapeHtml(t('analytics.quality.tableNoDefectDetail'));
           const productBits = [item.productName, item.hinban, item.kanbanId].filter(Boolean).map(analyticsEscapeHtml);
           const productMarkup = productBits.length
-            ? productBits.map((bit, index) => `<div class="${index === 0 ? '' : 'mt-1 text-xs text-slate-500'}">${bit}</div>`).join('')
+            ? productBits.map((bit, index) => `<div class="${index === 0 ? '' : 'mt-1 text-xs text-gray-500'}">${bit}</div>`).join('')
             : '-';
           return `
-            <tr>
-              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-slate-400">${analyticsEscapeHtml(item.source || t('analytics.common.unknown'))}</div></td>
-              <td class="px-6 py-4 align-top font-medium text-slate-900">${productMarkup}</td>
-              <td class="px-6 py-4 align-top">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
-              <td class="px-6 py-4 align-top"><div class="font-medium text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-slate-500">${issueSummary}</div></td>
-              <td class="px-6 py-4 align-top">${analyticsFormatHours(item.troubleTime)}</td>
-              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(item.remarks || '-')}</td>
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-6 py-4 align-top text-gray-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-gray-400">${analyticsEscapeHtml(item.source || t('analytics.common.unknown'))}</div></td>
+              <td class="px-6 py-4 align-top font-semibold text-gray-900">${productMarkup}</td>
+              <td class="px-6 py-4 align-top font-medium text-gray-900">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
+              <td class="px-6 py-4 align-top"><div class="font-semibold text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-gray-500">${issueSummary}</div></td>
+              <td class="px-6 py-4 align-top tabular-nums text-gray-600">${analyticsFormatHours(item.troubleTime)}</td>
+              <td class="px-6 py-4 align-top text-gray-500">${analyticsEscapeHtml(item.remarks || '-')}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -3031,7 +3032,7 @@ function renderAnalyticsQualityTab(data) {
       detail: topDefect
         ? t('analytics.quality.detailCountedEvents').replace('{n}', analyticsFormatNumber(topDefect.count))
         : t('analytics.quality.kpiNoDefectActivity'),
-      tone: 'bg-slate-100 text-slate-700',
+      tone: 'bg-gray-100 text-gray-700',
       icon: 'ri-bug-line'
     },
     {
@@ -3136,17 +3137,17 @@ function renderAnalyticsProductHighlights(topProducts) {
 
   container.innerHTML = `
     <div class="space-y-4">
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteLead'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${leadText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteLead'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${leadText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteRiskiest'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${riskText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteRiskiest'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${riskText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteSlowest'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${slowText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteSlowest'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${slowText}</p>
       </div>
     </div>`;
 }
@@ -3165,28 +3166,28 @@ function renderAnalyticsProductTable(topProducts) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableProduct'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableGood'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableDefectRate'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableAvgCT'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableProduct'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableGood'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableAvgCT'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedProducts.map(product => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(analyticsGetProductLabel(product))}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.totalGoodCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(product.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(product.defectRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.averageCycleTime, 2)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(analyticsGetProductLabel(product))}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.totalGoodCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(product.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(product.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(product.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(product.defectRate)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(product.averageCycleTime, 2)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -3290,13 +3291,13 @@ function analyticsTrafficDot(tone) {
 function analyticsScoreTile(tile) {
   const valueClass = tile.tone === 'good' ? 'text-emerald-600' : tile.tone === 'watch' ? 'text-amber-600' : tile.tone === 'bad' ? 'text-rose-600' : 'text-gray-900';
   return `
-    <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition hover:border-gray-200">
       <div class="flex items-center justify-between gap-2">
         <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(tile.title)}${tile.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(tile.info)}"></i>` : ''}</p>
         ${analyticsTrafficDot(tile.tone)}
       </div>
-      <p class="mt-2 text-2xl font-semibold leading-tight ${valueClass}">${tile.value}</p>
-      <p class="mt-1 text-xs text-gray-400">${tile.detail || ''}</p>
+      <p class="mt-2 text-2xl font-semibold leading-tight tracking-tight tabular-nums ${valueClass}">${tile.value}</p>
+      <p class="mt-1 text-xs font-medium tabular-nums text-gray-400">${tile.detail || ''}</p>
     </article>`;
 }
 
@@ -3726,32 +3727,32 @@ function renderAnalyticsWorkerFocusTable(daysToShow) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colDate'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colTime'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colMachine'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colProduct'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colOutput'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colDefects'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colBreak'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colTrouble'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colShared'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colDate'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colTime'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colMachine'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colProduct'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colOutput'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colDefects'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colBreak'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colTrouble'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colShared'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rows.map(record => `
-          <tr>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.date)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.startTime)} - ${analyticsEscapeHtml(record.endTime)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.source)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(analyticsGetProductLabel(record))}</td>
-            <td class="px-4 py-3 font-medium text-slate-900">${analyticsFormatNumber(record.goodCount)}</td>
-            <td class="px-4 py-3 ${Number(record.defectCount || 0) > 0 ? 'font-medium text-rose-600' : ''}">${analyticsFormatNumber(record.defectCount)}</td>
-            <td class="px-4 py-3">${analyticsFormatHours(record.breakTime)}</td>
-            <td class="px-4 py-3">${analyticsFormatHours(record.troubleTime)}</td>
-            <td class="px-4 py-3">${(record.operators || []).length > 1 ? analyticsEscapeHtml((record.operators || []).join(', ')) : '-'}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-4 py-3 text-gray-600">${analyticsEscapeHtml(record.date)}</td>
+            <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsEscapeHtml(record.startTime)} - ${analyticsEscapeHtml(record.endTime)}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(record.source)}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(analyticsGetProductLabel(record))}</td>
+            <td class="px-4 py-3 font-semibold tabular-nums text-gray-900">${analyticsFormatNumber(record.goodCount)}</td>
+            <td class="px-4 py-3 tabular-nums ${Number(record.defectCount || 0) > 0 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatNumber(record.defectCount)}</td>
+            <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(record.breakTime)}</td>
+            <td class="px-4 py-3 tabular-nums ${Number(record.troubleTime || 0) > 0 ? 'text-amber-600 font-medium' : 'text-gray-600'}">${analyticsFormatHours(record.troubleTime)}</td>
+            <td class="px-4 py-3 text-gray-600">${(record.operators || []).length > 1 ? analyticsEscapeHtml((record.operators || []).join(', ')) : '-'}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -4670,29 +4671,29 @@ function renderAnalyticsFinanceTab(data) {
       .filter(product => product.goodCount > 0 || product.defectCount > 0);
 
     tableEl.innerHTML = `
-      <table class="min-w-full divide-y divide-slate-200 text-sm">
-        <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+      <table class="min-w-full divide-y divide-gray-100 text-sm">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
           <tr>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colProduct'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colPrice'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colPieces'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colDefects'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colEarned'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colLost'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colProduct'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colPrice'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colPieces'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colDefects'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colEarned'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colLost'))}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${rows.map(product => `
-            <tr>
-              <td class="px-4 py-3 font-medium text-slate-900">
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-4 py-3 font-semibold text-gray-900">
                 ${analyticsEscapeHtml(analyticsGetProductLabel(product))}
                 ${product.priced ? '' : `<span class="ml-2 rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">${analyticsEscapeHtml(t('analytics.finance.unpricedBadge'))}</span>`}
               </td>
-              <td class="px-4 py-3">${product.priced ? analyticsFormatCurrency(product.price) : '-'}</td>
-              <td class="px-4 py-3">${analyticsFormatNumber(product.scopeGoodCount)}</td>
-              <td class="px-4 py-3">${analyticsFormatNumber(product.defectCount)}</td>
-              <td class="px-4 py-3 font-medium text-emerald-700">${product.priced ? analyticsFormatCurrency(product.scopeEarned) : '-'}</td>
-              <td class="px-4 py-3 ${product.scopeLost > 0 ? 'font-medium text-rose-600' : ''}">${product.priced ? analyticsFormatCurrency(product.scopeLost) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums text-gray-600">${product.priced ? analyticsFormatCurrency(product.price) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.scopeGoodCount)}</td>
+              <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatNumber(product.defectCount)}</td>
+              <td class="px-4 py-3 tabular-nums font-semibold text-emerald-700">${product.priced ? analyticsFormatCurrency(product.scopeEarned) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums ${product.scopeLost > 0 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${product.priced ? analyticsFormatCurrency(product.scopeLost) : '-'}</td>
             </tr>`).join('')}
         </tbody>
       </table>`;
@@ -4839,7 +4840,7 @@ function renderAnalyticsWeeklyDigest(data) {
   }
 
   digestEl.classList.remove('hidden');
-  digestEl.innerHTML = `<i class="ri-chat-smile-2-line mr-2 text-base text-slate-400"></i>${analyticsEscapeHtml(sentences.join(' '))}`;
+  digestEl.innerHTML = `<i class="ri-chat-smile-2-line mr-2 text-base text-gray-400"></i>${analyticsEscapeHtml(sentences.join(' '))}`;
 }
 
 // ------------------------------------------------------------
@@ -5026,7 +5027,7 @@ function renderAnalyticsProductDetail(data) {
           <div class="h-4 flex-1 rounded bg-gray-100">
             <div class="h-4 rounded bg-rose-400" style="width:${Math.max((defect.count / maxCount) * 100, 3)}%"></div>
           </div>
-          <span class="w-10 text-right font-semibold text-gray-800">${analyticsFormatNumber(defect.count)}</span>
+          <span class="w-10 text-right font-semibold tabular-nums text-gray-800">${analyticsFormatNumber(defect.count)}</span>
         </div>`).join('');
     }
   }
@@ -5034,9 +5035,9 @@ function renderAnalyticsProductDetail(data) {
   // Machines & workers who make it
   if (peopleEl) {
     const machineChips = (profile.machines || []).map(machine =>
-      `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-700"><i class="ri-cpu-line text-gray-400"></i>${analyticsEscapeHtml(machine.name)} <span class="text-xs text-gray-400">${analyticsFormatNumber(machine.pieces)}</span></span>`).join(' ');
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-700"><i class="ri-cpu-line text-gray-400"></i>${analyticsEscapeHtml(machine.name)} <span class="text-xs tabular-nums text-gray-400">${analyticsFormatNumber(machine.pieces)}</span></span>`).join(' ');
     const workerChips = (profile.workers || []).map(worker =>
-      `<span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800"><i class="ri-user-line text-sky-400"></i>${analyticsEscapeHtml(worker.name)} <span class="text-xs text-sky-500">${analyticsFormatCount(worker.pieces)}</span></span>`).join(' ');
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800"><i class="ri-user-line text-sky-400"></i>${analyticsEscapeHtml(worker.name)} <span class="text-xs tabular-nums text-sky-500">${analyticsFormatCount(worker.pieces)}</span></span>`).join(' ');
     peopleEl.innerHTML = `<div class="flex flex-wrap gap-2">${machineChips}</div><div class="mt-3 flex flex-wrap gap-2">${workerChips}</div>`;
   }
 }
@@ -5698,18 +5699,18 @@ function renderWorkerComparisonTable() {
     else if (computedScore > 0) scoreToneClass = "text-rose-700 bg-rose-100";
 
     return `
-      <tr class="hover:bg-gray-50 transition">
-        <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(workerName)}</td>
+      <tr class="hover:bg-gray-50/70 transition">
+        <td class="px-4 py-3 font-semibold text-gray-900">${analyticsEscapeHtml(workerName)}</td>
         <td class="px-4 py-3">
-          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${scoreToneClass}">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${scoreToneClass}">
             ${computedScore > 0 ? Math.round(computedScore) : '-'}
           </span>
         </td>
-        <td class="px-4 py-3 font-medium text-gray-900">${analyticsFormatCount(data.totalGoodCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatCount(data.totalDefectCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalManHours || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalBreakTime || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalTroubleTime || 0)}</td>
+        <td class="px-4 py-3 tabular-nums font-semibold text-gray-900">${analyticsFormatCount(data.totalGoodCount || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatCount(data.totalDefectCount || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalManHours || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalBreakTime || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalTroubleTime || 0)}</td>
       </tr>
     `;
   });

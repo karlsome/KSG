@@ -604,7 +604,7 @@ function renderMasterTable(data) {
       let valA = a[masterSortField] || '';
       let valB = b[masterSortField] || '';
       
-      if (['cycleTime', 'grossProfit', '収容数', '検査メンバー数'].includes(masterSortField)) {
+      if (['cycleTime', 'grossProfit', '収容数', '検査メンバー数', '目標', '警戒'].includes(masterSortField)) {
          valA = parseFloat(valA) || 0;
          valB = parseFloat(valB) || 0;
          return masterSortOrder === 'asc' ? valA - valB : valB - valA;
@@ -629,7 +629,9 @@ function renderMasterTable(data) {
     { key: "cycleTime", label: t('masterDB.cycleTime') },
     { key: "grossProfit", label: t('masterDB.grossProfit') },
     { key: "検査メンバー数", label: t('masterDB.inspectionMembers') },
-    { key: "収容数", label: t('masterDB.capacity') }
+    { key: "収容数", label: t('masterDB.capacity') },
+    { key: "目標", label: t('masterDB.target') || "目標" },
+    { key: "警戒", label: t('masterDB.warning') || "警戒" }
   ];
 
   const tableHTML = `
@@ -693,7 +695,7 @@ function renderMasterTable(data) {
                 ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">${t('common.noImage')}</span>`}
               </td>
             </tr>
-          `).join("") : `<tr><td colspan="12" class="px-4 py-8 text-center text-gray-500">${t('common.noResults') || 'No results found'}</td></tr>`}
+          `).join("") : `<tr><td colspan="14" class="px-4 py-8 text-center text-gray-500">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -922,6 +924,8 @@ function renderModalDetails(type, data) {
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.grossProfit')}</label><input type="number" step="0.01" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.grossProfit || ''}" disabled data-field="grossProfit" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
           <div><label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.target') || '目標'}</label><input type="number" step="any" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.目標 !== undefined && data.目標 !== null ? data.目標 : ''}" disabled data-field="目標" /></div>
+          <div><label class="block text-sm font-medium mb-1">${t('masterDB.warning') || '警戒'}</label><input type="number" step="any" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.警戒 !== undefined && data.警戒 !== null ? data.警戒 : ''}" disabled data-field="警戒" /></div>
           <div class="col-span-2">
             <label class="block text-sm font-medium mb-1">不良グループ</label>
             <input type="text" id="modalNGGroupDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.ngGroupId ? '...' : '未割当'}" disabled />
@@ -1532,6 +1536,10 @@ async function saveModalChanges() {
         value = value.split(',').map(f => f.trim()).filter(f => f);
       }
       
+      if (currentModalType === 'master' && (field === '目標' || field === '警戒')) {
+        value = value !== '' && !isNaN(Number(value)) ? Number(value) : (value === '' ? null : value);
+      }
+      
       updateData[field] = value;
     }
   });
@@ -1812,6 +1820,14 @@ function showCreateMasterForm() {
             <input type="number" step="0.01" id="newGrossProfit" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
           <div class="space-y-1">
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.target') || '目標'}</label>
+            <input type="number" step="any" id="new目標" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+          </div>
+          <div class="space-y-1">
+            <label class="block text-sm font-medium text-gray-700">${t('masterDB.warning') || '警戒'}</label>
+            <input type="number" step="any" id="new警戒" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+          </div>
+          <div class="space-y-1">
             <label class="block text-sm font-medium text-gray-700">${t('masterDB.imageUpload')}</label>
             <input type="file" id="newImageFile" accept="image/*" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
           </div>
@@ -1870,6 +1886,8 @@ async function submitNewMaster() {
     工場: document.getElementById("new工場").value,
     cycleTime: document.getElementById("newCycleTime").value,
     grossProfit: document.getElementById("newGrossProfit").value ? parseFloat(document.getElementById("newGrossProfit").value) : null,
+    目標: document.getElementById("new目標")?.value ? parseFloat(document.getElementById("new目標").value) : null,
+    警戒: document.getElementById("new警戒")?.value ? parseFloat(document.getElementById("new警戒").value) : null,
     dbName,
     username
   };
@@ -2855,6 +2873,8 @@ async function uploadCSVData() {
         設備: record['設備'] || record['Equipment'],
         工場: record['工場'] || record['Factory'],
         cycleTime: record['cycleTime'],
+        目標: (record['目標'] || record['Target']) ? parseFloat(record['目標'] || record['Target']) : null,
+        警戒: (record['警戒'] || record['Warning']) ? parseFloat(record['警戒'] || record['Warning']) : null,
         dbName,
         username
       };
@@ -2952,6 +2972,14 @@ async function showQuickCreateModal() {
         <div>
           <label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label>
           <input type="number" id="quick収容数" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCapacity')}">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.target') || '目標'}</label>
+          <input type="number" step="any" id="quick目標" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 220">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">${t('masterDB.warning') || '警戒'}</label>
+          <input type="number" step="any" id="quick警戒" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 210">
         </div>
         <div class="col-span-2">
           <label class="block text-sm font-medium mb-1">${t('masterDB.productImage')}</label>
@@ -3214,6 +3242,8 @@ async function submitQuickCreate() {
           grossProfit: document.getElementById("quickGrossProfit").value ? parseFloat(document.getElementById("quickGrossProfit").value) : null,
           kensaMembers: parseInt(document.getElementById("quickKensaMembers").value) || 2,
           収容数: document.getElementById("quick収容数").value ? parseInt(document.getElementById("quick収容数").value) : null,
+          目標: document.getElementById("quick目標")?.value ? parseFloat(document.getElementById("quick目標").value) : null,
+          警戒: document.getElementById("quick警戒")?.value ? parseFloat(document.getElementById("quick警戒").value) : null,
           dbName,
           username
         };
