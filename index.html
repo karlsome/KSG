@@ -1529,6 +1529,24 @@
       renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd);
     }
 
+    window.toggleFactoryCardCollapse = function(factoryKey) {
+      const content = document.getElementById(`factory-content-${factoryKey}`);
+      const chevron = document.getElementById(`factory-chevron-${factoryKey}`);
+      if (!content) return;
+      const isHidden = content.classList.contains('hidden');
+      if (isHidden) {
+        content.classList.remove('hidden');
+        if (chevron) {
+          chevron.classList.remove('-rotate-90');
+        }
+      } else {
+        content.classList.add('hidden');
+        if (chevron) {
+          chevron.classList.add('-rotate-90');
+        }
+      }
+    };
+
     function renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd) {
       const summaryContainer = document.getElementById('dashboardMachineTimelineSummary');
       if (!summaryContainer) return;
@@ -1565,7 +1583,7 @@
         return (machine && machine.factory) || 'その他';
       };
 
-      const renderMachineCard = (machine) => {
+      const renderMachineCard = (machine, factoryName, maxFactoryShots = 0) => {
         const dayData = (machine.days || []).find(d => d.date === targetDate);
         const records = dayData ? dayData.records || [] : [];
         
@@ -1630,32 +1648,132 @@
         const prodHr = Math.floor(totalProducing / 60);
         const prodMn = Math.round(totalProducing % 60);
         const prodFmt = prodHr > 0 ? `${prodHr}h ${prodMn}m` : `${prodMn}m`;
-        
+        const workingHours = (totalProducing / 60).toFixed(2);
+
+        const totalShots = records.reduce((sum, r) => sum + (Number(r.goodCount) || 0), 0);
+        const totalDefects = records.reduce((sum, r) => sum + (Number(r.defectCount) || 0), 0);
+        const defectRate = (totalShots + totalDefects > 0)
+          ? ((totalDefects / (totalShots + totalDefects)) * 100).toFixed(1) + '%'
+          : '0.0%';
+        const avgPerHour = (totalProducing > 0 && totalShots > 0)
+          ? Math.round(totalShots / (totalProducing / 60))
+          : 0;
+
+        const hasLiveSession = records.some(r => r.isLive);
+        const isActive = hasLiveSession || totalProducing > 0 || totalShots > 0;
+        const pctOfPeak = maxFactoryShots > 0
+          ? Math.min(100, Math.round((totalShots / maxFactoryShots) * 100))
+          : Math.min(100, Math.round(efficiency));
+
         return `
-          <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:shadow-md">
-            <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${escapeDashboardHtml(machine.source)}">${escapeDashboardHtml(machine.source)}</h4>
-            
-            <div class="space-y-3">
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}</span>
-                <span class="font-medium text-emerald-600">${efficiency.toFixed(1)}%</span>
+          <div class="group flex flex-col justify-between rounded-xl border border-gray-200/90 bg-white p-4 sm:p-5 shadow-xs transition-all duration-200 hover:border-blue-400 hover:shadow-md">
+            <div>
+              <!-- Machine Header matching screenshot -->
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-start gap-2.5 min-w-0">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 shadow-2xs">
+                    <i class="ri-robot-2-line text-lg"></i>
+                  </div>
+                  <div class="min-w-0">
+                    <h5 class="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate" title="${escapeDashboardHtml(machine.source)}">
+                      ${escapeDashboardHtml(machine.source)}
+                    </h5>
+                    <div class="mt-1 flex items-center">
+                      <span class="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                        ${escapeDashboardHtml(factoryName)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                ${isActive ? `
+                  <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-emerald-300 bg-emerald-50 text-emerald-700 shrink-0 shadow-2xs">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    ACTIVE
+                  </span>
+                ` : `
+                  <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider border border-gray-200 bg-gray-50 text-gray-400 shrink-0">
+                    <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+                    IDLE
+                  </span>
+                `}
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendProducing'))}</span>
-                <span class="font-medium text-gray-900">${prodFmt}</span>
+
+              <!-- Hero Metric: Shots or Efficiency matching screenshot -->
+              <div class="mt-4 rounded-lg bg-gray-50/80 p-3 border border-gray-100/90">
+                <div class="flex items-baseline justify-between text-xs">
+                  <span class="font-semibold text-gray-500">
+                    ${totalShots > 0 ? 'Total Shots' : (escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency'))}
+                  </span>
+                  ${totalShots > 0 ? `
+                    <span class="text-[11px] font-medium text-gray-400">${pctOfPeak}% of peak</span>
+                  ` : `
+                    <span class="text-[11px] font-semibold ${efficiency >= 75 ? 'text-emerald-600' : (efficiency >= 40 ? 'text-blue-600' : 'text-amber-600')}">
+                      ${efficiency >= 75 ? 'Optimal' : (efficiency >= 40 ? 'Standard' : 'Low')}
+                    </span>
+                  `}
+                </div>
+                <div class="mt-1 flex items-baseline gap-1.5">
+                  <span class="text-2xl font-black tracking-tight text-gray-900 tabular-nums">
+                    ${totalShots > 0 ? totalShots.toLocaleString() : efficiency.toFixed(1)}
+                  </span>
+                  <span class="text-xs font-medium text-gray-500">
+                    ${totalShots > 0 ? 'shots' : '%'}
+                  </span>
+                </div>
+                <!-- Progress Bar matching screenshot -->
+                <div class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-200/90">
+                  <div class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-500 transition-all duration-300" style="width: ${pctOfPeak}%"></div>
+                </div>
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendIdle'))}</span>
-                <span class="font-medium text-gray-900">${Math.round(totalIdle)}m</span>
+
+              <!-- 2x2 Sub-metrics Grid matching screenshot boxes -->
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                ${totalShots > 0 ? `
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">Avg / Day</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${totalShots.toLocaleString()} <span class="text-[10px] font-normal text-gray-400">/d</span></span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">Avg / Hour</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${avgPerHour} <span class="text-[10px] font-normal text-gray-400">/h</span></span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">Hours / Day</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${workingHours} <span class="text-[10px] font-normal text-gray-400">h</span></span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">Defect Rate</span>
+                    <span class="text-xs font-bold ${totalDefects > 0 ? 'text-rose-600' : 'text-gray-900'} tabular-nums mt-0.5 block">${defectRate}</span>
+                  </div>
+                ` : `
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">${escapeDashboardHtml(t('analytics.bottleneck.legendProducing'))}</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${prodFmt}</span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">${escapeDashboardHtml(t('analytics.bottleneck.legendIdle'))}</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${Math.round(totalIdle)}m</span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover'))}</span>
+                    <span class="text-xs font-bold text-gray-900 tabular-nums mt-0.5 block">${Math.round(totalChangeover)}m</span>
+                  </div>
+                  <div class="rounded-md border border-gray-100 bg-white p-2 shadow-2xs">
+                    <span class="text-[10px] font-medium text-gray-400 block">${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble'))}</span>
+                    <span class="text-xs font-bold ${totalTrouble > 0 ? 'text-rose-600' : 'text-gray-900'} tabular-nums mt-0.5 block">${Math.round(totalTrouble)}m</span>
+                  </div>
+                `}
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover'))}</span>
-                <span class="font-medium text-gray-900">${Math.round(totalChangeover)}m</span>
-              </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble'))}</span>
-                <span class="font-medium text-rose-600">${Math.round(totalTrouble)}m</span>
-              </div>
+            </div>
+
+            <!-- Footer matching screenshot -->
+            <div class="flex items-center justify-between pt-3 mt-4 border-t border-gray-100 text-xs text-gray-400">
+              <span>${records.length} ${records.length === 1 ? 'record' : 'records'} (${prodFmt})</span>
+              <span class="text-blue-600 font-semibold hover:text-blue-800 inline-flex items-center gap-1 transition cursor-pointer">
+                Details <i class="ri-arrow-right-line"></i>
+              </span>
             </div>
           </div>
         `;
@@ -1678,25 +1796,66 @@
         return a.localeCompare(b, 'ja');
       });
 
-      let factoryGroupsHtml = '';
+      let factoryCardsHtml = '';
       sortedFactoryNames.forEach(factoryName => {
         const groupMachines = factoryMap.get(factoryName) || [];
-        const cardsHtml = groupMachines.map(renderMachineCard).join('');
+        const factoryKey = encodeURIComponent(factoryName).replace(/[^a-zA-Z0-9]/g, '_');
 
-        factoryGroupsHtml += `
-          <div class="space-y-3">
-            <div class="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-gray-100 shadow-sm">
-              <div class="flex items-center gap-2">
-                <span class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 text-xs shadow-xs">
-                  <i class="ri-building-line"></i>
-                </span>
-                <h4 class="text-sm font-semibold text-gray-800">${escapeDashboardHtml(factoryName)}</h4>
+        // Calculate factory-level aggregate metrics
+        let factoryTotalShots = 0;
+        let factoryActiveCount = 0;
+        let maxMachineShots = 0;
+
+        groupMachines.forEach(m => {
+          const dayData = (m.days || []).find(d => d.date === targetDate);
+          const recs = dayData ? dayData.records || [] : [];
+          const shots = recs.reduce((sum, r) => sum + (Number(r.goodCount) || 0), 0);
+          const hasLive = recs.some(r => r.isLive);
+          factoryTotalShots += shots;
+          if (shots > maxMachineShots) maxMachineShots = shots;
+          if (hasLive || shots > 0 || recs.length > 0) factoryActiveCount++;
+        });
+
+        const cardsHtml = groupMachines.map(m => renderMachineCard(m, factoryName, maxMachineShots)).join('');
+
+        factoryCardsHtml += `
+          <!-- Outer Factory Card (Card within Card) -->
+          <div class="rounded-2xl border border-gray-200/90 bg-white p-5 sm:p-6 shadow-xs transition hover:border-gray-300">
+            <!-- Factory Card Header matching screenshot -->
+            <div class="flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none" onclick="toggleFactoryCardCollapse('${factoryKey}')">
+              <div class="flex items-center gap-2.5">
+                <button type="button" onclick="event.stopPropagation(); toggleFactoryCardCollapse('${factoryKey}')" class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs" title="Toggle collapse">
+                  <i id="factory-chevron-${factoryKey}" class="ri-arrow-down-s-line text-lg transition-transform duration-200"></i>
+                </button>
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 border border-emerald-200/90 text-emerald-600 shadow-2xs">
+                  <i class="ri-building-line text-lg"></i>
+                </div>
+                <div class="flex items-center gap-2">
+                  <h4 class="text-base font-bold text-gray-900 tracking-tight">${escapeDashboardHtml(factoryName)}</h4>
+                  <span class="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                    ${groupMachines.length} ${groupMachines.length === 1 ? 'machine' : 'machines'}
+                  </span>
+                </div>
               </div>
-              <span class="text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200/60 px-2.5 py-0.5 rounded-full">
-                ${groupMachines.length}
-              </span>
+
+              <!-- Factory Aggregate Stats on the right -->
+              <div class="flex items-center gap-2 sm:gap-3 text-xs">
+                <div class="flex items-center gap-1.5 rounded-md bg-gray-50 px-2.5 py-1 border border-gray-200/60">
+                  <span class="text-gray-400 font-medium">Active:</span>
+                  <span class="font-bold text-emerald-600">${factoryActiveCount} / ${groupMachines.length}</span>
+                </div>
+                ${factoryTotalShots > 0 ? `
+                  <div class="flex items-center gap-1.5 rounded-md bg-emerald-50 px-3 py-1 border border-emerald-200/80">
+                    <span class="text-emerald-700 font-medium">Total:</span>
+                    <span class="font-bold text-emerald-800 tabular-nums">${factoryTotalShots.toLocaleString()}</span>
+                    <span class="text-[10px] text-emerald-600">shots</span>
+                  </div>
+                ` : ''}
+              </div>
             </div>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+
+            <!-- Inner Machine Cards Grid (Card within Card) -->
+            <div id="factory-content-${factoryKey}" class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 transition-all">
               ${cardsHtml}
             </div>
           </div>
@@ -1705,13 +1864,18 @@
 
       summaryContainer.innerHTML = `
         <div class="space-y-6">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-medium text-gray-700">${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
-            <span class="text-xs font-medium text-gray-400">
-              ${machines.length}
+          <div class="flex items-center justify-between pb-2 border-b border-gray-200/60">
+            <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+              <i class="ri-dashboard-3-line text-indigo-600"></i>
+              <span>${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</span>
+            </h3>
+            <span class="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+              ${machines.length} ${dashboardText('machines') || 'Machines'}
             </span>
           </div>
-          ${factoryGroupsHtml}
+          <div class="space-y-6">
+            ${factoryCardsHtml}
+          </div>
         </div>
       `;
     }
