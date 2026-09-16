@@ -720,7 +720,8 @@ const translations = {
         machine: "Machine",
         quality: "Quality",
         product: "Product",
-        finance: "Finance"
+        finance: "Finance",
+        mom: "MoM"
       },
 
       workerCompare: {
@@ -1954,7 +1955,8 @@ const translations = {
         machine: "設備",
         quality: "品質",
         product: "製品",
-        finance: "収益"
+        finance: "収益",
+        mom: "前月比較 (MoM)"
       },
 
       workerCompare: {

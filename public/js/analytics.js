@@ -486,6 +486,13 @@ function analyticsUpdateTabState() {
     panel.classList.toggle('hidden', panel.getAttribute('data-analytics-panel') !== analyticsActiveTab);
   });
 
+  // Toggle global filters and scope summary when on MoM tab
+  const isMoM = analyticsActiveTab === 'mom';
+  const globalFilterCard = document.getElementById('analyticsGlobalFilterCard');
+  if (globalFilterCard) globalFilterCard.classList.toggle('hidden', isMoM);
+  const scopeSummary = document.getElementById('analyticsScopeSummarySection');
+  if (scopeSummary) scopeSummary.classList.toggle('hidden', isMoM);
+
   // Handle filter visibility dynamically
   const cSource = document.getElementById('filter-container-source');
   const cLhrh = document.getElementById('filter-container-lhrh');
@@ -501,7 +508,12 @@ function analyticsUpdateTabState() {
 function setAnalyticsTab(tabName) {
   analyticsActiveTab = tabName || 'overview';
   analyticsUpdateTabState();
-  renderAnalyticsActiveTab();
+  if (analyticsActiveTab === 'mom') {
+    initAnalyticsMoM(analyticsData);
+    loadAnalyticsMoM();
+  } else {
+    renderAnalyticsActiveTab();
+  }
   if (typeof analyticsSaveViewState === 'function') analyticsSaveViewState();
 }
 
@@ -1488,6 +1500,950 @@ function renderAnalyticsMachineTab(data) {
   renderAnalyticsMachineChart(sources);
   renderAnalyticsMachineCards(sources);
   renderAnalyticsMachineTable(sources);
+
+}
+
+// ------------------------------------------------------------
+// Dedicated Month-over-Month (MoM) Analytics (Machines, Products, Workers)
+// ------------------------------------------------------------
+
+let analyticsMoMSubTab = 'machines'; // 'machines' | 'products' | 'workers'
+let analyticsMoMMonthA = '';
+let analyticsMoMMonthB = '';
+let analyticsMoMMachine = 'all';
+let analyticsMoMProduct = '';
+let analyticsMoMProductLhRh = 'all';
+let analyticsMoMWorker = '';
+let analyticsMoMChartMode = 'cumulative'; // 'cumulative' | 'daily' | 'rate'
+let analyticsMoMData = null;
+let analyticsMoMLoading = false;
+
+function analyticsGetRecentMonths(count = 18) {
+  const result = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    result.push(`${yyyy}-${mm}`);
+  }
+  return result;
+}
+
+function analyticsFormatMonthOptionLabel(ym, isCurrent, isPrev) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const tag = isCurrent ? (isJa ? ' (当月)' : ' (Current)') : (isPrev ? (isJa ? ' (前月)' : ' (Prev)') : '');
+  return isJa ? `${y}年${Number(m)}月${tag}` : `${new Date(Number(y), Number(m) - 1).toLocaleString('en-US', { month: 'short' })} ${y}${tag}`;
+}
+
+function initAnalyticsMoM(data) {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+
+  const months = analyticsGetRecentMonths(18);
+  if (!analyticsMoMMonthA) analyticsMoMMonthA = months[0] || '2026-09';
+  if (!analyticsMoMMonthB) analyticsMoMMonthB = months[1] || '2026-08';
+
+  if (selectA && selectA.options.length === 0) {
+    selectA.innerHTML = months.map((ym, idx) => `
+      <option value="${ym}" ${ym === analyticsMoMMonthA ? 'selected' : ''}>
+        ${analyticsFormatMonthOptionLabel(ym, idx === 0, idx === 1)}
+      </option>
+    `).join('');
+  }
+
+  if (selectB && selectB.options.length === 0) {
+    selectB.innerHTML = months.map((ym, idx) => `
+      <option value="${ym}" ${ym === analyticsMoMMonthB ? 'selected' : ''}>
+        ${analyticsFormatMonthOptionLabel(ym, idx === 0, idx === 1)}
+      </option>
+    `).join('');
+  }
+
+  if (selectMachine && selectMachine.options.length <= 1) {
+    const sources = (data?.sourceBreakdown || []).map(s => s.source).filter(Boolean);
+    const existing = new Set(sources);
+    if (Array.isArray(analyticsMoMData?.availableOptions?.machines)) {
+      analyticsMoMData.availableOptions.machines.forEach(m => existing.add(m));
+    }
+    const machineList = [...existing].sort((a, b) => a.localeCompare(b));
+    selectMachine.innerHTML = [
+      `<option value="all" ${analyticsMoMMachine === 'all' ? 'selected' : ''}>${t('analytics.machineMoM.allFleet') || 'All Machines (Fleet Average)'}</option>`
+    ].concat(machineList.map(m => `
+      <option value="${analyticsEscapeHtml(m)}" ${m === analyticsMoMMachine ? 'selected' : ''}>${analyticsEscapeHtml(m)}</option>
+    `)).join('');
+  }
+
+  if (selectProduct && selectProduct.options.length <= 1) {
+    const products = Array.isArray(analyticsMoMData?.availableOptions?.products)
+      ? analyticsMoMData.availableOptions.products
+      : (data?.productBreakdown || []).map(p => ({ hinban: p.hinban, productName: p.productName }));
+    const opts = [`<option value="" ${!analyticsMoMProduct ? 'selected' : ''}>All Products</option>`];
+    products.forEach(p => {
+      if (!p.hinban) return;
+      const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
+      opts.push(`<option value="${analyticsEscapeHtml(p.hinban)}" ${p.hinban === analyticsMoMProduct ? 'selected' : ''}>${analyticsEscapeHtml(label)}</option>`);
+    });
+    selectProduct.innerHTML = opts.join('');
+  }
+
+  if (selectWorker && selectWorker.options.length <= 1) {
+    const operators = Array.isArray(analyticsMoMData?.availableOptions?.operators)
+      ? analyticsMoMData.availableOptions.operators
+      : (data?.operatorBreakdown || []).map(o => o.name).filter(Boolean);
+    const opts = [`<option value="" ${!analyticsMoMWorker ? 'selected' : ''}>All Workers (Team Average)</option>`];
+    operators.forEach(op => {
+      opts.push(`<option value="${analyticsEscapeHtml(op)}" ${op === analyticsMoMWorker ? 'selected' : ''}>${analyticsEscapeHtml(op)}</option>`);
+    });
+    selectWorker.innerHTML = opts.join('');
+  }
+}
+
+function setAnalyticsMoMSubTab(subTab) {
+  analyticsMoMSubTab = subTab || 'machines';
+
+  // Toggle pill buttons
+  ['machines', 'products', 'workers'].forEach(tab => {
+    const btn = document.getElementById(`analyticsMoMSubTabBtn-${tab}`);
+    const isAct = tab === analyticsMoMSubTab;
+    if (btn) {
+      btn.className = isAct
+        ? 'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-white text-indigo-600 shadow-xs'
+        : 'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer';
+    }
+  });
+
+  // Toggle filter containers
+  const cMachines = document.getElementById('analyticsMoMFilterContainerMachines');
+  const cProducts = document.getElementById('analyticsMoMFilterContainerProducts');
+  const cWorkers = document.getElementById('analyticsMoMFilterContainerWorkers');
+  if (cMachines) cMachines.classList.toggle('hidden', analyticsMoMSubTab !== 'machines');
+  if (cProducts) cProducts.classList.toggle('hidden', analyticsMoMSubTab !== 'products');
+  if (cWorkers) cWorkers.classList.toggle('hidden', analyticsMoMSubTab !== 'workers');
+
+  // Update Rate / Metric Mode Button text
+  const rateBtn = document.getElementById('analyticsMoMModeRate');
+  if (rateBtn) {
+    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = 'Efficiency %';
+    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = 'Defect Rate %';
+    else rateBtn.textContent = 'Pace (Shots/h)';
+  }
+
+  loadAnalyticsMoM();
+}
+
+function handleAnalyticsMoMFilterChange() {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  const selectLhRh = document.getElementById('analyticsMoMProductLhRh');
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+
+  if (selectA) analyticsMoMMonthA = selectA.value;
+  if (selectB) analyticsMoMMonthB = selectB.value;
+  if (selectMachine) analyticsMoMMachine = selectMachine.value || 'all';
+  if (selectProduct) analyticsMoMProduct = selectProduct.value || '';
+  if (selectLhRh) analyticsMoMProductLhRh = selectLhRh.value || 'all';
+  if (selectWorker) analyticsMoMWorker = selectWorker.value || '';
+
+  loadAnalyticsMoM();
+}
+
+function handleAnalyticsMoMSwapMonths() {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const temp = analyticsMoMMonthA;
+  analyticsMoMMonthA = analyticsMoMMonthB;
+  analyticsMoMMonthB = temp;
+  if (selectA) selectA.value = analyticsMoMMonthA;
+  if (selectB) selectB.value = analyticsMoMMonthB;
+  loadAnalyticsMoM();
+}
+
+function setAnalyticsMoMChartMode(mode) {
+  analyticsMoMChartMode = mode || 'cumulative';
+  const modes = ['cumulative', 'daily', 'rate'];
+  modes.forEach(m => {
+    const btn = document.getElementById(`analyticsMoMMode${m.charAt(0).toUpperCase() + m.slice(1)}`);
+    if (btn) {
+      if (m === analyticsMoMChartMode) {
+        btn.className = 'rounded-lg px-3 py-1 text-xs font-semibold bg-indigo-50 text-indigo-600 transition cursor-pointer shadow-2xs';
+      } else {
+        btn.className = 'rounded-lg px-3 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer';
+      }
+    }
+  });
+
+  if (analyticsMoMData) {
+    renderAnalyticsMoMTrajectoryChart(analyticsMoMData);
+  }
+}
+
+async function loadAnalyticsMoM() {
+  const refreshIcon = document.getElementById('analyticsMoMRefreshIcon');
+  if (refreshIcon) refreshIcon.classList.add('animate-spin');
+  analyticsMoMLoading = true;
+
+  try {
+    let typeParam = 'machine';
+    if (analyticsMoMSubTab === 'products') typeParam = 'product';
+    if (analyticsMoMSubTab === 'workers') typeParam = 'worker';
+
+    let url = `${API_URL}/api/admin/analytics/mom?type=${typeParam}&monthA=${encodeURIComponent(analyticsMoMMonthA || '')}&monthB=${encodeURIComponent(analyticsMoMMonthB || '')}`;
+
+    if (analyticsMoMSubTab === 'machines') {
+      url += `&machine=${encodeURIComponent(analyticsMoMMachine || 'all')}`;
+    } else if (analyticsMoMSubTab === 'products') {
+      url += `&hinban=${encodeURIComponent(analyticsMoMProduct || '')}&lhRh=${encodeURIComponent(analyticsMoMProductLhRh || 'all')}`;
+    } else if (analyticsMoMSubTab === 'workers') {
+      url += `&operator=${encodeURIComponent(analyticsMoMWorker || '')}`;
+    }
+
+    const res = await fetch(url, { headers: analyticsGetAuthHeaders() });
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || 'Failed to fetch MoM data');
+    }
+
+    analyticsMoMData = result;
+
+    // Populate dropdown options from availableOptions if provided
+    if (result.availableOptions) {
+      const { machines = [], products = [], operators = [] } = result.availableOptions;
+      const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+      if (selectMachine && machines.length > 0 && selectMachine.options.length <= 2) {
+        const cur = selectMachine.value;
+        selectMachine.innerHTML = [`<option value="all">${t('analytics.machineMoM.allFleet') || 'All Machines (Fleet Average)'}</option>`]
+          .concat(machines.map(m => `<option value="${analyticsEscapeHtml(m)}">${analyticsEscapeHtml(m)}</option>`)).join('');
+        selectMachine.value = cur || 'all';
+      }
+
+      const selectProduct = document.getElementById('analyticsMoMProductSelect');
+      if (selectProduct && products.length > 0 && selectProduct.options.length <= 2) {
+        const cur = selectProduct.value;
+        const opts = [`<option value="">All Products</option>`];
+        products.forEach(p => {
+          const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
+          opts.push(`<option value="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(label)}</option>`);
+        });
+        selectProduct.innerHTML = opts.join('');
+        selectProduct.value = cur || '';
+      }
+
+      const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+      if (selectWorker && operators.length > 0 && selectWorker.options.length <= 2) {
+        const cur = selectWorker.value;
+        const opts = [`<option value="">All Workers (Team Average)</option>`]
+          .concat(operators.map(op => `<option value="${analyticsEscapeHtml(op)}">${analyticsEscapeHtml(op)}</option>`));
+        selectWorker.innerHTML = opts.join('');
+        selectWorker.value = cur || '';
+      }
+    }
+
+    renderAnalyticsMoM(result);
+  } catch (err) {
+    console.error('❌ Failed to load MoM analytics:', err);
+    renderAnalyticsMoMError(err.message);
+  } finally {
+    analyticsMoMLoading = false;
+    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+  }
+}
+
+function renderAnalyticsMoMError(message) {
+  const kpiGrid = document.getElementById('analyticsMoMKpiGrid');
+  if (kpiGrid) {
+    kpiGrid.innerHTML = `
+      <div class="col-span-1 sm:col-span-2 xl:col-span-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 p-8 text-center text-sm text-gray-500">
+        <i class="ri-information-line text-2xl text-indigo-500 mb-2 block"></i>
+        <p class="font-medium text-gray-700 mb-1">MoM Analytics Initialization</p>
+        <p class="text-xs text-gray-400 max-w-md mx-auto">${analyticsEscapeHtml(message || 'Please ensure the server has finished restarting with the new MoM endpoint.')}</p>
+        <button onclick="loadAnalyticsMoM()" class="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 shadow-2xs hover:bg-gray-50">
+          <i class="ri-refresh-line"></i> Retry
+        </button>
+      </div>`;
+  }
+}
+
+function renderAnalyticsMoM(result) {
+  renderAnalyticsMoMKpis(result);
+  renderAnalyticsMoMTrajectoryChart(result);
+  renderAnalyticsMoMBreakdowns(result);
+}
+
+function renderAnalyticsMoMKpis(result) {
+  const container = document.getElementById('analyticsMoMKpiGrid');
+  if (!container) return;
+
+  const { deltas, analyticsA, analyticsB, type } = result;
+
+  let cards = [];
+
+  if (type === 'product' || type === 'products') {
+    cards = [
+      {
+        title: 'Total Production Output',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: `Avg ${analyticsA.avgShotsPerDay} units/day vs ${analyticsB.avgShotsPerDay} units/day`,
+        icon: 'ri-box-3-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: 'Defect Rate (MoM)',
+        valA: `${analyticsA.defectRate}%`,
+        valB: `${analyticsB.defectRate}%`,
+        diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
+        isPositive: deltas.diffDefectRate <= 0,
+        subtext: `Total defects: ${analyticsA.totalDefects.toLocaleString()} vs ${analyticsB.totalDefects.toLocaleString()}`,
+        icon: 'ri-shield-check-line',
+        tone: 'bg-rose-50 text-rose-600'
+      },
+      {
+        title: 'Man-Hours Invested',
+        valA: `${analyticsA.totalManHours}h`,
+        valB: `${analyticsB.totalManHours}h`,
+        diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
+        isPositive: deltas.diffHours >= 0,
+        subtext: `${analyticsA.operatingDays} active production days vs ${analyticsB.operatingDays} days`,
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: 'Hourly Pace (Productivity)',
+        valA: `${analyticsA.shotsPerHour} /h`,
+        valB: `${analyticsB.shotsPerHour} /h`,
+        diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
+        isPositive: deltas.diffShotsPerHour >= 0,
+        subtext: `Shift efficiency: ${analyticsA.efficiency}% vs ${analyticsB.efficiency}%`,
+        icon: 'ri-speed-up-line',
+        tone: 'bg-blue-50 text-blue-600'
+      }
+    ];
+  } else if (type === 'worker' || type === 'workers') {
+    cards = [
+      {
+        title: 'Worker Output Produced',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: `Avg ${analyticsA.avgShotsPerDay} units/day vs ${analyticsB.avgShotsPerDay} units/day`,
+        icon: 'ri-team-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: 'Defect Rate (MoM)',
+        valA: `${analyticsA.defectRate}%`,
+        valB: `${analyticsB.defectRate}%`,
+        diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
+        isPositive: deltas.diffDefectRate <= 0,
+        subtext: `Total defects: ${analyticsA.totalDefects.toLocaleString()} vs ${analyticsB.totalDefects.toLocaleString()}`,
+        icon: 'ri-shield-check-line',
+        tone: 'bg-rose-50 text-rose-600'
+      },
+      {
+        title: 'Total Labor Hours',
+        valA: `${analyticsA.totalManHours}h`,
+        valB: `${analyticsB.totalManHours}h`,
+        diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
+        isPositive: deltas.diffHours >= 0,
+        subtext: `${analyticsA.operatingDays} days worked vs ${analyticsB.operatingDays} days`,
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: 'Productivity Pace',
+        valA: `${analyticsA.shotsPerHour} /h`,
+        valB: `${analyticsB.shotsPerHour} /h`,
+        diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
+        isPositive: deltas.diffShotsPerHour >= 0,
+        subtext: `Trouble downtime: ${analyticsA.troubleHours}h vs ${analyticsB.troubleHours}h`,
+        icon: 'ri-speed-up-line',
+        tone: 'bg-blue-50 text-blue-600'
+      }
+    ];
+  } else {
+    // Machines (default)
+    cards = [
+      {
+        title: 'Efficiency (MoM)',
+        valA: `${analyticsA.efficiency}%`,
+        valB: `${analyticsB.efficiency}%`,
+        diffText: `${deltas.diffEfficiency >= 0 ? '+' : ''}${deltas.diffEfficiency}%`,
+        isPositive: deltas.diffEfficiency >= 0,
+        subtext: `Shift efficiency (${analyticsA.producingHours}h producing vs ${analyticsB.producingHours}h)`,
+        icon: 'ri-speed-up-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: 'Total Output / Shots',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: `Avg ${analyticsA.avgShotsPerDay} shots/day vs ${analyticsB.avgShotsPerDay} shots/day`,
+        icon: 'ri-cpu-line',
+        tone: 'bg-blue-50 text-blue-600'
+      },
+      {
+        title: 'Working Hours',
+        valA: `${analyticsA.producingHours}h`,
+        valB: `${analyticsB.producingHours}h`,
+        diffText: `${deltas.diffProducingHours >= 0 ? '+' : ''}${deltas.diffProducingHours}h`,
+        isPositive: deltas.diffProducingHours >= 0,
+        subtext: `${analyticsA.operatingDays} active days vs ${analyticsB.operatingDays} active days`,
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: 'Trouble Downtime',
+        valA: `${analyticsA.troubleHours}h`,
+        valB: `${analyticsB.troubleHours}h`,
+        diffText: `${deltas.diffTroubleHours <= 0 ? '' : '+'}${deltas.diffTroubleHours}h`,
+        isPositive: deltas.diffTroubleHours <= 0,
+        subtext: `Defect rate: ${analyticsA.defectRate}% (Δ ${deltas.diffDefectRate >= 0 ? '+' : ''}${deltas.diffDefectRate}%)`,
+        icon: 'ri-alarm-warning-line',
+        tone: 'bg-rose-50 text-rose-600'
+      }
+    ];
+  }
+
+  container.innerHTML = cards.map(c => `
+    <div class="rounded-2xl border border-gray-100 bg-white p-4 sm:p-5 shadow-xs transition hover:border-gray-200">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-gray-500">${c.title}</span>
+        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+          c.isPositive ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20' : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20'
+        }">
+          <i class="${c.isPositive ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'} text-sm leading-none"></i>
+          <span>${c.diffText}</span>
+        </span>
+      </div>
+
+      <div class="mt-3 flex items-baseline gap-2">
+        <span class="text-2xl font-semibold tracking-tight text-gray-900 tabular-nums">${c.valA}</span>
+        <span class="text-xs text-gray-400 font-medium tabular-nums">vs ${c.valB}</span>
+      </div>
+
+      <p class="mt-2 text-xs text-gray-400 truncate" title="${c.subtext}">${c.subtext}</p>
+    </div>
+  `).join('');
+}
+
+function renderAnalyticsMoMTrajectoryChart(result) {
+  const containerId = 'analyticsMoMTrajectoryChart';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const { trajectory = [], monthA, monthB, type } = result;
+
+  const titleEl = document.getElementById('analyticsMoMTrajectoryTitle');
+  const descEl = document.getElementById('analyticsMoMTrajectoryDesc');
+  if (titleEl && descEl) {
+    if (type === 'product' || type === 'products') {
+      titleEl.textContent = 'Product Volume Trajectory (Day 1..31)';
+      descEl.textContent = 'Compare product output day-by-day to observe production velocity.';
+    } else if (type === 'worker' || type === 'workers') {
+      titleEl.textContent = 'Worker Output Trajectory (Day 1..31)';
+      descEl.textContent = 'Compare worker output pace day-by-day across both months.';
+    } else {
+      titleEl.textContent = 'Machine Pace Trajectory (Day 1..31)';
+      descEl.textContent = 'Compare pace day-by-day to see if machine is running ahead of or behind baseline.';
+    }
+  }
+
+  if (trajectory.length === 0) {
+    analyticsShowChartEmpty(containerId, 'No trajectory data available');
+    return;
+  }
+
+  const days = trajectory.map(t => `${t.day}日`);
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const labelA = `${monthA} (${isJa ? '対象月' : 'Target'})`;
+  const labelB = `${monthB} (${isJa ? '比較月' : 'Baseline'})`;
+
+  let series = [];
+  let yAxisConfig = {};
+  let tooltipFormatter;
+
+  if (analyticsMoMChartMode === 'cumulative') {
+    series = [
+      {
+        name: labelA,
+        type: 'line',
+        data: trajectory.map(t => t.cumShotsA),
+        smooth: true,
+        symbolSize: 6,
+        itemStyle: { color: '#4f46e5' },
+        lineStyle: { width: 3, color: '#4f46e5' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(79, 70, 229, 0.18)' },
+              { offset: 1, color: 'rgba(79, 70, 229, 0.01)' }
+            ]
+          }
+        }
+      },
+      {
+        name: labelB,
+        type: 'line',
+        data: trajectory.map(t => t.cumShotsB),
+        smooth: true,
+        symbolSize: 4,
+        itemStyle: { color: '#a855f7' },
+        lineStyle: { width: 2, type: 'dashed', color: '#a855f7' }
+      }
+    ];
+
+    yAxisConfig = {
+      type: 'value',
+      name: isJa ? '累積ショット数' : 'Cumulative Output',
+      axisLabel: { formatter: val => Number(val).toLocaleString() },
+      splitLine: { lineStyle: { color: '#f1f5f9' } }
+    };
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      let html = `<div class="font-semibold text-xs text-gray-200 mb-1">${tPoint.day}日</div>`;
+      params.forEach(p => {
+        if (p.value !== null && p.value !== undefined) {
+          html += `<div class="flex items-center justify-between gap-4 text-xs">
+            <span style="color:${p.color}">${p.seriesName}:</span>
+            <span class="font-semibold text-white tabular-nums">${Number(p.value).toLocaleString()} units</span>
+          </div>`;
+        }
+      });
+      if (tPoint.cumShotsA !== null && tPoint.cumShotsB !== null) {
+        const diff = tPoint.cumShotsA - tPoint.cumShotsB;
+        const sign = diff >= 0 ? '+' : '';
+        const color = diff >= 0 ? '#34d399' : '#f87171';
+        html += `<div class="mt-1.5 pt-1.5 border-t border-gray-700 flex justify-between gap-4 text-xs font-semibold">
+          <span style="color:${color}">${isJa ? '累積差異' : 'Variance'}:</span>
+          <span style="color:${color}" class="tabular-nums">${sign}${diff.toLocaleString()} units</span>
+        </div>`;
+      }
+      return html;
+    };
+  } else if (analyticsMoMChartMode === 'daily') {
+    series = [
+      {
+        name: labelA,
+        type: 'bar',
+        barMaxWidth: 12,
+        itemStyle: { color: '#4f46e5', borderRadius: [4, 4, 0, 0] },
+        data: trajectory.map(t => t.shotsA)
+      },
+      {
+        name: labelB,
+        type: 'bar',
+        barMaxWidth: 12,
+        itemStyle: { color: '#cbd5e1', borderRadius: [4, 4, 0, 0] },
+        data: trajectory.map(t => t.shotsB)
+      }
+    ];
+
+    yAxisConfig = {
+      type: 'value',
+      name: isJa ? '日別生産数' : 'Daily Output',
+      axisLabel: { formatter: val => Number(val).toLocaleString() },
+      splitLine: { lineStyle: { color: '#f1f5f9' } }
+    };
+  } else {
+    // Rate mode (Efficiency for machine, Defect rate for product, Pace for worker)
+    if (type === 'product' || type === 'products') {
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#ef4444' },
+          lineStyle: { width: 2.5, color: '#ef4444' },
+          data: trajectory.map(t => t.defRateA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.defRateB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: 'Defect Rate %',
+        axisLabel: { formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    } else if (type === 'worker' || type === 'workers') {
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#2563eb' },
+          lineStyle: { width: 2.5, color: '#2563eb' },
+          data: trajectory.map(t => t.rateA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.rateB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: 'Pace (Units / Hour)',
+        axisLabel: { formatter: '{value}/h' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    } else {
+      // Efficiency % for machine
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#10b981' },
+          lineStyle: { width: 2.5, color: '#10b981' },
+          data: trajectory.map(t => t.effA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.effB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: 'Efficiency %',
+        max: 100,
+        axisLabel: { formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    }
+  }
+
+  analyticsRenderChart(containerId, {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: analyticsMoMChartMode === 'daily' ? 'shadow' : 'line' },
+      formatter: tooltipFormatter
+    },
+    legend: {
+      data: [labelA, labelB],
+      top: 0,
+      right: 10,
+      textStyle: { fontSize: 11, fontWeight: 'bold' }
+    },
+    grid: { left: 55, right: 20, top: 35, bottom: 25 },
+    xAxis: {
+      type: 'category',
+      data: days,
+      axisLine: { lineStyle: { color: '#cbd5e1' } },
+      axisLabel: { fontSize: 10, interval: 2 }
+    },
+    yAxis: yAxisConfig,
+    series
+  });
+}
+
+function renderAnalyticsMoMBreakdowns(result) {
+  const { breakdown1 = {}, breakdown2 = {}, monthA, monthB, type } = result;
+
+  const title1 = document.getElementById('analyticsMoMBreakdown1Title');
+  const badge1 = document.getElementById('analyticsMoMBreakdown1Badge');
+  const content1 = document.getElementById('analyticsMoMBreakdown1Content');
+
+  const title2 = document.getElementById('analyticsMoMBreakdown2Title');
+  const badge2 = document.getElementById('analyticsMoMBreakdown2Badge');
+  const content2 = document.getElementById('analyticsMoMBreakdown2Content');
+
+  if (!content1 || !content2) return;
+
+  if (type === 'product' || type === 'products') {
+    if (title1) title1.innerHTML = '<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>Machine Allocation Shift</span>';
+    if (badge1) badge1.textContent = 'Output by machine';
+
+    const items1 = breakdown1.items || [];
+    if (items1.length === 0) {
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No machine allocation data found.</div>`;
+    } else {
+      content1.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">Machine</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">Volume Δ</th>
+              <th class="py-2 pl-2 text-right">Share Δ</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items1.map(m => {
+              const isUp = m.diff >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(m.name)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${m.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${m.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${m.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center font-semibold ${Number(m.shareDiff) >= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(m.shareDiff) >= 0 ? '+' : ''}${m.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (title2) title2.innerHTML = '<i class="ri-alarm-warning-line text-rose-600 mr-2"></i><span>Defect Reason Shift</span>';
+    if (badge2) badge2.textContent = 'Defect share';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No defect records found for this product.</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">Defect Cause</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">Count Δ</th>
+              <th class="py-2 pl-2 text-right">Share Δ</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(d => {
+              const isWorse = d.diff > 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(d.reason)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${d.countA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${d.countB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isWorse ? 'text-rose-600' : 'text-emerald-600'}">
+                    ${d.diff >= 0 ? '+' : ''}${d.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center font-semibold ${Number(d.shareDiff) <= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(d.shareDiff) >= 0 ? '+' : ''}${d.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } else if (type === 'worker' || type === 'workers') {
+    if (title1) title1.innerHTML = '<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>Machine Assignment Shift</span>';
+    if (badge1) badge1.textContent = 'Hours & output';
+
+    const items1 = breakdown1.items || [];
+    if (items1.length === 0) {
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No machine assignment data found.</div>`;
+    } else {
+      content1.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">Machine</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">Output Δ</th>
+              <th class="py-2 pl-2 text-right">Hours Δ</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items1.map(m => {
+              const isUp = m.diffShots >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(m.name)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${m.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${m.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${m.diffShots.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums text-gray-600">
+                    ${m.diffHours >= 0 ? '+' : ''}${m.diffHours}h
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (title2) title2.innerHTML = '<i class="ri-box-3-line text-violet-600 mr-2"></i><span>Product Focus Shift</span>';
+    if (badge2) badge2.textContent = 'Output & defects';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No product records for this worker.</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">Product</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">Output Δ</th>
+              <th class="py-2 pl-2 text-right">Defects Δ</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(p => {
+              const isUp = p.diffShots >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2">
+                    <span class="font-semibold text-gray-900 block truncate max-w-[140px]" title="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(p.hinban)}</span>
+                    ${p.productName ? `<span class="text-[10px] text-gray-400 block truncate max-w-[140px]">${analyticsEscapeHtml(p.productName)}</span>` : ''}
+                  </td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${p.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${p.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${p.diffShots.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums ${p.diffDefects > 0 ? 'text-rose-600 font-semibold' : 'text-emerald-600 font-semibold'}">
+                    ${p.diffDefects >= 0 ? '+' : ''}${p.diffDefects.toLocaleString()}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } else {
+    // Machines (default)
+    if (title1) title1.innerHTML = '<i class="ri-pie-chart-2-line text-emerald-600 mr-2"></i><span>Operating Time & Loss Distribution</span>';
+    if (badge1) badge1.textContent = 'Shift allocation';
+
+    const renderSingleRow = (title, data, isTarget) => {
+      const totHours = data.totalHours || 1;
+      const prodPct = Math.round((data.producingHours / totHours) * 100);
+      const troublePct = Math.round((data.troubleHours / totHours) * 100);
+      const breakPct = Math.round((data.breakHours / totHours) * 100);
+      const idlePct = Math.max(0, 100 - prodPct - troublePct - breakPct);
+
+      return `
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold ${isTarget ? 'text-indigo-600' : 'text-gray-600'}">${title}</span>
+              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">${data.totalHours}h total</span>
+            </div>
+            <span class="font-bold text-gray-900">${prodPct}% Producing</span>
+          </div>
+
+          <div class="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 shadow-2xs">
+            <div class="bg-emerald-500 transition-all" style="width: ${prodPct}%" title="Producing: ${data.producingHours}h (${prodPct}%)"></div>
+            <div class="bg-sky-400 transition-all" style="width: ${breakPct}%" title="Break: ${data.breakHours}h (${breakPct}%)"></div>
+            <div class="bg-rose-500 transition-all" style="width: ${troublePct}%" title="Trouble: ${data.troubleHours}h (${troublePct}%)"></div>
+            <div class="bg-gray-200 transition-all" style="width: ${idlePct}%" title="Other/Idle: ${idlePct}%"></div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-gray-400 pt-0.5">
+            <span>Producing: <strong class="text-emerald-700 font-semibold">${data.producingHours}h</strong></span>
+            <span>Trouble: <strong class="text-rose-600 font-semibold">${data.troubleHours}h</strong></span>
+            <span>Break: <strong class="text-sky-700 font-semibold">${data.breakHours}h</strong></span>
+          </div>
+        </div>
+      `;
+    };
+
+    content1.innerHTML = `
+      <div class="space-y-4">
+        ${renderSingleRow(`${monthA} (Target)`, breakdown1.dataA || {}, true)}
+        ${renderSingleRow(`${monthB} (Baseline)`, breakdown1.dataB || {}, false)}
+      </div>
+    `;
+
+    if (title2) title2.innerHTML = '<i class="ri-box-3-line text-violet-600 mr-2"></i><span>Product Mix Shift (Top Hinbans)</span>';
+    if (badge2) badge2.textContent = 'Volume & share';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No product records in this comparison range.</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-3">Part / Hinban</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">Volume Δ</th>
+              <th class="py-2 pl-2 text-right">Share Δ</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(p => {
+              const isUp = p.diff >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-3">
+                    <span class="font-semibold text-gray-900 block truncate max-w-[140px]" title="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(p.hinban)}</span>
+                    ${p.productName ? `<span class="text-[10px] text-gray-400 block truncate max-w-[140px]">${analyticsEscapeHtml(p.productName)}</span>` : ''}
+                  </td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${p.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${p.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${p.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center gap-0.5 font-semibold ${Number(p.shareDiff) >= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(p.shareDiff) >= 0 ? '+' : ''}${p.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  }
 }
 
 function renderAnalyticsDefectsChart(topDefects) {
@@ -3968,6 +4924,10 @@ function renderAnalyticsActiveTab() {
     case 'finance':
       renderAnalyticsFinanceTab(analyticsData);
       break;
+    case 'mom':
+      initAnalyticsMoM(analyticsData);
+      loadAnalyticsMoM();
+      break;
     case 'overview':
     default:
       renderAnalyticsOverview(analyticsData);
@@ -4379,3 +5339,10 @@ window.analyticsUpdateFilterOptionLabels = analyticsUpdateFilterOptionLabels;
 window.openWorkerComparisonModal = openWorkerComparisonModal;
 window.closeWorkerComparisonModal = closeWorkerComparisonModal;
 window.handleWorkerCompareSelection = handleWorkerCompareSelection;
+window.setAnalyticsMoMSubTab = setAnalyticsMoMSubTab;
+window.handleAnalyticsMoMFilterChange = handleAnalyticsMoMFilterChange;
+window.handleAnalyticsMoMSwapMonths = handleAnalyticsMoMSwapMonths;
+window.setAnalyticsMoMChartMode = setAnalyticsMoMChartMode;
+window.loadAnalyticsMoM = loadAnalyticsMoM;
+window.handleAnalyticsMachineMoMChange = handleAnalyticsMoMFilterChange;
+window.loadAnalyticsMachineMoM = loadAnalyticsMoM;

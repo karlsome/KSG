@@ -4430,6 +4430,457 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
     }
 });
 
+// GET /api/admin/analytics/mom
+// Computes Month-over-Month (MoM) comparison for machines, products, and workers
+async function handleAnalyticsMoMRequest(req, res) {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+
+        const now = new Date();
+        const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevYM = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+        const type = String(req.query.type || 'machine').toLowerCase().trim();
+        const monthA = String(req.query.monthA || currentYM).trim();
+        const monthB = String(req.query.monthB || prevYM).trim();
+        const machine = String(req.query.machine || 'all').trim();
+        const hinban = String(req.query.hinban || '').trim();
+        const lhRh = String(req.query.lhRh || 'all').trim();
+        const operator = String(req.query.operator || '').trim();
+
+        // Calculate start and end dates for both months
+        const [yA, mA] = monthA.split('-').map(Number);
+        const lastDayA = new Date(yA, mA, 0).getDate();
+        const startA = `${monthA}-01`;
+        const endA = `${monthA}-${String(lastDayA).padStart(2, '0')}`;
+
+        const [yB, mB] = monthB.split('-').map(Number);
+        const lastDayB = new Date(yB, mB, 0).getDate();
+        const startB = `${monthB}-01`;
+        const endB = `${monthB}-${String(lastDayB).padStart(2, '0')}`;
+
+        const overallStart = startA < startB ? startA : startB;
+        const overallEnd = endA > endB ? endA : endB;
+
+        const filter = {
+            is_deleted: { $ne: true }
+        };
+
+        const dateExpr = buildSubmittedDBDateRangeExpr(overallStart, overallEnd);
+        if (dateExpr) filter.$expr = dateExpr;
+
+        if (type === 'machine' && machine && machine !== 'all') {
+            filter.submitted_from = machine;
+        }
+        if (type === 'product') {
+            if (hinban && hinban !== 'all') filter.hinban = hinban;
+            if (lhRh && lhRh !== 'all') filter.lh_rh = lhRh;
+        }
+        if (type === 'worker' && operator && operator !== 'all') {
+            const safeOp = escapeSubmittedDBRegex(operator);
+            filter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(f => ({
+                [f]: { $regex: safeOp, $options: 'i' }
+            }));
+        }
+
+        const [records, optionsDoc] = await Promise.all([
+            collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
+            collection.aggregate([
+                { $match: { is_deleted: { $ne: true } } },
+                {
+                    $group: {
+                        _id: null,
+                        sources: { $addToSet: '$submitted_from' },
+                        products: { $addToSet: { hinban: '$hinban', productName: '$product_name' } },
+                        op1: { $addToSet: '$operator1' },
+                        op2: { $addToSet: '$operator2' },
+                        op3: { $addToSet: '$operator3' },
+                        op4: { $addToSet: '$operator4' }
+                    }
+                }
+            ]).next()
+        ]);
+
+        const availableMachines = (optionsDoc?.sources || [])
+            .filter(name => typeof name === 'string' && name.trim().length > 0)
+            .sort((a, b) => a.localeCompare(b));
+
+        const productMap = new Map();
+        (optionsDoc?.products || []).forEach(p => {
+            if (p && p.hinban && !productMap.has(p.hinban)) {
+                productMap.set(p.hinban, { hinban: p.hinban, productName: p.productName || '' });
+            }
+        });
+        const availableProducts = Array.from(productMap.values()).sort((a, b) => a.hinban.localeCompare(b.hinban));
+
+        const opSet = new Set();
+        if (optionsDoc) {
+            ['op1', 'op2', 'op3', 'op4'].forEach(k => {
+                (optionsDoc[k] || []).forEach(v => {
+                    if (typeof v === 'string' && v.trim()) opSet.add(v.trim());
+                });
+            });
+        }
+        const availableOperators = [...opSet].sort((a, b) => a.localeCompare(b));
+
+        const computeMonthStats = (targetYM, numDaysInMonth) => {
+            let totalGood = 0;
+            let totalDefects = 0;
+            let totalManHours = 0;
+            let totalBreak = 0;
+            let totalTrouble = 0;
+            const daily = {};
+            const daysActive = new Set();
+
+            const machineMap = new Map();
+            const partMap = new Map();
+            const defectMap = new Map();
+            const workerMap = new Map();
+
+            for (let d = 1; d <= 31; d++) {
+                daily[d] = {
+                    day: d,
+                    goodCount: 0,
+                    defectCount: 0,
+                    manHours: 0,
+                    troubleHours: 0,
+                    breakHours: 0,
+                    recordsCount: 0
+                };
+            }
+
+            records.forEach(r => {
+                const dateInfo = getSubmittedDBRecordDateInfo(r);
+                if (!dateInfo.key.startsWith(targetYM)) return;
+
+                const dayNum = parseInt(dateInfo.key.slice(8, 10), 10);
+                const good = Number(r.good_count ?? 0) || 0;
+                const defectsList = getSubmittedDBRecordDefects(r);
+                const defects = defectsList.reduce((sum, def) => sum + (Number(def.count) || 0), 0);
+                const manHours = Number(r.man_hours ?? 0) || 0;
+                const breakTime = Number(r.break_time ?? 0) || 0;
+                const troubleTime = Number(r.trouble_time ?? 0) || 0;
+                const mName = String(r.submitted_from ?? '').trim() || 'Unknown Machine';
+                const hinbanVal = String(r.hinban ?? '').trim() || 'Unknown Part';
+                const productName = String(r.product_name ?? '').trim();
+                const ops = getSubmittedDBRecordOperators(r);
+
+                totalGood += good;
+                totalDefects += defects;
+                totalManHours += manHours;
+                totalBreak += breakTime;
+                totalTrouble += troubleTime;
+                daysActive.add(dateInfo.key);
+
+                if (dayNum >= 1 && dayNum <= 31) {
+                    daily[dayNum].goodCount += good;
+                    daily[dayNum].defectCount += defects;
+                    daily[dayNum].manHours += manHours;
+                    daily[dayNum].troubleHours += troubleTime;
+                    daily[dayNum].breakHours += breakTime;
+                    daily[dayNum].recordsCount += 1;
+                }
+
+                if (!machineMap.has(mName)) machineMap.set(mName, { name: mName, shots: 0, defects: 0, manHours: 0 });
+                const mEntry = machineMap.get(mName);
+                mEntry.shots += good;
+                mEntry.defects += defects;
+                mEntry.manHours += manHours;
+
+                if (!partMap.has(hinbanVal)) partMap.set(hinbanVal, { hinban: hinbanVal, productName, shots: 0, defects: 0, manHours: 0 });
+                const p = partMap.get(hinbanVal);
+                p.shots += good;
+                p.defects += defects;
+                p.manHours += manHours;
+
+                defectsList.forEach(d => {
+                    const reason = d.name || 'Other';
+                    defectMap.set(reason, (defectMap.get(reason) || 0) + d.count);
+                });
+
+                ops.forEach(op => {
+                    if (!workerMap.has(op)) workerMap.set(op, { name: op, shots: 0, defects: 0, manHours: 0 });
+                    const wEntry = workerMap.get(op);
+                    wEntry.shots += good;
+                    wEntry.defects += defects;
+                    wEntry.manHours += manHours;
+                });
+            });
+
+            const operatingDays = daysActive.size;
+            const avgShotsPerDay = operatingDays > 0 ? Math.round((totalGood / operatingDays) * 10) / 10 : 0;
+            const avgHoursPerDay = operatingDays > 0 ? Math.round((totalManHours / operatingDays) * 10) / 10 : 0;
+            const totalCreated = totalGood + totalDefects;
+            const defectRate = totalCreated > 0
+                ? Math.round((totalDefects / totalCreated) * 1000) / 10
+                : 0;
+
+            const producingHours = Math.max(0, totalManHours - totalBreak - totalTrouble);
+            const efficiency = totalManHours > 0 ? Math.round((producingHours / totalManHours) * 1000) / 10 : 0;
+            const shotsPerHour = totalManHours > 0 ? Math.round((totalGood / totalManHours) * 10) / 10 : 0;
+
+            return {
+                month: targetYM,
+                lastDay: numDaysInMonth,
+                totalGood,
+                totalDefects,
+                totalCreated,
+                totalManHours: Math.round(totalManHours * 10) / 10,
+                producingHours: Math.round(producingHours * 10) / 10,
+                breakHours: Math.round(totalBreak * 10) / 10,
+                troubleHours: Math.round(totalTrouble * 10) / 10,
+                operatingDays,
+                avgShotsPerDay,
+                avgHoursPerDay,
+                defectRate,
+                efficiency,
+                shotsPerHour,
+                daily,
+                machines: Array.from(machineMap.values()).sort((a, b) => b.shots - a.shots),
+                parts: Array.from(partMap.values()).sort((a, b) => b.shots - a.shots),
+                defects: Array.from(defectMap.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+                workers: Array.from(workerMap.values()).sort((a, b) => b.shots - a.shots)
+            };
+        };
+
+        const analyticsA = computeMonthStats(monthA, lastDayA);
+        const analyticsB = computeMonthStats(monthB, lastDayB);
+
+        // Deltas
+        const diffShots = analyticsA.totalGood - analyticsB.totalGood;
+        const pctShots = analyticsB.totalGood > 0
+            ? Math.round(((analyticsA.totalGood - analyticsB.totalGood) / analyticsB.totalGood) * 1000) / 10
+            : (analyticsA.totalGood > 0 ? 100 : 0);
+        const diffAvgShots = Math.round((analyticsA.avgShotsPerDay - analyticsB.avgShotsPerDay) * 10) / 10;
+        const diffHours = Math.round((analyticsA.totalManHours - analyticsB.totalManHours) * 10) / 10;
+        const diffProducingHours = Math.round((analyticsA.producingHours - analyticsB.producingHours) * 10) / 10;
+        const diffTroubleHours = Math.round((analyticsA.troubleHours - analyticsB.troubleHours) * 10) / 10;
+        const diffDefectRate = Math.round((analyticsA.defectRate - analyticsB.defectRate) * 10) / 10;
+        const diffEfficiency = Math.round((analyticsA.efficiency - analyticsB.efficiency) * 10) / 10;
+        const diffShotsPerHour = Math.round((analyticsA.shotsPerHour - analyticsB.shotsPerHour) * 10) / 10;
+
+        // Trajectory (Day 1..31)
+        const isCurrentMonthA = monthA === currentYM;
+        const currentDay = now.getDate();
+
+        let cumA = 0;
+        let cumB = 0;
+        const trajectory = [];
+
+        for (let d = 1; d <= 31; d++) {
+            const dayA = analyticsA.daily[d];
+            const dayB = analyticsB.daily[d];
+
+            const inMonthB = d <= lastDayB;
+            const inMonthA = d <= lastDayA;
+
+            if (inMonthB) cumB += dayB.goodCount;
+
+            let valA = null;
+            let valCumA = null;
+            let valEffA = null;
+            let valDefA = null;
+            let valRateA = null;
+
+            if (inMonthA && (!isCurrentMonthA || d <= currentDay)) {
+                cumA += dayA.goodCount;
+                valA = dayA.goodCount;
+                valCumA = cumA;
+                const tot = dayA.manHours;
+                const prod = Math.max(0, dayA.manHours - dayA.breakHours - dayA.troubleHours);
+                valEffA = tot > 0 ? Math.round((prod / tot) * 1000) / 10 : null;
+                valDefA = (dayA.goodCount + dayA.defectCount > 0) ? Math.round((dayA.defectCount / (dayA.goodCount + dayA.defectCount)) * 1000) / 10 : null;
+                valRateA = tot > 0 ? Math.round((dayA.goodCount / tot) * 10) / 10 : null;
+            }
+
+            const totB = dayB.manHours;
+            const prodB = Math.max(0, dayB.manHours - dayB.breakHours - dayB.troubleHours);
+            const valEffB = (inMonthB && totB > 0) ? Math.round((prodB / totB) * 1000) / 10 : null;
+            const valDefB = (inMonthB && (dayB.goodCount + dayB.defectCount > 0)) ? Math.round((dayB.defectCount / (dayB.goodCount + dayB.defectCount)) * 1000) / 10 : null;
+            const valRateB = (inMonthB && totB > 0) ? Math.round((dayB.goodCount / totB) * 10) / 10 : null;
+
+            trajectory.push({
+                day: d,
+                shotsA: inMonthA ? valA : null,
+                shotsB: inMonthB ? dayB.goodCount : null,
+                cumShotsA: inMonthA ? valCumA : null,
+                cumShotsB: inMonthB ? cumB : null,
+                effA: inMonthA ? valEffA : null,
+                effB: inMonthB ? valEffB : null,
+                defRateA: inMonthA ? valDefA : null,
+                defRateB: inMonthB ? valDefB : null,
+                rateA: inMonthA ? valRateA : null,
+                rateB: inMonthB ? valRateB : null
+            });
+        }
+
+        // Deep-dive breakdowns for each sub-tab
+        let breakdown1 = {};
+        let breakdown2 = {};
+
+        if (type === 'machine') {
+            breakdown1 = {
+                kind: 'lossShift',
+                dataA: {
+                    producingHours: analyticsA.producingHours,
+                    troubleHours: analyticsA.troubleHours,
+                    breakHours: analyticsA.breakHours,
+                    totalHours: analyticsA.totalManHours
+                },
+                dataB: {
+                    producingHours: analyticsB.producingHours,
+                    troubleHours: analyticsB.troubleHours,
+                    breakHours: analyticsB.breakHours,
+                    totalHours: analyticsB.totalManHours
+                }
+            };
+
+            const partMapAll = new Map();
+            analyticsA.parts.forEach(p => partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: p.shots, shotsB: 0 }));
+            analyticsB.parts.forEach(p => {
+                if (!partMapAll.has(p.hinban)) partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: 0, shotsB: p.shots });
+                else partMapAll.get(p.hinban).shotsB = p.shots;
+            });
+            const totalVolA = analyticsA.totalGood || 1;
+            const totalVolB = analyticsB.totalGood || 1;
+            const shiftList = Array.from(partMapAll.values()).map(p => {
+                const diff = p.shotsA - p.shotsB;
+                const shareA = Math.round((p.shotsA / totalVolA) * 1000) / 10;
+                const shareB = Math.round((p.shotsB / totalVolB) * 1000) / 10;
+                return {
+                    ...p,
+                    diff,
+                    pctDiff: p.shotsB > 0 ? Math.round((diff / p.shotsB) * 1000) / 10 : (p.shotsA > 0 ? 100 : 0),
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown2 = { kind: 'productMixShift', items: shiftList };
+
+        } else if (type === 'product') {
+            const machineMapAll = new Map();
+            analyticsA.machines.forEach(m => machineMapAll.set(m.name, { name: m.name, shotsA: m.shots, shotsB: 0 }));
+            analyticsB.machines.forEach(m => {
+                if (!machineMapAll.has(m.name)) machineMapAll.set(m.name, { name: m.name, shotsA: 0, shotsB: m.shots });
+                else machineMapAll.get(m.name).shotsB = m.shots;
+            });
+            const totalVolA = analyticsA.totalGood || 1;
+            const totalVolB = analyticsB.totalGood || 1;
+            const machineShifts = Array.from(machineMapAll.values()).map(m => {
+                const diff = m.shotsA - m.shotsB;
+                const shareA = Math.round((m.shotsA / totalVolA) * 1000) / 10;
+                const shareB = Math.round((m.shotsB / totalVolB) * 1000) / 10;
+                return {
+                    ...m,
+                    diff,
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown1 = { kind: 'machineAllocationShift', items: machineShifts };
+
+            const defectMapAll = new Map();
+            analyticsA.defects.forEach(d => defectMapAll.set(d.reason, { reason: d.reason, countA: d.count, countB: 0 }));
+            analyticsB.defects.forEach(d => {
+                if (!defectMapAll.has(d.reason)) defectMapAll.set(d.reason, { reason: d.reason, countA: 0, countB: d.count });
+                else defectMapAll.get(d.reason).countB = d.count;
+            });
+            const totalDefA = analyticsA.totalDefects || 1;
+            const totalDefB = analyticsB.totalDefects || 1;
+            const defectShifts = Array.from(defectMapAll.values()).map(d => {
+                const diff = d.countA - d.countB;
+                const shareA = Math.round((d.countA / totalDefA) * 1000) / 10;
+                const shareB = Math.round((d.countB / totalDefB) * 1000) / 10;
+                return {
+                    ...d,
+                    diff,
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.countA, b.countB) - Math.max(a.countA, a.countB)).slice(0, 8);
+            breakdown2 = { kind: 'defectShift', items: defectShifts };
+
+        } else if (type === 'worker') {
+            const machineMapAll = new Map();
+            analyticsA.machines.forEach(m => machineMapAll.set(m.name, { name: m.name, shotsA: m.shots, shotsB: 0, hoursA: m.manHours, hoursB: 0 }));
+            analyticsB.machines.forEach(m => {
+                if (!machineMapAll.has(m.name)) machineMapAll.set(m.name, { name: m.name, shotsA: 0, shotsB: m.shots, hoursA: 0, hoursB: m.manHours });
+                else {
+                    machineMapAll.get(m.name).shotsB = m.shots;
+                    machineMapAll.get(m.name).hoursB = m.manHours;
+                }
+            });
+            const machineShifts = Array.from(machineMapAll.values()).map(m => ({
+                ...m,
+                diffShots: m.shotsA - m.shotsB,
+                diffHours: Math.round((m.hoursA - m.hoursB) * 10) / 10
+            })).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown1 = { kind: 'machineAssignmentShift', items: machineShifts };
+
+            const partMapAll = new Map();
+            analyticsA.parts.forEach(p => partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: p.shots, shotsB: 0, defA: p.defects, defB: 0 }));
+            analyticsB.parts.forEach(p => {
+                if (!partMapAll.has(p.hinban)) partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: 0, shotsB: p.shots, defA: 0, defB: p.defects });
+                else {
+                    partMapAll.get(p.hinban).shotsB = p.shots;
+                    partMapAll.get(p.hinban).defB = p.defects;
+                }
+            });
+            const partShifts = Array.from(partMapAll.values()).map(p => ({
+                ...p,
+                diffShots: p.shotsA - p.shotsB,
+                diffDefects: p.defA - p.defB
+            })).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown2 = { kind: 'productFocusShift', items: partShifts };
+        }
+
+        res.json({
+            success: true,
+            type,
+            monthA,
+            monthB,
+            machine,
+            hinban,
+            lhRh,
+            operator,
+            availableOptions: {
+                machines: availableMachines,
+                products: availableProducts,
+                operators: availableOperators
+            },
+            analyticsA,
+            analyticsB,
+            deltas: {
+                diffShots,
+                pctShots,
+                diffAvgShots,
+                diffHours,
+                diffProducingHours,
+                diffTroubleHours,
+                diffDefectRate,
+                diffEfficiency,
+                diffShotsPerHour
+            },
+            trajectory,
+            breakdown1,
+            breakdown2
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error calculating MoM analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to calculate MoM analytics' });
+    }
+}
+
+app.get('/api/admin/analytics/mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
+app.get('/api/admin/analytics/machine-mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
+
 // POST /api/admin/analytics/product-cycle-time
 // Saves the observed best pace as the product's standard cycle time in masterDB
 // (the "register best pace as standard" nudge on the Product tab detail view).
