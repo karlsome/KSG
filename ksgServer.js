@@ -52,16 +52,50 @@ function getAdminDashboardRoomName(dbName = 'KSG') {
     return `admin_dashboard_${normalizedDbName}`;
 }
 
+const adminDashboardDebounceTimers = new Map();
+const adminDashboardPendingUpdates = new Map();
+
 function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
     const normalizedDbName = String(dbName || 'KSG').trim() || 'KSG';
+    const isImmediate = Boolean(update.immediate || update.reason === 'tablet-submit-success' || update.reason === 'tablet-session-cleared');
 
-    io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
-        dbName: normalizedDbName,
-        reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
-        source: String(update.source || 'server').trim() || 'server',
-        timestamp: update.timestamp || new Date().toISOString(),
-        ...update
+    if (isImmediate) {
+        if (adminDashboardDebounceTimers.has(normalizedDbName)) {
+            clearTimeout(adminDashboardDebounceTimers.get(normalizedDbName));
+            adminDashboardDebounceTimers.delete(normalizedDbName);
+        }
+        adminDashboardPendingUpdates.delete(normalizedDbName);
+        io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
+            dbName: normalizedDbName,
+            reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
+            source: String(update.source || 'server').trim() || 'server',
+            timestamp: update.timestamp || new Date().toISOString(),
+            ...update
+        });
+        return;
+    }
+
+    adminDashboardPendingUpdates.set(normalizedDbName, {
+        ...(adminDashboardPendingUpdates.get(normalizedDbName) || {}),
+        ...update,
+        timestamp: new Date().toISOString()
     });
+
+    if (!adminDashboardDebounceTimers.has(normalizedDbName)) {
+        const timer = setTimeout(() => {
+            adminDashboardDebounceTimers.delete(normalizedDbName);
+            const pending = adminDashboardPendingUpdates.get(normalizedDbName) || {};
+            adminDashboardPendingUpdates.delete(normalizedDbName);
+            io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
+                dbName: normalizedDbName,
+                reason: String(pending.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
+                source: String(pending.source || 'server').trim() || 'server',
+                timestamp: pending.timestamp || new Date().toISOString(),
+                ...pending
+            });
+        }, 1200);
+        adminDashboardDebounceTimers.set(normalizedDbName, timer);
+    }
 }
 
 app.use(express.json({ limit: '50mb' }));
@@ -4414,6 +4448,9 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
+        const selectedFactory = String(req.query.factory || '').trim();
+        const hasFactoryFilter = Boolean(selectedFactory && selectedFactory !== 'all');
+
         const now = new Date();
         const today = getJapanCalendarDate();
         const last7Days = Array.from({ length: 7 }, (_, index) => {
@@ -4427,29 +4464,54 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             date_day: day.day
         }));
 
-        const activeFilter = { is_deleted: { $ne: true } };
+        const activeFilter = {
+            is_deleted: { $ne: true },
+            ...(hasFactoryFilter ? { 工場: selectedFactory } : {})
+        };
         const todayFilter = {
             ...activeFilter,
             date_year: today.year,
             date_month: today.month,
             date_day: today.day
         };
+        const trashFilter = {
+            is_deleted: true,
+            ...(hasFactoryFilter ? { 工場: selectedFactory } : {})
+        };
+        const sessionFilter = {
+            isStarted: true,
+            ...(hasFactoryFilter ? { $or: [{ factoryLocation: selectedFactory }, { 工場: selectedFactory }] } : {})
+        };
+        const tabletFilter = hasFactoryFilter
+            ? { enabled: { $ne: false }, $or: [{ factoryLocation: selectedFactory }, { 工場: selectedFactory }] }
+            : {};
+        const equipmentFilter = hasFactoryFilter
+            ? { 工場: selectedFactory }
+            : {};
 
-        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets] = await Promise.all([
+        const aggregatePipeline = hasFactoryFilter
+            ? [{ $match: { is_deleted: { $ne: true }, 工場: selectedFactory } }, { $group: { _id: "$submitted_from" } }]
+            : [{ $match: { is_deleted: { $ne: true } } }, { $group: { _id: "$submitted_from" } }];
+
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets, equipmentDocs] = await Promise.all([
             collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
             collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
             collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
             collection.countDocuments(activeFilter),
-            collection.countDocuments({ is_deleted: true }),
+            collection.countDocuments(trashFilter),
             db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
-                .find({ isStarted: true })
+                .find(sessionFilter)
                 .sort({ updatedAt: -1 })
                 .toArray(),
-            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray(),
-            db.collection('tabletDB').find({}).toArray()
+            collection.aggregate(aggregatePipeline).toArray(),
+            db.collection('tabletDB').find(tabletFilter).toArray(),
+            db.collection('equipment').find(equipmentFilter, { projection: { 設備名: 1 } }).toArray()
         ]);
 
-        const allMachineNames = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+        const equipmentNames = (equipmentDocs || []).map(e => String(e.設備名 || '').trim()).filter(Boolean);
+        const tabletNames = (tablets || []).map(t => String(t.設備名 || t.tabletName || '').trim()).filter(Boolean);
+        const submittedSources = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+        const allMachineNames = [...new Set([...equipmentNames, ...tabletNames, ...submittedSources])];
 
         const tabletMap = new Map();
         tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
@@ -4776,6 +4838,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
         res.json({
             success: true,
             generatedAt: now.toISOString(),
+            factory: selectedFactory || 'all',
             today: {
                 date: today.key,
                 submissions: todayRecords.length,
@@ -4855,6 +4918,8 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
 
         const db = mongoClient.db(req.dbName || 'KSG');
+        const selectedFactory = String(req.query.factory || '').trim();
+        const hasFactoryFilter = Boolean(selectedFactory && selectedFactory !== 'all');
         const now = new Date();
         const machineStatusRank = {
             trouble: 3,
@@ -4941,7 +5006,10 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
             });
         });
 
-        const machineEntries = [...machineMap.values()];
+        const machineEntries = [...machineMap.values()].filter(entry => {
+            if (!hasFactoryFilter) return true;
+            return entry.factoryLocations.some(loc => String(loc).trim().toLowerCase() === selectedFactory.toLowerCase());
+        });
         const kanbanIds = [...new Set(machineEntries.map(entry => String(entry.session?.kanbanId ?? '').trim()).filter(Boolean))];
         const productIds = [...new Set(machineEntries.map(entry => String(entry.session?.productId ?? '').trim()).filter(Boolean))];
 
@@ -4986,6 +5054,7 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
                     machineName: entry.machineName || '—',
                     machineDescription: entry.description || '',
                     factory: entry.factoryLocations.join(', '),
+                    factoryLocations: entry.factoryLocations,
                     tabletId: entry.tabletId || '',
                     tabletName: entry.tabletName || '',
                     status: String(session?.status ?? '').trim() || 'idle',
@@ -5016,6 +5085,7 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
         res.json({
             success: true,
             generatedAt: now.toISOString(),
+            factory: selectedFactory || 'all',
             rows
         });
     } catch (error) {
