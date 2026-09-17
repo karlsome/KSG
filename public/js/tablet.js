@@ -1488,6 +1488,10 @@ function restoreAllFields() {
     if (savedTroubleMinutes) {
       totalTroubleMinutes = parseFloat(savedTroubleMinutes) || totalTroubleMinutes;
     }
+    const savedTroubleHours = localStorage.getItem('tablet_totalTroubleHours');
+    if (savedTroubleHours !== null) {
+      totalTroubleHours = parseFloat(savedTroubleHours) || totalTroubleHours;
+    }
 
     // Restart machine trouble timer if active trouble exists
     const savedTroubleStartTime = localStorage.getItem('troubleStartTime');
