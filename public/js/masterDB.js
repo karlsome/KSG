@@ -30,10 +30,10 @@ function renderOpcuaTable() {
     if (!opcuaDevicesCache || opcuaDevicesCache.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
-                <i class="ri-node-tree text-4xl mb-3 block"></i>
-                <p>No OPC UA devices configured.</p>
-                <button onclick="showOpcuaAddModal()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                    Add OPC UA Device
+                <i class="ri-node-tree text-4xl mb-3 block text-gray-300"></i>
+                <p class="text-sm font-medium">No OPC UA devices configured.</p>
+                <button onclick="showOpcuaAddModal()" class="mt-4 inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
+                    <i class="ri-add-line"></i> Add OPC UA Device
                 </button>
             </div>
         `;
@@ -42,50 +42,52 @@ function renderOpcuaTable() {
 
     let html = `
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-medium">OPC UA Devices</h3>
-            <button onclick="showOpcuaAddModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                <i class="ri-add-line mr-1"></i> Add Device
+            <h3 class="text-sm font-semibold text-gray-900">OPC UA Devices</h3>
+            <button onclick="showOpcuaAddModal()" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
+                <i class="ri-add-line"></i> Add Device
             </button>
         </div>
-        <div class="overflow-x-auto rounded-lg border border-gray-200">
-            <table class="w-full text-left text-sm text-gray-700">
-                <thead class="bg-gray-50 text-gray-600 uppercase">
+        <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+            <table class="min-w-full divide-y divide-gray-100 text-xs">
+                <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
                     <tr>
-                        <th class="px-4 py-3">Device ID</th>
-                        <th class="px-4 py-3">Name</th>
-                        <th class="px-4 py-3">Server IP</th>
-                        <th class="px-4 py-3">Port</th>
-                        <th class="px-4 py-3">Poll (ms)</th>
-                        <th class="px-4 py-3">Status</th>
-                        <th class="px-4 py-3 text-right">Actions</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Device ID</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Name</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Server IP</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Port</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Poll (ms)</th>
+                        <th class="px-3 py-2 select-none whitespace-nowrap">Status</th>
+                        <th class="px-3 py-2 text-right select-none whitespace-nowrap">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200 bg-white">
+                <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
     `;
 
     opcuaDevicesCache.forEach(device => {
         const isOnline = device.status === 'online';
-        const statusClass = isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
+        const statusBadge = isOnline 
+            ? `<span class="inline-flex items-center rounded-lg px-2 py-0.5 text-2xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">online</span>`
+            : `<span class="inline-flex items-center rounded-lg px-2 py-0.5 text-2xs font-medium bg-gray-100 text-gray-600 border border-gray-200">${device.status || 'offline'}</span>`;
         
         html += `
-            <tr class="hover:bg-gray-50 border-b border-gray-200">
-                <td class="px-4 py-3 font-medium text-gray-900">${device.raspberryId}</td>
-                <td class="px-4 py-3">${device.raspberryName}</td>
-                <td class="px-4 py-3">${device.opcua_server_ip}</td>
-                <td class="px-4 py-3">${device.opcua_server_port}</td>
-                <td class="px-4 py-3">${device.poll_interval}</td>
-                <td class="px-4 py-3">
-                    <span class="px-2 py-1 text-xs rounded-full ${statusClass}">
-                        ${device.status || 'offline'}
-                    </span>
+            <tr class="hover:bg-gray-50/70 transition">
+                <td class="px-3 py-2 font-mono font-semibold text-gray-900 text-xs whitespace-nowrap">${device.raspberryId}</td>
+                <td class="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">${device.raspberryName}</td>
+                <td class="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">${device.opcua_server_ip}</td>
+                <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${device.opcua_server_port}</td>
+                <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${device.poll_interval}</td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    ${statusBadge}
                 </td>
-                <td class="px-4 py-3 text-right">
-                    <button onclick="editOpcuaDevice('${device.raspberryId}')" class="text-blue-600 hover:text-blue-900 mx-1 p-1" title="Edit">
-                        <i class="ri-edit-line text-lg"></i>
-                    </button>
-                    <button onclick="deleteOpcuaDevice('${device.raspberryId}')" class="text-red-600 hover:text-red-900 mx-1 p-1" title="Delete">
-                        <i class="ri-delete-bin-line text-lg"></i>
-                    </button>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                    <div class="flex justify-end gap-1">
+                        <button onclick="editOpcuaDevice('${device.raspberryId}')" class="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition" title="Edit">
+                            <i class="ri-edit-line text-sm"></i>
+                        </button>
+                        <button onclick="deleteOpcuaDevice('${device.raspberryId}')" class="p-1 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Delete">
+                            <i class="ri-delete-bin-line text-sm"></i>
+                        </button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -372,8 +374,8 @@ function switchMainTab(tabName) {
   tabIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
-      el.classList.remove('border-blue-600', 'text-blue-600', 'tab-active');
-      el.classList.add('border-transparent', 'text-gray-700');
+      el.classList.remove('bg-gray-100', 'text-gray-900', 'font-semibold', 'shadow-xs', 'tab-active', 'border-blue-600', 'text-blue-600');
+      el.classList.add('text-gray-500', 'hover:text-gray-900', 'hover:bg-gray-50', 'font-medium');
     }
   });
 
@@ -384,8 +386,8 @@ function switchMainTab(tabName) {
   
   const activeTabEl = document.getElementById(`tab${capitalizeFirst(tabName)}`);
   if (activeTabEl) {
-    activeTabEl.classList.remove('border-transparent', 'text-gray-700');
-    activeTabEl.classList.add('border-blue-600', 'text-blue-600', 'tab-active');
+    activeTabEl.classList.remove('text-gray-500', 'hover:text-gray-900', 'hover:bg-gray-50', 'border-transparent');
+    activeTabEl.classList.add('bg-gray-100', 'text-gray-900', 'font-semibold', 'shadow-xs', 'tab-active');
   }
 
   // Reset sub-tab buttons (if they exist)
@@ -399,11 +401,11 @@ function switchMainTab(tabName) {
     if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'googleSheets' || tabName === 'opcua') {
       quickCreateBtn.disabled = true;
       quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
-      quickCreateBtn.classList.remove('hover:bg-green-700');
+      quickCreateBtn.classList.remove('hover:bg-emerald-700', 'hover:bg-green-700');
     } else {
       quickCreateBtn.disabled = false;
       quickCreateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-      quickCreateBtn.classList.add('hover:bg-green-700');
+      quickCreateBtn.classList.add('hover:bg-emerald-700');
     }
   }
 
@@ -418,16 +420,23 @@ function switchSubTab(tabName, subTab) {
   const dataBtn = document.getElementById(`${tabName}SubTabData`);
   const historyBtn = document.getElementById(`${tabName}SubTabHistory`);
   
+  const activeClass = 'inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold bg-white text-gray-900 shadow-2xs transition cursor-pointer';
+  const inactiveClass = 'inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 transition cursor-pointer';
+
   if (subTab === 'data') {
-    dataBtn.className = 'px-4 py-2 rounded-lg bg-blue-600 text-white';
-    historyBtn.className = 'px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
-    document.getElementById(`${tabName}DataContent`).classList.remove('hidden');
-    document.getElementById(`${tabName}HistoryContent`).classList.add('hidden');
+    if (dataBtn) dataBtn.className = activeClass;
+    if (historyBtn) historyBtn.className = inactiveClass;
+    const dataContent = document.getElementById(`${tabName}DataContent`);
+    const histContent = document.getElementById(`${tabName}HistoryContent`);
+    if (dataContent) dataContent.classList.remove('hidden');
+    if (histContent) histContent.classList.add('hidden');
   } else {
-    dataBtn.className = 'px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
-    historyBtn.className = 'px-4 py-2 rounded-lg bg-blue-600 text-white';
-    document.getElementById(`${tabName}DataContent`).classList.add('hidden');
-    document.getElementById(`${tabName}HistoryContent`).classList.remove('hidden');
+    if (dataBtn) dataBtn.className = inactiveClass;
+    if (historyBtn) historyBtn.className = activeClass;
+    const dataContent = document.getElementById(`${tabName}DataContent`);
+    const histContent = document.getElementById(`${tabName}HistoryContent`);
+    if (dataContent) dataContent.classList.add('hidden');
+    if (histContent) histContent.classList.remove('hidden');
     loadActivityHistory(tabName);
   }
 }
@@ -511,27 +520,27 @@ async function loadActivityHistory(tabName) {
 
 function renderActivityHistory(tabName, logs) {
   const historyHTML = `
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 text-left">${t('masterDB.dateTime')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.action')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.user')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.recordCount')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.dateTime')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.action')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.user')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.recordCount')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${logs.map(log => `
-            <tr>
-              <td class="px-4 py-3">${new Date(log.timestamp).toLocaleString('ja-JP')}</td>
-              <td class="px-4 py-3">
-                <span class="px-2 py-1 rounded ${log.action.includes('create') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${new Date(log.timestamp).toLocaleString('ja-JP')}</td>
+              <td class="px-3 py-2 whitespace-nowrap">
+                <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-2xs font-medium ${log.action.includes('create') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}">
                   ${log.action.includes('create') ? t('masterDB.created') : t('masterDB.deleted')}
                 </span>
               </td>
-              <td class="px-4 py-3">${log.performedBy || 'Unknown'}</td>
-              <td class="px-4 py-3">${log.recordsAffected || 1} ${t('common.records')}</td>
+              <td class="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">${log.performedBy || 'Unknown'}</td>
+              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${log.recordsAffected || 1} ${t('common.records')}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -539,7 +548,7 @@ function renderActivityHistory(tabName, logs) {
     </div>
   `;
   
-  document.getElementById(`${tabName}HistoryContainer`).innerHTML = logs.length > 0 ? historyHTML : `<p class="text-gray-500">${t('masterDB.noHistoryFound')}</p>`;
+  document.getElementById(`${tabName}HistoryContainer`).innerHTML = logs.length > 0 ? historyHTML : `<p class="text-sm font-medium text-gray-400 py-6 text-center">${t('masterDB.noHistoryFound')}</p>`;
 }
 
 // ====================
@@ -625,7 +634,7 @@ function renderMasterTable(data) {
     { key: "kanbanID", label: t('masterDB.kanbanId') },
     { key: "設備", label: t('masterDB.equipment') },
     { key: "工場", label: t('masterDB.factory') },
-    { key: "ngGroupId", label: "不良グループ", isNGGroup: true },
+    { key: "ngGroupId", label: t('masterDB.ngGroup') || "不良グループ", isNGGroup: true },
     { key: "cycleTime", label: t('masterDB.cycleTime') },
     { key: "grossProfit", label: t('masterDB.grossProfit') },
     { key: "検査メンバー数", label: t('masterDB.inspectionMembers') },
@@ -635,44 +644,44 @@ function renderMasterTable(data) {
   ];
 
   const tableHTML = `
-    <div class="flex justify-between items-center mb-4">
-      <div class="flex gap-3">
-        <button id="deleteMasterBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('master')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelectedItems')} (<span id="masterSelectedCount">0</span>)
+    <div class="flex justify-between items-center mb-3.5">
+      <div class="flex gap-2">
+        <button id="deleteMasterBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('master')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelectedItems')} (<span id="masterSelectedCount">0</span>)
         </button>
       </div>
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-3">
         <div class="relative">
-          <i class="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-          <input type="text" placeholder="${t('common.search')}..." class="pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 w-64" value="${escapeHtml(masterSearchQuery)}" oninput="handleMasterSearch(this.value)">
+          <i class="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+          <input type="text" placeholder="${t('common.search')}..." class="rounded-xl border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-xs text-gray-700 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none shadow-2xs w-56" value="${escapeHtml(masterSearchQuery)}" oninput="handleMasterSearch(this.value)">
         </div>
-        <div class="text-sm text-gray-600">Total: ${filteredData.length} ${t('masterDB.recordCount')}</div>
+        <div class="text-xs font-medium text-gray-500 tabular-nums">Total: <span class="text-xs font-semibold text-gray-900 tabular-nums">${filteredData.length}</span> ${t('masterDB.recordCount')}</div>
       </div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded"></th>
+            <th class="w-10 px-3 py-2 text-center select-none"><input type="checkbox" id="selectAllMaster" onchange="toggleSelectAll('master')" class="rounded border-gray-300 text-indigo-600 focus:ring-0 w-3.5 h-3.5"></th>
             ${headers.map(h => {
               const isSorted = masterSortField === h.key;
-              const sortIcon = isSorted ? (masterSortOrder === 'asc' ? 'ri-sort-asc' : 'ri-sort-desc') : 'ri-arrow-up-down-line text-gray-300';
+              const sortIcon = isSorted ? (masterSortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600') : 'ri-arrow-up-down-line text-gray-400';
               return `
-                <th class="px-4 py-3 text-left font-semibold text-gray-700 cursor-pointer hover:bg-gray-200 select-none whitespace-nowrap" onclick="handleMasterSort('${h.key}')">
-                  <div class="flex items-center gap-2">
-                    ${h.label}
+                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="handleMasterSort('${h.key}')">
+                  <div class="flex items-center gap-1">
+                    <span>${h.label}</span>
                     <i class="${sortIcon}"></i>
                   </div>
                 </th>
               `;
             }).join("")}
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('common.image')}</th>
+            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 select-none whitespace-nowrap">${t('common.image')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${filteredData.length > 0 ? filteredData.map(record => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded" value="${record._id}" onchange="updateSelectedCount('master')"></td>
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('master', '${record._id}')">
+              <td class="w-10 px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="masterCheckbox rounded border-gray-300 text-indigo-600 focus:ring-0 w-3.5 h-3.5" value="${record._id}" onchange="updateSelectedCount('master')"></td>
               ${headers.map(h => {
                 let value = record[h.key] ?? "";
                 // Handle kensaMembers specifically to show default value if missing
@@ -685,17 +694,22 @@ function renderMasterTable(data) {
                 // Lookup ngGroup name from ngGroupId
                 if (h.isNGGroup && value) {
                   const group = allNGGroups.find(g => String(g._id) === String(value));
-                  value = group ? group.groupName : `<span class="text-gray-400 text-xs">ID: ${value}</span>`;
+                  value = group ? `<span class="font-medium text-gray-800">${escapeHtml(group.groupName)}</span>` : `<span class="text-gray-400 text-2xs">ID: ${value}</span>`;
                 } else if (h.isNGGroup && !value) {
-                  value = `<span class="text-gray-400 text-xs">未割当</span>`;
+                  value = `<span class="text-gray-400 text-2xs">未割当</span>`;
                 }
-                return `<td class="px-4 py-3">${value}</td>`;
+
+                let cellClass = "px-3 py-2 text-gray-600 whitespace-nowrap";
+                if (h.key === "品番") cellClass = "px-3 py-2 font-semibold text-gray-900 whitespace-nowrap";
+                else if (['cycleTime', 'grossProfit', '収容数', '検査メンバー数', '目標', '警戒'].includes(h.key)) cellClass = "px-3 py-2 tabular-nums font-medium text-gray-700 whitespace-nowrap";
+                
+                return `<td class="${cellClass}">${value}</td>`;
               }).join("")}
-              <td class="px-4 py-3">
-                ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-12 w-12 object-cover rounded" />` : `<span class="text-gray-400 text-xs">${t('common.noImage')}</span>`}
+              <td class="px-3 py-1.5 whitespace-nowrap">
+                ${record.imageURL ? `<img src="${record.imageURL}" alt="Product" class="h-7 w-7 object-cover rounded-lg border border-gray-100" />` : `<span class="text-gray-400 text-2xs">${t('common.noImage')}</span>`}
               </td>
             </tr>
-          `).join("") : `<tr><td colspan="14" class="px-4 py-8 text-center text-gray-500">${t('common.noResults') || 'No results found'}</td></tr>`}
+          `).join("") : `<tr><td colspan="15" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -878,58 +892,58 @@ function renderModalDetails(type, data) {
     case 'master':
       detailsHTML = `
         ${data.imageURL ? `
-          <div class="mb-6 relative">
-            <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
+          <div class="mb-4 relative">
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block">
-              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-md w-full rounded-lg shadow" />
-              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 hover:bg-red-700 shadow-md" onclick="removeImage()">
-                <i class="ri-delete-bin-line"></i>
+              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
+                <i class="ri-delete-bin-line text-xs"></i>
               </button>
             </div>
-            <p id="noImageText" class="text-gray-500 mb-2 hidden">${t('common.noImage')}</p>
-            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
+            <p id="noImageText" class="text-gray-400 text-xs mb-1.5 hidden">${t('common.noImage')}</p>
+            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-1.5 w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs" onchange="previewImage()" />
             <input type="hidden" id="removeImageFlag" value="false" />
           </div>
         ` : `
-          <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.productImage')}</label>
+          <div class="mb-4">
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block w-full">
-              <img id="modalImage" src="" alt="Product" class="hidden max-w-md w-full rounded-lg shadow" />
-              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 hover:bg-red-700 shadow-md" onclick="removeImage()">
-                <i class="ri-delete-bin-line"></i>
+              <img id="modalImage" src="" alt="Product" class="hidden max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
+                <i class="ri-delete-bin-line text-xs"></i>
               </button>
             </div>
-            <p id="noImageText" class="text-gray-500 mb-2">${t('common.noImage')}</p>
-            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-2 w-full px-3 py-2 border rounded-lg" onchange="previewImage()" />
+            <p id="noImageText" class="text-gray-400 text-xs mb-1.5">${t('common.noImage')}</p>
+            <input type="file" id="modalImageUpload" accept="image/*" class="hidden mt-1.5 w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs" onchange="previewImage()" />
             <input type="hidden" id="removeImageFlag" value="false" />
           </div>
         `}
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.productNumber')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.品番 || ''}" disabled data-field="品番" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.productName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.lhrh')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.kanbanId')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
+        <div class="grid grid-cols-2 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.productNumber')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.品番 || ''}" disabled data-field="品番" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.productName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.製品名 || ''}" disabled data-field="製品名" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.lhrh')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data['LH/RH'] || ''}" disabled data-field="LH/RH" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.kanbanId')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.kanbanID || ''}" disabled data-field="kanbanID" /></div>
           <div>
-            <label class="block text-sm font-medium mb-1">${t('masterDB.equipment')}</label>
-            <input type="text" id="modalEquipmentDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備 || ''}" disabled data-field="設備" />
-            <select id="modalEquipmentSelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white" data-field="設備"></select>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.equipment')}</label>
+            <input type="text" id="modalEquipmentDisplay" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.設備 || ''}" disabled data-field="設備" />
+            <select id="modalEquipmentSelect" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs" data-field="設備"></select>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
-            <input type="text" id="modalFactoryDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.工場 || ''}" disabled data-field="工場" />
-            <div id="modalFactoryTags" class="hidden w-full px-3 py-2 border rounded-lg bg-white min-h-[42px]" data-field="工場"></div>
-            <select id="modalFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.factory')}</label>
+            <input type="text" id="modalFactoryDisplay" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.工場 || ''}" disabled data-field="工場" />
+            <div id="modalFactoryTags" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white min-h-[34px]" data-field="工場"></div>
+            <select id="modalFactorySelect" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs mt-1.5"></select>
           </div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.grossProfit')}</label><input type="number" step="0.01" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.grossProfit || ''}" disabled data-field="grossProfit" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.target') || '目標'}</label><input type="number" step="any" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.目標 !== undefined && data.目標 !== null ? data.目標 : ''}" disabled data-field="目標" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.warning') || '警戒'}</label><input type="number" step="any" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.警戒 !== undefined && data.警戒 !== null ? data.警戒 : ''}" disabled data-field="警戒" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.cycleTime')}</label><input type="number" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.cycleTime || ''}" disabled data-field="cycleTime" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.grossProfit')}</label><input type="number" step="0.01" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.grossProfit || ''}" disabled data-field="grossProfit" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.inspectionMembers')}</label><input type="number" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.kensaMembers || 2}" disabled data-field="kensaMembers" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.capacity')}</label><input type="number" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.収容数 || ''}" disabled data-field="収容数" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.target') || '目標'}</label><input type="number" step="any" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.目標 !== undefined && data.目標 !== null ? data.目標 : ''}" disabled data-field="目標" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.warning') || '警戒'}</label><input type="number" step="any" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.警戒 !== undefined && data.警戒 !== null ? data.警戒 : ''}" disabled data-field="警戒" /></div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium mb-1">不良グループ</label>
-            <input type="text" id="modalNGGroupDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.ngGroupId ? '...' : '未割当'}" disabled />
-            <select id="modalNGGroupSelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white" data-field="ngGroupId">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">不良グループ</label>
+            <input type="text" id="modalNGGroupDisplay" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.ngGroupId ? '...' : '未割当'}" disabled />
+            <select id="modalNGGroupSelect" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs" data-field="ngGroupId">
               <option value="">未割当（なし）</option>
             </select>
           </div>
@@ -947,10 +961,10 @@ function renderModalDetails(type, data) {
       
     case 'factory':
       detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.address || ''}" disabled data-field="address" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.phone || ''}" disabled data-field="phone" /></div>
+        <div class="grid grid-cols-1 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.factoryName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.address')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.address || ''}" disabled data-field="address" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.phone')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.phone || ''}" disabled data-field="phone" /></div>
         </div>
       `;
       break;
@@ -958,42 +972,42 @@ function renderModalDetails(type, data) {
     case 'equipment':
       const opcVars = data.opcVariables || {};
       detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
+        <div class="grid grid-cols-1 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.equipmentName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.設備名 || ''}" disabled data-field="設備名" /></div>
           <div>
-            <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
-            <input type="text" id="modalEquipmentFactoryDisplay" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" />
-            <div id="modalEquipmentFactoryTags" class="hidden w-full px-3 py-2 border rounded-lg bg-white min-h-[42px]" data-field="工場"></div>
-            <select id="modalEquipmentFactorySelect" class="hidden w-full px-3 py-2 border rounded-lg bg-white mt-2"></select>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.factory')}</label>
+            <input type="text" id="modalEquipmentFactoryDisplay" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${(data.工場 || []).join(', ')}" disabled data-field="工場" />
+            <div id="modalEquipmentFactoryTags" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white min-h-[34px]" data-field="工場"></div>
+            <select id="modalEquipmentFactorySelect" class="hidden w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs mt-1.5"></select>
           </div>
-          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
 
-          <div class="border-t pt-4 mt-4">
-            <h4 class="text-sm font-semibold mb-3 flex items-center">
-              <i class="ri-line-chart-line mr-2"></i>
+          <div class="border-t border-gray-100 pt-3.5 mt-2">
+            <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
+              <i class="ri-line-chart-line mr-1.5 text-indigo-600"></i>
               ${t('masterDB.opcVariableMappings')}
             </h4>
-            <div class="grid grid-cols-1 gap-3">
+            <div class="grid grid-cols-1 gap-2.5">
               <div>
-                <label class="block text-xs font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
-                <select id="modalEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.kanbanVariable">
+                <label class="block text-2xs font-semibold text-gray-500 mb-0.5">${t('masterDB.kanbanVariable')}</label>
+                <select id="modalEquipmentKanbanVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" disabled data-field="opcVariables.kanbanVariable">
                   <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
+                <p class="text-2xs text-gray-400 mt-0.5">${t('masterDB.forProductLookup')}</p>
               </div>
               <div>
-                <label class="block text-xs font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
-                <select id="modalEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.productionCountVariable">
+                <label class="block text-2xs font-semibold text-gray-500 mb-0.5">${t('masterDB.productionCountVariable')}</label>
+                <select id="modalEquipmentProductionVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" disabled data-field="opcVariables.productionCountVariable">
                   <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
+                <p class="text-2xs text-gray-400 mt-0.5">${t('masterDB.forProductionCalc')}</p>
               </div>
               <div>
-                <label class="block text-xs font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
-                <select id="modalEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="opcVariables.boxQuantityVariable">
+                <label class="block text-2xs font-semibold text-gray-500 mb-0.5">${t('masterDB.boxQuantityVariable')}</label>
+                <select id="modalEquipmentBoxQtyVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" disabled data-field="opcVariables.boxQuantityVariable">
                   <option value="">${t('masterDB.selectVariable')}</option>
                 </select>
-                <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
+                <p class="text-2xs text-gray-400 mt-0.5">${t('masterDB.forBoxQtyDisplay')}</p>
               </div>
             </div>
           </div>
@@ -1040,27 +1054,27 @@ function renderModalDetails(type, data) {
       
     case 'roles':
       detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.roleName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        <div class="grid grid-cols-1 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.roleName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.roleName || ''}" disabled data-field="roleName" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
       
     case 'department':
       detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.departmentName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        <div class="grid grid-cols-1 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.departmentName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
 
     case 'section':
       detailsHTML = `
-        <div class="grid grid-cols-1 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.sectionName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.name || ''}" disabled data-field="name" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-2 border rounded-lg bg-gray-50" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
+        <div class="grid grid-cols-1 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.sectionName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.name || ''}" disabled data-field="name" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
         </div>
       `;
       break;
@@ -1085,57 +1099,57 @@ function renderModalDetails(type, data) {
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(tabletUrl)}`;
       
       detailsHTML = `
-        <div class="grid grid-cols-2 gap-4">
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.brand')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.tabletBrand || ''}" disabled data-field="tabletBrand" /></div>
+        <div class="grid grid-cols-2 gap-3.5">
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.tabletName')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.tabletName || ''}" disabled data-field="tabletName" /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.brand')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.tabletBrand || ''}" disabled data-field="tabletBrand" /></div>
           <div>
-            <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')}</label>
-            <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="factoryLocation" id="tabletFactorySelect" onchange="updateTabletEquipmentDropdownModal()">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.factoryLocation')}</label>
+            <select class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" disabled data-field="factoryLocation" id="tabletFactorySelect" onchange="updateTabletEquipmentDropdownModal()">
               <option value="">${t('common.selectFactory')}</option>
               ${factoryOptions}
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label>
-            <select class="w-full px-3 py-2 border rounded-lg bg-gray-50" disabled data-field="設備名" id="tabletEquipmentSelect">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.equipmentName')}</label>
+            <select class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" disabled data-field="設備名" id="tabletEquipmentSelect">
               <option value="">${t('common.selectEquipment')}</option>
               ${equipmentOptions}
             </select>
           </div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.registeredDate')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
-          <div><label class="block text-sm font-medium mb-1">${t('masterDB.registeredBy')}</label><input type="text" class="w-full px-3 py-2 border rounded-lg bg-gray-50" value="${data.registeredBy || ''}" disabled /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.registeredDate')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs tabular-nums" value="${data.registeredAt ? new Date(data.registeredAt).toLocaleString('ja-JP') : ''}" disabled /></div>
+          <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.registeredBy')}</label><input type="text" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" value="${data.registeredBy || ''}" disabled /></div>
         </div>
 
         <!-- Quick Access Section -->
-        <div class="mt-6 p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-lg font-semibold text-blue-900 flex items-center">
-              <i class="ri-qr-code-line mr-2"></i>${t('masterDB.quickAccess')}
+        <div class="mt-4 p-3.5 bg-blue-50/50 rounded-xl border border-blue-100">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-semibold text-indigo-900 flex items-center">
+              <i class="ri-qr-code-line mr-1.5"></i>${t('masterDB.quickAccess')}
             </h3>
-            <button onclick="toggleTabletQR()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
-              <i class="ri-eye-line mr-1"></i>${t('masterDB.showQRCode')}
+            <button onclick="toggleTabletQR()" class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition text-xs font-semibold cursor-pointer">
+              <i class="ri-eye-line"></i>${t('masterDB.showQRCode')}
             </button>
           </div>
-          <div id="tabletQRSection" class="hidden mt-4">
-            <div class="bg-white p-4 rounded-lg shadow-sm">
-              <div class="text-center mb-4">
-                <img src="${qrCodeUrl}" alt="QR Code" class="mx-auto rounded-lg shadow-md" style="width: 300px; height: 300px;" />
+          <div id="tabletQRSection" class="hidden mt-3">
+            <div class="bg-white p-3 rounded-xl border border-blue-100 shadow-2xs">
+              <div class="text-center mb-3">
+                <img src="${qrCodeUrl}" alt="QR Code" class="mx-auto rounded-lg shadow-xs" style="width: 180px; height: 180px;" />
               </div>
-              <div class="space-y-3">
+              <div class="space-y-2">
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">${t('masterDB.tabletAccessUrl')}</label>
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.tabletAccessUrl')}</label>
                   <div class="flex gap-2">
-                    <input type="text" id="tabletUrlInput" value="${tabletUrl}" readonly class="flex-1 px-3 py-2 border rounded-lg bg-gray-50 text-sm" />
-                    <button onclick="copyTabletUrl()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap">
+                    <input type="text" id="tabletUrlInput" value="${tabletUrl}" readonly class="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" />
+                    <button onclick="copyTabletUrl()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition text-xs font-semibold whitespace-nowrap cursor-pointer">
                       <i class="ri-file-copy-line mr-1"></i>${t('masterDB.copy')}
                     </button>
                   </div>
                 </div>
                 <div class="flex gap-2">
-                  <button onclick="downloadTabletQR()" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium">
+                  <button onclick="downloadTabletQR()" class="flex-1 px-3 py-1.5 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition text-xs font-semibold cursor-pointer">
                     <i class="ri-download-line mr-1"></i>${t('masterDB.downloadQRCode')}
                   </button>
-                  <button onclick="openTabletUrl()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium">
+                  <button onclick="openTabletUrl()" class="flex-1 px-3 py-1.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition text-xs font-semibold cursor-pointer">
                     <i class="ri-external-link-line mr-1"></i>${t('masterDB.openTablet')}
                   </button>
                 </div>
@@ -1160,27 +1174,27 @@ function renderModalHistory(data) {
   const changeHistory = data.changeHistory || [];
   
   if (changeHistory.length === 0) {
-    document.getElementById('modalHistoryBody').innerHTML = `<p class="text-gray-500">${t('masterDB.noChangeHistory')}</p>`;
+    document.getElementById('modalHistoryBody').innerHTML = `<p class="text-xs text-gray-400 py-4 text-center">${t('masterDB.noChangeHistory')}</p>`;
     return;
   }
   
   const historyHTML = `
-    <div class="space-y-4">
+    <div class="space-y-3">
       ${changeHistory.map(entry => `
-        <div class="border-l-4 border-blue-500 pl-4 py-2">
-          <div class="flex justify-between items-start mb-2">
+        <div class="border-l-2 border-indigo-500 pl-3 py-1.5">
+          <div class="flex justify-between items-start mb-1.5">
             <div>
-              <p class="font-medium">${entry.action}</p>
-              <p class="text-sm text-gray-600">${t('masterDB.by')}: ${entry.changedBy}</p>
+              <p class="text-xs font-semibold text-gray-900">${entry.action}</p>
+              <p class="text-2xs text-gray-500">${t('masterDB.by')}: ${entry.changedBy}</p>
             </div>
-            <p class="text-sm text-gray-500">${new Date(entry.timestamp).toLocaleString('ja-JP')}</p>
+            <p class="text-2xs text-gray-400 tabular-nums">${new Date(entry.timestamp).toLocaleString('ja-JP')}</p>
           </div>
           <div class="space-y-1">
             ${entry.changes.map(change => `
-              <div class="text-sm bg-gray-50 p-2 rounded">
-                <strong>${change.field}:</strong> 
-                <span class="text-red-600">${change.oldValue}</span> → 
-                <span class="text-green-600">${change.newValue}</span>
+              <div class="text-xs bg-gray-50 p-2 rounded-lg border border-gray-100">
+                <span class="font-medium text-gray-700">${change.field}:</span> 
+                <span class="text-rose-600">${change.oldValue}</span> → 
+                <span class="text-emerald-600">${change.newValue}</span>
               </div>
             `).join('')}
           </div>
@@ -1194,13 +1208,13 @@ function renderModalHistory(data) {
 
 function switchModalTab(tab) {
   if (tab === 'details') {
-    document.getElementById('modalTabDetails').className = 'px-4 py-2 rounded-t-lg bg-blue-600 text-white';
-    document.getElementById('modalTabHistory').className = 'px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
+    document.getElementById('modalTabDetails').className = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-white text-gray-900 shadow-2xs transition cursor-pointer';
+    document.getElementById('modalTabHistory').className = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 transition cursor-pointer';
     document.getElementById('modalDetailsContent').classList.remove('hidden');
     document.getElementById('modalHistoryContent').classList.add('hidden');
   } else {
-    document.getElementById('modalTabDetails').className = 'px-4 py-2 rounded-t-lg bg-gray-100 text-gray-700 hover:bg-gray-200';
-    document.getElementById('modalTabHistory').className = 'px-4 py-2 rounded-t-lg bg-blue-600 text-white';
+    document.getElementById('modalTabDetails').className = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 transition cursor-pointer';
+    document.getElementById('modalTabHistory').className = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-white text-gray-900 shadow-2xs transition cursor-pointer';
     document.getElementById('modalDetailsContent').classList.add('hidden');
     document.getElementById('modalHistoryContent').classList.remove('hidden');
   }
@@ -1985,33 +1999,33 @@ function renderFactoryTable(factories) {
   const role = currentUser.role || "member";
 
   const tableHTML = `
-    <div class="flex justify-between items-center mb-4">
-      <div class="flex gap-3">
-        <button id="deleteFactoryBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('factory')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="factorySelectedCount">0</span>)
+    <div class="flex justify-between items-center mb-3.5">
+      <div class="flex gap-2">
+        <button id="deleteFactoryBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('factory')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="factorySelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${factories.length} ${t('masterDB.factories')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${factories.length}</span> ${t('masterDB.factories')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded"></th>
-            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.factoryName')}</th>
-            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.address')}</th>
-            <th class="px-4 py-3 text-left font-semibold">${t('masterDB.phone')}</th>
+            <th class="w-10 px-3 py-2 text-center select-none"><input type="checkbox" id="selectAllFactory" onchange="toggleSelectAll('factory')" class="rounded border-gray-300 text-indigo-600 focus:ring-0 w-3.5 h-3.5"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factoryName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.address')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.phone')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
-          ${factories.map(f => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('factory', '${f._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="factoryCheckbox rounded" value="${f._id}" onchange="updateSelectedCount('factory')"></td>
-              <td class="px-4 py-3">${f.name || ""}</td>
-              <td class="px-4 py-3">${f.address || ""}</td>
-              <td class="px-4 py-3">${f.phone || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${factories.length > 0 ? factories.map(f => `
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('factory', '${f._id}')">
+              <td class="w-10 px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="factoryCheckbox rounded border-gray-300 text-indigo-600 focus:ring-0 w-3.5 h-3.5" value="${f._id}" onchange="updateSelectedCount('factory')"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(f.name || "")}</td>
+              <td class="px-3 py-2 text-gray-600">${escapeHtml(f.address || "")}</td>
+              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${escapeHtml(f.phone || "")}</td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="4" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2026,25 +2040,25 @@ function showCreateFactoryForm() {
   const container = document.getElementById("factoryTableContainer");
   
   const formHTML = `
-    <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
-      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createNewFactory')}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-xs p-5 mb-5">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3.5">${t('masterDB.createNewFactory')}</h3>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')}</label>
-          <input type="text" id="newFactoryName" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.factoryName')}</label>
+          <input type="text" id="newFactoryName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label>
-          <input type="text" id="newFactoryAddress" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.address')}</label>
+          <input type="text" id="newFactoryAddress" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label>
-          <input type="text" id="newFactoryPhone" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-600 mb-1">${t('masterDB.phone')}</label>
+          <input type="text" id="newFactoryPhone" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
       </div>
-      <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewFactory()">${t('common.save')}</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadFactories()">${t('common.cancel')}</button>
+      <div class="flex gap-2">
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition shadow-2xs cursor-pointer" onclick="submitNewFactory()">${t('common.save')}</button>
+        <button class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition shadow-2xs cursor-pointer" onclick="loadFactories()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -2060,7 +2074,6 @@ async function submitNewFactory() {
     name: document.getElementById("newFactoryName").value.trim(),
     address: document.getElementById("newFactoryAddress").value.trim(),
     phone: document.getElementById("newFactoryPhone").value.trim(),
-    divisions: [], // Initialize empty divisions array
     dbName
   };
 
@@ -2074,143 +2087,81 @@ async function submitNewFactory() {
     });
 
     const result = await res.json();
-    if (!res.ok) throw new Error(result.error || "Failed");
-
-    alert(t('masterDB.factoryCreatedSuccess'));
-    loadFactories();
-  } catch (err) {
-    alert("Error: " + err.message);
-  }
-}
-
-function startEditingFactory(factoryId) {
-  document.querySelectorAll(`[factory-id='${factoryId}']`).forEach(el => el.disabled = false);
-  document.getElementById(`factoryActions-${factoryId}`).innerHTML = `
-    <button class="text-green-600 hover:underline text-sm mr-2" onclick="saveFactory('${factoryId}')">${t('common.save')}</button>
-    <button class="text-gray-600 hover:underline text-sm" onclick="loadFactories()">${t('common.cancel')}</button>
-  `;
-}
-
-async function saveFactory(factoryId) {
-  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-  const dbName = currentUser.dbName || "KSG";
-
-  const updated = {};
-  document.querySelectorAll(`[factory-id='${factoryId}']`).forEach(el => {
-    if (el.dataset.field) {
-      updated[el.dataset.field] = el.value;
+    if (res.ok) {
+      alert(t('masterDB.factoryCreatedSuccessfully'));
+      loadFactories();
+    } else {
+      alert(t('common.error') + ": " + (result.message || t('masterDB.failedToCreateFactory')));
     }
-  });
-
-  try {
-    const res = await fetch(BASE_URL + "updateFactory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ factoryId, updateData: updated, dbName })
-    });
-
-    if (!res.ok) throw new Error(t('common.updateFailed'));
-    alert(t('masterDB.factoryUpdated'));
-    loadFactories();
   } catch (err) {
-    alert("Error: " + err.message);
-  }
-}
-
-async function deleteFactory(factoryId) {
-  if (!confirm(t('masterDB.deleteThisFactory'))) return;
-
-  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-  const dbName = currentUser.dbName || "KSG";
-
-  try {
-    const res = await fetch(BASE_URL + "deleteFactory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ factoryId, dbName })
-    });
-
-    if (!res.ok) throw new Error(t('common.deleteFailed'));
-    alert(t('masterDB.factoryDeleted'));
-    loadFactories();
-  } catch (err) {
-    alert("Error: " + err.message);
+    console.error(err);
+    alert(t('common.errorOccurred') + ": " + err.message);
   }
 }
 
 // ====================
 // Division Tab Functions
 // ====================
-async function loadFactoriesForDivisionDropdown() {
+async function loadDivisions() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
 
   try {
-    const res = await fetch(BASE_URL + "getFactories", {
+    const res = await fetch(BASE_URL + "getDivisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dbName })
     });
 
-    allFactories = await res.json();
-    
-    const select = document.getElementById("factorySelectForDivision");
-    select.innerHTML = `<option value="">${t('common.selectFactory')}</option>` +
-      allFactories.map(f => `<option value="${f._id}">${f.name}</option>`).join("");
+    const result = await res.json();
+    allDivisions = result.divisions || [];
+    renderDivisionsTable(allDivisions);
   } catch (err) {
-    console.error("Failed to load factories:", err);
+    console.error(err);
+    alert(t('masterDB.failedToLoadDivisions'));
   }
 }
 
-async function loadDivisions() {
-  const factoryId = document.getElementById("factorySelectForDivision").value;
-  if (!factoryId) {
-    document.getElementById("divisionTableContainer").innerHTML = `<p class="text-gray-500">${t('masterDB.selectAFactory')}</p>`;
-    return;
-  }
-
-  const factory = allFactories.find(f => f._id === factoryId);
-  if (!factory) return;
-
-  const divisions = factory.divisions || [];
-  
+function renderDivisionsTable(divisions) {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const role = currentUser.role || "member";
   const canEdit = ["admin", "班長", "係長", "課長", "部長"].includes(role);
 
   const tableHTML = `
     ${canEdit ? `
-      <div class="mb-4">
-        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg" onclick="showCreateDivisionForm()">
-          <i class="ri-add-line mr-2"></i>${t('masterDB.addDivision')}
+      <div class="mb-3.5">
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer" onclick="showCreateDivisionForm()">
+          <i class="ri-add-line"></i>${t('masterDB.addDivision')}
         </button>
       </div>
     ` : ""}
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 text-left">${t('common.name')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.code')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.manager')}</th>
-            <th class="px-4 py-3 text-left">${t('common.description')}</th>
-            ${canEdit ? `<th class="px-4 py-3 text-left">${t('common.actions')}</th>` : ""}
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.name')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.code')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.manager')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
+            ${canEdit ? `<th class="px-3 py-2 text-right select-none whitespace-nowrap">${t('common.actions')}</th>` : ""}
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${divisions.map((div, idx) => `
-            <tr>
-              <td class="px-4 py-3">${div.name || ""}</td>
-              <td class="px-4 py-3">${div.code || ""}</td>
-              <td class="px-4 py-3">${div.manager || ""}</td>
-              <td class="px-4 py-3">${div.description || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${divisions.length > 0 ? divisions.map((div, idx) => `
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(div.name || "")}</td>
+              <td class="px-3 py-2 font-mono text-xs text-gray-600 whitespace-nowrap">${escapeHtml(div.code || "")}</td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(div.manager || "")}</td>
+              <td class="px-3 py-2 text-gray-600">${escapeHtml(div.description || "")}</td>
               ${canEdit ? `
-                <td class="px-4 py-3">
-                  <button class="text-red-600 hover:underline text-sm" onclick="deleteDivision(${idx})">${t('common.delete')}</button>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                  <button class="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-900 hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-100 transition cursor-pointer" onclick="deleteDivision(${idx})">
+                    <i class="ri-delete-bin-line"></i>${t('common.delete')}
+                  </button>
                 </td>
               ` : ""}
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="${canEdit ? 5 : 4}" class="px-4 py-8 text-center text-sm font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2223,29 +2174,29 @@ function showCreateDivisionForm() {
   const container = document.getElementById("divisionTableContainer");
   
   const formHTML = `
-    <div class="bg-white border p-4 rounded-xl mb-4">
-      <h3 class="font-semibold mb-3">${t('masterDB.addNewDivision')}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-xs p-6 mb-6">
+      <h3 class="text-base font-semibold text-gray-900 mb-4">${t('masterDB.addNewDivision')}</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
         <div>
-          <label class="block text-sm mb-1">${t('common.name')}</label>
-          <input type="text" id="newDivName" class="w-full px-2 py-1 border rounded" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('common.name')}</label>
+          <input type="text" id="newDivName" class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm mb-1">${t('masterDB.code')}</label>
-          <input type="text" id="newDivCode" class="w-full px-2 py-1 border rounded" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.code')}</label>
+          <input type="text" id="newDivCode" class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs font-mono" />
         </div>
         <div>
-          <label class="block text-sm mb-1">${t('masterDB.manager')}</label>
-          <input type="text" id="newDivManager" class="w-full px-2 py-1 border rounded" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.manager')}</label>
+          <input type="text" id="newDivManager" class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm mb-1">${t('common.description')}</label>
-          <input type="text" id="newDivDescription" class="w-full px-2 py-1 border rounded" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('common.description')}</label>
+          <input type="text" id="newDivDescription" class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
       </div>
-      <div class="flex gap-2">
-        <button class="px-3 py-1 bg-emerald-600 text-white rounded" onclick="submitNewDivision()">${t('common.save')}</button>
-        <button class="px-3 py-1 bg-gray-100 rounded" onclick="loadDivisions()">${t('common.cancel')}</button>
+      <div class="flex gap-3">
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition shadow-2xs cursor-pointer" onclick="submitNewDivision()">${t('common.save')}</button>
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer" onclick="loadDivisions()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -2340,46 +2291,46 @@ function renderEquipmentTable(equipment) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button id="deleteEquipmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('equipment')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="equipmentSelectedCount">0</span>)
+        <button id="deleteEquipmentBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('equipment')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="equipmentSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${equipment.length} ${t('common.items')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${equipment.length}</span> ${t('common.items')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">${t('masterDB.equipmentName')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.factoriesLabel')}</th>
-            <th class="px-4 py-3 text-left">${t('common.description')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.opcVariables')}</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllEquipment" onchange="toggleSelectAll('equipment')" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.equipmentName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factoriesLabel')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.opcVariables')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${equipment.map(eq => {
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${equipment.length > 0 ? equipment.map(eq => {
             const opcVars = eq.opcVariables || {};
             const opcDisplay = `
-              <div class="text-xs space-y-1">
-                <div><strong>${t('masterDB.kanbanVariable')}:</strong> ${opcVars.kanbanVariable || '-'}</div>
-                <div><strong>${t('masterDB.productionCountVariable')}:</strong> ${opcVars.productionCountVariable || '-'}</div>
-                <div><strong>${t('masterDB.boxQuantityVariable')}:</strong> ${opcVars.boxQuantityVariable || '-'}</div>
+              <div class="text-xs space-y-0.5">
+                <div><span class="text-gray-500">${t('masterDB.kanbanVariable')}:</span> <span class="font-mono text-gray-800">${escapeHtml(opcVars.kanbanVariable || '-')}</span></div>
+                <div><span class="text-gray-500">${t('masterDB.productionCountVariable')}:</span> <span class="font-mono text-gray-800">${escapeHtml(opcVars.productionCountVariable || '-')}</span></div>
+                <div><span class="text-gray-500">${t('masterDB.boxQuantityVariable')}:</span> <span class="font-mono text-gray-800">${escapeHtml(opcVars.boxQuantityVariable || '-')}</span></div>
               </div>
             `;
             
             return `
-              <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
-                <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox rounded" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>
-                <td class="px-4 py-3">${eq.設備名 || ""}</td>
-                <td class="px-4 py-3">
-                  ${(eq.工場 || []).map(f => `<span class="tag">${f}</span>`).join(" ")}
+              <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('equipment', '${eq._id}')">
+                <td class="px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="equipmentCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${eq._id}" onchange="updateSelectedCount('equipment')"></td>
+                <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(eq.設備名 || "")}</td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                  ${(eq.工場 || []).map(f => `<span class="tag">${escapeHtml(f)}</span>`).join(" ")}
                 </td>
-                <td class="px-4 py-3">${eq.description || ""}</td>
-                <td class="px-4 py-3">${opcDisplay}</td>
+                <td class="px-3 py-2 text-gray-600">${escapeHtml(eq.description || "")}</td>
+                <td class="px-3 py-2">${opcDisplay}</td>
               </tr>
             `;
-          }).join("")}
+          }).join("") : `<tr><td colspan="5" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2396,49 +2347,49 @@ function showCreateEquipmentForm() {
   const factoryOptions = allFactories.map(f => f.name);
   
   const formHTML = `
-    <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createEquipment')}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-xs p-5 mb-5">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">${t('masterDB.createEquipment')}</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')}</label>
-          <input type="text" id="newEq設備名" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.equipmentName')}</label>
+          <input type="text" id="newEq設備名" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <input type="text" id="newEqDescription" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <input type="text" id="newEqDescription" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
-          <div id="factoryTagContainer" class="border rounded-lg p-2 mb-2 min-h-10"></div>
-          <select id="factorySelect" class="w-full px-3 py-2 border rounded-lg bg-white" onchange="addFactoryTag()">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
+          <div id="factoryTagContainer" class="border border-gray-200 rounded-xl p-2 mb-2 min-h-[34px] bg-gray-50/50"></div>
+          <select id="factorySelect" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" onchange="addFactoryTag()">
             <option value="">${t('common.selectFactory')}</option>
             ${factoryOptions.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
         </div>
-        <div class="md:col-span-2 border-t pt-4 mt-4">
-          <h4 class="text-lg font-semibold mb-3">${t('masterDB.opcVariableMappings')}</h4>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="md:col-span-2 border-t border-gray-100 pt-3 mt-1">
+          <h4 class="text-xs font-semibold text-gray-900 mb-2.5">${t('masterDB.opcVariableMappings')}</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label class="block text-sm font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
-              <input type="text" id="newEqKanbanVar" class="w-full px-3 py-2 border rounded-lg" placeholder="例: kenyokiRHKanban（なしの場合は空白）" value="" />
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.kanbanVariable')}</label>
+              <input type="text" id="newEqKanbanVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs font-mono" placeholder="例: kenyokiRHKanban" value="" />
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forProductLookup')}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
-              <input type="text" id="newEqProductionVar" class="w-full px-3 py-2 border rounded-lg" placeholder="seisanSu" value="seisanSu" />
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.productionCountVariable')}</label>
+              <input type="text" id="newEqProductionVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs font-mono" placeholder="seisanSu" value="seisanSu" />
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forProductionCalc')}</p>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
-              <input type="text" id="newEqBoxQtyVar" class="w-full px-3 py-2 border rounded-lg" placeholder="hakoIresu" value="hakoIresu" />
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.boxQuantityVariable')}</label>
+              <input type="text" id="newEqBoxQtyVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs font-mono" placeholder="hakoIresu" value="hakoIresu" />
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
             </div>
           </div>
         </div>
       </div>
-      <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewEquipment()">${t('common.save')}</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadEquipment()">${t('common.cancel')}</button>
+      <div class="flex gap-2.5">
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition shadow-2xs cursor-pointer" onclick="submitNewEquipment()">${t('common.save')}</button>
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer" onclick="loadEquipment()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -2564,29 +2515,29 @@ function renderRolesTable(roles) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button id="deleteRolesBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('roles')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="rolesSelectedCount">0</span>)
+        <button id="deleteRolesBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('roles')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="rolesSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${roles.length} ${t('masterDB.roles')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${roles.length}</span> ${t('masterDB.roles')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">${t('masterDB.roleName')}</th>
-            <th class="px-4 py-3 text-left">${t('common.description')}</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllRoles" onchange="toggleSelectAll('roles')" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.roleName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${roles.map(r => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('roles', '${r._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="rolesCheckbox rounded" value="${r._id}" onchange="updateSelectedCount('roles')"></td>
-              <td class="px-4 py-3">${r.roleName || ""}</td>
-              <td class="px-4 py-3">${r.description || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${roles.length > 0 ? roles.map(r => `
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('roles', '${r._id}')">
+              <td class="px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="rolesCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${r._id}" onchange="updateSelectedCount('roles')"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(r.roleName || "")}</td>
+              <td class="px-3 py-2 text-gray-600">${escapeHtml(r.description || "")}</td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="3" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2601,21 +2552,21 @@ function showCreateRoleForm() {
   const container = document.getElementById("rolesTableContainer");
   
   const formHTML = `
-    <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">${t('masterDB.createRole')}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-xs p-5 mb-5">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">${t('masterDB.createRole')}</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.roleName')}</label>
-          <input type="text" id="newRoleName" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.roleName')}</label>
+          <input type="text" id="newRoleName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <input type="text" id="newRoleDescription" class="w-full px-3 py-2 border rounded-lg" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <input type="text" id="newRoleDescription" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" />
         </div>
       </div>
-      <div class="flex gap-3">
-        <button class="px-4 py-2 bg-emerald-600 text-white rounded-lg" onclick="submitNewRole()">${t('common.save')}</button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg" onclick="loadRoles()">${t('common.cancel')}</button>
+      <div class="flex gap-2.5">
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition shadow-2xs cursor-pointer" onclick="submitNewRole()">${t('common.save')}</button>
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer" onclick="loadRoles()">${t('common.cancel')}</button>
       </div>
     </div>
   `;
@@ -2701,29 +2652,29 @@ function renderDepartmentsTable(departments) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button id="deleteDepartmentBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('department')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="departmentSelectedCount">0</span>)
+        <button id="deleteDepartmentBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('department')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="departmentSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${departments.length} ${t('masterDB.departments')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${departments.length}</span> ${t('masterDB.departments')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllDepartment" onchange="toggleSelectAll('department')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">${t('masterDB.departmentName')}</th>
-            <th class="px-4 py-3 text-left">${t('common.description')}</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllDepartment" onchange="toggleSelectAll('department')" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.departmentName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${departments.map(d => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('department', '${d._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="departmentCheckbox rounded" value="${d._id}" onchange="updateSelectedCount('department')"></td>
-              <td class="px-4 py-3">${d.name || ""}</td>
-              <td class="px-4 py-3">${d.description || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${departments.length > 0 ? departments.map(d => `
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('department', '${d._id}')">
+              <td class="px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="departmentCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${d._id}" onchange="updateSelectedCount('department')"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(d.name || "")}</td>
+              <td class="px-3 py-2 text-gray-600">${escapeHtml(d.description || "")}</td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="3" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2764,29 +2715,29 @@ function renderSectionsTable(sections) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button id="deleteSectionBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('section')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="sectionSelectedCount">0</span>)
+        <button id="deleteSectionBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('section')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="sectionSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${sections.length} ${t('masterDB.sections')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${sections.length}</span> ${t('masterDB.sections')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllSection" onchange="toggleSelectAll('section')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">${t('masterDB.sectionName')}</th>
-            <th class="px-4 py-3 text-left">${t('common.description')}</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllSection" onchange="toggleSelectAll('section')" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.sectionName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${sections.map(s => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('section', '${s._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="sectionCheckbox rounded" value="${s._id}" onchange="updateSelectedCount('section')"></td>
-              <td class="px-4 py-3">${s.name || ""}</td>
-              <td class="px-4 py-3">${s.description || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${sections.length > 0 ? sections.map(s => `
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('section', '${s._id}')">
+              <td class="px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="sectionCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${s._id}" onchange="updateSelectedCount('section')"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(s.name || "")}</td>
+              <td class="px-3 py-2 text-gray-600">${escapeHtml(s.description || "")}</td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="3" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2912,25 +2863,25 @@ async function showQuickCreateModal() {
       
       const equipmentOptions = allEquipment.length > 0 ? 
         allEquipment.map(e => `<option value="${e.設備名}">${e.設備名}</option>`).join('') :
-        `<option value="" class="text-red-600">⚠️ ${t('common.noEquipmentData')}</option>`;
+        `<option value="" class="text-rose-600">⚠️ ${t('common.noEquipmentData')}</option>`;
 
       const factoryOptions = allFactories.length > 0 ?
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+        `<option value="" class="text-rose-600">⚠️ ${t('common.noFactoryData')}</option>`;
 
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabMaster')})`;
       modalBody.innerHTML = `
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('masterDB.productNumber')} *</label>
-          <input type="text" id="quick品番" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: A001">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.productNumber')} *</label>
+          <input type="text" id="quick品番" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: A001">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('masterDB.productName')} *</label>
-          <input type="text" id="quick製品名" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: ProductA">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.productName')} *</label>
+          <input type="text" id="quick製品名" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: ProductA">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.lhrh')}</label>
-          <select id="quickLHRH" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.lhrh')}</label>
+          <select id="quickLHRH" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
             <option value="">${t('common.pleaseSelect')}</option>
             <option value="LH">LH</option>
             <option value="RH">RH</option>
@@ -2940,50 +2891,50 @@ async function showQuickCreateModal() {
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.kanbanId')}</label>
-          <input type="text" id="quickKanbanID" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.kanbanId')}</label>
+          <input type="text" id="quickKanbanID" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.equipment')}</label>
-          <select id="quick設備" class="w-full px-3 py-2 border rounded-lg ${allEquipment.length === 0 ? 'border-red-500' : ''}">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.equipment')}</label>
+          <select id="quick設備" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs ${allEquipment.length === 0 ? 'border-rose-300' : ''}">
             <option value="">${t('common.pleaseSelect')}</option>
             ${equipmentOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')}</label>
-          <select id="quick工場" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factory')}</label>
+          <select id="quick工場" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs ${allFactories.length === 0 ? 'border-rose-300' : ''}">
             <option value="">${t('common.pleaseSelect')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.cycleTime')}</label>
-          <input type="number" id="quickCycleTime" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCycleTime')}">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.cycleTime')}</label>
+          <input type="number" id="quickCycleTime" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.enterCycleTime')}">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.grossProfit')}</label>
-          <input type="number" step="0.01" id="quickGrossProfit" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 1500.50">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.grossProfit')}</label>
+          <input type="number" step="0.01" id="quickGrossProfit" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: 1500.50">
         </div>
-        <div style="background-color: #f0f9ff; border: 2px solid #0ea5e9;">
-          <label class="block text-sm font-medium mb-1 text-blue-800">${t('masterDB.inspectionMembers')} *</label>
-          <input type="number" id="quickKensaMembers" class="w-full px-3 py-2 border-2 border-blue-500 rounded-lg" placeholder="${t('masterDB.example')}: 2" value="2" required>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.capacity')}</label>
-          <input type="number" id="quick収容数" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.enterCapacity')}">
+        <div class="rounded-xl p-2.5 bg-sky-50/70 border border-sky-200">
+          <label class="block text-xs font-semibold text-sky-900 mb-1">${t('masterDB.inspectionMembers')} *</label>
+          <input type="number" id="quickKensaMembers" class="w-full px-3 py-1.5 border border-sky-300 rounded-xl text-xs bg-white focus:border-sky-500 focus:outline-none shadow-2xs font-semibold" placeholder="${t('masterDB.example')}: 2" value="2" required>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.target') || '目標'}</label>
-          <input type="number" step="any" id="quick目標" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 220">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.capacity')}</label>
+          <input type="number" id="quick収容数" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.enterCapacity')}">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.warning') || '警戒'}</label>
-          <input type="number" step="any" id="quick警戒" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 210">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.target') || '目標'}</label>
+          <input type="number" step="any" id="quick目標" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: 220">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.warning') || '警戒'}</label>
+          <input type="number" step="any" id="quick警戒" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: 210">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('masterDB.productImage')}</label>
-          <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.productImage')}</label>
+          <input type="file" id="quickImage" accept="image/*" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
         </div>
       `;
       break;
@@ -2992,16 +2943,16 @@ async function showQuickCreateModal() {
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabFactory')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryName')} *</label>
-          <input type="text" id="quickFactoryName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Tokyo Factory">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factoryName')} *</label>
+          <input type="text" id="quickFactoryName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="例: Tokyo Factory">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.address')}</label>
-          <input type="text" id="quickFactoryAddress" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.address')}</label>
+          <input type="text" id="quickFactoryAddress" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.phone')}</label>
-          <input type="text" id="quickFactoryPhone" class="w-full px-3 py-2 border rounded-lg" placeholder="例: 03-1234-5678">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.phone')}</label>
+          <input type="text" id="quickFactoryPhone" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="例: 03-1234-5678">
         </div>
       `;
       break;
@@ -3030,7 +2981,7 @@ async function showQuickCreateModal() {
       
       const factoryOptions = allFactories.length > 0 ? 
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+        `<option value="" class="text-rose-600">⚠️ ${t('common.noFactoryData')}</option>`;
 
       const variableOptions = opcVariables.length > 0 ?
         opcVariables.map(v => `<option value="${v}">${v}</option>`).join('') :
@@ -3039,55 +2990,55 @@ async function showQuickCreateModal() {
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabEquipment')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
-          <input type="text" id="quickEquipmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="例: Machine A">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.equipmentName')} *</label>
+          <input type="text" id="quickEquipmentName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="例: Machine A">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
-          <div id="quickEquipmentFactoryTags" class="w-full px-3 py-2 border rounded-lg bg-white min-h-[42px] mb-2"></div>
-          <select id="quickEquipmentFactorySelect" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factory')} (${t('masterDB.selectMultiple')})</label>
+          <div id="quickEquipmentFactoryTags" class="w-full px-2.5 py-1.5 border border-gray-200 rounded-xl bg-gray-50/50 min-h-[34px] mb-2"></div>
+          <select id="quickEquipmentFactorySelect" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs focus:border-indigo-500 focus:outline-none shadow-2xs ${allFactories.length === 0 ? 'border-rose-300' : ''}">
             <option value="">${t('common.addFactory')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <textarea id="quickEquipmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <textarea id="quickEquipmentDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
 
         <!-- OPC Variable Mappings Section -->
-        <div class="col-span-2 border-t pt-4 mt-4">
-          <h4 class="text-sm font-semibold mb-3 flex items-center">
-            <i class="ri-line-chart-line mr-2"></i>
+        <div class="col-span-2 border-t border-gray-100 pt-3 mt-2">
+          <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
+            <i class="ri-line-chart-line mr-1.5"></i>
             ${t('masterDB.opcVariableMappings')}
           </h4>
-          <div class="grid grid-cols-1 gap-3">
+          <div class="grid grid-cols-1 gap-2.5">
             <div>
-              <label class="block text-xs font-medium mb-1">${t('masterDB.kanbanVariable')}</label>
-              <select id="quickEquipmentKanbanVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.kanbanVariable')}</label>
+              <select id="quickEquipmentKanbanVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
                 <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductLookup')}</p>
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forProductLookup')}</p>
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1">${t('masterDB.productionCountVariable')}</label>
-              <select id="quickEquipmentProductionVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.productionCountVariable')}</label>
+              <select id="quickEquipmentProductionVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
                 <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forProductionCalc')}</p>
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forProductionCalc')}</p>
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1">${t('masterDB.boxQuantityVariable')}</label>
-              <select id="quickEquipmentBoxQtyVar" class="w-full px-3 py-2 border rounded-lg text-sm">
+              <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.boxQuantityVariable')}</label>
+              <select id="quickEquipmentBoxQtyVar" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
                 <option value="">${t('masterDB.selectVariable')}</option>
                 ${variableOptions}
               </select>
-              <p class="text-xs text-gray-500 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
+              <p class="text-2xs text-gray-400 mt-1">${t('masterDB.forBoxQtyDisplay')}</p>
             </div>
           </div>
-          <p class="text-xs text-gray-500 mt-3">
+          <p class="text-2xs text-gray-400 mt-2">
             ${t('masterDB.opcConfigTip')} <strong>${t('masterDB.opcManagementPage')}</strong>
           </p>
         </div>
@@ -3134,12 +3085,12 @@ async function showQuickCreateModal() {
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabRoles')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.roleName')} *</label>
-          <input type="text" id="quickRoleName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: operator">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.roleName')} *</label>
+          <input type="text" id="quickRoleName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: operator">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <textarea id="quickRoleDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <textarea id="quickRoleDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
       `;
     }
@@ -3149,12 +3100,12 @@ async function showQuickCreateModal() {
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabDepartment')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.departmentName')} *</label>
-          <input type="text" id="quickDepartmentName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 製造部">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.departmentName')} *</label>
+          <input type="text" id="quickDepartmentName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: 製造部">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <textarea id="quickDepartmentDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <textarea id="quickDepartmentDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
       `;
     }
@@ -3164,12 +3115,12 @@ async function showQuickCreateModal() {
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabSection')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.sectionName')} *</label>
-          <input type="text" id="quickSectionName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: 品質管理係">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.sectionName')} *</label>
+          <input type="text" id="quickSectionName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: 品質管理係">
         </div>
         <div class="col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('common.description')}</label>
-          <textarea id="quickSectionDesc" class="w-full px-3 py-2 border rounded-lg" rows="3"></textarea>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('common.description')}</label>
+          <textarea id="quickSectionDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
       `;
     }
@@ -3182,28 +3133,28 @@ async function showQuickCreateModal() {
 
       const factoryOptions = allFactories.length > 0 ?
         allFactories.map(f => `<option value="${f.name}">${f.name}</option>`).join('') :
-        `<option value="" class="text-red-600">⚠️ ${t('common.noFactoryData')}</option>`;
+        `<option value="" class="text-rose-600">⚠️ ${t('common.noFactoryData')}</option>`;
 
       modalTitle.innerHTML = `<i class="ri-add-line mr-2"></i>${t('masterDB.newRegistration')} (${t('masterDB.tabTablet')})`;
       modalBody.innerHTML = `
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')} *</label>
-          <input type="text" id="quickTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: Tablet1">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.tabletName')} *</label>
+          <input type="text" id="quickTabletName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: Tablet1">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.brand')} *</label>
-          <input type="text" id="quickTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: samsung">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.brand')} *</label>
+          <input type="text" id="quickTabletBrand" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: samsung">
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')} *</label>
-          <select id="quickTabletFactory" class="w-full px-3 py-2 border rounded-lg ${allFactories.length === 0 ? 'border-red-500' : ''}" onchange="updateQuickTabletEquipmentDropdown()">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factoryLocation')} *</label>
+          <select id="quickTabletFactory" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs ${allFactories.length === 0 ? 'border-rose-300' : ''}" onchange="updateQuickTabletEquipmentDropdown()">
             <option value="">${t('common.pleaseSelect')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
-          <select id="quickTablet設備" class="w-full px-3 py-2 border rounded-lg">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.equipmentName')} *</label>
+          <select id="quickTablet設備" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs">
             <option value="">${t('common.selectFactoryFirst')}</option>
           </select>
         </div>
@@ -3646,13 +3597,13 @@ function renderGoogleSheetTargets(targets = []) {
   const configured = Boolean(googleSheetServiceAccountInfo.configured);
 
   const statusBadge = configured
-    ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('configured')}</span>`
-    : `<span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">${gsText('notConfigured')}</span>`;
+    ? `<span class="inline-flex items-center rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 border border-emerald-200">${gsText('configured')}</span>`
+    : `<span class="inline-flex items-center rounded-lg bg-amber-50 px-2 py-0.5 text-2xs font-medium text-amber-700 border border-amber-200">${gsText('notConfigured')}</span>`;
 
   const rowsHtml = targets.length === 0
     ? `
       <tr>
-        <td colspan="7" class="px-4 py-10 text-center text-gray-500">
+        <td colspan="7" class="px-3 py-8 text-center text-xs font-medium text-gray-400">
           ${gsText('emptyState')}
         </td>
       </tr>
@@ -3666,10 +3617,10 @@ function renderGoogleSheetTargets(targets = []) {
           ? ` +${productCount - 3}`
           : '';
         const syncBadge = target.lastSyncStatus === 'success'
-          ? `<span class="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">${gsText('statusSyncOk')}</span>`
+          ? `<span class="inline-flex items-center rounded-lg bg-emerald-50 px-2 py-0.5 text-2xs font-medium text-emerald-700 border border-emerald-200">${gsText('statusSyncOk')}</span>`
           : target.lastSyncStatus === 'error'
-            ? `<span class="inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">${gsText('statusSyncError')}</span>`
-            : `<span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">${gsText('statusNotRun')}</span>`;
+            ? `<span class="inline-flex items-center rounded-lg bg-rose-50 px-2 py-0.5 text-2xs font-medium text-rose-700 border border-rose-200">${gsText('statusSyncError')}</span>`
+            : `<span class="inline-flex items-center rounded-lg bg-gray-100 px-2 py-0.5 text-2xs font-medium text-gray-600 border border-gray-200">${gsText('statusNotRun')}</span>`;
         const lastStatusText = target.lastSyncError
           ? escapeHtml(target.lastSyncError)
           : target.lastUsedAt
@@ -3677,29 +3628,29 @@ function renderGoogleSheetTargets(targets = []) {
             : gsText('notSentYet');
 
         return `
-          <tr class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(target.label || '')}</td>
-            <td class="px-4 py-3">
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(target.label || '')}</td>
+            <td class="px-3 py-2">
               <div class="font-medium text-gray-900">${escapeHtml(target.spreadsheetTitle || '')}</div>
-              <div class="text-xs text-gray-500">${escapeHtml(target.spreadsheetId || '')}</div>
+              <div class="text-2xs text-gray-500 font-mono">${escapeHtml(target.spreadsheetId || '')}</div>
             </td>
-            <td class="px-4 py-3">${escapeHtml(target.sheetName || '')}</td>
-            <td class="px-4 py-3">${escapeHtml(target.ngGroupName || '')}</td>
-            <td class="px-4 py-3">
-              <div class="text-sm text-gray-900">${productNames || '-'}</div>
-              <div class="text-xs text-gray-500">${gsText('productCount', { count: productCount })}${remainingProducts}</div>
+            <td class="px-3 py-2 text-gray-600">${escapeHtml(target.sheetName || '')}</td>
+            <td class="px-3 py-2 text-gray-600">${escapeHtml(target.ngGroupName || '')}</td>
+            <td class="px-3 py-2">
+              <div class="text-xs text-gray-900">${productNames || '-'}</div>
+              <div class="text-2xs text-gray-500 tabular-nums">${gsText('productCount', { count: productCount })}${remainingProducts}</div>
             </td>
-            <td class="px-4 py-3">
+            <td class="px-3 py-2 whitespace-nowrap">
               ${syncBadge}
-              <div class="mt-1 text-xs text-gray-500">${lastStatusText}</div>
+              <div class="mt-0.5 text-2xs text-gray-500">${lastStatusText}</div>
             </td>
-            <td class="px-4 py-3 text-right">
-              <div class="flex justify-end gap-2">
-                <button type="button" class="inline-flex items-center rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50" onclick="showGoogleSheetTargetModal('${escapeHtml(String(target._id))}')">
-                  <i class="ri-edit-line mr-1"></i>${t('common.edit')}
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              <div class="flex justify-end gap-1.5">
+                <button type="button" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer" onclick="showGoogleSheetTargetModal('${escapeHtml(String(target._id))}')">
+                  <i class="ri-edit-line"></i>${t('common.edit')}
                 </button>
-                <button type="button" class="inline-flex items-center rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50" onclick="deleteGoogleSheetTarget('${escapeHtml(String(target._id))}')">
-                  <i class="ri-delete-bin-line mr-1"></i>${t('common.delete')}
+                <button type="button" class="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-900 hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-100 transition cursor-pointer" onclick="deleteGoogleSheetTarget('${escapeHtml(String(target._id))}')">
+                  <i class="ri-delete-bin-line"></i>${t('common.delete')}
                 </button>
               </div>
             </td>
@@ -3708,39 +3659,39 @@ function renderGoogleSheetTargets(targets = []) {
       }).join('');
 
   container.innerHTML = `
-    <div class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div class="mb-5 rounded-2xl border border-gray-100 bg-white p-4 shadow-xs">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div class="mb-2 flex items-center gap-3">
-            <h2 class="text-xl font-semibold text-slate-900">${gsText('title')}</h2>
+          <div class="mb-1.5 flex items-center gap-2.5">
+            <h2 class="text-sm font-semibold text-gray-900">${gsText('title')}</h2>
             ${statusBadge}
           </div>
-          <p class="text-sm text-slate-600">${gsText('description')}</p>
+          <p class="text-xs text-gray-500">${gsText('description')}</p>
         </div>
-        <button type="button" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700" onclick="showGoogleSheetTargetModal()">
-          <i class="ri-add-line mr-2"></i>${gsText('registerButton')}
+        <button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer" onclick="showGoogleSheetTargetModal()">
+          <i class="ri-add-line"></i>${gsText('registerButton')}
         </button>
       </div>
-      <div class="mt-4 rounded-xl border border-dashed ${configured ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'} p-4 text-sm">
-        <div class="font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
-        <div class="mt-1 font-mono text-xs text-slate-700">${serviceEmail}</div>
-        <p class="mt-2 text-xs text-slate-600">${gsText('serviceAccountDescription')}</p>
+      <div class="mt-3 rounded-xl border border-dashed ${configured ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'} p-3 text-xs">
+        <div class="font-semibold text-gray-900 text-xs">${gsText('serviceAccountTitle')}</div>
+        <div class="mt-0.5 font-mono text-xs text-gray-700 select-all">${serviceEmail}</div>
+        <p class="mt-1 text-2xs text-gray-500">${gsText('serviceAccountDescription')}</p>
       </div>
     </div>
-    <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLinkName')}</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSpreadsheet')}</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableSheet')}</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableNgGroup')}</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableTargetProducts')}</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-600">${gsText('tableLastStatus')}</th>
-            <th class="px-4 py-3 text-right font-semibold text-gray-600">${t('common.actions')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableLinkName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableSpreadsheet')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableSheet')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableNgGroup')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableTargetProducts')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${gsText('tableLastStatus')}</th>
+            <th class="px-3 py-2 text-right select-none whitespace-nowrap">${t('common.actions')}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200 bg-white">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${rowsHtml}
         </tbody>
       </table>
@@ -3758,78 +3709,78 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
     : gsText('serviceAccountMissing');
 
   return `
-    <div id="googleSheetTargetModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div class="flex items-center justify-between border-b px-6 py-4">
+    <div id="googleSheetTargetModal" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-xs p-4">
+      <div class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
+        <div class="flex items-center justify-between border-b border-gray-100 px-6 py-5">
           <div>
-            <h2 class="text-2xl font-semibold text-slate-900">${modalTitle}</h2>
-            <p class="mt-1 text-sm text-slate-500">${gsText('modalDescription')}</p>
+            <h2 class="text-lg font-semibold text-gray-900">${modalTitle}</h2>
+            <p class="mt-0.5 text-xs text-gray-500">${gsText('modalDescription')}</p>
           </div>
-          <button type="button" class="text-gray-500 hover:text-gray-700" onclick="closeGoogleSheetTargetModal()">
-            <i class="ri-close-line text-2xl"></i>
+          <button type="button" class="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition cursor-pointer" onclick="closeGoogleSheetTargetModal()">
+            <i class="ri-close-line text-xl"></i>
           </button>
         </div>
         <div class="flex-1 overflow-y-auto px-6 py-6">
           <div class="space-y-6">
-            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div class="text-sm font-semibold text-slate-900">${gsText('serviceAccountTitle')}</div>
-              <div id="gstServiceAccountEmail" class="mt-1 font-mono text-xs text-slate-700">${serviceAccountEmail}</div>
-              <div id="gstServiceAccountStatus" class="mt-2 text-xs ${googleSheetServiceAccountInfo.configured ? 'text-emerald-700' : 'text-amber-700'}">${serviceAccountStatus}</div>
+            <div class="rounded-2xl border ${googleSheetServiceAccountInfo.configured ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'} p-4">
+              <div class="text-xs font-semibold text-gray-900">${gsText('serviceAccountTitle')}</div>
+              <div id="gstServiceAccountEmail" class="mt-1 font-mono text-xs text-gray-700 select-all">${serviceAccountEmail}</div>
+              <div id="gstServiceAccountStatus" class="mt-2 text-xs font-medium ${googleSheetServiceAccountInfo.configured ? 'text-emerald-700' : 'text-amber-700'}">${serviceAccountStatus}</div>
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('labelField')}</label>
-                <input id="gstLabel" type="text" value="${label}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="${gsText('labelPlaceholder')}" />
+                <label class="mb-1.5 block text-xs font-semibold text-gray-700">${gsText('labelField')}</label>
+                <input id="gstLabel" type="text" value="${label}" class="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${gsText('labelPlaceholder')}" />
               </div>
               <div class="md:col-span-1">
-                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('spreadsheetUrlField')}</label>
+                <label class="mb-1.5 block text-xs font-semibold text-gray-700">${gsText('spreadsheetUrlField')}</label>
                 <div class="flex gap-2">
-                  <input id="gstSpreadsheetUrl" type="text" value="${spreadsheetUrl}" class="w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="https://docs.google.com/spreadsheets/d/..." />
-                  <button type="button" class="shrink-0 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900" onclick="inspectGoogleSheetFromModal()">${gsText('verifyAccess')}</button>
+                  <input id="gstSpreadsheetUrl" type="text" value="${spreadsheetUrl}" class="w-full rounded-xl border border-gray-200 px-3.5 py-2 text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="https://docs.google.com/spreadsheets/d/..." />
+                  <button type="button" class="inline-flex items-center gap-1 shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer" onclick="inspectGoogleSheetFromModal()">${gsText('verifyAccess')}</button>
                 </div>
-                <p id="gstInspectStatus" class="mt-2 text-xs text-slate-500">${gsText('verifyUrlHint')}</p>
+                <p id="gstInspectStatus" class="mt-1.5 text-xs text-gray-400">${gsText('verifyUrlHint')}</p>
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('sheetField')}</label>
-                <select id="gstSheetName" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetSheetChange()">
+                <label class="mb-1.5 block text-xs font-semibold text-gray-700">${gsText('sheetField')}</label>
+                <select id="gstSheetName" class="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" onchange="handleGoogleSheetTargetSheetChange()">
                   <option value="">${gsText('sheetPlaceholderAfterVerify')}</option>
                 </select>
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium text-gray-700">${gsText('ngGroupField')}</label>
-                <select id="gstNgGroupId" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2" onchange="handleGoogleSheetTargetGroupChange()">
+                <label class="mb-1.5 block text-xs font-semibold text-gray-700">${gsText('ngGroupField')}</label>
+                <select id="gstNgGroupId" class="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm focus:border-indigo-500 focus:outline-none shadow-2xs" onchange="handleGoogleSheetTargetGroupChange()">
                   <option value="">${gsText('ngGroupPlaceholder')}</option>
                 </select>
               </div>
             </div>
 
-            <div class="rounded-xl border border-gray-200 p-4">
+            <div class="rounded-2xl border border-gray-100 p-4 bg-gray-50/30">
               <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 class="text-base font-semibold text-slate-900">${gsText('targetProductsTitle')}</h3>
-                  <p class="text-xs text-slate-500">${gsText('targetProductsDescription')}</p>
+                  <h3 class="text-sm font-semibold text-gray-900">${gsText('targetProductsTitle')}</h3>
+                  <p class="text-xs text-gray-400">${gsText('targetProductsDescription')}</p>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(true)">${gsText('selectAll')}</button>
-                  <button type="button" class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50" onclick="toggleAllGoogleSheetTargetProducts(false)">${gsText('clearAll')}</button>
+                  <button type="button" class="rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 shadow-2xs transition cursor-pointer" onclick="toggleAllGoogleSheetTargetProducts(true)">${gsText('selectAll')}</button>
+                  <button type="button" class="rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 shadow-2xs transition cursor-pointer" onclick="toggleAllGoogleSheetTargetProducts(false)">${gsText('clearAll')}</button>
                 </div>
               </div>
-              <div id="gstProductCount" class="mb-2 text-xs font-medium text-slate-600">${gsText('selectedCount', { count: 0 })}</div>
-              <div id="gstProductList" class="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <p class="text-sm text-gray-500">${gsText('selectNgGroupHint')}</p>
+              <div id="gstProductCount" class="mb-2 text-xs font-medium text-gray-500 tabular-nums">${gsText('selectedCount', { count: 0 })}</div>
+              <div id="gstProductList" class="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3">
+                <p class="text-xs text-gray-400">${gsText('selectNgGroupHint')}</p>
               </div>
             </div>
 
             <div id="gstDuplicateWarning" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4"></div>
 
-            <div class="rounded-xl border border-gray-200 p-4">
+            <div class="rounded-2xl border border-gray-100 p-4 bg-gray-50/30">
               <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h3 class="text-base font-semibold text-slate-900">${gsText('columnCheckTitle')}</h3>
-                  <p class="text-xs text-slate-500">${gsText('columnCheckDescription')}</p>
+                  <h3 class="text-sm font-semibold text-gray-900">${gsText('columnCheckTitle')}</h3>
+                  <p class="text-xs text-gray-400">${gsText('columnCheckDescription')}</p>
                 </div>
-                <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="analyzeGoogleSheetModal()">${gsText('checkColumns')}</button>
+                <button type="button" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer" onclick="analyzeGoogleSheetModal()">${gsText('checkColumns')}</button>
               </div>
               <div id="gstAnalysisSection" class="hidden">
                 <div id="gstAnalysisContainer"></div>
@@ -3837,9 +3788,9 @@ function buildGoogleSheetTargetModalHtml(target = {}) {
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-3 border-t bg-gray-50 px-6 py-4">
-          <button type="button" class="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300" onclick="closeGoogleSheetTargetModal()">${t('common.cancel')}</button>
-          <button id="gstSaveBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" onclick="saveGoogleSheetTarget()" disabled>${t('common.save')}</button>
+        <div class="flex justify-end gap-3 border-t border-gray-100 bg-gray-50/50 px-6 py-4">
+          <button type="button" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer" onclick="closeGoogleSheetTargetModal()">${t('common.cancel')}</button>
+          <button id="gstSaveBtn" type="button" class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition shadow-2xs disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer" onclick="saveGoogleSheetTarget()" disabled>${t('common.save')}</button>
         </div>
       </div>
     </div>
@@ -4470,38 +4421,38 @@ function renderRpiServerTable(devices) {
   
   if (!devices || devices.length === 0) {
     container.innerHTML = `
-      <div class="text-center py-12">
-        <i class="ri-server-line text-6xl text-gray-300 mb-4"></i>
-        <p class="text-gray-500 text-lg">${t('masterDB.noDevicesRegistered')}</p>
-        <p class="text-gray-400 text-sm mt-2">${t('masterDB.devicesAppearAutomatically')}</p>
+      <div class="text-center py-10 text-gray-500">
+        <i class="ri-server-line text-3xl text-gray-300 mb-2.5 block"></i>
+        <p class="text-xs font-medium text-gray-600">${t('masterDB.noDevicesRegistered')}</p>
+        <p class="text-2xs text-gray-400 mt-0.5">${t('masterDB.devicesAppearAutomatically')}</p>
       </div>
     `;
     return;
   }
 
   let html = `
-    <div class="overflow-x-auto">
-      <table class="w-full">
-        <thead class="bg-gray-50 border-b-2 border-gray-200">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceId')}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.deviceName')}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.localIp')}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.owner')}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.factory') || 'Factory'}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.status')}</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('masterDB.lastSeen')}</th>
-            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">${t('common.actions')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.deviceId')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.deviceName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.localIp')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.owner')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factory') || 'Factory'}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.status')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.lastSeen')}</th>
+            <th class="px-3 py-2 text-right select-none whitespace-nowrap">${t('common.actions')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
   `;
 
   devices.forEach(device => {
     const isActive = isDeviceActive(device.updated_at);
     const statusBadge = isActive
-      ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">${t('masterDB.active')}</span>`
-      : `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">${t('masterDB.inactive')}</span>`;
+      ? `<span class="inline-flex items-center rounded-lg px-2 py-0.5 text-2xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">${t('masterDB.active')}</span>`
+      : `<span class="inline-flex items-center rounded-lg px-2 py-0.5 text-2xs font-medium bg-gray-100 text-gray-600 border border-gray-200">${t('masterDB.inactive')}</span>`;
 
     const lastUpdated = new Date(device.updated_at).toLocaleString('ja-JP');
     const authorizedUntil = new Date(device.authorized_until).toLocaleDateString('ja-JP');
@@ -4510,35 +4461,35 @@ function renderRpiServerTable(devices) {
     const factoryName = factoryObj ? factoryObj.name : '-';
 
     html += `
-      <tr class="hover:bg-gray-50 transition-colors">
-        <td class="px-4 py-3">
+      <tr class="hover:bg-gray-50/70 transition">
+        <td class="px-3 py-2 whitespace-nowrap">
           <div class="flex items-center">
-            <i class="ri-cpu-line text-blue-600 mr-2"></i>
-            <span class="font-mono font-semibold">${device.device_id}</span>
+            <i class="ri-cpu-line text-indigo-500 mr-1.5 text-sm"></i>
+            <span class="font-mono font-semibold text-gray-900 text-xs">${device.device_id}</span>
           </div>
         </td>
-        <td class="px-4 py-3">
+        <td class="px-3 py-2 whitespace-nowrap">
           <div class="font-medium text-gray-900">${device.device_name || '-'}</div>
-          <div class="text-sm text-gray-500">${device.device_brand || 'Raspberry Pi'}</div>
+          <div class="text-2xs text-gray-400">${device.device_brand || 'Raspberry Pi'}</div>
         </td>
-        <td class="px-4 py-3">
-          <span class="font-mono text-sm">${device.local_ip || '-'}</span>
+        <td class="px-3 py-2 whitespace-nowrap">
+          <span class="font-mono text-xs text-gray-600">${device.local_ip || '-'}</span>
         </td>
-        <td class="px-4 py-3">
-          <span class="text-sm">${device.owner || '-'}</span>
+        <td class="px-3 py-2 text-gray-600 whitespace-nowrap">
+          <span>${device.owner || '-'}</span>
         </td>
-        <td class="px-4 py-3">
-          <span class="text-sm">${factoryName}</span>
+        <td class="px-3 py-2 text-gray-600 whitespace-nowrap">
+          <span>${factoryName}</span>
         </td>
-        <td class="px-4 py-3">${statusBadge}</td>
-        <td class="px-4 py-3">
-          <div class="text-sm text-gray-900">${lastUpdated}</div>
-          <div class="text-xs text-gray-500">${t('masterDB.validUntil')}: ${authorizedUntil}</div>
+        <td class="px-3 py-2 whitespace-nowrap">${statusBadge}</td>
+        <td class="px-3 py-2 whitespace-nowrap">
+          <div class="text-xs font-medium text-gray-900 tabular-nums">${lastUpdated}</div>
+          <div class="text-2xs text-gray-400 tabular-nums">${t('masterDB.validUntil')}: ${authorizedUntil}</div>
         </td>
-        <td class="px-4 py-3 text-center">
+        <td class="px-3 py-2 text-right whitespace-nowrap">
           <button onclick="editRpiServer('${device._id}')"
-            class="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
-            <i class="ri-edit-line mr-1"></i> ${t('common.edit')}
+            class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
+            <i class="ri-edit-line"></i> ${t('common.edit')}
           </button>
         </td>
       </tr>
@@ -4592,40 +4543,40 @@ async function editRpiServer(deviceId) {
 
 function showRpiServerEditModal(device) {
   const modalHtml = `
-    <div id="rpiServerEditModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
-        <div class="flex items-center justify-between p-6 border-b">
-          <h2 class="text-2xl font-semibold">${t('masterDB.editDevice')}</h2>
-          <button onclick="closeRpiServerEditModal()" class="text-gray-500 hover:text-gray-700">
-            <i class="ri-close-line text-2xl"></i>
+    <div id="rpiServerEditModal" class="fixed inset-0 bg-gray-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-2xl w-full overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">${t('masterDB.editDevice')}</h2>
+          <button onclick="closeRpiServerEditModal()" class="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition cursor-pointer">
+            <i class="ri-close-line text-xl"></i>
           </button>
         </div>
 
         <div class="p-6">
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceIdReadOnly')}</label>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.deviceIdReadOnly')}</label>
               <input type="text" value="${device.device_id}" disabled
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono">
+                class="w-full px-3.5 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 font-mono text-sm">
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.deviceName')} *</label>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.deviceName')} *</label>
               <input type="text" id="editDeviceName" value="${device.device_name || ''}"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-              <p class="mt-1 text-sm text-gray-500">${t('masterDB.friendlyNameHint')}</p>
+                class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs">
+              <p class="mt-1 text-xs text-gray-400">${t('masterDB.friendlyNameHint')}</p>
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.owner')}</label>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.owner')}</label>
               <input type="text" id="editDeviceOwner" value="${device.owner || ''}"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                class="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:border-indigo-500 focus:outline-none shadow-2xs">
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.factory') || 'Factory'}</label>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.factory') || 'Factory'}</label>
               <select id="editDeviceFactory"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                class="w-full px-3.5 py-2 border border-gray-200 rounded-xl bg-white text-sm focus:border-indigo-500 focus:outline-none shadow-2xs">
                 <option value="">${t('common.selectFactory') || 'Select Factory'}</option>
                 ${allFactories.map(f => `<option value="${f._id}" ${device.factoryId === f._id ? 'selected' : ''}>${f.name}</option>`).join('')}
               </select>
@@ -4633,33 +4584,33 @@ function showRpiServerEditModal(device) {
 
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.localIpReadOnly')}</label>
+                <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.localIpReadOnly')}</label>
                 <input type="text" value="${device.local_ip || '-'}" disabled
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm">
+                  class="w-full px-3.5 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 font-mono text-sm">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.lastSeen')}</label>
+                <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.lastSeen')}</label>
                 <input type="text" value="${new Date(device.updated_at).toLocaleString('ja-JP')}" disabled
-                  class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm">
+                  class="w-full px-3.5 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 text-sm tabular-nums">
               </div>
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">${t('masterDB.authorizedUntil')}</label>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">${t('masterDB.authorizedUntil')}</label>
               <input type="text" value="${new Date(device.authorized_until).toLocaleDateString('ja-JP')}" disabled
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                class="w-full px-3.5 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 text-sm tabular-nums">
             </div>
           </div>
         </div>
 
-        <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+        <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
           <button onclick="closeRpiServerEditModal()"
-            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+            class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer">
             ${t('common.cancel')}
           </button>
           <button onclick="saveRpiServer()"
-            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <i class="ri-save-line mr-2"></i>${t('masterDB.saveChanges')}
+            class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
+            <i class="ri-save-line"></i>${t('masterDB.saveChanges')}
           </button>
         </div>
       </div>
@@ -4744,37 +4695,37 @@ function renderTabletsTable(tablets) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button id="deleteTabletsBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg opacity-50 cursor-not-allowed" disabled onclick="showDeleteConfirmation('tablet')">
-          <i class="ri-delete-bin-line mr-2"></i>${t('masterDB.deleteSelected')} (<span id="tabletSelectedCount">0</span>)
+        <button id="deleteTabletsBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="showDeleteConfirmation('tablet')">
+          <i class="ri-delete-bin-line"></i>${t('masterDB.deleteSelected')} (<span id="tabletSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">${t('common.total')}: ${tablets.length} ${t('masterDB.tabTablet')}</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${tablets.length}</span> ${t('masterDB.tabTablet')}</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllTablets" onchange="toggleSelectAll('tablet')" class="rounded"></th>
-            <th class="px-4 py-3 text-left">${t('masterDB.tabletName')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.brand')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.factoryLocation')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.equipmentName')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.registeredDate')}</th>
-            <th class="px-4 py-3 text-left">${t('masterDB.registeredBy')}</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllTablets" onchange="toggleSelectAll('tablet')" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.tabletName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.brand')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factoryLocation')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.equipmentName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.registeredDate')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.registeredBy')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y">
-          ${tablets.map(tab => `
-            <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetailModal('tablet', '${tab._id}')">
-              <td class="px-4 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="tabletCheckbox rounded" value="${tab._id}" onchange="updateSelectedCount('tablet')"></td>
-              <td class="px-4 py-3"><i class="ri-tablet-line text-blue-600 mr-2"></i>${tab.tabletName || ""}</td>
-              <td class="px-4 py-3">${tab.tabletBrand || ""}</td>
-              <td class="px-4 py-3">${tab.factoryLocation || ""}</td>
-              <td class="px-4 py-3">${tab.設備名 || ""}</td>
-              <td class="px-4 py-3">${tab.registeredAt ? new Date(tab.registeredAt).toLocaleDateString('ja-JP') : ""}</td>
-              <td class="px-4 py-3">${tab.registeredBy || ""}</td>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${tablets.length > 0 ? tablets.map(tab => `
+            <tr class="hover:bg-gray-50/70 transition cursor-pointer" onclick="openDetailModal('tablet', '${tab._id}')">
+              <td class="px-3 py-2 text-center" onclick="event.stopPropagation()"><input type="checkbox" class="tabletCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${tab._id}" onchange="updateSelectedCount('tablet')"></td>
+              <td class="px-3 py-2 whitespace-nowrap font-semibold text-gray-900"><i class="ri-tablet-line text-indigo-500 mr-1.5"></i>${escapeHtml(tab.tabletName || "")}</td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(tab.tabletBrand || "")}</td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(tab.factoryLocation || "")}</td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(tab.設備名 || "")}</td>
+              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${tab.registeredAt ? new Date(tab.registeredAt).toLocaleDateString('ja-JP') : ""}</td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(tab.registeredBy || "")}</td>
             </tr>
-          `).join("")}
+          `).join("") : `<tr><td colspan="7" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -4804,43 +4755,43 @@ async function showCreateTabletForm() {
   ).join('');
   
   const formHTML = `
-    <div class="bg-white border p-6 rounded-xl mb-6">
-      <h3 class="text-xl font-semibold mb-4">${t('masterDB.tabletRegistration')}</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="bg-white border border-gray-100 p-5 rounded-2xl shadow-xs mb-5">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">${t('masterDB.tabletRegistration')}</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.tabletName')} *</label>
-          <input type="text" id="newTabletName" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: Tablet-001" oninput="checkTabletNameUnique()" />
-          <p id="tabletNameError" class="text-red-600 text-sm mt-1 hidden">${t('masterDB.tabletNameInUse')}</p>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.tabletName')} *</label>
+          <input type="text" id="newTabletName" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: Tablet-001" oninput="checkTabletNameUnique()" />
+          <p id="tabletNameError" class="text-rose-600 text-2xs mt-1 hidden">${t('masterDB.tabletNameInUse')}</p>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.brand')} *</label>
-          <input type="text" id="newTabletBrand" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.example')}: iPad, Samsung" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.brand')} *</label>
+          <input type="text" id="newTabletBrand" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.example')}: iPad, Samsung" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.factoryLocation')} *</label>
-          <select id="newFactoryLocation" class="w-full px-3 py-2 border rounded-lg bg-white" onchange="updateTabletEquipmentDropdown()">
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.factoryLocation')} *</label>
+          <select id="newFactoryLocation" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" onchange="updateTabletEquipmentDropdown()">
             <option value="">${t('common.selectFactory')}</option>
             ${factoryOptions}
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">${t('masterDB.equipmentName')} *</label>
-          <select id="new設備名" class="w-full px-3 py-2 border rounded-lg bg-white" disabled>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.equipmentName')} *</label>
+          <select id="new設備名" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-white text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" disabled>
             <option value="">${t('common.selectFactoryFirst')}</option>
           </select>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-1">${t('masterDB.accessRestriction')}</label>
-          <p class="text-xs text-gray-500 mb-2">${t('masterDB.accessRestrictionDesc')}</p>
-          <input type="text" id="newAuthorizedUsers" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('masterDB.accessRestrictionPlaceholder')}" />
+          <label class="block text-xs font-semibold text-gray-700 mb-1">${t('masterDB.accessRestriction')}</label>
+          <p class="text-2xs text-gray-400 mb-1.5">${t('masterDB.accessRestrictionDesc')}</p>
+          <input type="text" id="newAuthorizedUsers" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:border-indigo-500 focus:outline-none shadow-2xs" placeholder="${t('masterDB.accessRestrictionPlaceholder')}" />
         </div>
       </div>
-      <div class="flex gap-3">
-        <button id="submitTabletBtn" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700" onclick="submitNewTablet()">
-          <i class="ri-save-line mr-2"></i>${t('common.register')}
+      <div class="flex gap-2.5">
+        <button id="submitTabletBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition shadow-2xs cursor-pointer" onclick="submitNewTablet()">
+          <i class="ri-save-line"></i>${t('common.register')}
         </button>
-        <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200" onclick="loadTablets()">
-          <i class="ri-close-line mr-2"></i>${t('common.cancel')}
+        <button class="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 transition cursor-pointer" onclick="loadTablets()">
+          <i class="ri-close-line"></i>${t('common.cancel')}
         </button>
       </div>
     </div>
@@ -5162,49 +5113,49 @@ function renderNGGroupsTable(groups) {
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
-        <button onclick="showNGGroupModal()" class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-          <i class="ri-add-line mr-2"></i>新規グループ作成
+        <button onclick="showNGGroupModal()" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
+          <i class="ri-add-line"></i>新規グループ作成
         </button>
-        <button id="deleteNGGroupsBtn" class="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 opacity-50 cursor-not-allowed" disabled onclick="confirmDeleteNGGroups()">
-          <i class="ri-delete-bin-line mr-2"></i>削除 (<span id="ngGroupSelectedCount">0</span>)
+        <button id="deleteNGGroupsBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="confirmDeleteNGGroups()">
+          <i class="ri-delete-bin-line"></i>削除 (<span id="ngGroupSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-sm text-gray-600">合計: ${groups.length} グループ</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">合計: <span class="text-xs font-semibold text-gray-900 tabular-nums">${groups.length}</span> グループ</div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            <th class="px-4 py-3 w-12"><input type="checkbox" id="selectAllNGGroups" onchange="toggleSelectAllNGGroups()" class="rounded"></th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">グループ名</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">不良項目数</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">カラープレビュー</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">作成者</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">作成日時</th>
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">操作</th>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllNGGroups" onchange="toggleSelectAllNGGroups()" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">グループ名</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">不良項目数</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">カラープレビュー</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">作成者</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">作成日時</th>
+            <th class="px-3 py-2 text-right select-none whitespace-nowrap">操作</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${groups.length === 0 ? `
-            <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">グループがありません。「新規グループ作成」から作成してください。</td></tr>
+            <tr><td colspan="7" class="px-3 py-8 text-center text-xs font-medium text-gray-400">グループがありません。「新規グループ作成」から作成してください。</td></tr>
           ` : groups.map(g => `
-            <tr class="hover:bg-gray-50">
-              <td class="px-4 py-3"><input type="checkbox" class="ngGroupCheckbox rounded" value="${g._id}" onchange="updateNGGroupSelectCount()"></td>
-              <td class="px-4 py-3 font-medium">${g.groupName || ''}</td>
-              <td class="px-4 py-3">${(g.items || []).length} 項目</td>
-              <td class="px-4 py-3">
-                <div class="flex flex-wrap gap-1">
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-3 py-2 text-center"><input type="checkbox" class="ngGroupCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${g._id}" onchange="updateNGGroupSelectCount()"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(g.groupName || '')}</td>
+              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${(g.items || []).length} 項目</td>
+              <td class="px-3 py-2">
+                <div class="flex flex-wrap gap-1 items-center">
                   ${(g.items || []).slice(0, 8).map(item => `
-                    <span class="inline-block w-5 h-5 rounded-full border border-gray-200" style="background:${item.color || '#ccc'}" title="${item.name || ''}"></span>
+                    <span class="inline-block w-3.5 h-3.5 rounded-full border border-gray-200 shadow-2xs" style="background:${item.color || '#ccc'}" title="${escapeHtml(item.name || '')}"></span>
                   `).join('')}
-                  ${(g.items || []).length > 8 ? `<span class="text-xs text-gray-400">+${(g.items || []).length - 8}</span>` : ''}
+                  ${(g.items || []).length > 8 ? `<span class="text-2xs text-gray-400 tabular-nums font-medium">+${(g.items || []).length - 8}</span>` : ''}
                 </div>
               </td>
-              <td class="px-4 py-3 text-gray-500">${g.createdBy || '-'}</td>
-              <td class="px-4 py-3 text-gray-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
-              <td class="px-4 py-3">
-                <button onclick="showNGGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="text-blue-600 hover:underline text-sm mr-3">
-                  <i class="ri-edit-line mr-1"></i>編集
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(g.createdBy || '-')}</td>
+              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <button onclick="showNGGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
+                  <i class="ri-edit-line"></i>編集
                 </button>
               </td>
             </tr>
@@ -5325,23 +5276,23 @@ function addNGItemRow(item = null) {
   const countUp = item ? (item.countUp !== false) : true;
 
   const row = document.createElement('div');
-  row.className = 'flex items-center gap-2 ng-item-row p-2 bg-gray-50 border border-gray-200 rounded-lg';
+  row.className = 'flex items-center gap-2 ng-item-row p-1.5 bg-gray-50 border border-gray-200 rounded-xl';
   row.draggable = true;
   row.innerHTML = `
-    <span class="ng-drag-handle flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 px-1 text-lg select-none" title="ドラッグして並び替え">⠿</span>
-    <span class="ng-order-badge flex-shrink-0 w-6 h-6 rounded-full bg-gray-300 text-gray-700 text-xs font-bold flex items-center justify-center select-none">?</span>
+    <span class="ng-drag-handle flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 px-1 text-base select-none" title="ドラッグして並び替え">⠿</span>
+    <span class="ng-order-badge flex-shrink-0 w-5 h-5 rounded-full bg-gray-300 text-gray-700 text-2xs font-bold flex items-center justify-center select-none">?</span>
     <input type="text" placeholder="不良名（例: シルバー）" value="${name.replace(/"/g, '&quot;')}"
-           class="flex-1 px-2 py-1.5 border rounded ng-item-name text-sm" />
+           class="flex-1 px-2.5 py-1 border border-gray-200 rounded-lg ng-item-name text-xs bg-white focus:border-indigo-500 focus:outline-none" />
     <div class="flex items-center gap-1">
-      <input type="color" value="${color}" class="w-9 h-8 border rounded cursor-pointer ng-item-color p-0"
+      <input type="color" value="${color}" class="w-7 h-7 border border-gray-200 rounded-lg cursor-pointer ng-item-color p-0"
              onfocus="setFocusedColorInput(this)" oninput="this.nextElementSibling.style.background=this.value" />
-      <span class="ng-color-swatch w-5 h-5 rounded-full border border-gray-300 flex-shrink-0" style="background:${color}"></span>
+      <span class="ng-color-swatch w-4 h-4 rounded-full border border-gray-300 flex-shrink-0" style="background:${color}"></span>
     </div>
-    <label class="flex items-center gap-1 text-xs whitespace-nowrap cursor-pointer select-none" title="チェックON: 不良合計にカウント / チェックOFF: カウントしない">
-      <input type="checkbox" class="ng-item-countup" ${countUp ? 'checked' : ''}>
+    <label class="flex items-center gap-1 text-2xs whitespace-nowrap cursor-pointer select-none text-gray-600" title="チェックON: 不良合計にカウント / チェックOFF: カウントしない">
+      <input type="checkbox" class="ng-item-countup w-3.5 h-3.5 rounded border-gray-300 text-indigo-600" ${countUp ? 'checked' : ''}>
       <span>合計に含む</span>
     </label>
-    <button type="button" onclick="removeNGItem(this)" class="text-red-400 hover:text-red-600 flex-shrink-0 p-1">
+    <button type="button" onclick="removeNGItem(this)" class="text-rose-400 hover:text-rose-600 flex-shrink-0 p-1 cursor-pointer">
       <i class="ri-delete-bin-line"></i>
     </button>
   `;

@@ -372,6 +372,7 @@ const translations = {
 
       // Tabs
       tabMaster: "Master",
+      tabMasterNG: "Defect Groups",
       tabFactory: "Factory",
       tabEquipment: "Equipment",
       tabRoles: "Role",
@@ -380,6 +381,7 @@ const translations = {
       tabRpiServer: "Rpi Server",
       tabTablet: "Tablet",
       tabGoogleSheets: "Google Sheets",
+      tabOpcua: "OPC UA",
 
       // Sub tabs
       dataList: "Data List",
@@ -404,15 +406,15 @@ const translations = {
 
       // Delete
       deleteConfirmation: "Delete Confirmation",
-      deleteConfirmMsg: "Are you sure you want to delete the following data?",
-      deleteSelectedItems: "Delete selected items",
-      itemsDeletedSuccess: "item(s) deleted successfully",
+      deleteConfirmMsg: "Are you sure you want to delete the following items?",
+      deleteSelectedItems: "Delete Selected Items",
+      itemsDeletedSuccess: "items deleted successfully",
 
       // History table
       dateTime: "Date/Time",
       action: "Action",
       user: "User",
-      recordCount: "Records",
+      recordCount: "Record Count",
       noHistoryFound: "No history found",
       created: "Created",
       deleted: "Deleted",
@@ -427,6 +429,7 @@ const translations = {
       kanbanId: "kanbanID",
       equipment: "Equipment",
       factory: "Factory",
+      ngGroup: "Defect Group",
       cycleTime: "Cycle Time",
       grossProfit: "Gross Profit / pc (¥)",
       inspectionMembers: "Inspection Members",
@@ -1011,7 +1014,19 @@ const translations = {
         tablePiecesPerHour: "Output / 1person-h",
         tableRemarks: "Reason / Remarks",
         noDataForMonth: "No productivity data recorded for this month.",
-        noDataForWorker: "No records for this worker on this equipment."
+        noDataForWorker: "No records for this worker on this equipment.",
+        recordDetailTitle: "Production Record Detail (submittedDB)",
+        recordDetailSubtitle: "Production record data for this date",
+        clickToViewSubmitted: "Click to view submittedDB record details",
+        openInSubmittedDB: "View in submittedDB",
+        noRecordsFound: "No submitted records found for this date.",
+        recordIndexLabel: "Record",
+        defectsBreakdown: "Defects Breakdown",
+        noDefectsRecorded: "No defects recorded (0 items)",
+        timingAndHours: "Working Time & Operators",
+        productAndLine: "Product & Kanban Info",
+        registeredAt: "Submitted At",
+        sourceTerminal: "Source / Machine"
       },
 
       overview: {
@@ -1641,6 +1656,7 @@ const translations = {
 
       // Tabs
       tabMaster: "マスター",
+      tabMasterNG: "不良グループ",
       tabFactory: "工場",
       tabEquipment: "設備",
       tabRoles: "ロール",
@@ -1649,6 +1665,7 @@ const translations = {
       tabRpiServer: "Rpiサーバー",
       tabTablet: "タブレット",
       tabGoogleSheets: "Google Sheets",
+      tabOpcua: "OPC UA",
 
       // Sub tabs
       dataList: "データ一覧",
@@ -1696,6 +1713,7 @@ const translations = {
       kanbanId: "kanbanID",
       equipment: "設備",
       factory: "工場",
+      ngGroup: "不良グループ",
       cycleTime: "サイクルタイム(何秒 / pc)",
       grossProfit: "粗利 / pc (￥)",
       inspectionMembers: "検査メンバー数",

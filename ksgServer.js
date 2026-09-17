@@ -5065,7 +5065,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
                         kanbans: new Set(),
                         productNames: new Set(),
                         hinbans: new Set(),
-                        remarks: []
+                        remarks: [],
+                        recordIds: []
                     });
                 }
                 const dayEntry = dayMap.get(day);
@@ -5077,6 +5078,9 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 if (hinban) dayEntry.hinbans.add(hinban);
                 if (remarks && !dayEntry.remarks.includes(remarks)) {
                     dayEntry.remarks.push(remarks);
+                }
+                if (record._id && !dayEntry.recordIds.includes(String(record._id))) {
+                    dayEntry.recordIds.push(String(record._id));
                 }
             });
         });
@@ -5129,7 +5133,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
                         pieces: Math.round(d.pieces * 10) / 10,
                         hours: Math.round(d.hours * 100) / 100,
                         oneHrPc,
-                        remarks: d.remarks.join('; ')
+                        remarks: d.remarks.join('; '),
+                        recordIds: d.recordIds || []
                     });
                 });
 
