@@ -515,7 +515,7 @@ function analyticsUpdateTabState() {
   if (cOperator) cOperator.classList.toggle('hidden', !['worker'].includes(analyticsActiveTab));
 }
 
-function setAnalyticsTab(tabName) {
+function setAnalyticsTab(tabName, updateHash = true) {
   analyticsActiveTab = tabName || 'productivity';
   analyticsUpdateTabState();
   if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
@@ -528,6 +528,10 @@ function setAnalyticsTab(tabName) {
     renderAnalyticsActiveTab();
   }
   if (typeof analyticsSaveViewState === 'function') analyticsSaveViewState();
+
+  if (updateHash && typeof window.updateSubTabHash === 'function') {
+    window.updateSubTabHash('analytics', analyticsActiveTab);
+  }
 }
 
 function analyticsGetHighestBy(items = [], valueSelector, filterSelector = null) {
@@ -6553,11 +6557,18 @@ function renderWorkerComparisonTable() {
   });
 }
 
-function initializeAnalytics() {
+function initializeAnalytics(targetTab = null) {
   const root = document.getElementById('analyticsRoot');
   if (!root) return;
   if (typeof applyTranslations === 'function') applyTranslations(root);
   analyticsRestoreViewState();
+
+  // URL hash route takes priority over stored tab
+  const hashSubtab = targetTab || (window.location.hash && window.location.hash.startsWith('#analytics/') ? window.location.hash.split('/')[1] : null);
+  if (hashSubtab) {
+    analyticsActiveTab = hashSubtab === 'overview' ? 'productivity' : hashSubtab;
+  }
+
   analyticsSetDefaultFilters();
   analyticsSyncShiftControls();
   analyticsUpdateTabState();
@@ -6565,6 +6576,9 @@ function initializeAnalytics() {
   if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
     initAnalyticsProductivity();
     loadAnalyticsProductivity();
+  } else if (analyticsActiveTab === 'mom') {
+    initAnalyticsMoM(analyticsData);
+    loadAnalyticsMoM();
   }
   loadAnalytics();
 }

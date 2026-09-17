@@ -70,12 +70,42 @@ initOpcState();
 //const COMPANY = localStorage.getItem('company') || 'sasaki';
 //const API_URL = 'http://localhost:3000';
 
+// Helper to match device identifier (id or name, case-insensitive)
+function matchesDevice(deviceA, deviceB) {
+    if (!deviceA || !deviceB) return false;
+    if (deviceA === deviceB) return true;
+    if (String(deviceA).toLowerCase() === String(deviceB).toLowerCase()) return true;
+    
+    const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+        ? allDevicesDataCache 
+        : (window.opcManagementState?.allDevicesDataCache || {});
+    
+    // Check against devices in cache
+    for (const [key, devData] of Object.entries(devicesCache)) {
+        const d = devData?.device;
+        const id = d?.device_id || key;
+        const name = d?.device_name;
+        
+        const matchesA = (id && String(id).toLowerCase() === String(deviceA).toLowerCase()) ||
+                         (name && String(name).toLowerCase() === String(deviceA).toLowerCase()) ||
+                         (String(key).toLowerCase() === String(deviceA).toLowerCase());
+        const matchesB = (id && String(id).toLowerCase() === String(deviceB).toLowerCase()) ||
+                         (name && String(name).toLowerCase() === String(deviceB).toLowerCase()) ||
+                         (String(key).toLowerCase() === String(deviceB).toLowerCase());
+        if (matchesA && matchesB) return true;
+    }
+    return false;
+}
+
 // Note: initializeOPCManagement() is called directly from index.html after script load
 
 async function initializeOPCManagement() {
     try {
         // Initialize state references
         initOpcState();
+        
+        // Setup event listeners immediately so elements respond even while data loads
+        setupEventListeners();
         
         // Load Raspberry Pis once and reuse the list for bulk data preload
         const devices = await loadRaspberryPis();
@@ -97,29 +127,38 @@ async function initializeOPCManagement() {
             initialDevice = select.value;
         }
 
-        if (initialDevice && select) {
-            select.value = initialDevice;
-            currentRaspberryId = initialDevice;
-            window.opcManagementState.currentRaspberryId = initialDevice;
+        if (select) {
+            if (initialDevice && select.querySelector(`option[value="${initialDevice}"]`)) {
+                select.value = initialDevice;
+            } else if (select.options.length > 1) {
+                initialDevice = select.options[1].value;
+                select.value = initialDevice;
+            }
+        }
+
+        if (initialDevice && select && select.value) {
+            currentRaspberryId = select.value;
+            window.opcManagementState.currentRaspberryId = currentRaspberryId;
 
             // Reuse preloaded cache when available, otherwise fetch selected device data
-            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[initialDevice];
+            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[currentRaspberryId];
             if (cachedDeviceData) {
                 window.opcManagementState.rawDataCache = cachedDeviceData;
                 rawDataCache = cachedDeviceData;
                 renderRealTimeData(cachedDeviceData);
             } else {
-                await loadRealTimeData(initialDevice);
+                await loadRealTimeData(currentRaspberryId);
             }
-            
-            // Re-render variables now that currentRaspberryId is set
-            renderVariables();
         }
+        
+        // Compute variable values and render with current device filter
+        updateVariableValues();
+        renderVariables();
         
         // Initialize WebSocket
         initializeWebSocket();
         
-        // Setup event listeners
+        // Ensure event listeners are attached to all DOM elements
         setupEventListeners();
         
     } catch (error) {
@@ -137,7 +176,7 @@ async function loadRaspberryPis() {
         const select = document.getElementById('opc-raspberry-filter');
         if (!select) {
             console.error('Raspberry Pi filter select element not found');
-            return;
+            return [];
         }
         
         select.innerHTML = `<option value="">${t('opcManagement.selectRaspberryPi')}</option>`;
@@ -151,6 +190,12 @@ async function loadRaspberryPis() {
                 option.textContent = device.device_name || device.device_id;
                 select.appendChild(option);
             });
+        }
+
+        // Attach change listener immediately to select element
+        if (select && !select.dataset.listenerBound) {
+            select.addEventListener('change', handleRaspberryChange);
+            select.dataset.listenerBound = 'true';
         }
 
         return devices;
@@ -238,7 +283,7 @@ function initializeWebSocket() {
             if (window.opcManagementState.scanningInProgress) {
                 resetScanButton();
                 showScanResult(data);
-                if (data.raspberryId === window.opcManagementState.currentRaspberryId) {
+                if (matchesDevice(data.raspberryId, window.opcManagementState.currentRaspberryId)) {
                     loadRealTimeData(data.raspberryId);
                 }
             }
@@ -273,42 +318,44 @@ function updateConnectionStatus(connected) {
 
 // Setup event listeners
 function setupEventListeners() {
-    if (window.opcManagementState.listenersBound) {
-        return;
-    }
-
     // Raspberry Pi selection
     const filterSelect = document.getElementById('opc-raspberry-filter');
-    if (filterSelect) {
+    if (filterSelect && !filterSelect.dataset.listenerBound) {
         filterSelect.addEventListener('change', handleRaspberryChange);
+        filterSelect.dataset.listenerBound = 'true';
     }
     
     // Scan nodes button
     const refreshBtn = document.getElementById('refresh-data-btn');
-    if (refreshBtn) {
+    if (refreshBtn && !refreshBtn.dataset.listenerBound) {
         refreshBtn.addEventListener('click', () => {
-            if (currentRaspberryId && !window.opcManagementState.scanningInProgress) {
-                triggerNodeScan(currentRaspberryId);
+            const activeId = currentRaspberryId || window.opcManagementState?.currentRaspberryId || document.getElementById('opc-raspberry-filter')?.value;
+            if (activeId && !window.opcManagementState.scanningInProgress) {
+                triggerNodeScan(activeId);
             }
         });
+        refreshBtn.dataset.listenerBound = 'true';
     }
     
     // Conversion form
     const conversionForm = document.getElementById('opc-conversion-form');
-    if (conversionForm) {
+    if (conversionForm && !conversionForm.dataset.listenerBound) {
         conversionForm.addEventListener('submit', handleConversionSubmit);
+        conversionForm.dataset.listenerBound = 'true';
     }
     
     // Combine form
     const combineForm = document.getElementById('opc-combine-form');
-    if (combineForm) {
+    if (combineForm && !combineForm.dataset.listenerBound) {
         combineForm.addEventListener('submit', handleCombineSubmit);
+        combineForm.dataset.listenerBound = 'true';
     }
     
     // Edit variable form
     const editForm = document.getElementById('opc-edit-variable-form');
-    if (editForm) {
+    if (editForm && !editForm.dataset.listenerBound) {
         editForm.addEventListener('submit', handleEditVariableSubmit);
+        editForm.dataset.listenerBound = 'true';
     }
 
     window.opcManagementState.listenersBound = true;
@@ -328,7 +375,8 @@ async function handleRaspberryChange(e) {
         clearDataDisplay();
     }
     
-    // Also re-render variables to filter by selected device
+    // Recalculate variable values and re-render variables to filter by selected device
+    updateVariableValues();
     renderVariables();
 }
 
@@ -341,7 +389,18 @@ async function loadRealTimeData(deviceId) {
         if (data.success) {
             window.opcManagementState.rawDataCache = data;
             rawDataCache = data;
+            
+            // Sync allDevicesDataCache with the latest data for this device
+            if (!window.opcManagementState.allDevicesDataCache) {
+                window.opcManagementState.allDevicesDataCache = {};
+            }
+            window.opcManagementState.allDevicesDataCache[deviceId] = data;
+            if (allDevicesDataCache && typeof allDevicesDataCache === 'object') {
+                allDevicesDataCache[deviceId] = data;
+            }
+
             renderRealTimeData(data);
+            updateVariableValues();
         } else {
             showNotification(t('opcManagement.failedToLoadData') + ': ' + (data.error || t('opcManagement.unknown')), 'error');
         }
@@ -374,7 +433,7 @@ function handleRealtimeData(data) {
     }
     
     // Update rawDataCache if this is the currently selected device (for Real-Time Data table)
-    if (deviceId === currentRaspberryId) {
+    if (matchesDevice(deviceId, currentRaspberryId)) {
         if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
             const updatedData = window.opcManagementState.rawDataCache;
             if (data.data && Array.isArray(data.data)) {
@@ -435,7 +494,7 @@ function handleDiscoveredNodesUpdate(data) {
     }
     
     // Also update rawDataCache if this is the currently selected device (for Real-Time Data table)
-    if (raspberryId === window.opcManagementState.currentRaspberryId) {
+    if (matchesDevice(raspberryId, window.opcManagementState.currentRaspberryId)) {
         if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
             updates.forEach(update => {
                 const dpIndex = window.opcManagementState.rawDataCache.datapoints.findIndex(dp => 
@@ -1133,11 +1192,11 @@ function renderVariables(customVars = null) {
     
     if (activeDeviceId) {
         variablesToRender = variablesToRender.filter(variable => {
-            if (variable.raspberryId === activeDeviceId) return true;
+            if (matchesDevice(variable.raspberryId, activeDeviceId)) return true;
             if (variable.sourceType === 'combined' && Array.isArray(variable.sourceVariables)) {
                 return variable.sourceVariables.some(sourceVarName => {
                     const sourceVar = baseVars.find(v => v.variableName === sourceVarName);
-                    return sourceVar && sourceVar.raspberryId === activeDeviceId;
+                    return sourceVar && matchesDevice(sourceVar.raspberryId, activeDeviceId);
                 });
             }
             return false;
@@ -1230,39 +1289,45 @@ function renderVariables(customVars = null) {
             ? allDevicesDataCache 
             : (window.opcManagementState?.allDevicesDataCache || {});
             
-        if (variable.raspberryId && devicesCache[variable.raspberryId]) {
-            const deviceCache = devicesCache[variable.raspberryId];
-            const deviceInfo = deviceCache.device;
-            deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
-            
-            // Find the actual variable name from datapoints
-            // Try to match by opcNodeId first (stable), then fall back to datapointId
-            if (deviceCache.datapoints) {
-                let datapoint = null;
-                
-                // Try opcNodeId first (stable across restarts)
-                if (variable.opcNodeId) {
-                    datapoint = deviceCache.datapoints.find(dp => 
-                        dp.opcNodeId === variable.opcNodeId
-                    );
-                }
-                
-                // Fall back to datapointId
-                if (!datapoint && variable.datapointId) {
-                    datapoint = deviceCache.datapoints.find(dp => 
-                        dp._id && dp._id.toString() === variable.datapointId.toString()
-                    );
-                }
-                
-                if (datapoint) {
-                    // Use the actual variable name (e.g., "example5"), not the OPC Node ID
-                    sourceVariableName = datapoint.name || datapoint.opcNodeId;
-                    quality = datapoint.quality || quality;
-                    dataTimestamp = datapoint.timestamp || dataTimestamp;
-                }
+        if (variable.raspberryId) {
+            let deviceCache = devicesCache[variable.raspberryId];
+            if (!deviceCache) {
+                const matchedKey = Object.keys(devicesCache).find(key => matchesDevice(key, variable.raspberryId));
+                if (matchedKey) deviceCache = devicesCache[matchedKey];
             }
-        } else if (variable.raspberryId) {
-            deviceDisplay = variable.raspberryId;
+            if (deviceCache) {
+                const deviceInfo = deviceCache.device;
+                deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
+                
+                // Find the actual variable name from datapoints
+                // Try to match by opcNodeId first (stable), then fall back to datapointId
+                if (deviceCache.datapoints) {
+                    let datapoint = null;
+                    
+                    // Try opcNodeId first (stable across restarts)
+                    if (variable.opcNodeId) {
+                        datapoint = deviceCache.datapoints.find(dp => 
+                            dp.opcNodeId === variable.opcNodeId
+                        );
+                    }
+                    
+                    // Fall back to datapointId
+                    if (!datapoint && variable.datapointId) {
+                        datapoint = deviceCache.datapoints.find(dp => 
+                            dp._id && dp._id.toString() === variable.datapointId.toString()
+                        );
+                    }
+                    
+                    if (datapoint) {
+                        // Use the actual variable name (e.g., "example5"), not the OPC Node ID
+                        sourceVariableName = datapoint.name || datapoint.opcNodeId;
+                        quality = datapoint.quality || quality;
+                        dataTimestamp = datapoint.timestamp || dataTimestamp;
+                    }
+                }
+            } else {
+                deviceDisplay = variable.raspberryId;
+            }
         }
         
         // Build full source path with device name
@@ -1371,13 +1436,22 @@ window.handleVariablesSort = function(field) {
 
 // Update variable values based on all devices data
 function updateVariableValues() {
+    const vars = (variablesCache && Array.isArray(variablesCache) && variablesCache.length > 0)
+        ? variablesCache
+        : (window.opcManagementState?.variablesCache || []);
+        
+    const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+        ? allDevicesDataCache 
+        : (window.opcManagementState?.allDevicesDataCache || {});
+
     // Pass 1: Compute single/array variable values first
-    variablesCache.forEach(variable => {
+    vars.forEach(variable => {
         if (variable.sourceType !== 'combined') {
-            const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
-                ? allDevicesDataCache 
-                : (window.opcManagementState?.allDevicesDataCache || {});
-            const deviceData = devicesCache[variable.raspberryId];
+            let deviceData = devicesCache[variable.raspberryId];
+            if (!deviceData && variable.raspberryId) {
+                const matchedKey = Object.keys(devicesCache).find(key => matchesDevice(key, variable.raspberryId));
+                if (matchedKey) deviceData = devicesCache[matchedKey];
+            }
             if (!deviceData || !deviceData.datapoints) {
                 return; // Skip if device data not loaded yet
             }
@@ -1396,7 +1470,7 @@ function updateVariableValues() {
             }
             
             if (datapoint) {
-                const rawValue = variable.arrayIndex !== null 
+                const rawValue = variable.arrayIndex !== null && variable.arrayIndex !== undefined
                     ? (Array.isArray(datapoint.value) ? datapoint.value[variable.arrayIndex] : null)
                     : datapoint.value;
                 
@@ -1414,13 +1488,13 @@ function updateVariableValues() {
     });
     
     // Pass 2: Compute combined variables using resolved source values and metadata
-    variablesCache.forEach(variable => {
+    vars.forEach(variable => {
         if (variable.sourceType === 'combined') {
             variable.currentValue = calculateCombinedValue(variable);
             
             if (Array.isArray(variable.sourceVariables) && variable.sourceVariables.length > 0) {
                 const sourceVars = variable.sourceVariables
-                    .map(name => variablesCache.find(v => v.variableName === name))
+                    .map(name => vars.find(v => v.variableName === name))
                     .filter(Boolean);
                 
                 const qualities = sourceVars.map(v => v.quality).filter(Boolean);

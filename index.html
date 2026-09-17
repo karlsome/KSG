@@ -170,7 +170,7 @@
     menuBtn.addEventListener("click", toggleSidebar);
 
     // Page loading functionality
-    function loadPage(page) {
+    function loadPage(page, initialSubtab = '') {
       const mainContent = document.getElementById('mainContent');
       closeDashboardSubmissionDetail(null, true);
       closeDashboardInsightModal(null, true);
@@ -200,14 +200,14 @@
 
               const existingScript = document.querySelector('script[src="/js/analytics.js"]');
               if (existingScript) {
-                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                if (typeof initializeAnalytics === 'function') initializeAnalytics(initialSubtab);
                 return;
               }
 
               const script = document.createElement('script');
               script.src = '/js/analytics.js';
               script.onload = () => {
-                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                if (typeof initializeAnalytics === 'function') initializeAnalytics(initialSubtab);
               };
               document.body.appendChild(script);
             })
@@ -242,13 +242,21 @@
               // Apply translations to the loaded content
               applyTranslations(mainContent);
               
+              const existingScript = document.querySelector('script[src="/js/masterDB.js"]');
+              if (existingScript) {
+                if (typeof loadMasterData === 'function') {
+                  loadMasterData(initialSubtab);
+                }
+                return;
+              }
+
               // Load the masterDB.js script
               const script = document.createElement('script');
               script.src = '/js/masterDB.js';
               script.onload = () => {
                 // Initialize the master DB page
                 if (typeof loadMasterData === 'function') {
-                  loadMasterData();
+                  loadMasterData(initialSubtab);
                 }
               };
               document.body.appendChild(script);
@@ -2687,19 +2695,97 @@
       indicator.style.transform = `translateY(${activeItem.offsetTop}px)`;
     }
 
-    // Listen for language changes - update sidebar/header + reload current page
-    let currentPage = 'dashboard';
+    // Single Page Application (SPA) Hash Routing with Sub-Tab Support
+    const VALID_ADMIN_PAGES = new Set([
+      'dashboard',
+      'analytics',
+      'user-management',
+      'master-db',
+      'opc-management',
+      'submitted-db'
+    ]);
+
+    function parseAdminHash() {
+      const rawHash = window.location.hash 
+        ? window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '').trim() 
+        : '';
+      const parts = rawHash.split('/');
+      const page = VALID_ADMIN_PAGES.has(parts[0]) ? parts[0] : 'dashboard';
+      const subtab = parts[1] || '';
+      return { page, subtab, rawHash };
+    }
+
+    function activateSubTab(page, subtab) {
+      if (page === 'analytics') {
+        if (typeof window.setAnalyticsTab === 'function') {
+          window.setAnalyticsTab(subtab || 'productivity', false);
+        }
+      } else if (page === 'master-db') {
+        if (typeof window.switchMainTab === 'function') {
+          window.switchMainTab(subtab || 'master', false);
+        }
+      }
+    }
+
+    let currentPage = null;
+    let activeAdminSubTab = '';
     const origLoadPage = loadPage;
-    loadPage = function(page) {
-      currentPage = page;
-      updateActiveNavItem(page);
-      origLoadPage(page);
+
+    window.updateSubTabHash = function(page, subtab) {
+      if (currentPage === page) {
+        activeAdminSubTab = subtab;
+        const targetHash = '#' + page + (subtab ? '/' + subtab : '');
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      }
     };
+
+    loadPage = function(pageInput, subtabInput = '', updateHash = true) {
+      let page = pageInput;
+      let subtab = subtabInput;
+      if (typeof page === 'string' && page.includes('/')) {
+        const parts = page.split('/');
+        page = parts[0];
+        if (!subtab) subtab = parts[1] || '';
+      }
+      const targetPage = VALID_ADMIN_PAGES.has(page) ? page : 'dashboard';
+      const isNewPage = (currentPage !== targetPage);
+      currentPage = targetPage;
+      activeAdminSubTab = subtab;
+
+      updateActiveNavItem(targetPage);
+      requestAnimationFrame(() => updateActiveNavItem(targetPage));
+
+      if (updateHash) {
+        const targetHash = '#' + targetPage + (subtab ? '/' + subtab : '');
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      }
+
+      if (isNewPage) {
+        origLoadPage(targetPage, subtab);
+      } else {
+        activateSubTab(targetPage, subtab);
+      }
+    };
+
+    // Listen for browser Back/Forward navigation
+    window.addEventListener('hashchange', () => {
+      const { page, subtab } = parseAdminHash();
+      if (page !== currentPage) {
+        loadPage(page, subtab, false);
+      } else if (subtab !== activeAdminSubTab) {
+        activeAdminSubTab = subtab;
+        activateSubTab(page, subtab);
+      }
+    });
 
     window.addEventListener('languageChanged', () => {
       applyPageTranslations();
       // Reload current page to refresh dynamic content
-      origLoadPage(currentPage);
+      origLoadPage(currentPage, activeAdminSubTab);
       requestAnimationFrame(() => updateActiveNavItem(currentPage));
     });
 
@@ -2714,7 +2800,7 @@
       loadAdminDashboard();
     }, DASHBOARD_AUTO_REFRESH_MS);
 
-    // Load dashboard by default
+    // Initialize application on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
       // Parse JWT token from URL and store in localStorage
       const urlParams = new URLSearchParams(window.location.search);
@@ -2732,7 +2818,13 @@
       initializeAdminDashboardSocket();
 
       applyPageTranslations();
-      loadPage('dashboard');
+      
+      // Load initial page and subtab from URL hash (persisting across refresh), fallback to dashboard
+      const { page: initialPage, subtab: initialSubtab } = parseAdminHash();
+      loadPage(initialPage, initialSubtab, false);
+      if (window.location.hash && window.location.hash !== '#' + initialPage + (initialSubtab ? '/' + initialSubtab : '')) {
+        window.location.hash = '#' + initialPage + (initialSubtab ? '/' + initialSubtab : '');
+      }
 
       // Initialize language selector
       const languageSelector = document.getElementById('languageSelector');

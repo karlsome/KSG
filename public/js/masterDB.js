@@ -364,7 +364,7 @@ window.addEventListener('languageChanged', () => {
 // ====================
 // Tab Switching Functions
 // ====================
-function switchMainTab(tabName) {
+function switchMainTab(tabName, updateHash = true) {
   // Hide all content
   document.getElementById('contentMaster').classList.add('hidden');
   document.getElementById('contentMasterNG').classList.add('hidden');
@@ -427,6 +427,10 @@ function switchMainTab(tabName) {
 
   // Load data for the tab
   loadTabData(tabName);
+
+  if (updateHash && typeof window.updateSubTabHash === 'function') {
+    window.updateSubTabHash('master-db', tabName);
+  }
 }
 
 function switchSubTab(tabName, subTab) {
@@ -573,7 +577,7 @@ function renderActivityHistory(tabName, logs) {
 // ====================
 // Master Tab Functions
 // ====================
-async function loadMasterData() {
+async function loadMasterData(targetTab = null) {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
   const role = currentUser.role || "admin";
@@ -602,6 +606,11 @@ async function loadMasterData() {
       allNGGroups = [];
     }
     renderMasterTable(allMasterData);
+
+    const hashSubtab = targetTab || (window.location.hash && window.location.hash.startsWith('#master-db/') ? window.location.hash.split('/')[1] : null);
+    if (hashSubtab && hashSubtab !== 'master') {
+      switchMainTab(hashSubtab, false);
+    }
   } catch (err) {
     console.error("Failed to load master data:", err);
     document.getElementById("masterTableContainer").innerHTML = `<p class="text-red-600">${t('common.failedToLoad')}: ${err.message}</p>`;
