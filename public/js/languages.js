@@ -2298,7 +2298,19 @@ const translations = {
         tablePiecesPerHour: "出来高/1人h",
         tableRemarks: "理由 / 備考",
         noDataForMonth: "対象月の生産性データがありません。",
-        noDataForWorker: "この作業者の稼働実績はありません。"
+        noDataForWorker: "この作業者の稼働実績はありません。",
+        recordDetailTitle: "生産実績詳細 (submittedDB)",
+        recordDetailSubtitle: "対象日の生産実績データ",
+        clickToViewSubmitted: "クリックして実績詳細(submittedDB)を表示",
+        openInSubmittedDB: "submittedDB で確認",
+        noRecordsFound: "該当する実績データが見つかりませんでした。",
+        recordIndexLabel: "実績",
+        defectsBreakdown: "不良内訳",
+        noDefectsRecorded: "不良なし (0件)",
+        timingAndHours: "作業時間・作業者",
+        productAndLine: "製品・看板情報",
+        registeredAt: "登録日時",
+        sourceTerminal: "登録元・設備"
       },
 
       overview: {
