@@ -423,16 +423,28 @@ table td input[type="checkbox"] {
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.05);
   }
 
+  /* Logo container */
+  #sidebarLogoContainer {
+    height: 4rem;
+    padding: 0.5rem 0.25rem;
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
+  }
+
+  #sidebar:hover #sidebarLogoContainer {
+    height: 6rem;
+    padding: 1rem;
+  }
+
   /* Logo scaling */
   #sidebarLogo {
-    height: 2rem;
+    height: 2rem; /* Retains the small compact size when hidden/collapsed */
     max-width: 100%;
     object-fit: contain;
-    transition: height 0.25s ease;
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   #sidebar:hover #sidebarLogo {
-    height: 2.75rem;
+    height: 4rem; /* 64px = h-16 (exact same size as before!) */
   }
 
   /* Nav Links in mini rail: centered icon when collapsed, left aligned with gap when hovered */
@@ -479,8 +491,13 @@ table td input[type="checkbox"] {
     pointer-events: auto !important;
   }
 
+  #sidebarLogoContainer {
+    height: 6rem;
+    padding: 1rem;
+  }
+
   #sidebarLogo {
-    height: 2.75rem;
+    height: 4rem; /* 64px = h-16 (exact same size as before) */
     max-width: 100%;
     object-fit: contain;
   }
