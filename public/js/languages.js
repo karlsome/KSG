@@ -734,7 +734,30 @@ const translations = {
 
       timelineSummary: {
         title: "Machine Daily Summary",
-        efficiency: "Efficiency"
+        efficiency: "Efficiency",
+        active: "ACTIVE",
+        idle: "IDLE",
+        totalShots: "Total Shots",
+        ofPeak: "{pct}% of peak",
+        optimal: "Optimal",
+        standard: "Standard",
+        low: "Low",
+        shots: "shots",
+        avgPerDay: "Avg / Day",
+        perDay: "/d",
+        avgPerHour: "Avg / Hour",
+        perHour: "/h",
+        hoursPerDay: "Hours / Day",
+        hourUnit: "h",
+        defectRate: "Defect Rate",
+        record: "record",
+        records: "records",
+        details: "Details",
+        machine: "machine",
+        machines: "machines",
+        activeLabel: "Active:",
+        totalLabel: "Total:",
+        toggleCollapse: "Toggle collapse"
       },
 
       filters: {
@@ -2169,7 +2192,30 @@ const translations = {
 
       timelineSummary: {
         title: "設備の日別サマリー",
-        efficiency: "稼働率"
+        efficiency: "稼働率",
+        active: "稼働中",
+        idle: "待機中",
+        totalShots: "総ショット数",
+        ofPeak: "ピーク比 {pct}%",
+        optimal: "良好",
+        standard: "標準",
+        low: "低調",
+        shots: "ショット",
+        avgPerDay: "日平均",
+        perDay: "/日",
+        avgPerHour: "時間平均",
+        perHour: "/時",
+        hoursPerDay: "日稼働時間",
+        hourUnit: "時間",
+        defectRate: "不良率",
+        record: "件",
+        records: "件",
+        details: "詳細",
+        machine: "台",
+        machines: "台",
+        activeLabel: "稼働:",
+        totalLabel: "合計:",
+        toggleCollapse: "折りたたみを切り替え"
       },
 
       filters: {

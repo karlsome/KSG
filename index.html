@@ -183,6 +183,9 @@
       
       switch(page) {
         case 'dashboard':
+          if (typeof dashboardResetMachineStatusLiveState === 'function') {
+            dashboardResetMachineStatusLiveState();
+          }
           mainContent.innerHTML = buildAdminDashboardShell();
           renderDashboardFactoryOptions();
           loadDashboardFactories();
@@ -852,6 +855,9 @@
     }
 
     function handleDashboardFactoryChange(selectedFactory) {
+      if (typeof dashboardResetMachineStatusLiveState === 'function') {
+        dashboardResetMachineStatusLiveState();
+      }
       setDashboardSelectedFactory(selectedFactory || 'all');
       loadAdminDashboard();
     }
@@ -1158,6 +1164,14 @@
           </div>` : ''}`;
     }
 
+    let dashboardPrevMachineStatusMap = new Map();
+    let dashboardMachineStatusInitialized = false;
+
+    function dashboardResetMachineStatusLiveState() {
+      dashboardPrevMachineStatusMap.clear();
+      dashboardMachineStatusInitialized = false;
+    }
+
     function renderDashboardMachineStatusTable(rows = [], snapshotAt = '') {
       const container = document.getElementById('dashboardMachineStatusTable');
       if (!container) return;
@@ -1166,9 +1180,76 @@
 
       const copy = getDashboardMachineStatusCopy();
       if (!Array.isArray(rows) || rows.length === 0) {
+        dashboardResetMachineStatusLiveState();
         container.innerHTML = `<div class="flex h-48 items-center justify-center text-sm text-gray-400">${copy.noData}</div>`;
         return;
       }
+
+      const nextStatusMap = new Map();
+
+      const rowsHtml = rows.map((row, index) => {
+        const rowKey = String(row.machineKey || row.machineName || row.tabletName || `row-${index}`);
+        const statusLabel = copy.status[row.status] || copy.status.idle;
+        const updatedLabel = row.updatedAt ? `${copy.updated}: ${formatDashboardRelativeTime(row.updatedAt)}` : '&nbsp;';
+        const productMeta = row.productId ? `<span class="text-xs font-medium text-gray-400">${escapeDashboardHtml(row.productId)}</span>` : '<span class="text-xs text-gray-300">&nbsp;</span>';
+        const efficiencyValue = row.efficiency === null || row.efficiency === undefined
+          ? '—'
+          : formatDashboardPercent(row.efficiency, 1);
+        const piecesPerHourValue = formatDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
+        const cycleTimeMeta = row.cycleTime
+          ? `<span class="mt-1 block text-xs text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
+          : '';
+
+        const currentElapsed = row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—';
+        const currentStopped = row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—';
+        const currentCount = row.currentCount === null || row.currentCount === undefined ? '—' : formatDashboardNumber(row.currentCount);
+        const currentTarget = row.targetQuantity === null || row.targetQuantity === undefined ? '—' : formatDashboardNumber(row.targetQuantity);
+
+        const prev = dashboardMachineStatusInitialized ? dashboardPrevMachineStatusMap.get(rowKey) : null;
+        const isCountChanged = prev ? prev.count !== currentCount : false;
+
+        nextStatusMap.set(rowKey, {
+          count: currentCount
+        });
+
+        return `
+          <tr class="align-top transition hover:bg-gray-50/70">
+            <td class="border-b border-gray-100 px-4 py-4">
+              <div class="flex items-start gap-3">
+                <div class="mt-1 h-2.5 w-2.5 rounded-full ${getDashboardMachineStatusDotTone(row.status)}"></div>
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
+                    <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${getDashboardMachineStatusTone(row.status)}">${statusLabel}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">${escapeDashboardHtml(row.factory || row.tabletName || '—')}</p>
+                  <p class="mt-1 text-xs text-gray-400">${updatedLabel}</p>
+                </div>
+              </div>
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-gray-700">
+              <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.productName || '—')}</p>
+              ${productMeta}
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium text-gray-700">${escapeDashboardHtml(row.kanbanId || '—')}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs text-gray-700">${formatDashboardOperators(row.operators || [])}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-600">${currentTarget}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${escapeDashboardHtml(row.startTime || '—')}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—'}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—'}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">
+              <span class="${isCountChanged ? 'live-value-changed' : ''}">${currentCount}</span>
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">
+              ${efficiencyValue}
+              ${cycleTimeMeta}
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">${piecesPerHourValue}</td>
+          </tr>`;
+      }).join('');
+
+      dashboardPrevMachineStatusMap = nextStatusMap;
+      dashboardMachineStatusInitialized = true;
 
       container.innerHTML = `
         <div class="overflow-x-auto px-4">
@@ -1189,51 +1270,7 @@
               </tr>
             </thead>
             <tbody>
-              ${rows.map(row => {
-                const statusLabel = copy.status[row.status] || copy.status.idle;
-                const updatedLabel = row.updatedAt ? `${copy.updated}: ${formatDashboardRelativeTime(row.updatedAt)}` : '&nbsp;';
-                const productMeta = row.productId ? `<span class="text-xs font-medium text-gray-400">${escapeDashboardHtml(row.productId)}</span>` : '<span class="text-xs text-gray-300">&nbsp;</span>';
-                const efficiencyValue = row.efficiency === null || row.efficiency === undefined
-                  ? '—'
-                  : formatDashboardPercent(row.efficiency, 1);
-                const piecesPerHourValue = formatDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
-                const cycleTimeMeta = row.cycleTime
-                  ? `<span class="mt-1 block text-xs text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
-                  : '';
-
-                return `
-                  <tr class="align-top transition hover:bg-gray-50/70">
-                    <td class="border-b border-gray-100 px-4 py-4">
-                      <div class="flex items-start gap-3">
-                        <div class="mt-1 h-2.5 w-2.5 rounded-full ${getDashboardMachineStatusDotTone(row.status)}"></div>
-                        <div>
-                          <div class="flex flex-wrap items-center gap-2">
-                            <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
-                            <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${getDashboardMachineStatusTone(row.status)}">${statusLabel}</span>
-                          </div>
-                          <p class="mt-1 text-xs text-gray-500">${escapeDashboardHtml(row.factory || row.tabletName || '—')}</p>
-                          <p class="mt-1 text-xs text-gray-400">${updatedLabel}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-gray-700">
-                      <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.productName || '—')}</p>
-                      ${productMeta}
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium text-gray-700">${escapeDashboardHtml(row.kanbanId || '—')}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs text-gray-700">${formatDashboardOperators(row.operators || [])}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-600">${row.targetQuantity === null || row.targetQuantity === undefined ? '—' : formatDashboardNumber(row.targetQuantity)}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${escapeDashboardHtml(row.startTime || '—')}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—'}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—'}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">${row.currentCount === null || row.currentCount === undefined ? '—' : formatDashboardNumber(row.currentCount)}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">
-                      ${efficiencyValue}
-                      ${cycleTimeMeta}
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">${piecesPerHourValue}</td>
-                  </tr>`;
-              }).join('')}
+              ${rowsHtml}
             </tbody>
           </table>
         </div>`;
@@ -1679,6 +1716,14 @@
           ? Math.min(100, Math.round((totalShots / maxFactoryShots) * 100))
           : Math.min(100, Math.round(efficiency));
 
+        const ratingText = efficiency >= 75
+          ? (t('analytics.timelineSummary.optimal') || 'Optimal')
+          : (efficiency >= 40
+            ? (t('analytics.timelineSummary.standard') || 'Standard')
+            : (t('analytics.timelineSummary.low') || 'Low'));
+
+        const peakText = (t('analytics.timelineSummary.ofPeak') || '{pct}% of peak').replace('{pct}', pctOfPeak);
+
         return `
           <div class="group flex flex-col justify-between rounded-xl border border-gray-200/90 bg-white p-4 sm:p-5 shadow-xs transition-all duration-200 hover:border-indigo-300 hover:shadow-md">
             <div>
@@ -1704,12 +1749,12 @@
                 ${isActive ? `
                   <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ring-emerald-600/20 bg-emerald-50 text-emerald-700 shrink-0">
                     <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    ACTIVE
+                    ${escapeDashboardHtml(t('analytics.timelineSummary.active') || 'ACTIVE')}
                   </span>
                 ` : `
                   <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ring-gray-200 bg-gray-50 text-gray-500 shrink-0">
                     <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
-                    IDLE
+                    ${escapeDashboardHtml(t('analytics.timelineSummary.idle') || 'IDLE')}
                   </span>
                 `}
               </div>
@@ -1718,13 +1763,13 @@
               <div class="mt-4 rounded-xl bg-gray-50/80 p-3 border border-gray-100">
                 <div class="flex items-baseline justify-between text-xs">
                   <span class="font-medium text-gray-500">
-                    ${totalShots > 0 ? 'Total Shots' : (escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency'))}
+                    ${totalShots > 0 ? escapeDashboardHtml(t('analytics.timelineSummary.totalShots') || 'Total Shots') : escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}
                   </span>
                   ${totalShots > 0 ? `
-                    <span class="text-xs font-medium text-gray-400">${pctOfPeak}% of peak</span>
+                    <span class="text-xs font-medium text-gray-400">${escapeDashboardHtml(peakText)}</span>
                   ` : `
                     <span class="text-xs font-semibold ${efficiency >= 75 ? 'text-emerald-600' : (efficiency >= 40 ? 'text-blue-600' : 'text-amber-600')}">
-                      ${efficiency >= 75 ? 'Optimal' : (efficiency >= 40 ? 'Standard' : 'Low')}
+                      ${escapeDashboardHtml(ratingText)}
                     </span>
                   `}
                 </div>
@@ -1733,7 +1778,7 @@
                     ${totalShots > 0 ? totalShots.toLocaleString() : efficiency.toFixed(1)}
                   </span>
                   <span class="text-xs font-medium text-gray-500">
-                    ${totalShots > 0 ? 'shots' : '%'}
+                    ${totalShots > 0 ? escapeDashboardHtml(t('analytics.timelineSummary.shots') || 'shots') : '%'}
                   </span>
                 </div>
                 <!-- Progress Bar -->
@@ -1746,19 +1791,19 @@
               <div class="mt-3 grid grid-cols-2 gap-2">
                 ${totalShots > 0 ? `
                   <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
-                    <span class="text-xs font-medium text-gray-500 block">Avg / Day</span>
-                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${totalShots.toLocaleString()} <span class="text-xs font-normal text-gray-400">/d</span></span>
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.avgPerDay') || 'Avg / Day')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${totalShots.toLocaleString()} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.perDay') || '/d')}</span></span>
                   </div>
                   <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
-                    <span class="text-xs font-medium text-gray-500 block">Avg / Hour</span>
-                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${avgPerHour} <span class="text-xs font-normal text-gray-400">/h</span></span>
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.avgPerHour') || 'Avg / Hour')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${avgPerHour} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.perHour') || '/h')}</span></span>
                   </div>
                   <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
-                    <span class="text-xs font-medium text-gray-500 block">Hours / Day</span>
-                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${workingHours} <span class="text-xs font-normal text-gray-400">h</span></span>
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.hoursPerDay') || 'Hours / Day')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${workingHours} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.hourUnit') || 'h')}</span></span>
                   </div>
                   <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
-                    <span class="text-xs font-medium text-gray-500 block">Defect Rate</span>
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.defectRate') || 'Defect Rate')}</span>
                     <span class="text-sm font-semibold ${totalDefects > 0 ? 'text-rose-600' : 'text-gray-900'} mt-0.5 block">${defectRate}</span>
                   </div>
                 ` : `
@@ -1784,9 +1829,9 @@
 
             <!-- Footer matching dashboard typography -->
             <div class="flex items-center justify-between pt-3 mt-4 border-t border-gray-100 text-xs text-gray-500">
-              <span class="font-medium">${records.length} ${records.length === 1 ? 'record' : 'records'} (${prodFmt})</span>
+              <span class="font-medium">${records.length} ${escapeDashboardHtml(records.length === 1 ? (t('analytics.timelineSummary.record') || 'record') : (t('analytics.timelineSummary.records') || 'records'))} (${prodFmt})</span>
               <span class="text-indigo-600 font-medium hover:text-indigo-700 inline-flex items-center gap-1 transition cursor-pointer">
-                Details <i class="ri-arrow-right-line"></i>
+                ${escapeDashboardHtml(t('analytics.timelineSummary.details') || 'Details')} <i class="ri-arrow-right-line"></i>
               </span>
             </div>
           </div>
@@ -1838,7 +1883,7 @@
             <!-- Factory Card Header matching dashboard typography -->
             <div class="flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none" onclick="toggleFactoryCardCollapse('${factoryKey}')">
               <div class="flex items-center gap-2.5">
-                <button type="button" onclick="event.stopPropagation(); toggleFactoryCardCollapse('${factoryKey}')" class="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs" title="Toggle collapse">
+                <button type="button" onclick="event.stopPropagation(); toggleFactoryCardCollapse('${factoryKey}')" class="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs" title="${escapeDashboardHtml(t('analytics.timelineSummary.toggleCollapse') || 'Toggle collapse')}">
                   <i id="factory-chevron-${factoryKey}" class="ri-arrow-down-s-line text-lg transition-transform duration-200"></i>
                 </button>
                 <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 border border-emerald-200/90 text-emerald-600 shadow-2xs">
@@ -1847,7 +1892,7 @@
                 <div class="flex items-center gap-2">
                   <h4 class="text-base font-semibold text-gray-900">${escapeDashboardHtml(factoryName)}</h4>
                   <span class="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                    ${groupMachines.length} ${groupMachines.length === 1 ? 'machine' : 'machines'}
+                    ${groupMachines.length} ${escapeDashboardHtml(groupMachines.length === 1 ? (t('analytics.timelineSummary.machine') || 'machine') : (t('analytics.timelineSummary.machines') || 'machines'))}
                   </span>
                 </div>
               </div>
@@ -1855,14 +1900,14 @@
               <!-- Factory Aggregate Stats on the right -->
               <div class="flex items-center gap-2 sm:gap-3 text-xs">
                 <div class="flex items-center gap-1.5 rounded-lg bg-gray-50 px-2.5 py-1 border border-gray-200/60">
-                  <span class="text-gray-500 font-medium">Active:</span>
+                  <span class="text-gray-500 font-medium">${escapeDashboardHtml(t('analytics.timelineSummary.activeLabel') || 'Active:')}</span>
                   <span class="font-semibold text-emerald-600">${factoryActiveCount} / ${groupMachines.length}</span>
                 </div>
                 ${factoryTotalShots > 0 ? `
                   <div class="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 border border-emerald-200/80">
-                    <span class="text-emerald-700 font-medium">Total:</span>
+                    <span class="text-emerald-700 font-medium">${escapeDashboardHtml(t('analytics.timelineSummary.totalLabel') || 'Total:')}</span>
                     <span class="font-semibold text-emerald-800">${factoryTotalShots.toLocaleString()}</span>
-                    <span class="text-xs text-emerald-600">shots</span>
+                    <span class="text-xs text-emerald-600">${escapeDashboardHtml(t('analytics.timelineSummary.shots') || 'shots')}</span>
                   </div>
                 ` : ''}
               </div>
@@ -1884,7 +1929,7 @@
               <span>${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</span>
             </h3>
             <span class="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-              ${machines.length} ${dashboardText('machines') || 'Machines'}
+              ${machines.length} ${escapeDashboardHtml(machines.length === 1 ? (t('analytics.timelineSummary.machine') || 'Machine') : (t('analytics.timelineSummary.machines') || 'Machines'))}
             </span>
           </div>
           <div class="space-y-6">
