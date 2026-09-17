@@ -581,9 +581,9 @@ function renderEditUserFactoryTags(userId) {
   
   tagsDiv.innerHTML = selectedUserFactories.length > 0 ? 
     selectedUserFactories.map(f => `
-      <span class="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+      <span class="inline-flex items-center px-2 py-0.5 whitespace-nowrap bg-blue-100 text-blue-800 rounded text-xs">
         ${f}
-        <button type="button" onclick="removeEditUserFactoryTag('${f}', '${userId}')" class="ml-1 text-blue-600 hover:text-blue-800 font-bold">
+        <button type="button" onclick="removeEditUserFactoryTag('${f}', '${userId}')" class="ml-1 text-blue-600 hover:text-blue-800 font-bold cursor-pointer">
           ×
         </button>
       </span>
@@ -601,9 +601,9 @@ function renderEditUserEquipmentTags(userId) {
   
   tagsDiv.innerHTML = selectedUserEquipment.length > 0 ? 
     selectedUserEquipment.map(e => `
-      <span class="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+      <span class="inline-flex items-center px-2 py-0.5 whitespace-nowrap bg-green-100 text-green-800 rounded text-xs">
         ${e}
-        <button type="button" onclick="removeEditUserEquipmentTag('${e}', '${userId}')" class="ml-1 text-green-600 hover:text-green-800 font-bold">
+        <button type="button" onclick="removeEditUserEquipmentTag('${e}', '${userId}')" class="ml-1 text-green-600 hover:text-green-800 font-bold cursor-pointer">
           ×
         </button>
       </span>
@@ -797,8 +797,9 @@ function renderUserTable(users, paginationState = userQueryState) {
           <tr>
             ${headers.map(h => {
               const sortIcon = getSortIndicator(h);
+              const isTagCol = h === 'factory' || h === 'equipment';
               return `
-                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="sortUsersBy('${h}')">
+                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap ${isTagCol ? 'min-w-[180px]' : ''}" onclick="sortUsersBy('${h}')">
                   <div class="flex items-center gap-1">
                     <span>${headerTranslations[h]}</span>
                     <i class="${sortIcon}"></i>
@@ -817,7 +818,7 @@ function renderUserTable(users, paginationState = userQueryState) {
           ` : users.map(u => `
             <tr class="hover:bg-gray-50/70 transition" id="userRow-${u._id}">
               ${headers.map(h => `
-                <td class="px-3 py-2 text-xs">
+                <td class="px-3 py-2 text-xs ${h === 'factory' || h === 'equipment' ? 'whitespace-nowrap min-w-[180px]' : ''}">
                   ${
                     h === "role"
                       ? `<select class="border border-gray-200 p-1 rounded-lg text-xs bg-white focus:border-indigo-500 focus:outline-none" disabled data-role user-id="${u._id}">
@@ -845,7 +846,7 @@ function renderUserTable(users, paginationState = userQueryState) {
                           <option value="disabled" ${u[h] === "disabled" ? "selected" : ""}>${t('userManagement.disabled')}</option>
                         </select>`
                       : h === "factory"
-                      ? `<div class="flex gap-1 flex-wrap">
+                      ? `<div class="flex items-center gap-1.5 flex-nowrap whitespace-nowrap">
                           ${(() => {
                             let factoryList = [];
                             if (u[h]) {
@@ -856,12 +857,12 @@ function renderUserTable(users, paginationState = userQueryState) {
                               }
                             }
                             return factoryList.length > 0 
-                              ? factoryList.map(f => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">${f}</span>`).join('')
+                              ? factoryList.map(f => `<span class="inline-flex items-center px-2 py-0.5 whitespace-nowrap bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">${f}</span>`).join('')
                               : '<span class="text-gray-400">-</span>';
                           })()}
                         </div>`
                       : h === "equipment"
-                      ? `<div class="flex gap-1 flex-wrap">
+                      ? `<div class="flex items-center gap-1.5 flex-nowrap whitespace-nowrap">
                           ${(() => {
                             let equipmentList = [];
                             if (u[h]) {
@@ -872,7 +873,7 @@ function renderUserTable(users, paginationState = userQueryState) {
                               }
                             }
                             return equipmentList.length > 0
-                              ? equipmentList.map(e => `<span class="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-medium">${e}</span>`).join('')
+                              ? equipmentList.map(e => `<span class="inline-flex items-center px-2 py-0.5 whitespace-nowrap bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-medium">${e}</span>`).join('')
                               : '<span class="text-gray-400">-</span>';
                           })()}
                         </div>`
