@@ -311,7 +311,10 @@ let allRoles = [];
 let allDepartments = [];
 let allSections = [];
 let allTablets = [];
+let allDivisions = [];
 let allNGGroups = [];
+let allTroubleGroups = [];
+let _editingTroubleGroup = null;
 let allGoogleSheetTargets = [];
 let selectedItems = [];
 let currentModalData = null;
@@ -364,10 +367,12 @@ function switchMainTab(tabName) {
   document.getElementById('contentTablet').classList.add('hidden');
   document.getElementById('contentGoogleSheets').classList.add('hidden');
   document.getElementById('contentOpcua').classList.add('hidden');
+  const contentTrouble = document.getElementById('contentTrouble');
+  if (contentTrouble) contentTrouble.classList.add('hidden');
 
   // Remove active class from all tabs
   const tabIds = [
-    'tabMaster', 'tabMasterNG', 'tabFactory', 'tabEquipment',
+    'tabMaster', 'tabMasterNG', 'tabTrouble', 'tabFactory', 'tabEquipment',
     'tabRoles', 'tabDepartment', 'tabSection', 'tabRpiServer',
     'tabTablet', 'tabGoogleSheets', 'tabOpcua'
   ];
@@ -382,7 +387,8 @@ function switchMainTab(tabName) {
   // Show selected content and activate tab
   currentTab = tabName;
   currentSubTab = 'data'; // Reset to data tab
-  document.getElementById(`content${capitalizeFirst(tabName)}`).classList.remove('hidden');
+  const targetContent = document.getElementById(`content${capitalizeFirst(tabName)}`);
+  if (targetContent) targetContent.classList.remove('hidden');
   
   const activeTabEl = document.getElementById(`tab${capitalizeFirst(tabName)}`);
   if (activeTabEl) {
@@ -391,14 +397,14 @@ function switchMainTab(tabName) {
   }
 
   // Reset sub-tab buttons (if they exist)
-  if (tabName !== 'rpiServer' && tabName !== 'masterNG' && tabName !== 'googleSheets') {
+  if (tabName !== 'rpiServer' && tabName !== 'masterNG' && tabName !== 'trouble' && tabName !== 'googleSheets') {
     switchSubTab(tabName, 'data');
   }
 
   // Disable/enable 新規登録 button based on tab
   const quickCreateBtn = document.querySelector('button[onclick="showQuickCreateModal()"]');
   if (quickCreateBtn) {
-    if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'googleSheets' || tabName === 'opcua') {
+    if (tabName === 'rpiServer' || tabName === 'masterNG' || tabName === 'trouble' || tabName === 'googleSheets' || tabName === 'opcua') {
       quickCreateBtn.disabled = true;
       quickCreateBtn.classList.add('opacity-50', 'cursor-not-allowed');
       quickCreateBtn.classList.remove('hover:bg-emerald-700', 'hover:bg-green-700');
@@ -472,6 +478,9 @@ function loadTabData(tabName) {
       break;
     case 'masterNG':
       loadNGGroups();
+      break;
+    case 'trouble':
+      loadTroubleGroups();
       break;
     case 'googleSheets':
       loadGoogleSheetTargets();
@@ -2102,6 +2111,29 @@ async function submitNewFactory() {
 // ====================
 // Division Tab Functions
 // ====================
+async function loadFactoriesForDivisionDropdown() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+
+  try {
+    const res = await fetch(BASE_URL + "getFactories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+
+    allFactories = await res.json();
+    
+    const select = document.getElementById("factorySelectForDivision");
+    if (select) {
+      select.innerHTML = '<option value="">-- Select Factory --</option>' +
+        (Array.isArray(allFactories) ? allFactories.map(f => `<option value="${f._id}">${escapeHtml(f.name)}</option>`).join("") : '');
+    }
+  } catch (err) {
+    console.error("Failed to load factories for division dropdown:", err);
+  }
+}
+
 async function loadDivisions() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -3461,9 +3493,6 @@ if (typeof window !== 'undefined') {
   window.loadFactories = loadFactories;
   window.showCreateFactoryForm = showCreateFactoryForm;
   window.submitNewFactory = submitNewFactory;
-  window.startEditingFactory = startEditingFactory;
-  window.saveFactory = saveFactory;
-  window.deleteFactory = deleteFactory;
   window.loadFactoriesForDivisionDropdown = loadFactoriesForDivisionDropdown;
   window.loadDivisions = loadDivisions;
   window.showCreateDivisionForm = showCreateDivisionForm;
@@ -3493,6 +3522,23 @@ if (typeof window !== 'undefined') {
   window.analyzeGoogleSheetModal = analyzeGoogleSheetModal;
   window.saveGoogleSheetTarget = saveGoogleSheetTarget;
   window.deleteGoogleSheetTarget = deleteGoogleSheetTarget;
+
+  // Trouble Group Functions
+  window.loadTroubleGroups = loadTroubleGroups;
+  window.showTroubleGroupModal = showTroubleGroupModal;
+  window.closeTroubleGroupModal = closeTroubleGroupModal;
+  window.addTroubleItemRow = addTroubleItemRow;
+  window.removeTroubleItem = removeTroubleItem;
+  window.moveTroubleItem = moveTroubleItem;
+  window.renumberTroubleItems = renumberTroubleItems;
+  window.toggleSelectAllTroubleGroups = toggleSelectAllTroubleGroups;
+  window.updateTroubleGroupSelectCount = updateTroubleGroupSelectCount;
+  window.confirmDeleteTroubleGroups = confirmDeleteTroubleGroups;
+  window.saveTroubleGroup = saveTroubleGroup;
+  window.filterTroubleTablets = filterTroubleTablets;
+  window.toggleAllTroubleTablets = toggleAllTroubleTablets;
+  window.selectAllTroubleTablets = selectAllTroubleTablets;
+  window.updateTroubleTabletSelectedCount = updateTroubleTabletSelectedCount;
 
   // Load master data by default
   loadMasterData();
@@ -5422,4 +5468,418 @@ async function saveNGGroup() {
     alert('保存エラー: ' + e.message);
   }
 }
+
+// ====================
+// Trouble Tab Functions
+// ====================
+async function loadTroubleGroups() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const container = document.getElementById('troubleTableContainer');
+  if (!container) return;
+  container.innerHTML = '<p class="text-gray-500">読み込み中...</p>';
+  try {
+    const res = await fetch(BASE_URL + "getTroubleGroups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dbName })
+    });
+    allTroubleGroups = await res.json();
+    renderTroubleGroupsTable(allTroubleGroups);
+  } catch (e) {
+    console.error("Failed to load troubleGroups:", e);
+    container.innerHTML = '<p class="text-red-500">読み込みエラー</p>';
+  }
+}
+
+function renderTroubleGroupsTable(groups) {
+  const container = document.getElementById('troubleTableContainer');
+  if (!container) return;
+
+  const tableHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <div class="flex gap-3">
+        <button onclick="showTroubleGroupModal()" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
+          <i class="ri-add-line"></i>新規トラブルグループ作成
+        </button>
+        <button id="deleteTroubleGroupsBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="confirmDeleteTroubleGroups()">
+          <i class="ri-delete-bin-line"></i>削除 (<span id="troubleGroupSelectedCount">0</span>)
+        </button>
+      </div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">合計: <span class="text-xs font-semibold text-gray-900 tabular-nums">${groups.length}</span> グループ</div>
+    </div>
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
+          <tr>
+            <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllTroubleGroups" onchange="toggleSelectAllTroubleGroups()" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">グループ名</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">トラブル項目数</th>
+            <th class="px-3 py-2 select-none">トラブル一覧プレビュー</th>
+            <th class="px-3 py-2 select-none">割り当てタブレット</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">作成者</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">作成日時</th>
+            <th class="px-3 py-2 text-right select-none whitespace-nowrap">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
+          ${groups.length === 0 ? `
+            <tr><td colspan="8" class="px-3 py-8 text-center text-xs font-medium text-gray-400">トラブルグループがありません。「新規トラブルグループ作成」から作成してください。</td></tr>
+          ` : groups.map(g => {
+            const items = g.items || [];
+            const tablets = g.assignedTablets || [];
+            return `
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-3 py-2 text-center"><input type="checkbox" class="troubleGroupCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${g._id}" onchange="updateTroubleGroupSelectCount()"></td>
+              <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(g.groupName || '')}</td>
+              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${items.length} 項目</td>
+              <td class="px-3 py-2">
+                <div class="flex flex-wrap gap-1 items-center max-w-md">
+                  ${items.slice(0, 5).map((item, idx) => `
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-2xs border border-amber-200">
+                      ${idx + 1}. ${escapeHtml(typeof item === 'string' ? item : item.name || '')}
+                    </span>
+                  `).join('')}
+                  ${items.length > 5 ? `<span class="text-2xs text-gray-400 font-medium">+${items.length - 5}</span>` : ''}
+                </div>
+              </td>
+              <td class="px-3 py-2">
+                <div class="flex flex-wrap gap-1 items-center max-w-xs">
+                  ${tablets.length === 0 ? `<span class="text-2xs text-gray-400 italic">未割り当て</span>` : tablets.map(tab => `
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-2xs border border-blue-200">
+                      <i class="ri-tablet-line text-3xs"></i>${escapeHtml(tab)}
+                    </span>
+                  `).join('')}
+                </div>
+              </td>
+              <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(g.createdBy || '-')}</td>
+              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <button onclick="showTroubleGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
+                  <i class="ri-edit-line"></i>編集
+                </button>
+              </td>
+            </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  container.innerHTML = tableHTML;
+}
+
+function toggleSelectAllTroubleGroups() {
+  const selectAll = document.getElementById('selectAllTroubleGroups');
+  document.querySelectorAll('.troubleGroupCheckbox').forEach(cb => cb.checked = selectAll.checked);
+  updateTroubleGroupSelectCount();
+}
+
+function updateTroubleGroupSelectCount() {
+  const checked = document.querySelectorAll('.troubleGroupCheckbox:checked').length;
+  const countEl = document.getElementById('troubleGroupSelectedCount');
+  const btn = document.getElementById('deleteTroubleGroupsBtn');
+  if (countEl) countEl.textContent = checked;
+  if (btn) {
+    if (checked > 0) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  }
+}
+
+async function confirmDeleteTroubleGroups() {
+  const checked = document.querySelectorAll('.troubleGroupCheckbox:checked');
+  const ids = Array.from(checked).map(cb => cb.value);
+  if (ids.length === 0) return;
+  if (!confirm(`選択した ${ids.length} 件のトラブルグループを削除しますか？`)) return;
+
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  try {
+    const res = await fetch(BASE_URL + "deleteTroubleGroups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupIds: ids, dbName, username })
+    });
+    const result = await res.json();
+    alert(`${result.deletedCount} 件削除しました`);
+    loadTroubleGroups();
+  } catch (e) {
+    alert("削除エラー: " + e.message);
+  }
+}
+
+async function showTroubleGroupModal(group = null) {
+  _editingTroubleGroup = group;
+  const modal = document.getElementById('troubleGroupModal');
+  const title = document.getElementById('troubleGroupModalTitle');
+  const nameInput = document.getElementById('troubleGroupName');
+  const itemsList = document.getElementById('troubleItemsList');
+  const emptyMsg = document.getElementById('troubleItemsEmpty');
+
+  title.textContent = group ? `トラブルグループ編集: ${group.groupName}` : 'トラブルグループ新規作成';
+  nameInput.value = group ? group.groupName : '';
+  itemsList.innerHTML = '';
+
+  const searchInput = document.getElementById('troubleTabletSearch');
+  if (searchInput) {
+    searchInput.value = '';
+    filterTroubleTablets('');
+  }
+
+  if (group && group.items && group.items.length > 0) {
+    group.items.forEach(item => addTroubleItemRow(typeof item === 'string' ? { name: item } : item));
+    emptyMsg.classList.add('hidden');
+  } else {
+    emptyMsg.classList.remove('hidden');
+  }
+
+  // Load tablets for tagging if not already loaded
+  if (!allTablets || allTablets.length === 0) {
+    const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+    const dbName = currentUser.dbName || "KSG";
+    try {
+      const res = await fetch(BASE_URL + "getTablets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName })
+      });
+      allTablets = await res.json();
+    } catch (e) {
+      console.warn("Could not load tablets:", e);
+    }
+  }
+
+  renderTroubleTabletsCheckboxes(group ? (group.assignedTablets || []) : []);
+  modal.classList.remove('hidden');
+}
+
+function closeTroubleGroupModal() {
+  document.getElementById('troubleGroupModal').classList.add('hidden');
+  _editingTroubleGroup = null;
+}
+
+function addTroubleItemRow(item = null) {
+  const list = document.getElementById('troubleItemsList');
+  const emptyMsg = document.getElementById('troubleItemsEmpty');
+  if (emptyMsg) emptyMsg.classList.add('hidden');
+
+  const name = item ? (item.name || item) : '';
+
+  const row = document.createElement('div');
+  row.className = 'flex items-center gap-2 trouble-item-row p-1.5 bg-gray-50/80 border border-gray-200 rounded-xl transition';
+  row.innerHTML = `
+    <span class="trouble-order-badge flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-800 text-xs font-bold flex items-center justify-center select-none tabular-nums">1</span>
+    <input type="text" placeholder="トラブル名（例: machine problem, 機械故障, 不良多発）" value="${escapeHtml(name)}"
+           class="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl trouble-item-name text-xs bg-white focus:border-indigo-500 focus:outline-none placeholder:text-gray-400 shadow-2xs" />
+    <button type="button" onclick="moveTroubleItem(this, -1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="上へ移動">
+      <i class="ri-arrow-up-s-line text-sm"></i>
+    </button>
+    <button type="button" onclick="moveTroubleItem(this, 1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="下へ移動">
+      <i class="ri-arrow-down-s-line text-sm"></i>
+    </button>
+    <button type="button" onclick="removeTroubleItem(this)" class="w-7 h-7 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition flex-shrink-0 cursor-pointer" title="削除">
+      <i class="ri-delete-bin-line text-sm"></i>
+    </button>
+  `;
+
+  list.appendChild(row);
+  renumberTroubleItems();
+
+  if (!item) {
+    const input = row.querySelector('.trouble-item-name');
+    if (input) {
+      input.focus();
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+}
+
+function removeTroubleItem(btn) {
+  const row = btn.closest('.trouble-item-row');
+  if (row) row.remove();
+  const list = document.getElementById('troubleItemsList');
+  if (list && list.children.length === 0) {
+    document.getElementById('troubleItemsEmpty')?.classList.remove('hidden');
+  }
+  renumberTroubleItems();
+}
+
+function moveTroubleItem(btn, direction) {
+  const row = btn.closest('.trouble-item-row');
+  if (!row) return;
+  const list = document.getElementById('troubleItemsList');
+  if (direction === -1 && row.previousElementSibling) {
+    list.insertBefore(row, row.previousElementSibling);
+  } else if (direction === 1 && row.nextElementSibling) {
+    list.insertBefore(row.nextElementSibling, row);
+  }
+  renumberTroubleItems();
+}
+
+function renumberTroubleItems() {
+  const rows = document.querySelectorAll('#troubleItemsList .trouble-item-row');
+  rows.forEach((row, i) => {
+    const badge = row.querySelector('.trouble-order-badge');
+    if (badge) badge.textContent = (i + 1);
+  });
+}
+
+function renderTroubleTabletsCheckboxes(assigned = []) {
+  const container = document.getElementById('troubleTabletsContainer');
+  if (!container) return;
+
+  const assignedSet = new Set(assigned);
+
+  if (!allTablets || allTablets.length === 0) {
+    container.innerHTML = '<p class="col-span-2 text-gray-400 text-xs text-center py-2">タブレットが見つかりません</p>';
+    return;
+  }
+
+  container.innerHTML = allTablets.map(tab => {
+    const name = tab.tabletName || tab._id;
+    const isChecked = assignedSet.has(name);
+    return `
+      <label class="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-gray-200/80 hover:border-indigo-300 hover:bg-indigo-50/20 transition cursor-pointer trouble-tablet-item shadow-2xs" data-name="${escapeHtml(name).toLowerCase()}">
+        <input type="checkbox" class="trouble-tablet-cb w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer flex-shrink-0" value="${escapeHtml(name)}" ${isChecked ? 'checked' : ''} onchange="updateTroubleTabletSelectedCount()">
+        <div class="truncate flex-1 min-w-0">
+          <div class="text-xs font-medium text-gray-900 truncate">${escapeHtml(name)}</div>
+          <div class="text-2xs text-gray-500 truncate">${escapeHtml(tab.factoryLocation || '')} ${escapeHtml(tab.設備名 || '')}</div>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  updateTroubleTabletSelectedCount();
+}
+
+function updateTroubleTabletSelectedCount() {
+  const container = document.getElementById('troubleTabletsContainer');
+  const countEl = document.getElementById('troubleTabletSelectedCount');
+  const selectAllBtn = document.getElementById('troubleTabletSelectAllBtn');
+  const unselectAllBtn = document.getElementById('troubleTabletUnselectAllBtn');
+
+  const totalChecked = document.querySelectorAll('.trouble-tablet-cb:checked').length;
+  if (countEl) countEl.textContent = totalChecked;
+
+  if (container) {
+    const visibleCbs = container.querySelectorAll('.trouble-tablet-item:not(.hidden) .trouble-tablet-cb');
+    const totalVisible = visibleCbs.length;
+    const checkedVisible = Array.from(visibleCbs).filter(cb => cb.checked).length;
+
+    // "全解除" (Unselect All) appears if at least one visible tablet is checked
+    if (unselectAllBtn) {
+      if (checkedVisible > 0) {
+        unselectAllBtn.classList.remove('hidden');
+      } else {
+        unselectAllBtn.classList.add('hidden');
+      }
+    }
+
+    // "全選択" (Select All) is hidden if all visible tablets are checked; shown otherwise
+    if (selectAllBtn) {
+      if (totalVisible > 0 && checkedVisible === totalVisible) {
+        selectAllBtn.classList.add('hidden');
+      } else {
+        selectAllBtn.classList.remove('hidden');
+      }
+    }
+  }
+}
+
+function toggleAllTroubleTablets() {
+  const container = document.getElementById('troubleTabletsContainer');
+  if (!container) return;
+
+  const visibleCbs = container.querySelectorAll('.trouble-tablet-item:not(.hidden) .trouble-tablet-cb');
+  if (visibleCbs.length === 0) return;
+
+  const allVisibleSelected = Array.from(visibleCbs).every(cb => cb.checked);
+  const targetState = !allVisibleSelected;
+
+  visibleCbs.forEach(cb => {
+    cb.checked = targetState;
+  });
+
+  updateTroubleTabletSelectedCount();
+}
+
+function selectAllTroubleTablets(select = true) {
+  const container = document.getElementById('troubleTabletsContainer');
+  if (!container) return;
+  const visibleItems = container.querySelectorAll('.trouble-tablet-item:not(.hidden) .trouble-tablet-cb');
+  visibleItems.forEach(cb => {
+    cb.checked = Boolean(select);
+  });
+  updateTroubleTabletSelectedCount();
+}
+
+function filterTroubleTablets(query) {
+  const q = String(query || '').toLowerCase().trim();
+  document.querySelectorAll('#troubleTabletsContainer .trouble-tablet-item').forEach(item => {
+    const name = item.getAttribute('data-name') || '';
+    if (!q || name.includes(q)) {
+      item.classList.remove('hidden');
+    } else {
+      item.classList.add('hidden');
+    }
+  });
+  updateTroubleTabletSelectedCount();
+}
+
+async function saveTroubleGroup() {
+  const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const dbName = currentUser.dbName || "KSG";
+  const username = currentUser.username || "admin";
+
+  const groupName = document.getElementById('troubleGroupName').value.trim();
+  if (!groupName) { alert('グループ名を入力してください'); return; }
+
+  const items = [];
+  document.querySelectorAll('#troubleItemsList .trouble-item-row').forEach(row => {
+    const name = row.querySelector('.trouble-item-name')?.value.trim();
+    if (name) items.push({ name });
+  });
+
+  if (items.length === 0) {
+    alert('少なくとも1つのトラブル項目を追加してください');
+    return;
+  }
+
+  const assignedTablets = [];
+  document.querySelectorAll('.trouble-tablet-cb:checked').forEach(cb => {
+    if (cb.value) assignedTablets.push(cb.value);
+  });
+
+  try {
+    if (_editingTroubleGroup && _editingTroubleGroup._id) {
+      const res = await fetch(BASE_URL + "updateTroubleGroup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: _editingTroubleGroup._id, dbName, username, groupName, items, assignedTablets })
+      });
+      if (!res.ok) throw new Error("Update failed");
+      alert('トラブルグループを更新しました');
+    } else {
+      const res = await fetch(BASE_URL + "createTroubleGroup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dbName, username, groupName, items, assignedTablets })
+      });
+      if (!res.ok) throw new Error("Create failed");
+      alert('トラブルグループを作成しました');
+    }
+    closeTroubleGroupModal();
+    loadTroubleGroups();
+  } catch (e) {
+    alert('保存エラー: ' + e.message);
+  }
+}
+
 

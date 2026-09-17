@@ -373,6 +373,7 @@ const translations = {
       // Tabs
       tabMaster: "Master",
       tabMasterNG: "Defect Groups",
+      tabTrouble: "Troubles",
       tabFactory: "Factory",
       tabEquipment: "Equipment",
       tabRoles: "Role",
@@ -1764,6 +1765,7 @@ const translations = {
       // Tabs
       tabMaster: "マスター",
       tabMasterNG: "不良グループ",
+      tabTrouble: "トラブル",
       tabFactory: "工場",
       tabEquipment: "設備",
       tabRoles: "ロール",

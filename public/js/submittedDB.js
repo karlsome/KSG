@@ -1150,9 +1150,14 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalBreak', isEditing
     ? sdbBuildModalInput('break_time', record.break_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
     : (record.break_time != null ? `${record.break_time} h` : '—'), { html: isEditing });
+  const hasTroubleDetails = record.trouble_details && typeof record.trouble_details === 'object' && Object.keys(record.trouble_details).length > 0;
+  const troubleDetailText = hasTroubleDetails
+    ? `<div class="text-2xs text-gray-500 mt-1 font-normal">${Object.entries(record.trouble_details).map(([k, v]) => `${k}: ${v}分`).join('<br>')}</div>`
+    : '';
+
   sdbSetModalElementContent('sdbModalTrouble', isEditing
-    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
-    : (record.trouble_time != null ? `${record.trouble_time} h` : '—'), { html: isEditing });
+    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '1', className: textInputClass })
+    : (record.trouble_time != null ? `${record.trouble_time} 分${troubleDetailText}` : '—'), { html: true });
 
   sdbRenderModalDefects(record, isEditing);
 

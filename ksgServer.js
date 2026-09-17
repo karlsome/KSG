@@ -2155,6 +2155,19 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             return `${h}:${m}`;
         })();
 
+        const troubleDetails = (submissionData.trouble_details && typeof submissionData.trouble_details === 'object')
+            ? submissionData.trouble_details
+            : (submissionData.troubleDetails && typeof submissionData.troubleDetails === 'object' ? submissionData.troubleDetails : {});
+
+        let troubleMinutes = 0;
+        if (submissionData.trouble_time !== undefined) {
+            troubleMinutes = parseFloat(submissionData.trouble_time) || 0;
+        } else if (Object.keys(troubleDetails).length > 0) {
+            troubleMinutes = Object.values(troubleDetails).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+        } else if (submissionData['機械トラブル時間'] !== undefined) {
+            troubleMinutes = parseFloat(submissionData['機械トラブル時間']) || 0;
+        }
+
         // Calculate man_hours from start/end times if not provided or zero
         let manHours = parseFloat(submissionData.工数) || 0;
         if (manHours === 0 && submissionData.開始時間 && endTime) {
@@ -2165,9 +2178,10 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
                 let endMinutes = endH * 60 + endM;
                 if (endMinutes < startMinutes) endMinutes += 24 * 60; // midnight crossover
                 const breakTime = parseFloat(submissionData.休憩時間) || 0;
-                const troubleTime = parseFloat(submissionData['機械トラブル時間']) || 0;
-                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleTime).toFixed(2));
-                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleTime}h)`);
+                // troubleMinutes is in minutes; convert to decimal hours for man-hour calculation
+                const troubleHours = troubleMinutes / 60;
+                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleHours).toFixed(2));
+                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleHours}h (${troubleMinutes}m))`);
             } catch (e) {
                 console.warn('⚠️ [TABLET] Could not calculate man_hours:', e.message);
             }
@@ -2187,7 +2201,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH', '工場',
             '技能員①', '技能員②', '良品数', '工数',
             'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
-            'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys'
+            'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys',
+            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -2231,7 +2246,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             start_time: submissionData.開始時間 || '',
             end_time: endTime,
             break_time: parseFloat(submissionData.休憩時間) || 0,
-            trouble_time: parseFloat(submissionData['機械トラブル時間']) || 0,
+            trouble_time: troubleMinutes,
+            trouble_details: troubleDetails,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,
             submitted_from: submittedFrom,
@@ -2338,7 +2354,7 @@ const SUBMITTED_DB_FIXED_FIELDS = new Set([
     ...SUBMITTED_DB_OPERATOR_FIELDS,
     'good_count', 'man_hours', 'cycle_time',
     'other_description', 'start_time', 'end_time', 'break_time',
-    'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+    'trouble_time', 'trouble_details', 'remarks', 'excluded_man_hours', 'submitted_from',
     'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
@@ -2358,6 +2374,11 @@ function normalizeSubmittedDBUpdates(source = {}) {
 
     for (const [key, rawValue] of Object.entries(source)) {
         if (!key || SUBMITTED_DB_NON_EDITABLE_FIELDS.has(key) || key.includes('.') || key.startsWith('$')) {
+            continue;
+        }
+
+        if (key === 'trouble_details' && typeof rawValue === 'object') {
+            updates.trouble_details = rawValue;
             continue;
         }
 
@@ -2539,15 +2560,39 @@ function buildGoogleSheetExpectedFieldsForSubmissionRecord(record = {}, ngGroup 
             countUp: !nonCountUpDefectKeys.has(key),
         }));
 
-    if (recordDefectFields.length === 0) {
-        return expectedFields;
+    if (recordDefectFields.length > 0) {
+        const postDefectFieldIndex = expectedFields.findIndex(field => field.key === 'other_description');
+        if (postDefectFieldIndex === -1) {
+            expectedFields.push(...recordDefectFields);
+        } else {
+            expectedFields.splice(postDefectFieldIndex, 0, ...recordDefectFields);
+        }
     }
 
-    const postDefectFieldIndex = expectedFields.findIndex(field => field.key === 'other_description');
-    if (postDefectFieldIndex === -1) {
-        expectedFields.push(...recordDefectFields);
-    } else {
-        expectedFields.splice(postDefectFieldIndex, 0, ...recordDefectFields);
+    // Add trouble detail fields from record.trouble_details right after trouble_time
+    if (record.trouble_details && typeof record.trouble_details === 'object') {
+        const troubleKeys = Object.keys(record.trouble_details)
+            .map(k => String(k || '').trim())
+            .filter(Boolean);
+
+        const existingKeys = new Set(expectedFields.map(f => String(f?.key || '').trim()));
+        const troubleFields = troubleKeys
+            .filter(key => !existingKeys.has(key))
+            .map(key => ({
+                key,
+                header: key,
+                aliases: [key],
+                kind: 'trouble',
+            }));
+
+        if (troubleFields.length > 0) {
+            const troubleTimeIndex = expectedFields.findIndex(field => field.key === 'trouble_time');
+            if (troubleTimeIndex !== -1) {
+                expectedFields.splice(troubleTimeIndex + 1, 0, ...troubleFields);
+            } else {
+                expectedFields.push(...troubleFields);
+            }
+        }
     }
 
     return expectedFields;
@@ -11443,6 +11488,138 @@ app.post("/deleteNGGroups", async (req, res) => {
     res.json({ deletedCount: result.deletedCount });
   } catch (err) {
     console.error("Error deleting ngGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// TROUBLE GROUPS ROUTES
+// ==========================================
+
+// Get all trouble groups
+app.post("/getTroubleGroups", async (req, res) => {
+  const { dbName } = req.body;
+  if (!dbName) return res.status(400).json({ error: "dbName is required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const groups = await db.collection("troubleGroups").find({}).sort({ createdAt: -1 }).toArray();
+    res.json(groups);
+  } catch (err) {
+    console.error("Error fetching troubleGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create Trouble group
+app.post("/createTroubleGroup", async (req, res) => {
+  const { dbName, username, groupName, items, assignedTablets } = req.body;
+  if (!dbName || !username || !groupName) return res.status(400).json({ error: "dbName, username, groupName required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const tabletList = Array.isArray(assignedTablets) ? assignedTablets.map(s => String(s).trim()).filter(Boolean) : [];
+
+    // Reassign tablets from any other trouble groups
+    if (tabletList.length > 0) {
+      await db.collection("troubleGroups").updateMany(
+        { assignedTablets: { $in: tabletList } },
+        { $pull: { assignedTablets: { $in: tabletList } } }
+      );
+    }
+
+    const newGroup = {
+      groupName: String(groupName).trim(),
+      items: Array.isArray(items) ? items : [],
+      assignedTablets: tabletList,
+      createdBy: username,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const result = await db.collection("troubleGroups").insertOne(newGroup);
+    res.json({ message: "Trouble Group created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating troubleGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update Trouble group
+app.post("/updateTroubleGroup", async (req, res) => {
+  const { groupId, dbName, username, groupName, items, assignedTablets } = req.body;
+  if (!groupId || !dbName || !username) return res.status(400).json({ error: "groupId, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const updateData = { updatedAt: new Date(), updatedBy: username };
+    if (groupName !== undefined) updateData.groupName = String(groupName).trim();
+    if (items !== undefined) updateData.items = Array.isArray(items) ? items : [];
+    if (assignedTablets !== undefined) {
+      const tabletList = Array.isArray(assignedTablets) ? assignedTablets.map(s => String(s).trim()).filter(Boolean) : [];
+      // Reassign tablets from any other trouble groups
+      if (tabletList.length > 0) {
+        await db.collection("troubleGroups").updateMany(
+          { _id: { $ne: new ObjectId(groupId) }, assignedTablets: { $in: tabletList } },
+          { $pull: { assignedTablets: { $in: tabletList } } }
+        );
+      }
+      updateData.assignedTablets = tabletList;
+    }
+
+    const result = await db.collection("troubleGroups").updateOne(
+      { _id: new ObjectId(groupId) },
+      { $set: updateData }
+    );
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating troubleGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete Trouble groups (batch)
+app.post("/deleteTroubleGroups", async (req, res) => {
+  const { groupIds, dbName, username } = req.body;
+  if (!groupIds || !dbName || !username) return res.status(400).json({ error: "groupIds, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const result = await db.collection("troubleGroups").deleteMany({
+      _id: { $in: groupIds.map(id => new ObjectId(id)) }
+    });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting troubleGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get trouble options for a tablet
+app.post("/getTabletTroubleOptions", async (req, res) => {
+  const { dbName, tabletName } = req.body;
+  const targetDb = dbName || req.user?.dbName || "KSG";
+  const targetTablet = String(tabletName || req.user?.tabletName || req.tablet?.tabletName || "").trim();
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(targetDb);
+    if (!targetTablet) {
+      return res.json({ groupName: "", items: [] });
+    }
+    const group = await db.collection("troubleGroups").findOne({
+      assignedTablets: targetTablet
+    });
+    if (!group) {
+      return res.json({ groupName: "", items: [] });
+    }
+    res.json({
+      groupId: String(group._id),
+      groupName: group.groupName || "",
+      items: group.items || []
+    });
+  } catch (err) {
+    console.error("Error fetching tablet trouble options:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

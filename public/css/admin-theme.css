@@ -96,6 +96,7 @@ table th {
 #rpiServerTableContainer table,
 #tabletTableContainer table,
 #masterNGTableContainer table,
+#troubleTableContainer table,
 #masterHistoryContainer table,
 #factoryHistoryContainer table,
 #equipmentHistoryContainer table,
@@ -116,6 +117,7 @@ table th {
 #rpiServerTableContainer th,
 #tabletTableContainer th,
 #masterNGTableContainer th,
+#troubleTableContainer th,
 #masterHistoryContainer th,
 #factoryHistoryContainer th,
 #equipmentHistoryContainer th,
@@ -140,6 +142,7 @@ table th {
 #rpiServerTableContainer td,
 #tabletTableContainer td,
 #masterNGTableContainer td,
+#troubleTableContainer td,
 #masterHistoryContainer td,
 #factoryHistoryContainer td,
 #equipmentHistoryContainer td,
@@ -172,6 +175,7 @@ table td input[type="checkbox"] {
 #detailModal,
 #quickCreateModal,
 #ngGroupModal,
+#troubleGroupModal,
 #deleteConfirmModal,
 #csvUploadModal,
 #googleSheetTargetModal,
@@ -191,6 +195,8 @@ table td input[type="checkbox"] {
 #quickCreateModal h3,
 #ngGroupModal h2,
 #ngGroupModal h3,
+#troubleGroupModal h2,
+#troubleGroupModal h3,
 #deleteConfirmModal h2,
 #deleteConfirmModal h3,
 #csvUploadModal h2,
@@ -214,6 +220,7 @@ table td input[type="checkbox"] {
 #detailModal label,
 #quickCreateModal label,
 #ngGroupModal label,
+#troubleGroupModal label,
 #googleSheetTargetModal label,
 #opc-conversion-modal label,
 #opc-combine-modal label,
@@ -237,6 +244,9 @@ table td input[type="checkbox"] {
 #ngGroupModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
 #ngGroupModal select,
 #ngGroupModal textarea,
+#troubleGroupModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#troubleGroupModal select,
+#troubleGroupModal textarea,
 #googleSheetTargetModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
 #googleSheetTargetModal select,
 #googleSheetTargetModal textarea,
@@ -277,6 +287,9 @@ table td input[type="checkbox"] {
 #ngGroupModal input:not(:disabled),
 #ngGroupModal select:not(:disabled),
 #ngGroupModal textarea:not(:disabled),
+#troubleGroupModal input:not(:disabled),
+#troubleGroupModal select:not(:disabled),
+#troubleGroupModal textarea:not(:disabled),
 #opc-conversion-modal input:not(:disabled),
 #opc-conversion-modal select:not(:disabled),
 #opc-combine-modal input:not(:disabled),
@@ -299,6 +312,9 @@ table td input[type="checkbox"] {
 #ngGroupModal input:focus,
 #ngGroupModal select:focus,
 #ngGroupModal textarea:focus,
+#troubleGroupModal input:focus,
+#troubleGroupModal select:focus,
+#troubleGroupModal textarea:focus,
 #googleSheetTargetModal input:focus,
 #googleSheetTargetModal select:focus,
 #googleSheetTargetModal textarea:focus,
@@ -319,6 +335,7 @@ table td input[type="checkbox"] {
 #detailModal .border-t button,
 #quickCreateModal .border-t button,
 #ngGroupModal .border-t button,
+#troubleGroupModal .border-t button,
 #deleteConfirmModal .border-t button,
 #csvUploadModal .border-t button,
 #googleSheetTargetModal .border-t button,
@@ -333,4 +350,21 @@ table td input[type="checkbox"] {
   border-radius: 0.75rem !important;
   font-weight: 600 !important;
 }
+
+/* Typography Scale Helper Utilities */
+.text-3xs {
+  font-size: var(--admin-text-3xs) !important;
+  line-height: 0.75rem !important;
+}
+
+.text-2xs {
+  font-size: var(--admin-text-2xs) !important;
+  line-height: 0.875rem !important;
+}
+
+.text-xs {
+  font-size: var(--admin-text-xs) !important;
+  line-height: 1.25rem !important;
+}
+
 
