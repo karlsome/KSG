@@ -10,6 +10,7 @@ let _sdbSortField = 'timestamp';
 let _sdbSortDir = 'desc';
 let _sdbView = 'active';
 let _sdbAllData = [];
+let _sdbKnownDefectCols = new Set();
 let _sdbDebounceTimer = null;
 let _sdbSelectedIds = new Set();
 let _sdbSelectedRecords = new Map();
@@ -80,6 +81,11 @@ function sdbDebouncedLoad() {
 
 function sdbGoToPage(page) {
   _sdbCurrentPage = page;
+  loadSubmittedDB();
+}
+
+function sdbOnLimitChange() {
+  _sdbCurrentPage = 1;
   loadSubmittedDB();
 }
 
@@ -351,6 +357,15 @@ async function loadSubmittedDB() {
     _sdbCounts = result.counts || { active: 0, trash: 0 };
     _sdbCanPermanentDelete = !!result.canPermanentDelete;
 
+    if (Array.isArray(result.defectColumns)) {
+      result.defectColumns.forEach(c => _sdbKnownDefectCols.add(c));
+    }
+    _sdbAllData.forEach(record => {
+      Object.keys(record).forEach(k => {
+        if (!SDB_FIXED_KEYS.has(k)) _sdbKnownDefectCols.add(k);
+      });
+    });
+
     renderSubmittedDBTable(
       _sdbAllData,
       result.total,
@@ -414,11 +429,10 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
     return;
   }
 
-  const defectCols = new Set();
   records.forEach(record => Object.keys(record).forEach(key => {
-    if (!SDB_FIXED_KEYS.has(key)) defectCols.add(key);
+    if (!SDB_FIXED_KEYS.has(key)) _sdbKnownDefectCols.add(key);
   }));
-  const defectColsList = [...defectCols].sort();
+  const defectColsList = [..._sdbKnownDefectCols].sort();
 
   const fixedCols = [
     { key: 'timestamp', label: '日時', fmt: sdbFormatDateTime },
@@ -562,14 +576,14 @@ function sdbBuildParams(options = {}) {
   const { all = false } = options;
   const params = new URLSearchParams();
 
-  const startDate = document.getElementById('sdbFilterStartDate')?.value;
-  const endDate = document.getElementById('sdbFilterEndDate')?.value;
-  const hinban = document.getElementById('sdbFilterHinban')?.value.trim();
-  const kanbanId = document.getElementById('sdbFilterKanbanId')?.value.trim();
-  const productName = document.getElementById('sdbFilterProductName')?.value.trim();
-  const operator = document.getElementById('sdbFilterOperator')?.value.trim();
-  const lhRh = document.getElementById('sdbFilterLhRh')?.value;
-  const factory = document.getElementById('sdbFilterFactory')?.value;
+  const startDate = document.getElementById('sdbFilterStartDate')?.value || '';
+  const endDate = document.getElementById('sdbFilterEndDate')?.value || '';
+  const hinban = document.getElementById('sdbFilterHinban')?.value?.trim() || '';
+  const kanbanId = document.getElementById('sdbFilterKanbanId')?.value?.trim() || '';
+  const productName = document.getElementById('sdbFilterProductName')?.value?.trim() || '';
+  const operator = document.getElementById('sdbFilterOperator')?.value?.trim() || '';
+  const lhRh = document.getElementById('sdbFilterLhRh')?.value || 'all';
+  const factory = document.getElementById('sdbFilterFactory')?.value || 'all';
   const limit = document.getElementById('sdbFilterLimit')?.value || '100';
 
   if (startDate) params.set('startDate', startDate);
@@ -1502,3 +1516,4 @@ window.handleSdbModalDelete = handleSdbModalDelete;
 window.openSdbDetail = openSdbDetail;
 window.closeSdbDetail = closeSdbDetail;
 window.initializeSubmittedDB = initializeSubmittedDB;
+window.sdbOnLimitChange = sdbOnLimitChange;

@@ -6084,17 +6084,23 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             ...(view === 'trash' ? { is_deleted: true } : { is_deleted: { $ne: true } })
         };
 
-        // --- Sorting ---
-        const sortField = req.query.sortField || 'timestamp';
+        // --- Sorting (Server-level) ---
+        const sortField = String(req.query.sortField || 'timestamp').trim();
         const sortDir   = req.query.sortDir   === 'asc' ? 1 : -1;
         const sort = { [sortField]: sortDir };
+        if (sortField !== '_id') {
+            sort._id = sortDir;
+        }
 
-        // --- Pagination ---
-        const limit = exportAll ? 0 : Math.min(parseInt(req.query.limit) || 100, 500);
+        // --- Pagination (Server-level: strictly 100 at a time) ---
+        const limit = exportAll ? 0 : Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 100);
         const page  = exportAll ? 1 : Math.max(parseInt(req.query.page)  || 1, 1);
         const skip  = (page - 1) * limit;
 
-        const findCursor = collection.find(filter).sort(sort);
+        const findCursor = collection.find(filter)
+            .collation({ locale: 'ja', numericOrdering: true })
+            .sort(sort);
+
         if (!exportAll) {
             findCursor.skip(skip).limit(limit);
         }
@@ -6106,6 +6112,16 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             collection.countDocuments({ ...baseFilter, is_deleted: { $ne: true } }),
             collection.countDocuments({ ...baseFilter, is_deleted: true })
         ]);
+
+        // Collect defect keys from the records for dynamic defect columns
+        const defectColumns = new Set();
+        data.forEach(record => {
+            Object.keys(record).forEach(k => {
+                if (!SUBMITTED_DB_FIXED_FIELDS.has(k)) {
+                    defectColumns.add(k);
+                }
+            });
+        });
 
         // --- Aggregate summary ---
         const summaryPipeline = [
@@ -6131,6 +6147,7 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             totalPages: exportAll ? 1 : Math.ceil(total / limit),
             summary,
             view,
+            defectColumns: Array.from(defectColumns),
             counts: {
                 active: activeCount,
                 trash: trashCount

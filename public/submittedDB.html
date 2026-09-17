@@ -92,11 +92,10 @@
                 </div>
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-gray-600">表示件数</label>
-                    <select id="sdbFilterLimit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm" onchange="loadSubmittedDB()">
+                    <select id="sdbFilterLimit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm" onchange="sdbOnLimitChange()">
+                        <option value="25">25件</option>
                         <option value="50">50件</option>
                         <option value="100" selected>100件</option>
-                        <option value="200">200件</option>
-                        <option value="500">500件</option>
                     </select>
                 </div>
                 <div class="flex gap-2 ml-auto items-end">
