@@ -2853,6 +2853,12 @@ async function sendData() {
       savedAt: new Date().toISOString()
     }));
 
+    // Update 作業数 display on uploading modal
+    const uploadingWorkCountEl = document.getElementById('uploadingWorkCount');
+    if (uploadingWorkCountEl) {
+      uploadingWorkCountEl.textContent = Number(workCountValue).toLocaleString();
+    }
+
     // Show uploading modal
     const uploadingModal = document.getElementById('uploadingModalOverlay');
     if (uploadingModal) {
@@ -3029,6 +3035,14 @@ async function resubmitPendingData(submissionData) {
   const auth = JSON.parse(authData);
   const tabletName = auth.tablet?.tabletName || auth.tabletName || '';
 
+  const uploadingModal = document.getElementById('uploadingModalOverlay');
+  const uploadingWorkCountEl = document.getElementById('uploadingWorkCount');
+  if (uploadingWorkCountEl) {
+    const rawCount = submissionData?.作業数 || document.getElementById('workCount')?.value || 0;
+    uploadingWorkCountEl.textContent = Number(rawCount).toLocaleString();
+  }
+  if (uploadingModal) uploadingModal.classList.add('active');
+
   try {
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
@@ -3043,8 +3057,10 @@ async function resubmitPendingData(submissionData) {
     const result = await response.json();
     if (response.ok && result.success) {
       localStorage.removeItem(PENDING_SUBMISSION_KEY);
+      if (uploadingModal) uploadingModal.classList.remove('active');
       alert('再送信が成功しました！\nData resubmitted successfully!');
     } else {
+      if (uploadingModal) uploadingModal.classList.remove('active');
       alert(
         '再送信に失敗しました。後で再試行してください。\n' +
         'Retry failed — data is still saved for the next attempt.\n\n' +
@@ -3052,6 +3068,7 @@ async function resubmitPendingData(submissionData) {
       );
     }
   } catch (error) {
+    if (uploadingModal) uploadingModal.classList.remove('active');
     alert('再送信エラー: ' + error.message + '\n\nデータは保存されたままです。\nData is still saved.');
   }
 }

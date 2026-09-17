@@ -705,6 +705,44 @@
       line-height: 1.5;
     }
 
+    .uploading-work-badge {
+      background: #f0f7ff;
+      border: 2px solid #bbdefb;
+      border-radius: 14px;
+      padding: 14px 28px;
+      margin: 16px auto 22px;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 220px;
+      box-shadow: 0 4px 14px rgba(33, 150, 243, 0.12);
+    }
+
+    .uploading-work-badge-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #546e7a;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .uploading-work-badge-value {
+      font-size: 38px;
+      font-weight: 800;
+      color: #1565c0;
+      line-height: 1.1;
+      font-feature-settings: 'tnum';
+      letter-spacing: -0.5px;
+    }
+
+    .uploading-work-badge-unit {
+      font-size: 18px;
+      font-weight: 600;
+      color: #546e7a;
+      margin-left: 4px;
+    }
+
     .kanban-conflict-modal-overlay {
       display: none;
       position: fixed;
@@ -1463,6 +1501,12 @@
     <div class="uploading-modal">
       <div class="uploading-spinner"></div>
       <div class="uploading-modal-title">データ送信中...</div>
+      <div class="uploading-work-badge" id="uploadingWorkBadge">
+        <div class="uploading-work-badge-label">作業数</div>
+        <div class="uploading-work-badge-value">
+          <span id="uploadingWorkCount">0</span><span class="uploading-work-badge-unit">個</span>
+        </div>
+      </div>
       <div class="uploading-modal-subtitle">Uploading data...<br>しばらくお待ちください</div>
     </div>
   </div>
