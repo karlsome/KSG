@@ -2906,22 +2906,38 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       if (!params || params.length === 0) return '';
       const dayIndex = params[0].dataIndex;
       const tPoint = trajectory[dayIndex];
-      let html = `<div class="font-semibold text-xs text-gray-200 mb-1">${tPoint.day}日</div>`;
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${isJa ? '累積比較' : 'Cumulative'}</span>
+      </div>`;
+
       params.forEach(p => {
-        if (p.value !== null && p.value !== undefined) {
-          html += `<div class="flex items-center justify-between gap-4 text-xs">
-            <span style="color:${p.color}">${p.seriesName}:</span>
-            <span class="font-semibold text-white tabular-nums">${Number(p.value).toLocaleString()} units</span>
-          </div>`;
-        }
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${Number(val).toLocaleString()}</span> <span style="font-size:11px;font-weight:500;color:#64748b;">units</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
       });
-      if (tPoint.cumShotsA !== null && tPoint.cumShotsB !== null) {
+
+      if (tPoint.cumShotsA !== null && tPoint.cumShotsA !== undefined && tPoint.cumShotsB !== null && tPoint.cumShotsB !== undefined) {
         const diff = tPoint.cumShotsA - tPoint.cumShotsB;
         const sign = diff >= 0 ? '+' : '';
-        const color = diff >= 0 ? '#34d399' : '#f87171';
-        html += `<div class="mt-1.5 pt-1.5 border-t border-gray-700 flex justify-between gap-4 text-xs font-semibold">
-          <span style="color:${color}">${isJa ? '累積差異' : 'Variance'}:</span>
-          <span style="color:${color}" class="tabular-nums">${sign}${diff.toLocaleString()} units</span>
+        const isPos = diff >= 0;
+        const diffColor = isPos ? '#059669' : '#dc2626';
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${isJa ? '累積差異' : 'Cumulative Variance'}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
         </div>`;
       }
       return html;
@@ -2949,6 +2965,47 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       name: isJa ? '日別生産数' : 'Daily Output',
       axisLabel: { formatter: val => Number(val).toLocaleString() },
       splitLine: { lineStyle: { color: '#f1f5f9' } }
+    };
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${isJa ? '日別比較' : 'Daily'}</span>
+      </div>`;
+
+      params.forEach(p => {
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${Number(val).toLocaleString()}</span> <span style="font-size:11px;font-weight:500;color:#64748b;">units</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
+      });
+
+      if (tPoint.shotsA !== null && tPoint.shotsA !== undefined && tPoint.shotsB !== null && tPoint.shotsB !== undefined) {
+        const diff = tPoint.shotsA - tPoint.shotsB;
+        const sign = diff >= 0 ? '+' : '';
+        const isPos = diff >= 0;
+        const diffColor = isPos ? '#059669' : '#dc2626';
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${isJa ? '日別差異' : 'Daily Variance'}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
+        </div>`;
+      }
+      return html;
     };
   } else {
     // Rate mode (Efficiency for machine, Defect rate for product, Pace for worker)
@@ -3036,11 +3093,88 @@ function renderAnalyticsMoMTrajectoryChart(result) {
         splitLine: { lineStyle: { color: '#f1f5f9' } }
       };
     }
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let modeLabel = isJa ? '設備稼働率比較' : 'Efficiency';
+      let unitSuffix = '%';
+      let decimals = 1;
+      let diffVal = null;
+      let betterWhenLower = false;
+
+      if (type === 'product' || type === 'products') {
+        modeLabel = isJa ? '不良率比較' : 'Defect Rate';
+        unitSuffix = '%';
+        decimals = 2;
+        betterWhenLower = true;
+        if (tPoint.defRateA !== null && tPoint.defRateB !== null) {
+          diffVal = tPoint.defRateA - tPoint.defRateB;
+        }
+      } else if (type === 'worker' || type === 'workers') {
+        modeLabel = isJa ? '作業ペース比較' : 'Pace';
+        unitSuffix = ' units/h';
+        decimals = 0;
+        if (tPoint.rateA !== null && tPoint.rateB !== null) {
+          diffVal = tPoint.rateA - tPoint.rateB;
+        }
+      } else {
+        modeLabel = isJa ? '設備稼働率比較' : 'Efficiency';
+        unitSuffix = '%';
+        decimals = 1;
+        if (tPoint.effA !== null && tPoint.effB !== null) {
+          diffVal = tPoint.effA - tPoint.effB;
+        }
+      }
+
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${modeLabel}</span>
+      </div>`;
+
+      params.forEach(p => {
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${decimals === 0 ? Number(val).toLocaleString() : Number(val).toFixed(decimals)}</span><span style="font-size:11px;font-weight:500;color:#64748b;">${unitSuffix}</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
+      });
+
+      if (diffVal !== null) {
+        const sign = diffVal >= 0 ? '+' : '';
+        const isGood = betterWhenLower ? diffVal <= 0 : diffVal >= 0;
+        const diffColor = isGood ? '#059669' : '#dc2626';
+        const formattedDiff = decimals === 0 ? diffVal.toLocaleString() : diffVal.toFixed(decimals);
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${isJa ? '差異' : 'Variance'}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${formattedDiff}<span style="font-size:11px;font-weight:500;">${unitSuffix}</span></span>
+        </div>`;
+      }
+      return html;
+    };
   }
 
   analyticsRenderChart(containerId, {
     tooltip: {
       trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.98)',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      padding: [10, 14],
+      extraCssText: 'box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05); border-radius: 12px; font-family: Inter, -apple-system, sans-serif;',
+      textStyle: { color: '#0f172a', fontSize: 12 },
       axisPointer: { type: analyticsMoMChartMode === 'daily' ? 'shadow' : 'line' },
       formatter: tooltipFormatter
     },
