@@ -7,6 +7,14 @@ window.addEventListener('languageChanged', () => {
   analyticsSyncShiftControls();
   if (analyticsData) renderAnalytics(analyticsData);
   analyticsUpdateFilterOptionLabels();
+  if (analyticsMoMData) renderAnalyticsMoM(analyticsMoMData);
+  updateAnalyticsMoMControlsLanguage();
+  updateAnalyticsProductivityMonthDisplay();
+  updateAnalyticsMoMMonthDisplays();
+  const calModal = document.getElementById('analyticsMonthPickerModal');
+  if (calModal && !calModal.classList.contains('hidden')) {
+    renderAnalyticsCalendarGrid();
+  }
 });
 
 let analyticsRequestId = 0;
@@ -665,6 +673,191 @@ function renderAnalyticsKpis(summary, previousSummary = null) {
 let analyticsProductivityData = null;
 let analyticsProductivityCharts = new Map();
 
+let analyticsCalendarViewYear = 2026;
+let analyticsCalendarTargetInputId = 'analyticsProductivityMonth';
+
+function analyticsFormatMonthDisplay(ym) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  const now = new Date();
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYm = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+  const isCurrent = ym === curYm;
+  const isPrev = ym === prevYm;
+
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const tag = isCurrent ? (isJa ? ' (当月)' : ' (Current)') : (isPrev ? (isJa ? ' (前月)' : ' (Prev)') : '');
+
+  return isJa ? `${y}年${Number(m)}月${tag}` : `${new Date(Number(y), Number(m) - 1).toLocaleString('en-US', { month: 'short' })} ${y}${tag}`;
+}
+
+function updateAnalyticsProductivityMonthDisplay() {
+  const input = document.getElementById('analyticsProductivityMonth');
+  const display = document.getElementById('analyticsProductivityMonthDisplay');
+  if (!input || !display) return;
+  display.textContent = analyticsFormatMonthDisplay(input.value);
+}
+
+function updateAnalyticsMoMMonthDisplays() {
+  const inputA = document.getElementById('analyticsMoMMonthA');
+  const displayA = document.getElementById('analyticsMoMMonthADisplay');
+  const inputB = document.getElementById('analyticsMoMMonthB');
+  const displayB = document.getElementById('analyticsMoMMonthBDisplay');
+
+  if (displayA && inputA) {
+    displayA.textContent = analyticsFormatMonthDisplay(inputA.value || analyticsMoMMonthA);
+  }
+  if (displayB && inputB) {
+    displayB.textContent = analyticsFormatMonthDisplay(inputB.value || analyticsMoMMonthB);
+  }
+}
+
+function openAnalyticsMonthPickerModal(targetId = 'analyticsProductivityMonth') {
+  analyticsCalendarTargetInputId = targetId;
+  const modal = document.getElementById('analyticsMonthPickerModal');
+  if (!modal) return;
+  const input = document.getElementById(targetId);
+  const currentYm = input?.value || '';
+  if (currentYm) {
+    const [y] = currentYm.split('-');
+    if (Number(y)) analyticsCalendarViewYear = parseInt(y, 10);
+  } else {
+    analyticsCalendarViewYear = new Date().getFullYear();
+  }
+  renderAnalyticsCalendarGrid();
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAnalyticsMonthPickerModal() {
+  const modal = document.getElementById('analyticsMonthPickerModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
+  }
+}
+
+function handleAnalyticsMonthPickerModalBackdrop(event) {
+  if (event.target === event.currentTarget) {
+    closeAnalyticsMonthPickerModal();
+  }
+}
+
+function analyticsCalendarChangeYear(delta) {
+  analyticsCalendarViewYear += delta;
+  renderAnalyticsCalendarGrid();
+}
+
+function analyticsCalendarSelectMonth(year, month) {
+  const mm = String(month).padStart(2, '0');
+  const ym = `${year}-${mm}`;
+  const targetId = analyticsCalendarTargetInputId || 'analyticsProductivityMonth';
+  const input = document.getElementById(targetId);
+  if (input) {
+    input.value = ym;
+  }
+
+  if (targetId === 'analyticsMoMMonthA') {
+    analyticsMoMMonthA = ym;
+    updateAnalyticsMoMMonthDisplays();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsMoM();
+  } else if (targetId === 'analyticsMoMMonthB') {
+    analyticsMoMMonthB = ym;
+    updateAnalyticsMoMMonthDisplays();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsMoM();
+  } else {
+    updateAnalyticsProductivityMonthDisplay();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsProductivity();
+  }
+}
+
+function analyticsCalendarSelectThisMonth() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  analyticsCalendarSelectMonth(y, m);
+}
+
+function renderAnalyticsCalendarGrid() {
+  const yearDisplay = document.getElementById('analyticsCalendarYearDisplay');
+  const targetLabel = document.getElementById('analyticsCalendarTargetLabel');
+  const grid = document.getElementById('analyticsCalendarMonthGrid');
+  const selectedDisplay = document.getElementById('analyticsCalendarSelectedDisplay');
+  const targetId = analyticsCalendarTargetInputId || 'analyticsProductivityMonth';
+  const input = document.getElementById(targetId);
+
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const selectedYm = input?.value || '';
+  const now = new Date();
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  if (yearDisplay) {
+    yearDisplay.textContent = isJa ? `${analyticsCalendarViewYear}年` : `${analyticsCalendarViewYear}`;
+  }
+
+  if (targetLabel) {
+    if (targetId === 'analyticsMoMMonthA') {
+      targetLabel.textContent = isJa ? '対象月' : 'Target';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100/80';
+    } else if (targetId === 'analyticsMoMMonthB') {
+      targetLabel.textContent = isJa ? '比較月' : 'Baseline';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-100/80';
+    } else {
+      targetLabel.textContent = isJa ? '対象月' : 'Target';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100/80';
+    }
+  }
+
+  if (selectedDisplay) {
+    if (selectedYm) {
+      const sVal = analyticsFormatMonthDisplay(selectedYm);
+      selectedDisplay.textContent = isJa ? `選択中: ${sVal}` : `Selected: ${sVal}`;
+    } else {
+      selectedDisplay.textContent = '';
+    }
+  }
+
+  if (!grid) return;
+
+  const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  grid.innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const ym = `${analyticsCalendarViewYear}-${String(m).padStart(2, '0')}`;
+    const isSelected = ym === selectedYm;
+    const isThisMonth = ym === curYm;
+
+    const label = isJa ? `${m}月` : monthNamesEn[i];
+
+    let btnClass = '';
+    let badgeHtml = '';
+
+    if (isSelected) {
+      btnClass = 'bg-indigo-600 text-white font-bold shadow-xs hover:bg-indigo-700 ring-2 ring-indigo-600 ring-offset-2';
+    } else if (isThisMonth) {
+      btnClass = 'border-2 border-indigo-400 bg-indigo-50/60 text-indigo-700 font-bold hover:bg-indigo-100 hover:border-indigo-500';
+      badgeHtml = `<span class="absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-600" title="${isJa ? '当月' : 'Current'}"></span>`;
+    } else {
+      btnClass = 'border border-gray-200 bg-gray-50/50 hover:bg-indigo-50/50 hover:border-indigo-200 hover:text-indigo-600 text-gray-700 font-semibold';
+    }
+
+    return `
+      <button type="button"
+        onclick="analyticsCalendarSelectMonth(${analyticsCalendarViewYear}, ${m})"
+        class="relative h-12 rounded-xl text-sm transition-all flex flex-col items-center justify-center cursor-pointer ${btnClass}">
+        <span>${label}</span>
+        ${badgeHtml}
+      </button>
+    `;
+  }).join('');
+}
+
 function initAnalyticsProductivity() {
   const monthInput = document.getElementById('analyticsProductivityMonth');
   if (monthInput && !monthInput.value) {
@@ -673,6 +866,7 @@ function initAnalyticsProductivity() {
     const m = String(now.getMonth() + 1).padStart(2, '0');
     monthInput.value = `${y}-${m}`;
   }
+  updateAnalyticsProductivityMonthDisplay();
   handleAnalyticsProductivityTargetChange(false);
 }
 
@@ -2437,21 +2631,9 @@ function initAnalyticsMoM(data) {
   if (!analyticsMoMMonthA) analyticsMoMMonthA = months[0] || '2026-09';
   if (!analyticsMoMMonthB) analyticsMoMMonthB = months[1] || '2026-08';
 
-  if (selectA && selectA.options.length === 0) {
-    selectA.innerHTML = months.map((ym, idx) => `
-      <option value="${ym}" ${ym === analyticsMoMMonthA ? 'selected' : ''}>
-        ${analyticsFormatMonthOptionLabel(ym, idx === 0, idx === 1)}
-      </option>
-    `).join('');
-  }
-
-  if (selectB && selectB.options.length === 0) {
-    selectB.innerHTML = months.map((ym, idx) => `
-      <option value="${ym}" ${ym === analyticsMoMMonthB ? 'selected' : ''}>
-        ${analyticsFormatMonthOptionLabel(ym, idx === 0, idx === 1)}
-      </option>
-    `).join('');
-  }
+  if (selectA) selectA.value = analyticsMoMMonthA;
+  if (selectB) selectB.value = analyticsMoMMonthB;
+  updateAnalyticsMoMMonthDisplays();
 
   if (selectMachine && selectMachine.options.length <= 1) {
     const sources = (data?.sourceBreakdown || []).map(s => s.source).filter(Boolean);
@@ -2461,7 +2643,7 @@ function initAnalyticsMoM(data) {
     }
     const machineList = [...existing].sort((a, b) => a.localeCompare(b));
     selectMachine.innerHTML = [
-      `<option value="all" ${analyticsMoMMachine === 'all' ? 'selected' : ''}>${t('analytics.machineMoM.allFleet') || 'All Machines (Fleet Average)'}</option>`
+      `<option value="all" ${analyticsMoMMachine === 'all' ? 'selected' : ''}>${t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)'}</option>`
     ].concat(machineList.map(m => `
       <option value="${analyticsEscapeHtml(m)}" ${m === analyticsMoMMachine ? 'selected' : ''}>${analyticsEscapeHtml(m)}</option>
     `)).join('');
@@ -2471,7 +2653,7 @@ function initAnalyticsMoM(data) {
     const products = Array.isArray(analyticsMoMData?.availableOptions?.products)
       ? analyticsMoMData.availableOptions.products
       : (data?.productBreakdown || []).map(p => ({ hinban: p.hinban, productName: p.productName }));
-    const opts = [`<option value="" ${!analyticsMoMProduct ? 'selected' : ''}>All Products</option>`];
+    const opts = [`<option value="" ${!analyticsMoMProduct ? 'selected' : ''}>${t('analytics.mom.allProductsOption') || 'All Products'}</option>`];
     products.forEach(p => {
       if (!p.hinban) return;
       const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
@@ -2484,11 +2666,32 @@ function initAnalyticsMoM(data) {
     const operators = Array.isArray(analyticsMoMData?.availableOptions?.operators)
       ? analyticsMoMData.availableOptions.operators
       : (data?.operatorBreakdown || []).map(o => o.name).filter(Boolean);
-    const opts = [`<option value="" ${!analyticsMoMWorker ? 'selected' : ''}>All Workers (Team Average)</option>`];
+    const opts = [`<option value="" ${!analyticsMoMWorker ? 'selected' : ''}>${t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)'}</option>`];
     operators.forEach(op => {
       opts.push(`<option value="${analyticsEscapeHtml(op)}" ${op === analyticsMoMWorker ? 'selected' : ''}>${analyticsEscapeHtml(op)}</option>`);
     });
     selectWorker.innerHTML = opts.join('');
+  }
+}
+
+function updateAnalyticsMoMControlsLanguage() {
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  if (selectMachine && selectMachine.options.length > 0 && selectMachine.options[0].value === 'all') {
+    selectMachine.options[0].textContent = t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)';
+  }
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  if (selectProduct && selectProduct.options.length > 0 && selectProduct.options[0].value === '') {
+    selectProduct.options[0].textContent = t('analytics.mom.allProductsOption') || 'All Products';
+  }
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+  if (selectWorker && selectWorker.options.length > 0 && selectWorker.options[0].value === '') {
+    selectWorker.options[0].textContent = t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)';
+  }
+  const rateBtn = document.getElementById('analyticsMoMModeRate');
+  if (rateBtn) {
+    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = t('analytics.mom.modeRateEfficiency') || 'Efficiency %';
+    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = t('analytics.mom.modeRateDefect') || 'Defect Rate %';
+    else rateBtn.textContent = t('analytics.mom.modeRatePace') || 'Pace (Shots/h)';
   }
 }
 
@@ -2517,9 +2720,9 @@ function setAnalyticsMoMSubTab(subTab) {
   // Update Rate / Metric Mode Button text
   const rateBtn = document.getElementById('analyticsMoMModeRate');
   if (rateBtn) {
-    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = 'Efficiency %';
-    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = 'Defect Rate %';
-    else rateBtn.textContent = 'Pace (Shots/h)';
+    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = t('analytics.mom.modeRateEfficiency') || 'Efficiency %';
+    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = t('analytics.mom.modeRateDefect') || 'Defect Rate %';
+    else rateBtn.textContent = t('analytics.mom.modeRatePace') || 'Pace (Shots/h)';
   }
 
   loadAnalyticsMoM();
@@ -2551,6 +2754,7 @@ function handleAnalyticsMoMSwapMonths() {
   analyticsMoMMonthB = temp;
   if (selectA) selectA.value = analyticsMoMMonthA;
   if (selectB) selectB.value = analyticsMoMMonthB;
+  updateAnalyticsMoMMonthDisplays();
   loadAnalyticsMoM();
 }
 
@@ -2607,7 +2811,7 @@ async function loadAnalyticsMoM() {
       const selectMachine = document.getElementById('analyticsMoMMachineSelect');
       if (selectMachine && machines.length > 0 && selectMachine.options.length <= 2) {
         const cur = selectMachine.value;
-        selectMachine.innerHTML = [`<option value="all">${t('analytics.machineMoM.allFleet') || 'All Machines (Fleet Average)'}</option>`]
+        selectMachine.innerHTML = [`<option value="all">${t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)'}</option>`]
           .concat(machines.map(m => `<option value="${analyticsEscapeHtml(m)}">${analyticsEscapeHtml(m)}</option>`)).join('');
         selectMachine.value = cur || 'all';
       }
@@ -2615,7 +2819,7 @@ async function loadAnalyticsMoM() {
       const selectProduct = document.getElementById('analyticsMoMProductSelect');
       if (selectProduct && products.length > 0 && selectProduct.options.length <= 2) {
         const cur = selectProduct.value;
-        const opts = [`<option value="">All Products</option>`];
+        const opts = [`<option value="">${t('analytics.mom.allProductsOption') || 'All Products'}</option>`];
         products.forEach(p => {
           const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
           opts.push(`<option value="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(label)}</option>`);
@@ -2627,7 +2831,7 @@ async function loadAnalyticsMoM() {
       const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
       if (selectWorker && operators.length > 0 && selectWorker.options.length <= 2) {
         const cur = selectWorker.value;
-        const opts = [`<option value="">All Workers (Team Average)</option>`]
+        const opts = [`<option value="">${t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)'}</option>`]
           .concat(operators.map(op => `<option value="${analyticsEscapeHtml(op)}">${analyticsEscapeHtml(op)}</option>`));
         selectWorker.innerHTML = opts.join('');
         selectWorker.value = cur || '';
@@ -2650,10 +2854,10 @@ function renderAnalyticsMoMError(message) {
     kpiGrid.innerHTML = `
       <div class="col-span-1 sm:col-span-2 xl:col-span-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 p-8 text-center text-sm text-gray-500">
         <i class="ri-information-line text-2xl text-indigo-500 mb-2 block"></i>
-        <p class="font-medium text-gray-700 mb-1">MoM Analytics Initialization</p>
-        <p class="text-xs text-gray-400 max-w-md mx-auto">${analyticsEscapeHtml(message || 'Please ensure the server has finished restarting with the new MoM endpoint.')}</p>
+        <p class="font-medium text-gray-700 mb-1">${analyticsEscapeHtml(t('analytics.mom.errorTitle') || 'MoM Analytics Initialization')}</p>
+        <p class="text-xs text-gray-400 max-w-md mx-auto">${analyticsEscapeHtml(message || t('analytics.mom.errorDesc') || 'Please ensure the server has finished restarting with the new MoM endpoint.')}</p>
         <button onclick="loadAnalyticsMoM()" class="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 shadow-2xs hover:bg-gray-50">
-          <i class="ri-refresh-line"></i> Retry
+          <i class="ri-refresh-line"></i> ${analyticsEscapeHtml(t('analytics.mom.retry') || 'Retry')}
         </button>
       </div>`;
   }
@@ -2676,42 +2880,50 @@ function renderAnalyticsMoMKpis(result) {
   if (type === 'product' || type === 'products') {
     cards = [
       {
-        title: 'Total Production Output',
+        title: t('analytics.mom.kpiTotalOutput') || 'Total Production Output',
         valA: `${analyticsA.totalGood.toLocaleString()}`,
         valB: `${analyticsB.totalGood.toLocaleString()}`,
         diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
         isPositive: deltas.diffShots >= 0,
-        subtext: `Avg ${analyticsA.avgShotsPerDay} units/day vs ${analyticsB.avgShotsPerDay} units/day`,
+        subtext: (t('analytics.mom.kpiAvgUnitsDay') || 'Avg {valA} units/day vs {valB} units/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
         icon: 'ri-box-3-line',
         tone: 'bg-indigo-50 text-indigo-600'
       },
       {
-        title: 'Defect Rate (MoM)',
+        title: t('analytics.mom.kpiDefectRate') || 'Defect Rate (MoM)',
         valA: `${analyticsA.defectRate}%`,
         valB: `${analyticsB.defectRate}%`,
         diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
         isPositive: deltas.diffDefectRate <= 0,
-        subtext: `Total defects: ${analyticsA.totalDefects.toLocaleString()} vs ${analyticsB.totalDefects.toLocaleString()}`,
+        subtext: (t('analytics.mom.kpiTotalDefects') || 'Total defects: {valA} vs {valB}')
+          .replace('{valA}', analyticsA.totalDefects.toLocaleString())
+          .replace('{valB}', analyticsB.totalDefects.toLocaleString()),
         icon: 'ri-shield-check-line',
         tone: 'bg-rose-50 text-rose-600'
       },
       {
-        title: 'Man-Hours Invested',
+        title: t('analytics.mom.kpiManHours') || 'Man-Hours Invested',
         valA: `${analyticsA.totalManHours}h`,
         valB: `${analyticsB.totalManHours}h`,
         diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
         isPositive: deltas.diffHours >= 0,
-        subtext: `${analyticsA.operatingDays} active production days vs ${analyticsB.operatingDays} days`,
+        subtext: (t('analytics.mom.kpiProductionDays') || '{valA} active production days vs {valB} days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
         icon: 'ri-time-line',
         tone: 'bg-emerald-50 text-emerald-600'
       },
       {
-        title: 'Hourly Pace (Productivity)',
+        title: t('analytics.mom.kpiHourlyPace') || 'Hourly Pace (Productivity)',
         valA: `${analyticsA.shotsPerHour} /h`,
         valB: `${analyticsB.shotsPerHour} /h`,
         diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
         isPositive: deltas.diffShotsPerHour >= 0,
-        subtext: `Shift efficiency: ${analyticsA.efficiency}% vs ${analyticsB.efficiency}%`,
+        subtext: (t('analytics.mom.kpiShiftEfficiency') || 'Shift efficiency: {valA}% vs {valB}%')
+          .replace('{valA}', analyticsA.efficiency)
+          .replace('{valB}', analyticsB.efficiency),
         icon: 'ri-speed-up-line',
         tone: 'bg-blue-50 text-blue-600'
       }
@@ -2719,42 +2931,50 @@ function renderAnalyticsMoMKpis(result) {
   } else if (type === 'worker' || type === 'workers') {
     cards = [
       {
-        title: 'Worker Output Produced',
+        title: t('analytics.mom.kpiWorkerOutput') || 'Worker Output Produced',
         valA: `${analyticsA.totalGood.toLocaleString()}`,
         valB: `${analyticsB.totalGood.toLocaleString()}`,
         diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
         isPositive: deltas.diffShots >= 0,
-        subtext: `Avg ${analyticsA.avgShotsPerDay} units/day vs ${analyticsB.avgShotsPerDay} units/day`,
+        subtext: (t('analytics.mom.kpiAvgUnitsDay') || 'Avg {valA} units/day vs {valB} units/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
         icon: 'ri-team-line',
         tone: 'bg-indigo-50 text-indigo-600'
       },
       {
-        title: 'Defect Rate (MoM)',
+        title: t('analytics.mom.kpiDefectRate') || 'Defect Rate (MoM)',
         valA: `${analyticsA.defectRate}%`,
         valB: `${analyticsB.defectRate}%`,
         diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
         isPositive: deltas.diffDefectRate <= 0,
-        subtext: `Total defects: ${analyticsA.totalDefects.toLocaleString()} vs ${analyticsB.totalDefects.toLocaleString()}`,
+        subtext: (t('analytics.mom.kpiTotalDefects') || 'Total defects: {valA} vs {valB}')
+          .replace('{valA}', analyticsA.totalDefects.toLocaleString())
+          .replace('{valB}', analyticsB.totalDefects.toLocaleString()),
         icon: 'ri-shield-check-line',
         tone: 'bg-rose-50 text-rose-600'
       },
       {
-        title: 'Total Labor Hours',
+        title: t('analytics.mom.kpiTotalLaborHours') || 'Total Labor Hours',
         valA: `${analyticsA.totalManHours}h`,
         valB: `${analyticsB.totalManHours}h`,
         diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
         isPositive: deltas.diffHours >= 0,
-        subtext: `${analyticsA.operatingDays} days worked vs ${analyticsB.operatingDays} days`,
+        subtext: (t('analytics.mom.kpiDaysWorked') || '{valA} days worked vs {valB} days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
         icon: 'ri-time-line',
         tone: 'bg-emerald-50 text-emerald-600'
       },
       {
-        title: 'Productivity Pace',
+        title: t('analytics.mom.kpiProductivityPace') || 'Productivity Pace',
         valA: `${analyticsA.shotsPerHour} /h`,
         valB: `${analyticsB.shotsPerHour} /h`,
         diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
         isPositive: deltas.diffShotsPerHour >= 0,
-        subtext: `Trouble downtime: ${analyticsA.troubleHours}h vs ${analyticsB.troubleHours}h`,
+        subtext: (t('analytics.mom.kpiTroubleDowntime') || 'Trouble downtime: {valA}h vs {valB}h')
+          .replace('{valA}', analyticsA.troubleHours)
+          .replace('{valB}', analyticsB.troubleHours),
         icon: 'ri-speed-up-line',
         tone: 'bg-blue-50 text-blue-600'
       }
@@ -2763,42 +2983,50 @@ function renderAnalyticsMoMKpis(result) {
     // Machines (default)
     cards = [
       {
-        title: 'Efficiency (MoM)',
+        title: t('analytics.mom.kpiMachineEfficiency') || 'Efficiency (MoM)',
         valA: `${analyticsA.efficiency}%`,
         valB: `${analyticsB.efficiency}%`,
         diffText: `${deltas.diffEfficiency >= 0 ? '+' : ''}${deltas.diffEfficiency}%`,
         isPositive: deltas.diffEfficiency >= 0,
-        subtext: `Shift efficiency (${analyticsA.producingHours}h producing vs ${analyticsB.producingHours}h)`,
+        subtext: (t('analytics.mom.kpiShiftEfficiencyDetail') || 'Shift efficiency ({valA}h producing vs {valB}h)')
+          .replace('{valA}', analyticsA.producingHours)
+          .replace('{valB}', analyticsB.producingHours),
         icon: 'ri-speed-up-line',
         tone: 'bg-indigo-50 text-indigo-600'
       },
       {
-        title: 'Total Output / Shots',
+        title: t('analytics.mom.kpiMachineOutput') || 'Total Output / Shots',
         valA: `${analyticsA.totalGood.toLocaleString()}`,
         valB: `${analyticsB.totalGood.toLocaleString()}`,
         diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
         isPositive: deltas.diffShots >= 0,
-        subtext: `Avg ${analyticsA.avgShotsPerDay} shots/day vs ${analyticsB.avgShotsPerDay} shots/day`,
+        subtext: (t('analytics.mom.kpiAvgShotsDay') || 'Avg {valA} shots/day vs {valB} shots/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
         icon: 'ri-cpu-line',
         tone: 'bg-blue-50 text-blue-600'
       },
       {
-        title: 'Working Hours',
+        title: t('analytics.mom.kpiWorkingHours') || 'Working Hours',
         valA: `${analyticsA.producingHours}h`,
         valB: `${analyticsB.producingHours}h`,
         diffText: `${deltas.diffProducingHours >= 0 ? '+' : ''}${deltas.diffProducingHours}h`,
         isPositive: deltas.diffProducingHours >= 0,
-        subtext: `${analyticsA.operatingDays} active days vs ${analyticsB.operatingDays} active days`,
+        subtext: (t('analytics.mom.kpiActiveDays') || '{valA} active days vs {valB} active days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
         icon: 'ri-time-line',
         tone: 'bg-emerald-50 text-emerald-600'
       },
       {
-        title: 'Trouble Downtime',
+        title: t('analytics.mom.kpiTroubleDowntimeTitle') || 'Trouble Downtime',
         valA: `${analyticsA.troubleHours}h`,
         valB: `${analyticsB.troubleHours}h`,
         diffText: `${deltas.diffTroubleHours <= 0 ? '' : '+'}${deltas.diffTroubleHours}h`,
         isPositive: deltas.diffTroubleHours <= 0,
-        subtext: `Defect rate: ${analyticsA.defectRate}% (Δ ${deltas.diffDefectRate >= 0 ? '+' : ''}${deltas.diffDefectRate}%)`,
+        subtext: (t('analytics.mom.kpiDefectRateDiff') || 'Defect rate: {rate}% (Δ {diff}%)')
+          .replace('{rate}', analyticsA.defectRate)
+          .replace('{diff}', `${deltas.diffDefectRate >= 0 ? '+' : ''}${deltas.diffDefectRate}`),
         icon: 'ri-alarm-warning-line',
         tone: 'bg-rose-50 text-rose-600'
       }
@@ -2838,26 +3066,26 @@ function renderAnalyticsMoMTrajectoryChart(result) {
   const descEl = document.getElementById('analyticsMoMTrajectoryDesc');
   if (titleEl && descEl) {
     if (type === 'product' || type === 'products') {
-      titleEl.textContent = 'Product Volume Trajectory (Day 1..31)';
-      descEl.textContent = 'Compare product output day-by-day to observe production velocity.';
+      titleEl.textContent = t('analytics.mom.trajectoryTitleProduct') || 'Product Volume Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescProduct') || 'Compare product output day-by-day to observe production velocity.';
     } else if (type === 'worker' || type === 'workers') {
-      titleEl.textContent = 'Worker Output Trajectory (Day 1..31)';
-      descEl.textContent = 'Compare worker output pace day-by-day across both months.';
+      titleEl.textContent = t('analytics.mom.trajectoryTitleWorker') || 'Worker Output Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescWorker') || 'Compare worker output pace day-by-day across both months.';
     } else {
-      titleEl.textContent = 'Machine Pace Trajectory (Day 1..31)';
-      descEl.textContent = 'Compare pace day-by-day to see if machine is running ahead of or behind baseline.';
+      titleEl.textContent = t('analytics.mom.trajectoryTitleMachine') || 'Machine Pace Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescMachine') || 'Compare pace day-by-day to see if machine is running ahead of or behind baseline.';
     }
   }
 
   if (trajectory.length === 0) {
-    analyticsShowChartEmpty(containerId, 'No trajectory data available');
+    analyticsShowChartEmpty(containerId, t('analytics.mom.noTrajectoryData') || 'No trajectory data available');
     return;
   }
 
   const days = trajectory.map(t => `${t.day}日`);
   const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
-  const labelA = `${monthA} (${isJa ? '対象月' : 'Target'})`;
-  const labelB = `${monthB} (${isJa ? '比較月' : 'Baseline'})`;
+  const labelA = `${monthA} (${t('analytics.mom.target') || (isJa ? '対象月' : 'Target')})`;
+  const labelB = `${monthB} (${t('analytics.mom.baseline') || (isJa ? '比較月' : 'Baseline')})`;
 
   let series = [];
   let yAxisConfig = {};
@@ -2897,7 +3125,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
 
     yAxisConfig = {
       type: 'value',
-      name: isJa ? '累積ショット数' : 'Cumulative Output',
+      name: t('analytics.mom.yAxisCumulative') || (isJa ? '累積ショット数' : 'Cumulative Output'),
       axisLabel: { formatter: val => Number(val).toLocaleString() },
       splitLine: { lineStyle: { color: '#f1f5f9' } }
     };
@@ -2911,7 +3139,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
       let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
         <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
-        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${isJa ? '累積比較' : 'Cumulative'}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${t('analytics.mom.cumulativeBadge') || (isJa ? '累積比較' : 'Cumulative')}</span>
       </div>`;
 
       params.forEach(p => {
@@ -2936,7 +3164,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
         const isPos = diff >= 0;
         const diffColor = isPos ? '#059669' : '#dc2626';
         html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
-          <span style="color:${diffColor};">${isJa ? '累積差異' : 'Cumulative Variance'}:</span>
+          <span style="color:${diffColor};">${t('analytics.mom.cumulativeVariance') || (isJa ? '累積差異' : 'Cumulative Variance')}:</span>
           <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
         </div>`;
       }
@@ -2962,7 +3190,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
 
     yAxisConfig = {
       type: 'value',
-      name: isJa ? '日別生産数' : 'Daily Output',
+      name: t('analytics.mom.yAxisDaily') || (isJa ? '日別生産数' : 'Daily Output'),
       axisLabel: { formatter: val => Number(val).toLocaleString() },
       splitLine: { lineStyle: { color: '#f1f5f9' } }
     };
@@ -2976,7 +3204,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
       let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
         <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
-        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${isJa ? '日別比較' : 'Daily'}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${t('analytics.mom.dailyBadge') || (isJa ? '日別比較' : 'Daily')}</span>
       </div>`;
 
       params.forEach(p => {
@@ -3001,7 +3229,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
         const isPos = diff >= 0;
         const diffColor = isPos ? '#059669' : '#dc2626';
         html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
-          <span style="color:${diffColor};">${isJa ? '日別差異' : 'Daily Variance'}:</span>
+          <span style="color:${diffColor};">${t('analytics.mom.dailyVariance') || (isJa ? '日別差異' : 'Daily Variance')}:</span>
           <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
         </div>`;
       }
@@ -3032,7 +3260,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       ];
       yAxisConfig = {
         type: 'value',
-        name: 'Defect Rate %',
+        name: t('analytics.mom.yAxisDefectRate') || (isJa ? '不良率 %' : 'Defect Rate %'),
         axisLabel: { formatter: '{value}%' },
         splitLine: { lineStyle: { color: '#f1f5f9' } }
       };
@@ -3059,7 +3287,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       ];
       yAxisConfig = {
         type: 'value',
-        name: 'Pace (Units / Hour)',
+        name: t('analytics.mom.yAxisPace') || (isJa ? 'ペース (個/時間)' : 'Pace (Units / Hour)'),
         axisLabel: { formatter: '{value}/h' },
         splitLine: { lineStyle: { color: '#f1f5f9' } }
       };
@@ -3087,7 +3315,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       ];
       yAxisConfig = {
         type: 'value',
-        name: 'Efficiency %',
+        name: t('analytics.mom.yAxisEfficiency') || (isJa ? '設備稼働率 %' : 'Efficiency %'),
         max: 100,
         axisLabel: { formatter: '{value}%' },
         splitLine: { lineStyle: { color: '#f1f5f9' } }
@@ -3101,14 +3329,14 @@ function renderAnalyticsMoMTrajectoryChart(result) {
       if (!tPoint) return '';
 
       const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
-      let modeLabel = isJa ? '設備稼働率比較' : 'Efficiency';
+      let modeLabel = t('analytics.mom.modeRateEfficiency') || (isJa ? '設備稼働率比較' : 'Efficiency');
       let unitSuffix = '%';
       let decimals = 1;
       let diffVal = null;
       let betterWhenLower = false;
 
       if (type === 'product' || type === 'products') {
-        modeLabel = isJa ? '不良率比較' : 'Defect Rate';
+        modeLabel = t('analytics.mom.modeRateDefect') || (isJa ? '不良率比較' : 'Defect Rate');
         unitSuffix = '%';
         decimals = 2;
         betterWhenLower = true;
@@ -3116,14 +3344,14 @@ function renderAnalyticsMoMTrajectoryChart(result) {
           diffVal = tPoint.defRateA - tPoint.defRateB;
         }
       } else if (type === 'worker' || type === 'workers') {
-        modeLabel = isJa ? '作業ペース比較' : 'Pace';
+        modeLabel = t('analytics.mom.modeRatePace') || (isJa ? '作業ペース比較' : 'Pace');
         unitSuffix = ' units/h';
         decimals = 0;
         if (tPoint.rateA !== null && tPoint.rateB !== null) {
           diffVal = tPoint.rateA - tPoint.rateB;
         }
       } else {
-        modeLabel = isJa ? '設備稼働率比較' : 'Efficiency';
+        modeLabel = t('analytics.mom.modeRateEfficiency') || (isJa ? '設備稼働率比較' : 'Efficiency');
         unitSuffix = '%';
         decimals = 1;
         if (tPoint.effA !== null && tPoint.effB !== null) {
@@ -3158,7 +3386,7 @@ function renderAnalyticsMoMTrajectoryChart(result) {
         const diffColor = isGood ? '#059669' : '#dc2626';
         const formattedDiff = decimals === 0 ? diffVal.toLocaleString() : diffVal.toFixed(decimals);
         html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
-          <span style="color:${diffColor};">${isJa ? '差異' : 'Variance'}:</span>
+          <span style="color:${diffColor};">${t('analytics.mom.variance') || (isJa ? '差異' : 'Variance')}:</span>
           <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${formattedDiff}<span style="font-size:11px;font-weight:500;">${unitSuffix}</span></span>
         </div>`;
       }
@@ -3210,22 +3438,22 @@ function renderAnalyticsMoMBreakdowns(result) {
   if (!content1 || !content2) return;
 
   if (type === 'product' || type === 'products') {
-    if (title1) title1.innerHTML = '<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>Machine Allocation Shift</span>';
-    if (badge1) badge1.textContent = 'Output by machine';
+    if (title1) title1.innerHTML = `<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownMachineAllocTitle') || 'Machine Allocation Shift'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeOutputByMachine') || 'Output by machine';
 
     const items1 = breakdown1.items || [];
     if (items1.length === 0) {
-      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No machine allocation data found.</div>`;
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noMachineAllocData') || 'No machine allocation data found.'}</div>`;
     } else {
       content1.innerHTML = `
         <table class="min-w-full text-xs divide-y divide-gray-100">
           <thead>
             <tr class="text-left font-semibold text-gray-400">
-              <th class="py-2 pr-2">Machine</th>
+              <th class="py-2 pr-2">${t('analytics.mom.thMachine') || 'Machine'}</th>
               <th class="py-2 px-2 text-right">${monthA}</th>
               <th class="py-2 px-2 text-right">${monthB}</th>
-              <th class="py-2 px-2 text-right">Volume Δ</th>
-              <th class="py-2 pl-2 text-right">Share Δ</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thVolumeDelta') || 'Volume Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
@@ -3252,22 +3480,22 @@ function renderAnalyticsMoMBreakdowns(result) {
       `;
     }
 
-    if (title2) title2.innerHTML = '<i class="ri-alarm-warning-line text-rose-600 mr-2"></i><span>Defect Reason Shift</span>';
-    if (badge2) badge2.textContent = 'Defect share';
+    if (title2) title2.innerHTML = `<i class="ri-alarm-warning-line text-rose-600 mr-2"></i><span>${t('analytics.mom.breakdownDefectReasonTitle') || 'Defect Reason Shift'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeDefectShare') || 'Defect share';
 
     const items2 = breakdown2.items || [];
     if (items2.length === 0) {
-      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No defect records found for this product.</div>`;
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noDefectRecordsProduct') || 'No defect records found for this product.'}</div>`;
     } else {
       content2.innerHTML = `
         <table class="min-w-full text-xs divide-y divide-gray-100">
           <thead>
             <tr class="text-left font-semibold text-gray-400">
-              <th class="py-2 pr-2">Defect Cause</th>
+              <th class="py-2 pr-2">${t('analytics.mom.thDefectCause') || 'Defect Cause'}</th>
               <th class="py-2 px-2 text-right">${monthA}</th>
               <th class="py-2 px-2 text-right">${monthB}</th>
-              <th class="py-2 px-2 text-right">Count Δ</th>
-              <th class="py-2 pl-2 text-right">Share Δ</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thCountDelta') || 'Count Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
@@ -3294,22 +3522,22 @@ function renderAnalyticsMoMBreakdowns(result) {
       `;
     }
   } else if (type === 'worker' || type === 'workers') {
-    if (title1) title1.innerHTML = '<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>Machine Assignment Shift</span>';
-    if (badge1) badge1.textContent = 'Hours & output';
+    if (title1) title1.innerHTML = `<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownMachineAssignTitle') || 'Machine Assignment Shift'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeHoursOutput') || 'Hours & output';
 
     const items1 = breakdown1.items || [];
     if (items1.length === 0) {
-      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No machine assignment data found.</div>`;
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noMachineAssignData') || 'No machine assignment data found.'}</div>`;
     } else {
       content1.innerHTML = `
         <table class="min-w-full text-xs divide-y divide-gray-100">
           <thead>
             <tr class="text-left font-semibold text-gray-400">
-              <th class="py-2 pr-2">Machine</th>
+              <th class="py-2 pr-2">${t('analytics.mom.thMachine') || 'Machine'}</th>
               <th class="py-2 px-2 text-right">${monthA}</th>
               <th class="py-2 px-2 text-right">${monthB}</th>
-              <th class="py-2 px-2 text-right">Output Δ</th>
-              <th class="py-2 pl-2 text-right">Hours Δ</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thOutputDelta') || 'Output Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thHoursDelta') || 'Hours Δ'}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
@@ -3334,22 +3562,22 @@ function renderAnalyticsMoMBreakdowns(result) {
       `;
     }
 
-    if (title2) title2.innerHTML = '<i class="ri-box-3-line text-violet-600 mr-2"></i><span>Product Focus Shift</span>';
-    if (badge2) badge2.textContent = 'Output & defects';
+    if (title2) title2.innerHTML = `<i class="ri-box-3-line text-violet-600 mr-2"></i><span>${t('analytics.mom.breakdownProductFocusTitle') || 'Product Focus Shift'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeOutputDefects') || 'Output & defects';
 
     const items2 = breakdown2.items || [];
     if (items2.length === 0) {
-      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No product records for this worker.</div>`;
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noProductRecordsWorker') || 'No product records for this worker.'}</div>`;
     } else {
       content2.innerHTML = `
         <table class="min-w-full text-xs divide-y divide-gray-100">
           <thead>
             <tr class="text-left font-semibold text-gray-400">
-              <th class="py-2 pr-2">Product</th>
+              <th class="py-2 pr-2">${t('analytics.mom.thProduct') || 'Product'}</th>
               <th class="py-2 px-2 text-right">${monthA}</th>
               <th class="py-2 px-2 text-right">${monthB}</th>
-              <th class="py-2 px-2 text-right">Output Δ</th>
-              <th class="py-2 pl-2 text-right">Defects Δ</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thOutputDelta') || 'Output Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thDefectsDelta') || 'Defects Δ'}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
@@ -3378,8 +3606,8 @@ function renderAnalyticsMoMBreakdowns(result) {
     }
   } else {
     // Machines (default)
-    if (title1) title1.innerHTML = '<i class="ri-pie-chart-2-line text-emerald-600 mr-2"></i><span>Operating Time & Loss Distribution</span>';
-    if (badge1) badge1.textContent = 'Shift allocation';
+    if (title1) title1.innerHTML = `<i class="ri-pie-chart-2-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownTimeLossTitle') || 'Operating Time & Loss Distribution'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeShiftAllocation') || 'Shift allocation';
 
     const renderSingleRow = (title, data, isTarget) => {
       const totHours = data.totalHours || 1;
@@ -3393,22 +3621,22 @@ function renderAnalyticsMoMBreakdowns(result) {
           <div class="flex items-center justify-between text-xs">
             <div class="flex items-center gap-2">
               <span class="font-semibold ${isTarget ? 'text-indigo-600' : 'text-gray-600'}">${title}</span>
-              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">${data.totalHours}h total</span>
+              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">${data.totalHours}h ${t('analytics.mom.totalHoursSuffix') || 'total'}</span>
             </div>
-            <span class="font-bold text-gray-900">${prodPct}% Producing</span>
+            <span class="font-bold text-gray-900">${prodPct}% ${t('analytics.mom.pctProducing') || 'Producing'}</span>
           </div>
 
           <div class="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 shadow-2xs">
-            <div class="bg-emerald-500 transition-all" style="width: ${prodPct}%" title="Producing: ${data.producingHours}h (${prodPct}%)"></div>
-            <div class="bg-sky-400 transition-all" style="width: ${breakPct}%" title="Break: ${data.breakHours}h (${breakPct}%)"></div>
-            <div class="bg-rose-500 transition-all" style="width: ${troublePct}%" title="Trouble: ${data.troubleHours}h (${troublePct}%)"></div>
-            <div class="bg-gray-200 transition-all" style="width: ${idlePct}%" title="Other/Idle: ${idlePct}%"></div>
+            <div class="bg-emerald-500 transition-all" style="width: ${prodPct}%" title="${t('analytics.mom.labelProducing') || 'Producing:'} ${data.producingHours}h (${prodPct}%)"></div>
+            <div class="bg-sky-400 transition-all" style="width: ${breakPct}%" title="${t('analytics.mom.labelBreak') || 'Break:'} ${data.breakHours}h (${breakPct}%)"></div>
+            <div class="bg-rose-500 transition-all" style="width: ${troublePct}%" title="${t('analytics.mom.labelTrouble') || 'Trouble:'} ${data.troubleHours}h (${troublePct}%)"></div>
+            <div class="bg-gray-200 transition-all" style="width: ${idlePct}%" title="${t('analytics.mom.labelIdle') || 'Other/Idle:'} ${idlePct}%"></div>
           </div>
 
           <div class="flex items-center justify-between text-[11px] text-gray-400 pt-0.5">
-            <span>Producing: <strong class="text-emerald-700 font-semibold">${data.producingHours}h</strong></span>
-            <span>Trouble: <strong class="text-rose-600 font-semibold">${data.troubleHours}h</strong></span>
-            <span>Break: <strong class="text-sky-700 font-semibold">${data.breakHours}h</strong></span>
+            <span>${t('analytics.mom.labelProducing') || 'Producing:'} <strong class="text-emerald-700 font-semibold">${data.producingHours}h</strong></span>
+            <span>${t('analytics.mom.labelTrouble') || 'Trouble:'} <strong class="text-rose-600 font-semibold">${data.troubleHours}h</strong></span>
+            <span>${t('analytics.mom.labelBreak') || 'Break:'} <strong class="text-sky-700 font-semibold">${data.breakHours}h</strong></span>
           </div>
         </div>
       `;
@@ -3416,27 +3644,27 @@ function renderAnalyticsMoMBreakdowns(result) {
 
     content1.innerHTML = `
       <div class="space-y-4">
-        ${renderSingleRow(`${monthA} (Target)`, breakdown1.dataA || {}, true)}
-        ${renderSingleRow(`${monthB} (Baseline)`, breakdown1.dataB || {}, false)}
+        ${renderSingleRow(`${monthA} (${t('analytics.mom.target') || 'Target'})`, breakdown1.dataA || {}, true)}
+        ${renderSingleRow(`${monthB} (${t('analytics.mom.baseline') || 'Baseline'})`, breakdown1.dataB || {}, false)}
       </div>
     `;
 
-    if (title2) title2.innerHTML = '<i class="ri-box-3-line text-violet-600 mr-2"></i><span>Product Mix Shift (Top Hinbans)</span>';
-    if (badge2) badge2.textContent = 'Volume & share';
+    if (title2) title2.innerHTML = `<i class="ri-box-3-line text-violet-600 mr-2"></i><span>${t('analytics.mom.breakdownProductMixTitle') || 'Product Mix Shift (Top Hinbans)'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeVolumeShare') || 'Volume & share';
 
     const items2 = breakdown2.items || [];
     if (items2.length === 0) {
-      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">No product records in this comparison range.</div>`;
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noProductRecordsRange') || 'No product records in this comparison range.'}</div>`;
     } else {
       content2.innerHTML = `
         <table class="min-w-full text-xs divide-y divide-gray-100">
           <thead>
             <tr class="text-left font-semibold text-gray-400">
-              <th class="py-2 pr-3">Part / Hinban</th>
+              <th class="py-2 pr-3">${t('analytics.mom.thPartHinban') || 'Part / Hinban'}</th>
               <th class="py-2 px-2 text-right">${monthA}</th>
               <th class="py-2 px-2 text-right">${monthB}</th>
-              <th class="py-2 px-2 text-right">Volume Δ</th>
-              <th class="py-2 pl-2 text-right">Share Δ</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thVolumeDelta') || 'Volume Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
@@ -6388,3 +6616,16 @@ window.closeAnalyticsProductivityRecordModal = closeAnalyticsProductivityRecordM
 window.handleProductivityCellClick = handleProductivityCellClick;
 window.switchProductivityDetailTab = switchProductivityDetailTab;
 window.handleAnalyticsProdModalEdit = handleAnalyticsProdModalEdit;
+window.openAnalyticsMonthPickerModal = openAnalyticsMonthPickerModal;
+window.closeAnalyticsMonthPickerModal = closeAnalyticsMonthPickerModal;
+window.handleAnalyticsMonthPickerModalBackdrop = handleAnalyticsMonthPickerModalBackdrop;
+window.analyticsCalendarChangeYear = analyticsCalendarChangeYear;
+window.analyticsCalendarSelectMonth = analyticsCalendarSelectMonth;
+window.analyticsCalendarSelectThisMonth = analyticsCalendarSelectThisMonth;
+window.updateAnalyticsMoMMonthDisplays = updateAnalyticsMoMMonthDisplays;
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeAnalyticsMonthPickerModal();
+  }
+});
