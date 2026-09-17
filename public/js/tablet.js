@@ -130,6 +130,10 @@ let troubleTimerInterval = null; // Interval for machine trouble timer
 let troubleStartTime = null; // Timestamp when machine trouble started
 let totalBreakHours = 0; // Total accumulated break time in hours
 let totalTroubleHours = 0; // Total accumulated machine trouble time in hours
+let currentTroubleOptions = []; // Trouble items assigned to this tablet
+let currentTroubleName = ''; // Currently selected trouble name
+let currentTroubleDetails = {}; // { [troubleName]: minutes }
+let totalTroubleMinutes = 0; // Total accumulated trouble time in minutes
 
 // 🆕 Equipment-specific OPC variable mappings (loaded dynamically)
 let variableMappings = {
@@ -1102,8 +1106,65 @@ function completeBreak() {
 }
 
 // ============================================================
-// � MACHINE TROUBLE TIMER FUNCTIONALITY
+// 🔧 MACHINE TROUBLE SELECTION & TIMER FUNCTIONALITY
 // ============================================================
+
+// Open trouble selection modal with options for this tablet
+function openTroubleSelectModal() {
+  // If options are not loaded, try to load from cache
+  if (!currentTroubleOptions || currentTroubleOptions.length === 0) {
+    const cached = localStorage.getItem('tablet_trouble_options');
+    if (cached) {
+      try { currentTroubleOptions = JSON.parse(cached); } catch (e) {}
+    }
+  }
+
+  // If still no options defined, fallback directly to generic machine trouble
+  if (!currentTroubleOptions || currentTroubleOptions.length === 0) {
+    selectTroubleAndStart('機械トラブル');
+    return;
+  }
+
+  const overlay = document.getElementById('troubleSelectModalOverlay');
+  const grid = document.getElementById('troubleSelectGrid');
+  if (!overlay || !grid) {
+    selectTroubleAndStart('機械トラブル');
+    return;
+  }
+
+  grid.innerHTML = currentTroubleOptions.map((item, idx) => {
+    const name = typeof item === 'string' ? item : (item.name || '');
+    const safeName = escapeHtml(name).replace(/'/g, "\\'");
+    return `
+      <button type="button" class="trouble-opt-button" onclick="selectTroubleAndStart('${safeName}')">
+        <span class="trouble-opt-badge">${idx + 1}</span>
+        <span style="word-break: break-word;">${escapeHtml(name)}</span>
+      </button>
+    `;
+  }).join('');
+
+  overlay.classList.add('active');
+}
+
+// Close trouble selection modal
+function closeTroubleSelectModal() {
+  const overlay = document.getElementById('troubleSelectModalOverlay');
+  if (overlay) overlay.classList.remove('active');
+}
+
+// Select a specific trouble reason and start timer
+function selectTroubleAndStart(troubleName) {
+  closeTroubleSelectModal();
+  currentTroubleName = troubleName || '機械トラブル';
+  localStorage.setItem('tablet_currentTroubleName', currentTroubleName);
+
+  const activeNameEl = document.getElementById('activeTroubleName');
+  if (activeNameEl) {
+    activeNameEl.textContent = currentTroubleName;
+  }
+
+  startTroubleTimer();
+}
 
 // Start machine trouble timer and show modal
 function startTroubleTimer() {
@@ -1113,9 +1174,15 @@ function startTroubleTimer() {
   // Set trouble start time
   troubleStartTime = new Date();
   localStorage.setItem('troubleStartTime', troubleStartTime.getTime().toString());
-  console.log('🔧 Machine trouble timer started at:', troubleStartTime.toLocaleTimeString());
+  console.log(`🔧 Machine trouble timer started for [${currentTroubleName || '機械トラブル'}] at:`, troubleStartTime.toLocaleTimeString());
   scheduleTabletSessionSync({ immediate: true });
   
+  // Ensure active trouble name is displayed
+  const activeNameEl = document.getElementById('activeTroubleName');
+  if (activeNameEl) {
+    activeNameEl.textContent = currentTroubleName || localStorage.getItem('tablet_currentTroubleName') || '機械トラブル';
+  }
+
   // Show modal
   const modalOverlay = document.getElementById('troubleModalOverlay');
   if (modalOverlay) {
@@ -1168,7 +1235,7 @@ function updateTroubleTimer() {
   }
 }
 
-// Complete machine trouble - close modal and update stopTime
+// Complete machine trouble - close modal and update trouble_details and trouble_time
 function completeTrouble() {
   if (!troubleStartTime) {
     console.warn('⚠️ No machine trouble start time found');
@@ -1178,15 +1245,22 @@ function completeTrouble() {
   // Calculate elapsed time
   const now = new Date();
   const elapsedMs = now - troubleStartTime;
-  const elapsedMinutes = Math.floor(elapsedMs / 60000);
-  const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000);
+  // Calculate elapsed minutes (at least 1 minute if > 0 seconds)
+  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+  const decimalHours = (elapsedMinutes / 60).toFixed(2);
   
-  // Calculate decimal hours (more precise with seconds)
-  const decimalHours = ((elapsedMinutes * 60 + elapsedSeconds) / 3600).toFixed(2);
+  const troubleKey = currentTroubleName || localStorage.getItem('tablet_currentTroubleName') || '機械トラブル';
+  console.log(`🔧 Machine trouble completed for "${troubleKey}": ${elapsedMinutes}m (${decimalHours}h)`);
   
-  console.log(`🔧 Machine trouble completed: ${elapsedMinutes}m ${elapsedSeconds}s = ${decimalHours}h`);
+  // Accumulate minutes in currentTroubleDetails
+  currentTroubleDetails[troubleKey] = (currentTroubleDetails[troubleKey] || 0) + elapsedMinutes;
+  totalTroubleMinutes = Object.values(currentTroubleDetails).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
   
-  // Get current stopTime value and add new trouble time
+  localStorage.setItem('tablet_trouble_details', JSON.stringify(currentTroubleDetails));
+  localStorage.setItem('tablet_totalTroubleMinutes', totalTroubleMinutes.toString());
+  console.log(`🔧 Updated troubleDetails:`, currentTroubleDetails, `Total minutes: ${totalTroubleMinutes}m`);
+
+  // Get current stopTime value and add new trouble time (in hours)
   const stopTimeInput = document.getElementById('stopTime');
   if (stopTimeInput) {
     const currentStopTime = parseFloat(stopTimeInput.value) || 0;
@@ -1204,7 +1278,9 @@ function completeTrouble() {
   // Stop timer and close modal
   stopTroubleTimer();
   troubleStartTime = null;
+  currentTroubleName = '';
   localStorage.removeItem('troubleStartTime');
+  localStorage.removeItem('tablet_currentTroubleName');
   
   const modalOverlay = document.getElementById('troubleModalOverlay');
   if (modalOverlay) {
@@ -1397,12 +1473,37 @@ function restoreAllFields() {
       }
     }
     
+    // Restore trouble details and total trouble minutes
+    const savedTroubleDetails = localStorage.getItem('tablet_trouble_details');
+    if (savedTroubleDetails) {
+      try {
+        currentTroubleDetails = JSON.parse(savedTroubleDetails);
+        totalTroubleMinutes = Object.values(currentTroubleDetails).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+        console.log('📦 Restored troubleDetails:', currentTroubleDetails, `Total minutes: ${totalTroubleMinutes}m`);
+      } catch (e) {
+        console.error('Failed to parse saved troubleDetails:', e);
+      }
+    }
+    const savedTroubleMinutes = localStorage.getItem('tablet_totalTroubleMinutes');
+    if (savedTroubleMinutes) {
+      totalTroubleMinutes = parseFloat(savedTroubleMinutes) || totalTroubleMinutes;
+    }
+    const savedTroubleHours = localStorage.getItem('tablet_totalTroubleHours');
+    if (savedTroubleHours !== null) {
+      totalTroubleHours = parseFloat(savedTroubleHours) || totalTroubleHours;
+    }
+
     // Restart machine trouble timer if active trouble exists
     const savedTroubleStartTime = localStorage.getItem('troubleStartTime');
     if (savedTroubleStartTime) {
       try {
         troubleStartTime = new Date(parseInt(savedTroubleStartTime));
-        console.log('🔧 Restoring active machine trouble from:', troubleStartTime.toLocaleTimeString());
+        currentTroubleName = localStorage.getItem('tablet_currentTroubleName') || '機械トラブル';
+        const activeNameEl = document.getElementById('activeTroubleName');
+        if (activeNameEl) {
+          activeNameEl.textContent = currentTroubleName;
+        }
+        console.log(`🔧 Restoring active machine trouble [${currentTroubleName}] from:`, troubleStartTime.toLocaleTimeString());
         
         // Show modal
         const modalOverlay = document.getElementById('troubleModalOverlay');
@@ -1675,6 +1776,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Load product info to determine kensaMembers
   await loadProductInfo();
+
+  // Load tablet-assigned trouble options
+  await loadTabletTroubleOptions();
   
   // Restore all fields from localStorage
   restoreAllFields();
@@ -2101,6 +2205,40 @@ async function loadProductInfo() {
   }
   // Product will be loaded when kanban value comes in
   console.log('👁️ Waiting for OPC kanban value to load product info...');
+}
+
+// Load trouble options assigned to this tablet from server
+async function loadTabletTroubleOptions() {
+  try {
+    const authData = localStorage.getItem('tabletAuth');
+    const auth = authData ? JSON.parse(authData) : {};
+    const tabletName = auth.tabletName || auth.tablet?.tabletName || getURLParameter('tabletName') || '';
+    const dbName = auth.dbName || 'KSG';
+
+    // Load from cache first for immediate responsiveness
+    const cached = localStorage.getItem('tablet_trouble_options');
+    if (cached) {
+      try {
+        currentTroubleOptions = JSON.parse(cached);
+      } catch (e) {}
+    }
+
+    if (tabletName) {
+      const res = await fetch(`${API_URL}/getTabletTroubleOptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dbName, tabletName })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        currentTroubleOptions = data.items || [];
+        localStorage.setItem('tablet_trouble_options', JSON.stringify(currentTroubleOptions));
+        console.log('🔧 Loaded trouble options for tablet:', tabletName, currentTroubleOptions);
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Could not load tablet trouble options:', e.message);
+  }
 }
 
 // Load product info by kanbanID (called when kenyokiRHKanban value updates)
@@ -2838,6 +2976,8 @@ async function sendData() {
       開始時間: startTimeValue,
       終了時間: endTimeInput?.value || '',
       休憩時間: totalBreakHours || 0,
+      trouble_time: totalTroubleMinutes || 0,
+      trouble_details: currentTroubleDetails || {},
       機械トラブル時間: totalTroubleHours || 0,
       備考: document.getElementById('remarks')?.textContent || '',
       '工数（除外工数）': 0
@@ -2852,6 +2992,12 @@ async function sendData() {
       data: submissionData,
       savedAt: new Date().toISOString()
     }));
+
+    // Update 作業数 display on uploading modal
+    const uploadingWorkCountEl = document.getElementById('uploadingWorkCount');
+    if (uploadingWorkCountEl) {
+      uploadingWorkCountEl.textContent = Number(workCountValue).toLocaleString();
+    }
 
     // Show uploading modal
     const uploadingModal = document.getElementById('uploadingModalOverlay');
@@ -2972,8 +3118,14 @@ function clearAllFields() {
     // Reset break/trouble hour accumulators
     totalBreakHours = 0;
     totalTroubleHours = 0;
+    totalTroubleMinutes = 0;
+    currentTroubleDetails = {};
+    currentTroubleName = '';
     localStorage.removeItem('tablet_totalBreakHours');
     localStorage.removeItem('tablet_totalTroubleHours');
+    localStorage.removeItem('tablet_totalTroubleMinutes');
+    localStorage.removeItem('tablet_trouble_details');
+    localStorage.removeItem('tablet_currentTroubleName');
     console.log('🔄 Reset break/trouble time accumulators');
     
     // Clear all localStorage
@@ -3029,6 +3181,14 @@ async function resubmitPendingData(submissionData) {
   const auth = JSON.parse(authData);
   const tabletName = auth.tablet?.tabletName || auth.tabletName || '';
 
+  const uploadingModal = document.getElementById('uploadingModalOverlay');
+  const uploadingWorkCountEl = document.getElementById('uploadingWorkCount');
+  if (uploadingWorkCountEl) {
+    const rawCount = submissionData?.作業数 || document.getElementById('workCount')?.value || 0;
+    uploadingWorkCountEl.textContent = Number(rawCount).toLocaleString();
+  }
+  if (uploadingModal) uploadingModal.classList.add('active');
+
   try {
     const response = await fetch(`${API_URL}/api/tablet/submit`, {
       method: 'POST',
@@ -3043,8 +3203,10 @@ async function resubmitPendingData(submissionData) {
     const result = await response.json();
     if (response.ok && result.success) {
       localStorage.removeItem(PENDING_SUBMISSION_KEY);
+      if (uploadingModal) uploadingModal.classList.remove('active');
       alert('再送信が成功しました！\nData resubmitted successfully!');
     } else {
+      if (uploadingModal) uploadingModal.classList.remove('active');
       alert(
         '再送信に失敗しました。後で再試行してください。\n' +
         'Retry failed — data is still saved for the next attempt.\n\n' +
@@ -3052,6 +3214,7 @@ async function resubmitPendingData(submissionData) {
       );
     }
   } catch (error) {
+    if (uploadingModal) uploadingModal.classList.remove('active');
     alert('再送信エラー: ' + error.message + '\n\nデータは保存されたままです。\nData is still saved.');
   }
 }
@@ -3070,8 +3233,8 @@ function setWorkStopTime() {
 }
 
 function setWorkEndTime() {
-  console.log('🔧 Machine trouble clicked - starting trouble timer');
-  startTroubleTimer();
+  console.log('🔧 Machine trouble clicked - opening trouble selection');
+  openTroubleSelectModal();
 }
 
 function addInspectionCount() {

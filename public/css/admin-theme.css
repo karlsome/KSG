@@ -1,0 +1,507 @@
+/**
+ * Sasaki Coating Management System - Universal Admin Theme
+ * Provides consistent typography, compact data tables, and refined modal sizing
+ * Benchmark: Analytics Dashboard
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Font Families */
+  --admin-font-sans: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans', sans-serif;
+  --admin-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Typography Scale */
+  --admin-text-3xs: 0.625rem;  /* 10px - Micro badges */
+  --admin-text-2xs: 0.6875rem; /* 11px - Secondary meta */
+  --admin-text-xs: 0.75rem;    /* 12px - Standard Table cells, Headers & Form controls */
+  --admin-text-sm: 0.8125rem;  /* 13px - Compact primary text */
+  --admin-text-base: 0.875rem; /* 14px - Regular body text */
+  --admin-text-md: 1rem;       /* 16px - Section titles & Modal headers */
+  --admin-text-lg: 1.125rem;   /* 18px */
+  --admin-text-xl: 1.25rem;    /* 20px - Subsection headers */
+  --admin-text-2xl: 1.5rem;    /* 24px - Page titles */
+
+  /* Spacing Tokens */
+  --admin-cell-py: 0.5rem;     /* 8px */
+  --admin-cell-px: 0.75rem;    /* 12px */
+  --admin-input-py: 0.375rem;  /* 6px */
+  --admin-input-px: 0.75rem;   /* 12px */
+}
+
+/* Base Typography Application */
+html,
+body,
+button,
+input,
+select,
+textarea,
+optgroup {
+  font-family: var(--admin-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-feature-settings: "palt" 1;
+}
+
+/* Tabular numbers for clean vertical alignment in all tables and stats */
+.tabular-nums,
+table td,
+table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Universal Admin Tables (Matching Analytics Standard)
+   ========================================================================== */
+
+.admin-table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--admin-text-xs);
+}
+
+.admin-table th {
+  padding: var(--admin-cell-py) var(--admin-cell-px);
+  font-size: var(--admin-text-xs);
+  font-weight: 600;
+  color: #4b5563;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #f3f4f6;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.admin-table td {
+  padding: var(--admin-cell-py) var(--admin-cell-px);
+  font-size: var(--admin-text-xs);
+  color: #4b5563;
+  border-bottom: 1px solid #f9fafb;
+  white-space: nowrap;
+}
+
+.admin-table tbody tr:hover {
+  background-color: rgba(249, 250, 251, 0.75);
+}
+
+/* MasterDB & Admin Container Tables: Enforce compact 12px font & 34-36px row height */
+#masterTableContainer table,
+#factoryTableContainer table,
+#equipmentTableContainer table,
+#rolesTableContainer table,
+#departmentTableContainer table,
+#sectionTableContainer table,
+#rpiServerTableContainer table,
+#tabletTableContainer table,
+#masterNGTableContainer table,
+#troubleTableContainer table,
+#masterHistoryContainer table,
+#factoryHistoryContainer table,
+#equipmentHistoryContainer table,
+#opcuaTableContainer table,
+#userTableContainer table,
+#submittedTableContainer table,
+#opc-raw-data-container table,
+#opc-variables-container table {
+  font-size: var(--admin-text-xs) !important;
+}
+
+#masterTableContainer th,
+#factoryTableContainer th,
+#equipmentTableContainer th,
+#rolesTableContainer th,
+#departmentTableContainer th,
+#sectionTableContainer th,
+#rpiServerTableContainer th,
+#tabletTableContainer th,
+#masterNGTableContainer th,
+#troubleTableContainer th,
+#masterHistoryContainer th,
+#factoryHistoryContainer th,
+#equipmentHistoryContainer th,
+#opcuaTableContainer th,
+#userTableContainer th,
+#submittedTableContainer th,
+#opc-raw-data-container th,
+#opc-variables-container th {
+  padding: 0.5rem 0.75rem !important;
+  font-size: var(--admin-text-xs) !important;
+  font-weight: 600 !important;
+  color: #4b5563 !important;
+  line-height: 1.25rem !important;
+}
+
+#masterTableContainer td,
+#factoryTableContainer td,
+#equipmentTableContainer td,
+#rolesTableContainer td,
+#departmentTableContainer td,
+#sectionTableContainer td,
+#rpiServerTableContainer td,
+#tabletTableContainer td,
+#masterNGTableContainer td,
+#troubleTableContainer td,
+#masterHistoryContainer td,
+#factoryHistoryContainer td,
+#equipmentHistoryContainer td,
+#opcuaTableContainer td,
+#userTableContainer td,
+#submittedTableContainer td,
+#opc-raw-data-container td,
+#opc-variables-container td {
+  padding: 0.5rem 0.75rem !important;
+  font-size: var(--admin-text-xs) !important;
+  line-height: 1.25rem !important;
+}
+
+/* Compact Checkbox in Tables */
+table th input[type="checkbox"],
+table td input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 0.25rem;
+  border-color: #d1d5db;
+  accent-color: #4f46e5;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* ==========================================================================
+   Universal Modal Sizing & Form Inputs
+   ========================================================================== */
+
+#detailModal,
+#quickCreateModal,
+#ngGroupModal,
+#troubleGroupModal,
+#deleteConfirmModal,
+#csvUploadModal,
+#googleSheetTargetModal,
+#opc-conversion-modal,
+#opc-combine-modal,
+#opc-edit-variable-modal,
+#scan-result-modal,
+#dataDetailModal,
+#combinedVariableModal {
+  font-family: var(--admin-font-sans);
+}
+
+/* Modal Headers */
+#detailModal h2,
+#detailModal h3,
+#quickCreateModal h2,
+#quickCreateModal h3,
+#ngGroupModal h2,
+#ngGroupModal h3,
+#troubleGroupModal h2,
+#troubleGroupModal h3,
+#deleteConfirmModal h2,
+#deleteConfirmModal h3,
+#csvUploadModal h2,
+#csvUploadModal h3,
+#googleSheetTargetModal h2,
+#googleSheetTargetModal h3,
+#opc-conversion-modal h3,
+#opc-combine-modal h3,
+#opc-edit-variable-modal h3,
+#scan-result-modal h3,
+#dataDetailModal h2,
+#combinedVariableModal h2 {
+  font-size: var(--admin-text-md) !important;
+  line-height: 1.5rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  color: #111827 !important;
+}
+
+/* Modal Labels */
+#detailModal label,
+#quickCreateModal label,
+#ngGroupModal label,
+#troubleGroupModal label,
+#googleSheetTargetModal label,
+#opc-conversion-modal label,
+#opc-combine-modal label,
+#opc-edit-variable-modal label,
+#dataDetailModal label,
+#combinedVariableModal label {
+  font-size: var(--admin-text-xs) !important;
+  font-weight: 600 !important;
+  color: #4b5563 !important;
+  margin-bottom: 0.25rem !important;
+  display: block;
+}
+
+/* Modal Form Inputs & Selects */
+#detailModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#detailModal select,
+#detailModal textarea,
+#quickCreateModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#quickCreateModal select,
+#quickCreateModal textarea,
+#ngGroupModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#ngGroupModal select,
+#ngGroupModal textarea,
+#troubleGroupModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#troubleGroupModal select,
+#troubleGroupModal textarea,
+#googleSheetTargetModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#googleSheetTargetModal select,
+#googleSheetTargetModal textarea,
+#opc-conversion-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#opc-conversion-modal select,
+#opc-combine-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#opc-combine-modal select,
+#opc-edit-variable-modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#opc-edit-variable-modal select,
+#combinedVariableModal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+#combinedVariableModal select {
+  font-size: var(--admin-text-xs) !important;
+  line-height: 1.25rem !important;
+  padding: var(--admin-input-py) var(--admin-input-px) !important;
+  min-height: 2.125rem !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid #e5e7eb;
+  color: #1f2937;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* Disabled state */
+#detailModal input:disabled,
+#detailModal select:disabled,
+#detailModal textarea:disabled {
+  background-color: #f9fafb !important;
+  color: #374151 !important;
+  border-color: #f3f4f6 !important;
+}
+
+/* Active / Editable state */
+#detailModal input:not(:disabled),
+#detailModal select:not(:disabled),
+#detailModal textarea:not(:disabled),
+#quickCreateModal input:not(:disabled),
+#quickCreateModal select:not(:disabled),
+#quickCreateModal textarea:not(:disabled),
+#ngGroupModal input:not(:disabled),
+#ngGroupModal select:not(:disabled),
+#ngGroupModal textarea:not(:disabled),
+#troubleGroupModal input:not(:disabled),
+#troubleGroupModal select:not(:disabled),
+#troubleGroupModal textarea:not(:disabled),
+#opc-conversion-modal input:not(:disabled),
+#opc-conversion-modal select:not(:disabled),
+#opc-combine-modal input:not(:disabled),
+#opc-combine-modal select:not(:disabled),
+#opc-edit-variable-modal input:not(:disabled),
+#opc-edit-variable-modal select:not(:disabled),
+#combinedVariableModal input:not(:disabled),
+#combinedVariableModal select:not(:disabled) {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+/* Focus state */
+#detailModal input:focus,
+#detailModal select:focus,
+#detailModal textarea:focus,
+#quickCreateModal input:focus,
+#quickCreateModal select:focus,
+#quickCreateModal textarea:focus,
+#ngGroupModal input:focus,
+#ngGroupModal select:focus,
+#ngGroupModal textarea:focus,
+#troubleGroupModal input:focus,
+#troubleGroupModal select:focus,
+#troubleGroupModal textarea:focus,
+#googleSheetTargetModal input:focus,
+#googleSheetTargetModal select:focus,
+#googleSheetTargetModal textarea:focus,
+#opc-conversion-modal input:focus,
+#opc-conversion-modal select:focus,
+#opc-combine-modal input:focus,
+#opc-combine-modal select:focus,
+#opc-edit-variable-modal input:focus,
+#opc-edit-variable-modal select:focus,
+#combinedVariableModal input:focus,
+#combinedVariableModal select:focus {
+  border-color: #6366f1 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px #6366f1 !important;
+}
+
+/* Modal Action Buttons */
+#detailModal .border-t button,
+#quickCreateModal .border-t button,
+#ngGroupModal .border-t button,
+#troubleGroupModal .border-t button,
+#deleteConfirmModal .border-t button,
+#csvUploadModal .border-t button,
+#googleSheetTargetModal .border-t button,
+#opc-conversion-modal .border-t button,
+#opc-combine-modal .border-t button,
+#opc-edit-variable-modal .border-t button,
+#scan-result-modal .border-t button,
+#dataDetailModal .border-t button,
+#combinedVariableModal .border-t button {
+  font-size: var(--admin-text-xs) !important;
+  padding: 0.375rem 0.875rem !important;
+  border-radius: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+/* Typography Scale Helper Utilities */
+.text-3xs {
+  font-size: var(--admin-text-3xs) !important;
+  line-height: 0.75rem !important;
+}
+
+.text-2xs {
+  font-size: var(--admin-text-2xs) !important;
+  line-height: 0.875rem !important;
+}
+
+.text-xs {
+  font-size: var(--admin-text-xs) !important;
+  line-height: 1.25rem !important;
+}
+
+/* ==========================================================================
+   Live Value Change Animation (Dashboard Real-time Indicators)
+   ========================================================================== */
+@keyframes liveValueFlash {
+  0% {
+    background-color: rgba(99, 102, 241, 0.28);
+    color: #4338ca;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    transform: scale(1.05);
+  }
+  30% {
+    background-color: rgba(99, 102, 241, 0.16);
+    transform: scale(1.02);
+  }
+  100% {
+    background-color: transparent;
+    color: inherit;
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+.live-value-changed {
+  display: inline-block;
+  animation: liveValueFlash 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  transform-origin: center center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-value-changed {
+    animation-duration: 0.5s;
+    transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   Collapsible Mini-Sidebar (Desktop Icon Rail + Hover Expand, Mobile Drawer)
+   ========================================================================== */
+
+/* Desktop (>= 768px): Icon rail with smooth hover expansion */
+@media (min-width: 768px) {
+  #sidebar {
+    width: 4rem !important; /* 64px icon rail */
+    transform: translateX(0) !important;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease;
+    overflow-x: hidden;
+  }
+
+  #sidebar:hover {
+    width: 16rem !important; /* 256px expanded */
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Logo container */
+  #sidebarLogoContainer {
+    height: 4rem;
+    padding: 0.5rem 0.25rem;
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
+  }
+
+  #sidebar:hover #sidebarLogoContainer {
+    height: 6rem;
+    padding: 1rem;
+  }
+
+  /* Logo scaling */
+  #sidebarLogo {
+    height: 2rem; /* Retains the small compact size when hidden/collapsed */
+    max-width: 100%;
+    object-fit: contain;
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  #sidebar:hover #sidebarLogo {
+    height: 4rem; /* 64px = h-16 (exact same size as before!) */
+  }
+
+  /* Nav Links in mini rail: centered icon when collapsed, left aligned with gap when hovered */
+  #sidebar #dynamicNav a {
+    transition: gap 0.25s ease, padding 0.25s ease;
+  }
+
+  #sidebar:not(:hover) #dynamicNav a {
+    gap: 0;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Text label animation */
+  #sidebar .sidebar-label {
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    transition: opacity 0.18s ease, max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+  }
+
+  #sidebar:hover .sidebar-label {
+    opacity: 1;
+    max-width: 180px;
+    pointer-events: auto;
+  }
+}
+
+/* Mobile (< 768px): Off-screen drawer toggled by hamburger */
+@media (max-width: 767px) {
+  #sidebar {
+    width: 16rem !important; /* 256px drawer */
+    transition: transform 0.3s ease-in-out;
+  }
+
+  #sidebar .sidebar-label {
+    opacity: 1 !important;
+    max-width: none !important;
+    pointer-events: auto !important;
+  }
+
+  #sidebarLogoContainer {
+    height: 6rem;
+    padding: 1rem;
+  }
+
+  #sidebarLogo {
+    height: 4rem; /* 64px = h-16 (exact same size as before) */
+    max-width: 100%;
+    object-fit: contain;
+  }
+}
+
+
+

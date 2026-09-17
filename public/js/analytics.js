@@ -7,11 +7,19 @@ window.addEventListener('languageChanged', () => {
   analyticsSyncShiftControls();
   if (analyticsData) renderAnalytics(analyticsData);
   analyticsUpdateFilterOptionLabels();
+  if (analyticsMoMData) renderAnalyticsMoM(analyticsMoMData);
+  updateAnalyticsMoMControlsLanguage();
+  updateAnalyticsProductivityMonthDisplay();
+  updateAnalyticsMoMMonthDisplays();
+  const calModal = document.getElementById('analyticsMonthPickerModal');
+  if (calModal && !calModal.classList.contains('hidden')) {
+    renderAnalyticsCalendarGrid();
+  }
 });
 
 let analyticsRequestId = 0;
 let analyticsCharts = {};
-let analyticsActiveTab = 'overview';
+let analyticsActiveTab = 'productivity';
 let analyticsData = null;
 const ANALYTICS_SHIFT_STORAGE_KEY = 'analyticsWorkerShiftProfile';
 const ANALYTICS_DEFAULT_SHIFT_LABEL = '__analytics_default_shift__';
@@ -318,12 +326,12 @@ function analyticsGetCardValueLayoutClass(card = {}) {
 
 function analyticsGetSummaryCardsMarkup(cards = []) {
   return cards.map(card => `
-    <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+    <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-gray-200">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-medium text-gray-500">${card.title || card.eyebrow || ''}${card.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(card.info)}"></i>` : ''}</p>
-          <p class="mt-4 max-w-full font-semibold leading-tight ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}${card.delta || ''}</p>
-          <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.detail || card.subtext || ''}</p>
+          <p class="text-xs font-medium text-gray-500">${card.title || card.eyebrow || ''}${card.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(card.info)}"></i>` : ''}</p>
+          <p class="mt-3 max-w-full font-semibold leading-tight tracking-tight tabular-nums ${analyticsGetCardValueLayoutClass(card)} ${analyticsGetCardValueSizeClass(card)} ${analyticsGetCardValueClass(card)}" title="${analyticsEscapeHtml(analyticsGetCardValueText(card))}">${card.value}${card.delta || ''}</p>
+          <p class="mt-1 text-xs text-gray-400 font-medium tabular-nums truncate" title="${analyticsEscapeHtml(card.detail || card.subtext || '')}">${card.detail || card.subtext || ''}</p>
         </div>
         ${card.icon ? `<div class="shrink-0 rounded-2xl px-3 py-2 ${card.tone || 'bg-gray-100 text-gray-700'}"><i class="${card.icon} text-xl"></i></div>` : ''}
       </div>
@@ -486,6 +494,15 @@ function analyticsUpdateTabState() {
     panel.classList.toggle('hidden', panel.getAttribute('data-analytics-panel') !== analyticsActiveTab);
   });
 
+  // Toggle global filters and scope summary when on MoM or Productivity tab
+  const isMoM = analyticsActiveTab === 'mom';
+  const isProductivity = analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview';
+  const hideGlobalFilters = isMoM || isProductivity;
+  const globalFilterCard = document.getElementById('analyticsGlobalFilterCard');
+  if (globalFilterCard) globalFilterCard.classList.toggle('hidden', hideGlobalFilters);
+  const scopeSummary = document.getElementById('analyticsScopeSummarySection');
+  if (scopeSummary) scopeSummary.classList.toggle('hidden', hideGlobalFilters);
+
   // Handle filter visibility dynamically
   const cSource = document.getElementById('filter-container-source');
   const cLhrh = document.getElementById('filter-container-lhrh');
@@ -498,11 +515,23 @@ function analyticsUpdateTabState() {
   if (cOperator) cOperator.classList.toggle('hidden', !['worker'].includes(analyticsActiveTab));
 }
 
-function setAnalyticsTab(tabName) {
-  analyticsActiveTab = tabName || 'overview';
+function setAnalyticsTab(tabName, updateHash = true) {
+  analyticsActiveTab = tabName || 'productivity';
   analyticsUpdateTabState();
-  renderAnalyticsActiveTab();
+  if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
+    initAnalyticsProductivity();
+    loadAnalyticsProductivity();
+  } else if (analyticsActiveTab === 'mom') {
+    initAnalyticsMoM(analyticsData);
+    loadAnalyticsMoM();
+  } else {
+    renderAnalyticsActiveTab();
+  }
   if (typeof analyticsSaveViewState === 'function') analyticsSaveViewState();
+
+  if (updateHash && typeof window.updateSubTabHash === 'function') {
+    window.updateSubTabHash('analytics', analyticsActiveTab);
+  }
 }
 
 function analyticsGetHighestBy(items = [], valueSelector, filterSelector = null) {
@@ -526,7 +555,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
       value: t('analytics.meta.rangeValuePattern')
         .replace('{start}', analyticsEscapeHtml(filters.startDate || t('analytics.meta.all')))
         .replace('{end}', analyticsEscapeHtml(filters.endDate || t('analytics.meta.all'))),
-      tone: 'border-slate-100 bg-slate-50'
+      tone: 'border-gray-100 bg-gray-50'
     },
     {
       label: t('analytics.meta.records'),
@@ -641,204 +670,1273 @@ function renderAnalyticsKpis(summary, previousSummary = null) {
   analyticsRenderCardGrid('analyticsKpiGrid', cards);
 }
 
-function renderAnalyticsOverviewTrendChart(dailyTrend) {
-  if (!Array.isArray(dailyTrend) || dailyTrend.length === 0) {
-    analyticsShowChartEmpty('analyticsTrendChart', t('analytics.overview.noTrendData'));
+// ==========================================================================
+// Productivity (生産性) Tab Implementation
+// Replicates physical factory whiteboard (220/1人h活動)
+// ==========================================================================
+let analyticsProductivityData = null;
+let analyticsProductivityCharts = new Map();
+
+let analyticsCalendarViewYear = 2026;
+let analyticsCalendarTargetInputId = 'analyticsProductivityMonth';
+
+function analyticsFormatMonthDisplay(ym) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  const now = new Date();
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYm = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+  const isCurrent = ym === curYm;
+  const isPrev = ym === prevYm;
+
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const tag = isCurrent ? (isJa ? ' (当月)' : ' (Current)') : (isPrev ? (isJa ? ' (前月)' : ' (Prev)') : '');
+
+  return isJa ? `${y}年${Number(m)}月${tag}` : `${new Date(Number(y), Number(m) - 1).toLocaleString('en-US', { month: 'short' })} ${y}${tag}`;
+}
+
+function updateAnalyticsProductivityMonthDisplay() {
+  const input = document.getElementById('analyticsProductivityMonth');
+  const display = document.getElementById('analyticsProductivityMonthDisplay');
+  if (!input || !display) return;
+  display.textContent = analyticsFormatMonthDisplay(input.value);
+}
+
+function updateAnalyticsMoMMonthDisplays() {
+  const inputA = document.getElementById('analyticsMoMMonthA');
+  const displayA = document.getElementById('analyticsMoMMonthADisplay');
+  const inputB = document.getElementById('analyticsMoMMonthB');
+  const displayB = document.getElementById('analyticsMoMMonthBDisplay');
+
+  if (displayA && inputA) {
+    displayA.textContent = analyticsFormatMonthDisplay(inputA.value || analyticsMoMMonthA);
+  }
+  if (displayB && inputB) {
+    displayB.textContent = analyticsFormatMonthDisplay(inputB.value || analyticsMoMMonthB);
+  }
+}
+
+function openAnalyticsMonthPickerModal(targetId = 'analyticsProductivityMonth') {
+  analyticsCalendarTargetInputId = targetId;
+  const modal = document.getElementById('analyticsMonthPickerModal');
+  if (!modal) return;
+  const input = document.getElementById(targetId);
+  const currentYm = input?.value || '';
+  if (currentYm) {
+    const [y] = currentYm.split('-');
+    if (Number(y)) analyticsCalendarViewYear = parseInt(y, 10);
+  } else {
+    analyticsCalendarViewYear = new Date().getFullYear();
+  }
+  renderAnalyticsCalendarGrid();
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAnalyticsMonthPickerModal() {
+  const modal = document.getElementById('analyticsMonthPickerModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
+  }
+}
+
+function handleAnalyticsMonthPickerModalBackdrop(event) {
+  if (event.target === event.currentTarget) {
+    closeAnalyticsMonthPickerModal();
+  }
+}
+
+function analyticsCalendarChangeYear(delta) {
+  analyticsCalendarViewYear += delta;
+  renderAnalyticsCalendarGrid();
+}
+
+function analyticsCalendarSelectMonth(year, month) {
+  const mm = String(month).padStart(2, '0');
+  const ym = `${year}-${mm}`;
+  const targetId = analyticsCalendarTargetInputId || 'analyticsProductivityMonth';
+  const input = document.getElementById(targetId);
+  if (input) {
+    input.value = ym;
+  }
+
+  if (targetId === 'analyticsMoMMonthA') {
+    analyticsMoMMonthA = ym;
+    updateAnalyticsMoMMonthDisplays();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsMoM();
+  } else if (targetId === 'analyticsMoMMonthB') {
+    analyticsMoMMonthB = ym;
+    updateAnalyticsMoMMonthDisplays();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsMoM();
+  } else {
+    updateAnalyticsProductivityMonthDisplay();
+    closeAnalyticsMonthPickerModal();
+    loadAnalyticsProductivity();
+  }
+}
+
+function analyticsCalendarSelectThisMonth() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  analyticsCalendarSelectMonth(y, m);
+}
+
+function renderAnalyticsCalendarGrid() {
+  const yearDisplay = document.getElementById('analyticsCalendarYearDisplay');
+  const targetLabel = document.getElementById('analyticsCalendarTargetLabel');
+  const grid = document.getElementById('analyticsCalendarMonthGrid');
+  const selectedDisplay = document.getElementById('analyticsCalendarSelectedDisplay');
+  const targetId = analyticsCalendarTargetInputId || 'analyticsProductivityMonth';
+  const input = document.getElementById(targetId);
+
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const selectedYm = input?.value || '';
+  const now = new Date();
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  if (yearDisplay) {
+    yearDisplay.textContent = isJa ? `${analyticsCalendarViewYear}年` : `${analyticsCalendarViewYear}`;
+  }
+
+  if (targetLabel) {
+    if (targetId === 'analyticsMoMMonthA') {
+      targetLabel.textContent = isJa ? '対象月' : 'Target';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100/80';
+    } else if (targetId === 'analyticsMoMMonthB') {
+      targetLabel.textContent = isJa ? '比較月' : 'Baseline';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-100/80';
+    } else {
+      targetLabel.textContent = isJa ? '対象月' : 'Target';
+      targetLabel.className = 'text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100/80';
+    }
+  }
+
+  if (selectedDisplay) {
+    if (selectedYm) {
+      const sVal = analyticsFormatMonthDisplay(selectedYm);
+      selectedDisplay.textContent = isJa ? `選択中: ${sVal}` : `Selected: ${sVal}`;
+    } else {
+      selectedDisplay.textContent = '';
+    }
+  }
+
+  if (!grid) return;
+
+  const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  grid.innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const ym = `${analyticsCalendarViewYear}-${String(m).padStart(2, '0')}`;
+    const isSelected = ym === selectedYm;
+    const isThisMonth = ym === curYm;
+
+    const label = isJa ? `${m}月` : monthNamesEn[i];
+
+    let btnClass = '';
+    let badgeHtml = '';
+
+    if (isSelected) {
+      btnClass = 'bg-indigo-600 text-white font-bold shadow-xs hover:bg-indigo-700 ring-2 ring-indigo-600 ring-offset-2';
+    } else if (isThisMonth) {
+      btnClass = 'border-2 border-indigo-400 bg-indigo-50/60 text-indigo-700 font-bold hover:bg-indigo-100 hover:border-indigo-500';
+      badgeHtml = `<span class="absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-600" title="${isJa ? '当月' : 'Current'}"></span>`;
+    } else {
+      btnClass = 'border border-gray-200 bg-gray-50/50 hover:bg-indigo-50/50 hover:border-indigo-200 hover:text-indigo-600 text-gray-700 font-semibold';
+    }
+
+    return `
+      <button type="button"
+        onclick="analyticsCalendarSelectMonth(${analyticsCalendarViewYear}, ${m})"
+        class="relative h-12 rounded-xl text-sm transition-all flex flex-col items-center justify-center cursor-pointer ${btnClass}">
+        <span>${label}</span>
+        ${badgeHtml}
+      </button>
+    `;
+  }).join('');
+}
+
+function initAnalyticsProductivity() {
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    monthInput.value = `${y}-${m}`;
+  }
+  updateAnalyticsProductivityMonthDisplay();
+  handleAnalyticsProductivityTargetChange(false);
+}
+
+function handleAnalyticsProductivityTargetChange(shouldReload = true) {
+  const targetInput = document.getElementById('analyticsProductivityTarget');
+  const targetDisplay = document.getElementById('analyticsProductivityTargetDisplay');
+  if (targetInput && targetDisplay) {
+    targetDisplay.textContent = targetInput.value || '220';
+  }
+  if (shouldReload) {
+    loadAnalyticsProductivity();
+  }
+}
+
+async function loadAnalyticsProductivity() {
+  const container = document.getElementById('analyticsProductivityContainer');
+  if (!container) return;
+
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  const sourceSelect = document.getElementById('analyticsProductivitySource');
+  const operatorSelect = document.getElementById('analyticsProductivityOperator');
+  const targetInput = document.getElementById('analyticsProductivityTarget');
+  const warningInput = document.getElementById('analyticsProductivityWarning');
+  const month = monthInput?.value || '';
+  const source = sourceSelect?.value || 'all';
+  const operator = operatorSelect?.value || 'all';
+  const target = targetInput && Number(targetInput.value) > 0 ? Number(targetInput.value) : null;
+  const warning = warningInput && Number(warningInput.value) > 0 ? Number(warningInput.value) : null;
+
+  // Show loading state
+  container.innerHTML = `
+    <div class="flex items-center justify-center py-16 text-gray-400">
+      <div class="flex flex-col items-center gap-3">
+        <div class="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
+        <p class="text-sm font-medium text-gray-500">生産性データを集計中...</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    const params = new URLSearchParams();
+    if (month) params.set('month', month);
+    if (source && source !== 'all') params.set('source', source);
+    if (operator && operator !== 'all') params.set('operator', operator);
+    if (target != null) params.set('target', target);
+    if (warning != null) params.set('warning', warning);
+
+    const response = await fetch(`${API_URL}/api/admin/analytics/productivity?${params.toString()}`, {
+      headers: analyticsGetAuthHeaders()
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load productivity data');
+    }
+
+    analyticsProductivityData = result;
+
+    // Update filter dropdown options dynamically while preserving selection
+    if (sourceSelect && result.filterOptions) {
+      const currentVal = sourceSelect.value || 'all';
+      const sourceOptions = (result.filterOptions.availableSources || []);
+      const optsHtml = [`<option value="all">${t('analytics.productivity.allEquipments') || '全ての設備'}</option>`];
+      sourceOptions.forEach(s => {
+        optsHtml.push(`<option value="${analyticsEscapeHtml(s)}">${analyticsEscapeHtml(s)}</option>`);
+      });
+      sourceSelect.innerHTML = optsHtml.join('');
+      if (sourceOptions.includes(currentVal) || currentVal === 'all') {
+        sourceSelect.value = currentVal;
+      }
+    }
+
+    if (operatorSelect && result.filterOptions) {
+      const currentOp = operatorSelect.value || 'all';
+      const opOptions = (result.filterOptions.availableOperators || []);
+      const opHtml = [`<option value="all">${t('analytics.productivity.allWorkers') || '全ての作業者'}</option>`];
+      opOptions.forEach(op => {
+        opHtml.push(`<option value="${analyticsEscapeHtml(op)}">${analyticsEscapeHtml(op)}</option>`);
+      });
+      operatorSelect.innerHTML = opHtml.join('');
+      if (opOptions.includes(currentOp) || currentOp === 'all') {
+        operatorSelect.value = currentOp;
+      }
+    }
+
+    // Render KPIs
+    const kpiPieces = document.getElementById('analyticsProductivityKpiPieces');
+    const kpiHours = document.getElementById('analyticsProductivityKpiHours');
+    const kpiAvg = document.getElementById('analyticsProductivityKpiAvg1hPc');
+    const kpiAchieve = document.getElementById('analyticsProductivityKpiAchieve');
+
+    if (kpiPieces) kpiPieces.textContent = analyticsFormatNumber(result.summary?.totalPieces || 0);
+    if (kpiHours) kpiHours.textContent = analyticsFormatHours(result.summary?.totalHours || 0);
+    if (kpiAvg) {
+      kpiAvg.textContent = result.summary?.overall1hPc
+        ? `${result.summary.overall1hPc.toFixed(1)} ヶ/1人h`
+        : '-';
+    }
+    if (kpiAchieve) {
+      const achieved = result.summary?.achievedCount || 0;
+      const totalOps = result.summary?.totalOperators || 0;
+      const rate = result.summary?.achievementRate || 0;
+      kpiAchieve.textContent = `${achieved} / ${totalOps} (${rate}%)`;
+    }
+
+    renderAnalyticsProductivityTab(result);
+  } catch (error) {
+    console.error('loadAnalyticsProductivity error:', error);
+    container.innerHTML = `
+      <div class="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-center text-rose-700">
+        <p class="font-bold">データの取得に失敗しました</p>
+        <p class="mt-1 text-xs text-rose-600">${analyticsEscapeHtml(error.message)}</p>
+        <button type="button" onclick="loadAnalyticsProductivity()" class="mt-3 inline-flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+          再試行
+        </button>
+      </div>
+    `;
+  }
+}
+
+function disposeAnalyticsProductivityCharts() {
+  analyticsProductivityCharts.forEach((chart, id) => {
+    try {
+      if (chart && typeof chart.dispose === 'function') {
+        chart.dispose();
+      }
+    } catch (e) {
+      console.warn('Error disposing chart:', id, e);
+    }
+  });
+  analyticsProductivityCharts.clear();
+}
+
+function renderAnalyticsProductivityTab(data) {
+  const container = document.getElementById('analyticsProductivityContainer');
+  if (!container) return;
+
+  disposeAnalyticsProductivityCharts();
+
+  if (!data || !data.machines || data.machines.length === 0) {
+    container.innerHTML = `
+      <div class="rounded-2xl border border-gray-200 bg-white p-12 text-center shadow-sm">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
+          <i class="ri-bar-chart-2-line text-2xl"></i>
+        </div>
+        <h3 class="mt-4 text-base font-semibold text-gray-900">${t('analytics.productivity.noDataForMonth') || '対象月の生産性データがありません。'}</h3>
+        <p class="mt-1 text-xs text-gray-500">上部の対象月または設備・作業者のフィルターを変更してください。</p>
+      </div>
+    `;
     return;
   }
 
-  const lgGoodPieces = t('analytics.kpi.goodPieces');
-  const lgManHours = t('analytics.kpi.manHours');
-  const lgIssueRecords = t('analytics.kpi.issueRecords');
-  const lgDefectRate = t('analytics.kpi.defectRate');
+  const daysInMonth = data.daysInMonth || 30;
+  const target = data.target || 220;
+  const warning = data.warning || 210;
+  const monthNumber = data.monthNumber || '';
 
-  analyticsRenderChart('analyticsTrendChart', {
-    color: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'],
-    tooltip: { trigger: 'axis', formatter: analyticsAxisTooltipFormatter },
-    legend: { top: 0, data: [lgGoodPieces, lgManHours, lgIssueRecords, lgDefectRate] },
-    grid: { left: 32, right: 32, top: 56, bottom: 24, containLabel: true },
+  window._analyticsProdClickMap = new Map();
+  let html = '';
+  let chartCounter = 0;
+  const pendingCharts = [];
+
+  data.machines.forEach(machine => {
+    const machineName = machine.machineName || '未指定';
+    const machineAvgStr = machine.monthlyAvg1hPc != null ? `${machine.monthlyAvg1hPc.toFixed(1)} ヶ/1人h` : '-';
+    const operators = machine.operators || [];
+
+    html += `
+      <section class="space-y-4">
+        <!-- 設備 Whiteboard Header Banner (styled consistently with MoM Tab) -->
+        <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shadow-2xs">
+                <i class="ri-cpu-line text-lg"></i>
+              </div>
+              <h3 class="text-base font-semibold text-gray-900">${analyticsEscapeHtml(machineName)}</h3>
+              <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                第3目標: ${target}/1h
+              </span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-4 text-xs font-medium text-gray-500">
+              <div>作業者: <span class="text-sm font-semibold text-gray-900 tabular-nums">${machine.operatorCount}</span> 名</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>月間良品数: <span class="text-sm font-semibold text-gray-900 tabular-nums">${analyticsFormatNumber(machine.monthlyPieces)}</span> 個</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>月間工数: <span class="text-sm font-semibold text-gray-900 tabular-nums">${analyticsFormatHours(machine.monthlyHours)}</span> h</div>
+              <div class="hidden sm:block text-gray-200">|</div>
+              <div>設備平均: <span class="text-sm font-semibold text-indigo-600 tabular-nums">${machineAvgStr}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full-Width Stacked Cards (Graph + Table sequence per worker, all month with no horizontal scrolling) -->
+        <div class="space-y-8">
+    `;
+
+    operators.forEach(op => {
+      chartCounter++;
+      const chartDomId = `prodWorkerChart_${chartCounter}`;
+      const opTarget = (op.target != null && op.target > 0) ? op.target : target;
+      const opWarning = (op.warning != null && op.warning > 0) ? op.warning : warning;
+      const isAchieved = op.monthlyAvg1hPc && op.monthlyAvg1hPc >= opTarget;
+      const isBelowWarning = op.monthlyAvg1hPc && op.monthlyAvg1hPc < opWarning;
+
+      let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      if (isBelowWarning) {
+        badgeBg = 'bg-rose-50 text-rose-700 border-rose-200';
+      } else if (!isAchieved) {
+        badgeBg = 'bg-amber-50 text-amber-700 border-amber-200';
+      }
+
+      const opAvgStr = op.monthlyAvg1hPc != null ? op.monthlyAvg1hPc.toFixed(1) : '-';
+
+      // Build 5-Row Data Table (日付, ライン, 良品数, 時間, 出来高/1人h, 理由)
+      const dailyDataMap = new Map();
+      (op.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
+
+      const activeDays = (op.dailyData || []).map(d => d.day);
+
+      let tableHtml = '';
+      if (activeDays.length === 0) {
+        tableHtml = `<div class="p-4 text-center text-xs text-gray-400 font-medium">実績データなし</div>`;
+      } else {
+        const rowDates = [];
+        const rowLines = [];
+        const rowPieces = [];
+        const rowHours = [];
+        const rowRate = [];
+        const rowRemarks = [];
+        let hasAnyRemark = false;
+
+        activeDays.forEach(day => {
+          const item = dailyDataMap.get(day);
+          const dateStr = item ? item.dateLabel : `${monthNumber}/${day}`;
+          const kanban = item?.kanban || '-';
+          const pieces = item ? analyticsFormatNumber(item.pieces) : '-';
+          const hours = item ? item.hours.toFixed(2) : '-';
+          const rateVal = item?.oneHrPc;
+          let rateCellClass = 'text-gray-700';
+          let rateBgClass = '';
+
+          if (rateVal != null) {
+            if (rateVal >= opTarget) {
+              rateCellClass = 'text-emerald-700 font-semibold';
+              rateBgClass = 'bg-emerald-50/70';
+            } else if (rateVal >= opWarning) {
+              rateCellClass = 'text-amber-700 font-semibold';
+              rateBgClass = 'bg-amber-50/70';
+            } else {
+              rateCellClass = 'text-rose-700 font-semibold';
+              rateBgClass = 'bg-rose-50/70';
+            }
+          }
+
+          const rateStr = rateVal != null ? Math.round(rateVal) : '-';
+          const remark = item?.remarks || '';
+          if (remark) hasAnyRemark = true;
+
+          const clickKey = `prod_${chartCounter}_${day}`;
+          window._analyticsProdClickMap.set(clickKey, {
+            item,
+            context: {
+              operatorName: op.operatorName,
+              machineName,
+              productName: op.productName,
+              target: opTarget,
+              warning: opWarning
+            }
+          });
+
+          const cellTitle = analyticsEscapeHtml(typeof t === 'function' ? t('analytics.productivity.clickToViewSubmitted') : 'クリックして実績詳細(submittedDB)を表示');
+          const cellCommonClass = 'cursor-pointer transition-colors hover:bg-indigo-100/75 hover:text-indigo-950 active:bg-indigo-200/80';
+
+          rowDates.push(`<th class="px-2.5 py-1.5 text-center text-xs font-semibold text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass} group" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}"><div class="inline-flex items-center gap-1"><span>${dateStr}</span><i class="ri-external-link-line text-3xs text-gray-400 group-hover:text-indigo-600 transition-colors"></i></div></th>`);
+          rowLines.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${analyticsEscapeHtml(kanban)}</td>`);
+          rowPieces.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-900 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${pieces}</td>`);
+          rowHours.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-500 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${hours}</td>`);
+          rowRate.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${rateCellClass} ${rateBgClass} border-r border-gray-100 whitespace-nowrap cursor-pointer transition-colors hover:brightness-95 active:brightness-90" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${rateStr}</td>`);
+          if (remark) {
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-rose-600 border-r border-gray-100 max-w-[140px] truncate cursor-pointer transition-colors hover:bg-rose-100/80" onclick="handleProductivityCellClick('${clickKey}')" title="${analyticsEscapeHtml(remark)} · ${cellTitle}">${analyticsEscapeHtml(remark)}</td>`);
+          } else {
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100 ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">-</td>`);
+          }
+        });
+
+        tableHtml = `
+          <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-2xs">
+            <table class="w-full text-xs text-left border-collapse">
+              <tbody>
+                <tr class="bg-gray-50 border-b border-gray-100">
+                  <th class="px-3 py-1.5 text-left font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-gray-50 shadow-[1px_0_0_0_#f3f4f6] z-10 w-28">日付</th>
+                  ${rowDates.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">ライン</th>
+                  ${rowLines.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">良品数</th>
+                  ${rowPieces.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                  <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">時間</th>
+                  ${rowHours.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 bg-indigo-50/30">
+                  <th class="px-3 py-1.5 text-left font-semibold text-indigo-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-indigo-50/50 shadow-[1px_0_0_0_#f3f4f6] z-10">出来高/1人h</th>
+                  ${rowRate.join('')}
+                </tr>
+                ${hasAnyRemark ? `
+                <tr class="bg-rose-50/30">
+                  <th class="px-3 py-1 text-left text-xs font-semibold text-rose-600 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-rose-50 shadow-[1px_0_0_0_#f3f4f6] z-10">理由</th>
+                  ${rowRemarks.join('')}
+                </tr>
+                ` : ''}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      const displayProduct = (op.productName && op.productName !== machineName && !machineName.includes(op.productName))
+        ? `${machineName} (${op.productName})`
+        : machineName;
+
+      html += `
+        <div class="productivity-worker-card w-full rounded-2xl border border-gray-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col space-y-4">
+          <div>
+            <!-- Sheet Card Header: Large Prominent Worker Name - Product Name -->
+            <div class="border-b border-gray-100 pb-3.5 space-y-3">
+              <!-- Top Row: Large Eye-Catching Title & Achievement Badge -->
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
+                  <span class="text-gray-900">${analyticsEscapeHtml(op.operatorName)}</span>
+                  <span class="text-gray-300 font-normal mx-2">-</span>
+                  <span class="text-indigo-700">${analyticsEscapeHtml(displayProduct)}</span>
+                </h3>
+
+                <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-2xs ${badgeBg}">
+                  ${op.achievementRate}% 達成
+                </span>
+              </div>
+
+              <!-- Sub Row: Monthly Average & Target / Warning References -->
+              <div class="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs">
+                <div class="flex flex-wrap items-center gap-3">
+                  <div class="text-sm font-semibold text-gray-700">
+                    出来高（生産性） 当月平均: <span class="text-base tabular-nums font-bold ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr} ヶ/1人h</span>
+                  </div>
+                  <div class="hidden sm:block text-gray-200">|</div>
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                      目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${opTarget}</strong> ヶ/1人h
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                      警戒ライン: <strong class="ml-1 font-semibold text-amber-900 tabular-nums">${opWarning}</strong> ヶ/1人h
+                    </span>
+                  </div>
+                </div>
+                <div class="text-xs font-medium text-rose-500">
+                  ※ ${opWarning}/1人h以下の場合は理由を確認
+                </div>
+              </div>
+            </div>
+
+            <!-- ECharts Line Graph Container (Full Width, Spacious) -->
+            <div id="${chartDomId}" class="h-80 w-full my-3"></div>
+          </div>
+
+          <!-- 5-Row Data Table Container (All Month, Zero Scroll on desktop) -->
+          <div class="w-full mt-2">
+            ${tableHtml}
+          </div>
+        </div>
+      `;
+
+      pendingCharts.push({
+        domId: chartDomId,
+        operator: op,
+        machine,
+        daysInMonth,
+        target: opTarget,
+        warning: opWarning
+      });
+    });
+
+    html += `
+        </div>
+      </section>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Initialize ECharts for each worker card
+  pendingCharts.forEach(item => {
+    initWorkerProductivityChart(item);
+  });
+}
+
+function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, target, warning }) {
+  const chartDom = document.getElementById(domId);
+  if (!chartDom || typeof echarts === 'undefined') return;
+
+  const chart = echarts.init(chartDom);
+  analyticsProductivityCharts.set(domId, chart);
+
+  const dailyDataMap = new Map();
+  (operator.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
+
+  const xCategories = [];
+  const seriesData = [];
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    xCategories.push(String(day));
+    const d = dailyDataMap.get(day);
+    if (d && d.oneHrPc != null) {
+      seriesData.push({
+        value: d.oneHrPc,
+        dateLabel: d.dateLabel,
+        kanban: d.kanban,
+        pieces: d.pieces,
+        hours: d.hours,
+        remarks: d.remarks,
+        recordIds: d.recordIds || [],
+        dayData: d,
+        context: {
+          operatorName: operator.operatorName,
+          machineName: machine ? (machine.machineName || operator.productName) : operator.productName,
+          productName: operator.productName,
+          target,
+          warning
+        }
+      });
+    } else {
+      seriesData.push(null);
+    }
+  }
+
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(255, 255, 255, 0.96)',
+      borderColor: '#e5e7eb',
+      borderWidth: 1,
+      textStyle: { color: '#1f2937', fontSize: 12 },
+      formatter: function(params) {
+        if (!params || params.data == null) return '';
+        const d = params.data;
+        const val = typeof d === 'object' ? d.value : d;
+        const pieces = d.pieces != null ? analyticsFormatNumber(d.pieces) : '-';
+        const hours = d.hours != null ? d.hours.toFixed(2) : '-';
+        const kanban = d.kanban || '-';
+        const remarks = d.remarks || '';
+
+        return `
+          <div class="font-sans text-xs">
+            <div class="font-semibold text-gray-900 border-b border-gray-100 pb-1 mb-1">
+              ${d.dateLabel || ('Day ' + params.name)} (${operator.operatorName})
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">出来高/1人h:</span>
+              <span class="font-semibold tabular-nums ${val >= target ? 'text-emerald-600' : (val < warning ? 'text-rose-600' : 'text-amber-600')}">${val} ヶ/1人h</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">良品数:</span>
+              <span class="font-medium text-gray-900 tabular-nums">${pieces} 個</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">実工数:</span>
+              <span class="font-medium text-gray-600 tabular-nums">${hours} h</span>
+            </div>
+            <div class="flex justify-between gap-4 text-xs py-0.5">
+              <span class="text-gray-500">ライン/看板:</span>
+              <span class="font-medium text-indigo-700">${analyticsEscapeHtml(kanban)}</span>
+            </div>
+            ${remarks ? `
+              <div class="mt-1 pt-1 border-t border-rose-100 text-xs text-rose-600">
+                <span class="font-semibold">理由:</span> ${analyticsEscapeHtml(remarks)}
+              </div>
+            ` : ''}
+            <div class="mt-1.5 pt-1 border-t border-indigo-100 text-2xs text-indigo-600 font-semibold flex items-center gap-1">
+              <i class="ri-cursor-line"></i> ${typeof t === 'function' ? t('analytics.productivity.clickToViewSubmitted') : 'クリックして実績詳細を表示'}
+            </div>
+          </div>
+        `;
+      }
+    },
+    grid: {
+      top: 35,
+      left: 45,
+      right: 60,
+      bottom: 25,
+      containLabel: true
+    },
     xAxis: {
       type: 'category',
-      data: dailyTrend.map(item => item.label),
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: '#cbd5e1' } }
-    },
-    yAxis: [
-      {
-        type: 'value',
-        name: t('analytics.machine.yAxisPiecesHours'),
-        splitLine: { lineStyle: { color: '#e2e8f0' } }
+      data: xCategories,
+      axisLabel: {
+        fontSize: 10,
+        color: '#6b7280',
+        interval: 0
       },
-      {
-        type: 'value',
-        name: '% / Issues',
-        splitLine: { show: false }
+      axisLine: { lineStyle: { color: '#cbd5e1' } },
+      axisTick: { alignWithLabel: true }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'ヶ/1人h',
+      nameTextStyle: { color: '#6b7280', fontSize: 10, align: 'right' },
+      min: function(val) {
+        const floorTarget = warning - 30;
+        const currentMin = val.min || target;
+        return Math.max(0, Math.floor(Math.min(currentMin, floorTarget) / 10) * 10);
+      },
+      max: function(val) {
+        const ceilTarget = target + 40;
+        const currentMax = val.max || target;
+        return Math.ceil(Math.max(currentMax, ceilTarget) / 10) * 10;
+      },
+      splitLine: {
+        lineStyle: { color: '#f1f5f9' }
+      },
+      axisLabel: {
+        fontSize: 10,
+        color: '#6b7280'
       }
-    ],
+    },
     series: [
       {
-        name: lgGoodPieces,
-        type: 'bar',
-        barMaxWidth: 24,
-        data: dailyTrend.map(item => Number(item.goodCount || 0)),
-        itemStyle: { borderRadius: [8, 8, 0, 0] },
-        yAxisIndex: 0
-      },
-      {
-        name: lgManHours,
+        name: '出来高/1人h',
         type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.manHours || 0)),
-        yAxisIndex: 0
-      },
-      {
-        name: lgIssueRecords,
-        type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.issueCount || 0)),
-        yAxisIndex: 1
-      },
-      {
-        name: lgDefectRate,
-        type: 'line',
-        smooth: false,
-        symbolSize: 7,
-        data: dailyTrend.map(item => Number(item.defectRate || 0)),
-        yAxisIndex: 1
+        connectNulls: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        cursor: 'pointer',
+        lineStyle: {
+          width: 2.5,
+          color: '#4f46e5'
+        },
+        itemStyle: {
+          color: function(params) {
+            if (!params || params.data == null) return '#4f46e5';
+            const val = typeof params.data === 'object' ? params.data.value : params.data;
+            if (val >= target) return '#10b981'; // Green
+            if (val >= warning) return '#f59e0b'; // Amber
+            return '#ef4444'; // Red
+          }
+        },
+        data: seriesData,
+        markLine: {
+          symbol: ['none', 'none'],
+          silent: false,
+          data: [
+            {
+              yAxis: target,
+              name: '目標',
+              lineStyle: {
+                color: '#dc2626',
+                width: 1.8,
+                type: 'solid'
+              },
+              label: {
+                show: true,
+                position: 'end',
+                formatter: `目標 ${target}`,
+                color: '#dc2626',
+                fontSize: 10,
+                fontWeight: '500'
+              }
+            },
+            {
+              yAxis: warning,
+              name: '警戒',
+              lineStyle: {
+                color: '#f97316',
+                width: 1.2,
+                type: 'dashed'
+              },
+              label: {
+                show: true,
+                position: 'end',
+                formatter: `警戒 ${warning}`,
+                color: '#ea580c',
+                fontSize: 9,
+                fontWeight: '500'
+              }
+            }
+          ]
+        }
       }
     ]
+  };
+
+  chart.setOption(option);
+
+  chart.on('click', function(params) {
+    if (params && params.data && params.data.dayData) {
+      openProductivitySubmittedDetail(params.data.dayData, params.data.context);
+    }
+  });
+}
+
+function printAnalyticsProductivityWhiteboard() {
+  const originalTitle = document.title;
+  const monthInput = document.getElementById('analyticsProductivityMonth');
+  let monthNumber = '';
+  if (monthInput && monthInput.value) {
+    const parts = monthInput.value.split(/[-/]/);
+    if (parts.length === 2 && Number(parts[1])) {
+      monthNumber = parseInt(parts[1], 10);
+    }
+  }
+  if (!monthNumber) {
+    monthNumber = new Date().getMonth() + 1;
+  }
+
+  document.title = `生産性 グラフ - ${monthNumber}月分`;
+  document.body.classList.add('analytics-printing-productivity');
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    document.title = originalTitle;
+    document.body.classList.remove('analytics-printing-productivity');
+    window.removeEventListener('afterprint', cleanup);
+  };
+
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
+  window.setTimeout(cleanup, 2000);
+}
+
+// ============================================================================
+// Productivity submittedDB Detail Modal Controller
+// ============================================================================
+
+let _currentProdDetailRecords = [];
+let _currentProdDetailActiveIndex = 0;
+let _currentProdDetailContext = null;
+let _currentProdDetailDayData = null;
+
+function handleProductivityCellClick(clickKey) {
+  if (!window._analyticsProdClickMap) return;
+  const entry = window._analyticsProdClickMap.get(clickKey);
+  if (!entry) return;
+  openProductivitySubmittedDetail(entry.item, entry.context);
+}
+
+async function openProductivitySubmittedDetail(dayData, context) {
+  const modal = document.getElementById('analyticsProductivityRecordModal');
+  if (!modal) return;
+
+  _currentProdDetailContext = context || {};
+  _currentProdDetailDayData = dayData || {};
+  _currentProdDetailRecords = [];
+  _currentProdDetailActiveIndex = 0;
+
+  const dateEl = document.getElementById('analyticsProdModalDate');
+  const titleEl = document.getElementById('analyticsProdModalTitle');
+  const subEl = document.getElementById('analyticsProdModalSub');
+  const loadingEl = document.getElementById('analyticsProdModalLoading');
+  const contentEl = document.getElementById('analyticsProdModalContent');
+  const tabsContainer = document.getElementById('analyticsProdModalRecordTabsContainer');
+  const tabsEl = document.getElementById('analyticsProdModalRecordTabs');
+
+  if (dateEl) {
+    dateEl.textContent = dayData?.dateLabel ? `${dayData.dateLabel} (Day ${dayData.day})` : '';
+  }
+  if (titleEl) {
+    titleEl.textContent = context?.productName || context?.machineName || '生産実績詳細';
+  }
+  if (subEl) {
+    const parts = [context?.operatorName, dayData?.kanban].filter(Boolean);
+    subEl.textContent = parts.join('  /  ');
+  }
+
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (contentEl) contentEl.classList.add('hidden');
+  if (tabsContainer) tabsContainer.classList.add('hidden');
+  if (tabsEl) tabsEl.innerHTML = '';
+
+  // Show modal
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  // Fetch records by IDs
+  let records = [];
+  const recordIds = Array.isArray(dayData?.recordIds) ? dayData.recordIds.filter(Boolean) : [];
+
+  if (recordIds.length > 0) {
+    try {
+      const promises = recordIds.map(async id => {
+        try {
+          const res = await fetch(`/api/admin/submitted-db/${encodeURIComponent(id)}`, {
+            headers: analyticsGetAuthHeaders()
+          });
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json.success ? json.data : null;
+        } catch (e) {
+          console.warn('[Analytics] Failed to fetch record by ID:', id, e);
+          return null;
+        }
+      });
+      const results = await Promise.all(promises);
+      records = results.filter(Boolean);
+    } catch (err) {
+      console.warn('[Analytics] Error resolving record IDs:', err);
+    }
+  }
+
+  // Fallback if no records returned via IDs
+  if (records.length === 0 && dayData?.day) {
+    try {
+      const monthInput = document.getElementById('analyticsProductivityMonth');
+      let targetYear = new Date().getFullYear();
+      let targetMonth = new Date().getMonth() + 1;
+      if (monthInput && monthInput.value) {
+        const p = monthInput.value.split(/[-/]/);
+        if (p.length === 2) {
+          targetYear = parseInt(p[0], 10);
+          targetMonth = parseInt(p[1], 10);
+        }
+      }
+      const q = new URLSearchParams();
+      if (context?.operatorName) q.set('operator', context.operatorName);
+      q.set('year', String(targetYear));
+      q.set('month', String(targetMonth));
+      q.set('day', String(dayData.day));
+      q.set('limit', '50');
+
+      const fbRes = await fetch(`/api/admin/submitted-db?${q.toString()}`, {
+        headers: analyticsGetAuthHeaders()
+      });
+      if (fbRes.ok) {
+        const fbJson = await fbRes.json();
+        const rawList = Array.isArray(fbJson.data) ? fbJson.data : (Array.isArray(fbJson.records) ? fbJson.records : []);
+        records = rawList.filter(r => {
+          const matchDay = Number(r.date_day) === Number(dayData.day);
+          const op1Match = r.operator1 && r.operator1 === context.operatorName;
+          const op2Match = r.operator2 && r.operator2 === context.operatorName;
+          return matchDay && (op1Match || op2Match);
+        });
+      }
+    } catch (fallbackErr) {
+      console.warn('[Analytics] Fallback query failed:', fallbackErr);
+    }
+  }
+
+  // If still no records from submittedDB, create synthetic summary from dayData
+  if (records.length === 0) {
+    records = [{
+      _synthetic: true,
+      product_name: context?.machineName || context?.productName || '—',
+      hinban: '—',
+      kanban_id: dayData?.kanban || '—',
+      '工場': '—',
+      lh_rh: '—',
+      hako_iresu: null,
+      operator1: context?.operatorName || '—',
+      operator2: '',
+      good_count: dayData?.pieces ?? 0,
+      man_hours: dayData?.hours ?? 0,
+      cycle_time: null,
+      start_time: '',
+      end_time: '',
+      break_time: 0,
+      trouble_time: 0,
+      remarks: dayData?.remarks || '',
+      other_description: '',
+      timestamp: null,
+      submitted_from: '集計サマリー'
+    }];
+  }
+
+  _currentProdDetailRecords = records;
+  _currentProdDetailActiveIndex = 0;
+
+  // Update Tabs if multiple records
+  if (records.length > 1) {
+    if (tabsContainer && tabsEl) {
+      tabsContainer.classList.remove('hidden');
+      tabsEl.innerHTML = records.map((rec, idx) => {
+        const timeSpan = [rec.start_time, rec.end_time].filter(Boolean).join('~') || `実績 #${idx + 1}`;
+        const pcs = rec.good_count != null ? `${analyticsFormatNumber(rec.good_count)}個` : '';
+        const label = [timeSpan, pcs].filter(Boolean).join(' · ');
+        const isActive = idx === 0;
+        return `
+          <button type="button" onclick="switchProductivityDetailTab(${idx})" class="prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs ${isActive ? 'bg-slate-700 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}">
+            ${analyticsEscapeHtml(label)}
+          </button>
+        `;
+      }).join('');
+    }
+  } else {
+    if (tabsContainer) tabsContainer.classList.add('hidden');
+  }
+
+  // Render first record
+  renderProductivityRecordInModal(0);
+}
+
+function switchProductivityDetailTab(index) {
+  if (index < 0 || index >= _currentProdDetailRecords.length) return;
+  _currentProdDetailActiveIndex = index;
+
+  const tabBtns = document.querySelectorAll('.prod-detail-tab-btn');
+  tabBtns.forEach((btn, idx) => {
+    if (idx === index) {
+      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs bg-slate-700 text-white';
+    } else {
+      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs bg-white border border-gray-200 text-gray-700 hover:bg-gray-100';
+    }
+  });
+
+  renderProductivityRecordInModal(index);
+}
+
+function renderProductivityRecordInModal(index) {
+  const loadingEl = document.getElementById('analyticsProdModalLoading');
+  const contentEl = document.getElementById('analyticsProdModalContent');
+  if (loadingEl) loadingEl.classList.add('hidden');
+  if (contentEl) contentEl.classList.remove('hidden');
+
+  const record = _currentProdDetailRecords[index];
+  if (!record) return;
+
+  const context = _currentProdDetailContext || {};
+  const dayData = _currentProdDetailDayData || {};
+
+  // Header: Date, Title, Subtitle
+  const dateEl = document.getElementById('analyticsProdModalDate');
+  const titleEl = document.getElementById('analyticsProdModalTitle');
+  const subEl = document.getElementById('analyticsProdModalSub');
+
+  if (dateEl) {
+    if (record.timestamp) {
+      dateEl.textContent = new Date(record.timestamp).toLocaleString('ja-JP');
+    } else if (dayData?.dateLabel) {
+      dateEl.textContent = `${dayData.dateLabel} (Day ${dayData.day})`;
+    } else {
+      dateEl.textContent = '';
+    }
+  }
+
+  if (titleEl) {
+    titleEl.textContent = record.product_name || context.productName || context.machineName || '—';
+  }
+
+  if (subEl) {
+    const subParts = [record.hinban, record.kanban_id || dayData.kanban].filter(Boolean);
+    subEl.textContent = subParts.length > 0 ? subParts.join('  /  ') : '—';
+  }
+
+  // 5 KPI Cards: 良品数, 工数, CT, 1時間/pc, LH/RH
+  const goodEl = document.getElementById('analyticsProdModalGood');
+  if (goodEl) {
+    goodEl.textContent = String(record.good_count ?? dayData.pieces ?? '—');
+  }
+
+  const manHoursEl = document.getElementById('analyticsProdModalManHours');
+  if (manHoursEl) {
+    manHoursEl.textContent = record.man_hours != null ? Number(record.man_hours).toFixed(2) : (dayData.hours != null ? Number(dayData.hours).toFixed(2) : '—');
+  }
+
+  const ctEl = document.getElementById('analyticsProdModalCT');
+  if (ctEl) {
+    ctEl.textContent = record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—';
+  }
+
+  // 1時間 / pc calculation matching submittedDB
+  const pphLabelEl = document.getElementById('analyticsProdModalPiecesPerHourLabel');
+  if (pphLabelEl && typeof t === 'function') {
+    const label = t('dashboard.piecesPerHourShort');
+    if (label && label !== 'dashboard.piecesPerHourShort') {
+      pphLabelEl.textContent = label;
+    }
+  }
+
+  const pphEl = document.getElementById('analyticsProdModalPiecesPerHour');
+  const SDB_FIXED_KEYS = new Set([
+    '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
+    '工場', 'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
+    'operator1', 'operator2', 'good_count', 'man_hours', 'cycle_time',
+    'other_description', 'start_time', 'end_time', 'break_time',
+    'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+    'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at',
+    '_synthetic'
+  ]);
+
+  if (pphEl) {
+    const goodCount = Math.max(0, Number(record.good_count ?? dayData.pieces ?? 0) || 0);
+    const defectTotal = Object.entries(record)
+      .filter(([k]) => !SDB_FIXED_KEYS.has(k))
+      .reduce((sum, [, v]) => sum + (Math.max(0, Number(v ?? 0) || 0)), 0);
+    const totalCount = goodCount + defectTotal;
+    const hours = Math.max(0, Number(record.man_hours ?? dayData.hours ?? 0) || 0);
+    const ct = Math.max(0, Number(record.cycle_time ?? 0) || 0);
+
+    let pphVal = null;
+    if (hours > 0 && totalCount > 0) {
+      pphVal = (totalCount / hours).toFixed(2);
+    } else if (ct > 0) {
+      pphVal = (60 / ct).toFixed(2);
+    } else if (dayData.oneHrPc != null) {
+      pphVal = Number(dayData.oneHrPc).toFixed(2);
+    }
+
+    pphEl.textContent = pphVal != null ? pphVal : '—';
+  }
+
+  const lhRhEl = document.getElementById('analyticsProdModalLhRh');
+  if (lhRhEl) {
+    lhRhEl.textContent = record.lh_rh || '—';
+  }
+
+  // Operators + Time
+  const op1El = document.getElementById('analyticsProdModalOp1');
+  if (op1El) {
+    op1El.textContent = record.operator1 || context.operatorName || '—';
+  }
+  const op2El = document.getElementById('analyticsProdModalOp2');
+  if (op2El) {
+    op2El.textContent = record.operator2 || '';
+  }
+
+  const startEl = document.getElementById('analyticsProdModalStart');
+  if (startEl) startEl.textContent = record.start_time || '—';
+
+  const endEl = document.getElementById('analyticsProdModalEnd');
+  if (endEl) endEl.textContent = record.end_time || '—';
+
+  const breakEl = document.getElementById('analyticsProdModalBreak');
+  if (breakEl) {
+    breakEl.textContent = record.break_time != null ? `${record.break_time} h` : '—';
+  }
+
+  const troubleEl = document.getElementById('analyticsProdModalTrouble');
+  if (troubleEl) {
+    troubleEl.textContent = record.trouble_time != null ? `${record.trouble_time} h` : '—';
+  }
+
+  // Defects Section
+  const defectEntries = Object.entries(record)
+    .filter(([key]) => !SDB_FIXED_KEYS.has(key))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  const defectSection = document.getElementById('analyticsProdModalDefectsSection');
+  const defectsEl = document.getElementById('analyticsProdModalDefects');
+  if (defectSection && defectsEl) {
+    if (defectEntries.length === 0) {
+      defectSection.classList.add('hidden');
+      defectsEl.innerHTML = '';
+    } else {
+      defectSection.classList.remove('hidden');
+      defectsEl.innerHTML = defectEntries.map(([key, value]) => {
+        const defectCount = Number(value ?? 0);
+        const hasDefect = defectCount > 0;
+        return `<div class="rounded-xl border p-3 text-center ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+          <p class="text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-400'} mb-1 truncate" title="${analyticsEscapeHtml(key)}">${analyticsEscapeHtml(key)}</p>
+          <p class="text-2xl font-bold ${hasDefect ? 'text-red-600' : 'text-gray-300'}">${defectCount}</p>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Remarks Section
+  const remarksSection = document.getElementById('analyticsProdModalRemarksSection');
+  const remarksEl = document.getElementById('analyticsProdModalRemarks');
+  if (remarksSection && remarksEl) {
+    if (record.remarks) {
+      remarksSection.classList.remove('hidden');
+      remarksEl.textContent = record.remarks;
+    } else {
+      remarksSection.classList.add('hidden');
+    }
+  }
+
+  // Other Details Section
+  const otherSection = document.getElementById('analyticsProdModalOtherSection');
+  const otherEl = document.getElementById('analyticsProdModalOther');
+  if (otherSection && otherEl) {
+    if (record.other_description) {
+      otherSection.classList.remove('hidden');
+      otherEl.textContent = record.other_description;
+    } else {
+      otherSection.classList.add('hidden');
+    }
+  }
+
+  // Footer: 工場 & 送信元
+  const fromEl = document.getElementById('analyticsProdModalFrom');
+  if (fromEl) {
+    const footerBits = [];
+    if (record.工場) footerBits.push(`工場: ${record.工場}`);
+    if (record.submitted_from) footerBits.push(`送信元: ${record.submitted_from}`);
+    fromEl.textContent = footerBits.join('  |  ');
+  }
+}
+
+function handleAnalyticsProdModalEdit() {
+  const record = _currentProdDetailRecords?.[_currentProdDetailActiveIndex];
+  closeAnalyticsProductivityRecordModal();
+
+  const searchParams = new URLSearchParams();
+  if (record?.hinban) searchParams.set('hinban', record.hinban);
+  if (record?.kanban_id) searchParams.set('kanbanId', record.kanban_id);
+  if (record?.product_name) searchParams.set('productName', record.product_name);
+  if (record?.operator1) searchParams.set('operator', record.operator1);
+
+  if (typeof loadPage === 'function') {
+    loadPage('submitted-db');
+    setTimeout(() => {
+      if (record?.hinban) {
+        const el = document.getElementById('sdbFilterHinban');
+        if (el) el.value = record.hinban;
+      }
+      if (record?.kanban_id) {
+        const el = document.getElementById('sdbFilterKanbanId');
+        if (el) el.value = record.kanban_id;
+      }
+      if (record?.product_name) {
+        const el = document.getElementById('sdbFilterProductName');
+        if (el) el.value = record.product_name;
+      }
+      if (record?.operator1) {
+        const el = document.getElementById('sdbFilterOperator');
+        if (el) el.value = record.operator1;
+      }
+      if (typeof loadSubmittedDB === 'function') {
+        loadSubmittedDB();
+      }
+    }, 300);
+  } else {
+    window.location.href = `/submittedDB.html?${searchParams.toString()}`;
+  }
+}
+
+function closeAnalyticsProductivityRecordModal(e) {
+  if (e && e.target && e.target !== e.currentTarget) return;
+  const modal = document.getElementById('analyticsProductivityRecordModal');
+  if (modal) modal.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// Global escape key listener
+if (!window._analyticsProdModalKeyBound) {
+  window._analyticsProdModalKeyBound = true;
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('analyticsProductivityRecordModal');
+      if (modal && !modal.classList.contains('hidden')) {
+        closeAnalyticsProductivityRecordModal();
+      }
+    }
   });
 }
 
 function renderAnalyticsOverview(data) {
-  const dailyTrend = data.dailyTrend || [];
-  const topDefect = (data.topDefects || [])[0];
-  const busiestWorker = analyticsGetHighestBy(data.operatorComparison || [], item => Number(item.totalManHours || 0));
-  const unstableMachine = analyticsGetHighestBy(data.sourceBreakdown || [], item => Number(item.totalTroubleTime || 0));
-  const leadProduct = analyticsGetHighestBy(data.topProducts || [], item => Number(item.totalGoodCount || 0));
-  const worstDay = analyticsGetHighestBy(dailyTrend, item => Number(item.issueCount || 0));
-
-  const overviewCards = [
-    {
-      eyebrow: t('analytics.overview.mainDefectDriver'),
-      value: topDefect ? analyticsEscapeHtml(topDefect.name) : t('analytics.overview.noDefects'),
-      detail: topDefect
-        ? t('analytics.overview.defectHits').replace('{n}', analyticsFormatNumber(topDefect.count))
-        : t('analytics.overview.noQualityLoss'),
-      tone: 'bg-rose-50 text-rose-700',
-      icon: 'ri-error-warning-line'
-    },
-    {
-      eyebrow: t('analytics.overview.mostLoadedWorker'),
-      value: busiestWorker ? analyticsEscapeHtml(busiestWorker.name) : t('analytics.overview.noWorkerData'),
-      detail: busiestWorker
-        ? t('analytics.overview.workerHoursRecords')
-            .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
-            .replace('{records}', analyticsFormatNumber(busiestWorker.submissions))
-        : t('analytics.overview.noWorkerActivity'),
-      tone: 'bg-sky-50 text-sky-700',
-      icon: 'ri-user-star-line'
-    },
-    {
-      eyebrow: t('analytics.overview.mostUnstableMachine'),
-      value: unstableMachine ? analyticsEscapeHtml(unstableMachine.source) : t('analytics.overview.noMachineData'),
-      detail: unstableMachine
-        ? t('analytics.overview.machineTroubleRate')
-            .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
-            .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
-        : t('analytics.overview.noMachineActivity'),
-      tone: 'bg-amber-50 text-amber-700',
-      icon: 'ri-cpu-line'
-    },
-    {
-      eyebrow: t('analytics.overview.leadProduct'),
-      value: leadProduct ? analyticsEscapeHtml(analyticsGetProductLabel(leadProduct)) : t('analytics.overview.noProductData'),
-      detail: leadProduct
-        ? t('analytics.overview.productGoodDefect')
-            .replace('{good}', analyticsFormatNumber(leadProduct.totalGoodCount))
-            .replace('{rate}', analyticsFormatPercent(leadProduct.defectRate))
-        : t('analytics.overview.noProductActivity'),
-      tone: 'bg-emerald-50 text-emerald-700',
-      icon: 'ri-box-3-line'
-    }
-  ];
-
-  const worstBottleneck = (data.machineTimeLoss || [])[0];
-  if (worstBottleneck && Number(worstBottleneck.lostHoursPerDay || 0) >= 0.25) {
-    overviewCards.push({
-      eyebrow: t('analytics.overview.biggestBottleneck'),
-      value: analyticsEscapeHtml(worstBottleneck.source),
-      detail: t('analytics.overview.bottleneckDetail').replace('{hours}', analyticsFormatHours(worstBottleneck.lostHoursPerDay)),
-      tone: 'bg-violet-50 text-violet-700',
-      icon: 'ri-hourglass-line'
-    });
-  }
-
-  if (data.finance) {
-    const monthEntry = (data.finance.monthly || []).find(entry => entry.month === data.finance.monthKey);
-    overviewCards.push({
-      eyebrow: t('analytics.overview.profitThisMonth'),
-      value: analyticsFormatCurrency(monthEntry?.earned || 0),
-      detail: t('analytics.overview.profitLostDetail').replace('{n}', analyticsFormatCurrency(monthEntry?.lost || 0)),
-      tone: 'bg-emerald-50 text-emerald-700',
-      icon: 'ri-money-cny-circle-line'
-    });
-  }
-
-  analyticsRenderCardGrid('analyticsOverviewHighlights', overviewCards);
-
-  renderAnalyticsWeeklyDigest(data);
-  renderAnalyticsOverviewTrendChart(dailyTrend);
-
-  const overviewDrivers = document.getElementById('analyticsOverviewDrivers');
-  if (overviewDrivers) {
-    const machineAlert = unstableMachine
-      ? t('analytics.overview.machineAlertText')
-          .replace('{source}', analyticsEscapeHtml(unstableMachine.source))
-          .replace('{hours}', analyticsFormatHours(unstableMachine.totalTroubleTime))
-          .replace('{rate}', analyticsFormatPercent(unstableMachine.defectRate))
-      : t('analytics.overview.noMachineAlert');
-    const workerAlert = busiestWorker
-      ? t('analytics.overview.workerAlertText')
-          .replace('{name}', analyticsEscapeHtml(busiestWorker.name))
-          .replace('{hours}', analyticsFormatHours(busiestWorker.totalManHours))
-          .replace('{issues}', analyticsFormatNumber(busiestWorker.issueCount))
-      : t('analytics.overview.noWorkerAlert');
-    const dayAlert = worstDay
-      ? t('analytics.overview.dayAlertText')
-          .replace('{day}', analyticsEscapeHtml(worstDay.label))
-          .replace('{issues}', analyticsFormatNumber(worstDay.issueCount))
-          .replace('{rate}', analyticsFormatPercent(worstDay.defectRate))
-      : t('analytics.overview.noDayPattern');
-
-    const qualitySignalText = topDefect
-      ? t('analytics.overview.qualitySignalText')
-          .replace('{name}', analyticsEscapeHtml(topDefect.name))
-          .replace('{count}', analyticsFormatNumber(topDefect.count))
-      : t('analytics.overview.noDefectSignal');
-
-    overviewDrivers.innerHTML = `
-      <div class="space-y-4">
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.qualitySignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${qualitySignalText}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.machineSignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${machineAlert}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.laborSignal'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${workerAlert}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.overview.dailyPattern'))}</p>
-          <p class="mt-2 text-sm text-slate-700">${dayAlert}</p>
-        </div>
-      </div>`;
-  }
+  initAnalyticsProductivity();
+  loadAnalyticsProductivity();
 }
 
 function renderAnalyticsWorkerProductivityChart(operatorComparison, shiftProfile) {
@@ -1185,38 +2283,38 @@ function renderAnalyticsWorkerTable(operatorComparison, shiftProfile) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableWorker'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShared'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDays'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgShift'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableOutputHour'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableShiftUtil'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDowntime'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableDefectRate'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.worker.tableAvgCT'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableWorker'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableShared'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDays'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableAvgShift'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableOutputHour'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableShiftUtil'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDowntime'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.worker.tableAvgCT'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedWorkers.map(worker => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(worker.name)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.activeDays)}</td>
-            <td class="px-6 py-4">${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(worker, shiftProfile))}</td>
-            <td class="px-6 py-4">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(analyticsGetWorkerShiftUtilization(worker, shiftProfile))}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(worker.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(worker.downtimeRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(worker.defectRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(worker.averageCycleTime, 2)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(worker.name)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(worker.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.sharedSubmissions)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.activeDays)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatCount(analyticsGetWorkerAverageShiftOutput(worker, shiftProfile))}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPiecesPerHour(worker.outputPerHour)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPercent(analyticsGetWorkerShiftUtilization(worker, shiftProfile))}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(worker.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatPercent(worker.downtimeRate)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(worker.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(worker.defectRate)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(worker.averageCycleTime, 2)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1372,22 +2470,22 @@ function renderAnalyticsMachineCards(sourceBreakdown) {
     .slice(0, 4);
 
   if (topSources.length === 0) {
-    container.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.machine.noMachineCards'))}</div>`;
+    container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.machine.noMachineCards'))}</div>`;
     return;
   }
 
   container.innerHTML = `<div class="space-y-4">${topSources.map(source => `
-    <article class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+    <article class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <p class="text-sm font-semibold text-slate-900">${analyticsEscapeHtml(source.source)}</p>
-          <p class="mt-1 text-xs text-slate-500">${analyticsEscapeHtml(t('analytics.machine.cardSubtext').replace('{records}', analyticsFormatNumber(source.submissions)).replace('{issues}', analyticsFormatNumber(source.issueCount)))}</p>
+          <p class="text-sm font-semibold text-gray-900">${analyticsEscapeHtml(source.source)}</p>
+          <p class="mt-1 text-xs text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardSubtext').replace('{records}', analyticsFormatNumber(source.submissions)).replace('{issues}', analyticsFormatNumber(source.issueCount)))}</p>
         </div>
-        <span class="rounded-full bg-white px-2 py-1 text-xs font-medium text-slate-600">${analyticsFormatPercent(source.defectRate)}</span>
+        <span class="rounded-full bg-white px-2 py-1 text-xs font-semibold text-gray-700 shadow-2xs">${analyticsFormatPercent(source.defectRate)}</span>
       </div>
-      <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardGood'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
-        <div class="rounded-xl bg-white px-3 py-2"><span class="block text-slate-400">${analyticsEscapeHtml(t('analytics.machine.cardTrouble'))}</span><span class="mt-1 block text-sm font-semibold text-slate-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
+      <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-500">
+        <div class="rounded-xl bg-white p-3 shadow-2xs"><span class="block text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardGood'))}</span><span class="mt-1 block text-sm font-semibold tracking-tight tabular-nums text-gray-900">${analyticsFormatNumber(source.totalGoodCount)}</span></div>
+        <div class="rounded-xl bg-white p-3 shadow-2xs"><span class="block text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.machine.cardTrouble'))}</span><span class="mt-1 block text-sm font-semibold tracking-tight tabular-nums text-gray-900">${analyticsFormatHours(source.totalTroubleTime)}</span></div>
       </div>
     </article>`).join('')}</div>`;
 }
@@ -1406,28 +2504,28 @@ function renderAnalyticsMachineTable(sourceBreakdown) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableSource'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableGood'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableTrouble'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.machine.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableSource'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableGood'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.machine.tableDefectRate'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedSources.map(source => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(source.source)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.totalGoodCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(source.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(source.totalTroubleTime)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(source.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(source.defectRate)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(source.source)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(source.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(source.totalGoodCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(source.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(source.totalTroubleTime || 0) > 0 ? 'text-amber-600 font-medium' : 'text-gray-600'}">${analyticsFormatHours(source.totalTroubleTime)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(source.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(source.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(source.defectRate)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1488,6 +2586,1118 @@ function renderAnalyticsMachineTab(data) {
   renderAnalyticsMachineChart(sources);
   renderAnalyticsMachineCards(sources);
   renderAnalyticsMachineTable(sources);
+
+}
+
+// ------------------------------------------------------------
+// Dedicated Month-over-Month (MoM) Analytics (Machines, Products, Workers)
+// ------------------------------------------------------------
+
+let analyticsMoMSubTab = 'machines'; // 'machines' | 'products' | 'workers'
+let analyticsMoMMonthA = '';
+let analyticsMoMMonthB = '';
+let analyticsMoMMachine = 'all';
+let analyticsMoMProduct = '';
+let analyticsMoMProductLhRh = 'all';
+let analyticsMoMWorker = '';
+let analyticsMoMChartMode = 'cumulative'; // 'cumulative' | 'daily' | 'rate'
+let analyticsMoMData = null;
+let analyticsMoMLoading = false;
+
+function analyticsGetRecentMonths(count = 18) {
+  const result = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    result.push(`${yyyy}-${mm}`);
+  }
+  return result;
+}
+
+function analyticsFormatMonthOptionLabel(ym, isCurrent, isPrev) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const tag = isCurrent ? (isJa ? ' (当月)' : ' (Current)') : (isPrev ? (isJa ? ' (前月)' : ' (Prev)') : '');
+  return isJa ? `${y}年${Number(m)}月${tag}` : `${new Date(Number(y), Number(m) - 1).toLocaleString('en-US', { month: 'short' })} ${y}${tag}`;
+}
+
+function initAnalyticsMoM(data) {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+
+  const months = analyticsGetRecentMonths(18);
+  if (!analyticsMoMMonthA) analyticsMoMMonthA = months[0] || '2026-09';
+  if (!analyticsMoMMonthB) analyticsMoMMonthB = months[1] || '2026-08';
+
+  if (selectA) selectA.value = analyticsMoMMonthA;
+  if (selectB) selectB.value = analyticsMoMMonthB;
+  updateAnalyticsMoMMonthDisplays();
+
+  if (selectMachine && selectMachine.options.length <= 1) {
+    const sources = (data?.sourceBreakdown || []).map(s => s.source).filter(Boolean);
+    const existing = new Set(sources);
+    if (Array.isArray(analyticsMoMData?.availableOptions?.machines)) {
+      analyticsMoMData.availableOptions.machines.forEach(m => existing.add(m));
+    }
+    const machineList = [...existing].sort((a, b) => a.localeCompare(b));
+    selectMachine.innerHTML = [
+      `<option value="all" ${analyticsMoMMachine === 'all' ? 'selected' : ''}>${t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)'}</option>`
+    ].concat(machineList.map(m => `
+      <option value="${analyticsEscapeHtml(m)}" ${m === analyticsMoMMachine ? 'selected' : ''}>${analyticsEscapeHtml(m)}</option>
+    `)).join('');
+  }
+
+  if (selectProduct && selectProduct.options.length <= 1) {
+    const products = Array.isArray(analyticsMoMData?.availableOptions?.products)
+      ? analyticsMoMData.availableOptions.products
+      : (data?.productBreakdown || []).map(p => ({ hinban: p.hinban, productName: p.productName }));
+    const opts = [`<option value="" ${!analyticsMoMProduct ? 'selected' : ''}>${t('analytics.mom.allProductsOption') || 'All Products'}</option>`];
+    products.forEach(p => {
+      if (!p.hinban) return;
+      const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
+      opts.push(`<option value="${analyticsEscapeHtml(p.hinban)}" ${p.hinban === analyticsMoMProduct ? 'selected' : ''}>${analyticsEscapeHtml(label)}</option>`);
+    });
+    selectProduct.innerHTML = opts.join('');
+  }
+
+  if (selectWorker && selectWorker.options.length <= 1) {
+    const operators = Array.isArray(analyticsMoMData?.availableOptions?.operators)
+      ? analyticsMoMData.availableOptions.operators
+      : (data?.operatorBreakdown || []).map(o => o.name).filter(Boolean);
+    const opts = [`<option value="" ${!analyticsMoMWorker ? 'selected' : ''}>${t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)'}</option>`];
+    operators.forEach(op => {
+      opts.push(`<option value="${analyticsEscapeHtml(op)}" ${op === analyticsMoMWorker ? 'selected' : ''}>${analyticsEscapeHtml(op)}</option>`);
+    });
+    selectWorker.innerHTML = opts.join('');
+  }
+}
+
+function updateAnalyticsMoMControlsLanguage() {
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  if (selectMachine && selectMachine.options.length > 0 && selectMachine.options[0].value === 'all') {
+    selectMachine.options[0].textContent = t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)';
+  }
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  if (selectProduct && selectProduct.options.length > 0 && selectProduct.options[0].value === '') {
+    selectProduct.options[0].textContent = t('analytics.mom.allProductsOption') || 'All Products';
+  }
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+  if (selectWorker && selectWorker.options.length > 0 && selectWorker.options[0].value === '') {
+    selectWorker.options[0].textContent = t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)';
+  }
+  const rateBtn = document.getElementById('analyticsMoMModeRate');
+  if (rateBtn) {
+    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = t('analytics.mom.modeRateEfficiency') || 'Efficiency %';
+    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = t('analytics.mom.modeRateDefect') || 'Defect Rate %';
+    else rateBtn.textContent = t('analytics.mom.modeRatePace') || 'Pace (Shots/h)';
+  }
+}
+
+function setAnalyticsMoMSubTab(subTab) {
+  analyticsMoMSubTab = subTab || 'machines';
+
+  // Toggle pill buttons
+  ['machines', 'products', 'workers'].forEach(tab => {
+    const btn = document.getElementById(`analyticsMoMSubTabBtn-${tab}`);
+    const isAct = tab === analyticsMoMSubTab;
+    if (btn) {
+      btn.className = isAct
+        ? 'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-white text-indigo-600 shadow-xs'
+        : 'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer';
+    }
+  });
+
+  // Toggle filter containers
+  const cMachines = document.getElementById('analyticsMoMFilterContainerMachines');
+  const cProducts = document.getElementById('analyticsMoMFilterContainerProducts');
+  const cWorkers = document.getElementById('analyticsMoMFilterContainerWorkers');
+  if (cMachines) cMachines.classList.toggle('hidden', analyticsMoMSubTab !== 'machines');
+  if (cProducts) cProducts.classList.toggle('hidden', analyticsMoMSubTab !== 'products');
+  if (cWorkers) cWorkers.classList.toggle('hidden', analyticsMoMSubTab !== 'workers');
+
+  // Update Rate / Metric Mode Button text
+  const rateBtn = document.getElementById('analyticsMoMModeRate');
+  if (rateBtn) {
+    if (analyticsMoMSubTab === 'machines') rateBtn.textContent = t('analytics.mom.modeRateEfficiency') || 'Efficiency %';
+    else if (analyticsMoMSubTab === 'products') rateBtn.textContent = t('analytics.mom.modeRateDefect') || 'Defect Rate %';
+    else rateBtn.textContent = t('analytics.mom.modeRatePace') || 'Pace (Shots/h)';
+  }
+
+  loadAnalyticsMoM();
+}
+
+function handleAnalyticsMoMFilterChange() {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+  const selectProduct = document.getElementById('analyticsMoMProductSelect');
+  const selectLhRh = document.getElementById('analyticsMoMProductLhRh');
+  const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+
+  if (selectA) analyticsMoMMonthA = selectA.value;
+  if (selectB) analyticsMoMMonthB = selectB.value;
+  if (selectMachine) analyticsMoMMachine = selectMachine.value || 'all';
+  if (selectProduct) analyticsMoMProduct = selectProduct.value || '';
+  if (selectLhRh) analyticsMoMProductLhRh = selectLhRh.value || 'all';
+  if (selectWorker) analyticsMoMWorker = selectWorker.value || '';
+
+  loadAnalyticsMoM();
+}
+
+function handleAnalyticsMoMSwapMonths() {
+  const selectA = document.getElementById('analyticsMoMMonthA');
+  const selectB = document.getElementById('analyticsMoMMonthB');
+  const temp = analyticsMoMMonthA;
+  analyticsMoMMonthA = analyticsMoMMonthB;
+  analyticsMoMMonthB = temp;
+  if (selectA) selectA.value = analyticsMoMMonthA;
+  if (selectB) selectB.value = analyticsMoMMonthB;
+  updateAnalyticsMoMMonthDisplays();
+  loadAnalyticsMoM();
+}
+
+function setAnalyticsMoMChartMode(mode) {
+  analyticsMoMChartMode = mode || 'cumulative';
+  const modes = ['cumulative', 'daily', 'rate'];
+  modes.forEach(m => {
+    const btn = document.getElementById(`analyticsMoMMode${m.charAt(0).toUpperCase() + m.slice(1)}`);
+    if (btn) {
+      if (m === analyticsMoMChartMode) {
+        btn.className = 'rounded-lg px-3 py-1 text-xs font-semibold bg-indigo-50 text-indigo-600 transition cursor-pointer shadow-2xs';
+      } else {
+        btn.className = 'rounded-lg px-3 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer';
+      }
+    }
+  });
+
+  if (analyticsMoMData) {
+    renderAnalyticsMoMTrajectoryChart(analyticsMoMData);
+  }
+}
+
+async function loadAnalyticsMoM() {
+  const refreshIcon = document.getElementById('analyticsMoMRefreshIcon');
+  if (refreshIcon) refreshIcon.classList.add('animate-spin');
+  analyticsMoMLoading = true;
+
+  try {
+    let typeParam = 'machine';
+    if (analyticsMoMSubTab === 'products') typeParam = 'product';
+    if (analyticsMoMSubTab === 'workers') typeParam = 'worker';
+
+    let url = `${API_URL}/api/admin/analytics/mom?type=${typeParam}&monthA=${encodeURIComponent(analyticsMoMMonthA || '')}&monthB=${encodeURIComponent(analyticsMoMMonthB || '')}`;
+
+    if (analyticsMoMSubTab === 'machines') {
+      url += `&machine=${encodeURIComponent(analyticsMoMMachine || 'all')}`;
+    } else if (analyticsMoMSubTab === 'products') {
+      url += `&hinban=${encodeURIComponent(analyticsMoMProduct || '')}&lhRh=${encodeURIComponent(analyticsMoMProductLhRh || 'all')}`;
+    } else if (analyticsMoMSubTab === 'workers') {
+      url += `&operator=${encodeURIComponent(analyticsMoMWorker || '')}`;
+    }
+
+    const res = await fetch(url, { headers: analyticsGetAuthHeaders() });
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || 'Failed to fetch MoM data');
+    }
+
+    analyticsMoMData = result;
+
+    // Populate dropdown options from availableOptions if provided
+    if (result.availableOptions) {
+      const { machines = [], products = [], operators = [] } = result.availableOptions;
+      const selectMachine = document.getElementById('analyticsMoMMachineSelect');
+      if (selectMachine && machines.length > 0 && selectMachine.options.length <= 2) {
+        const cur = selectMachine.value;
+        selectMachine.innerHTML = [`<option value="all">${t('analytics.mom.allMachinesOption') || 'All Machines (Fleet Average)'}</option>`]
+          .concat(machines.map(m => `<option value="${analyticsEscapeHtml(m)}">${analyticsEscapeHtml(m)}</option>`)).join('');
+        selectMachine.value = cur || 'all';
+      }
+
+      const selectProduct = document.getElementById('analyticsMoMProductSelect');
+      if (selectProduct && products.length > 0 && selectProduct.options.length <= 2) {
+        const cur = selectProduct.value;
+        const opts = [`<option value="">${t('analytics.mom.allProductsOption') || 'All Products'}</option>`];
+        products.forEach(p => {
+          const label = p.productName ? `${p.hinban} - ${p.productName}` : p.hinban;
+          opts.push(`<option value="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(label)}</option>`);
+        });
+        selectProduct.innerHTML = opts.join('');
+        selectProduct.value = cur || '';
+      }
+
+      const selectWorker = document.getElementById('analyticsMoMWorkerSelect');
+      if (selectWorker && operators.length > 0 && selectWorker.options.length <= 2) {
+        const cur = selectWorker.value;
+        const opts = [`<option value="">${t('analytics.mom.allWorkersOption') || 'All Workers (Team Average)'}</option>`]
+          .concat(operators.map(op => `<option value="${analyticsEscapeHtml(op)}">${analyticsEscapeHtml(op)}</option>`));
+        selectWorker.innerHTML = opts.join('');
+        selectWorker.value = cur || '';
+      }
+    }
+
+    renderAnalyticsMoM(result);
+  } catch (err) {
+    console.error('❌ Failed to load MoM analytics:', err);
+    renderAnalyticsMoMError(err.message);
+  } finally {
+    analyticsMoMLoading = false;
+    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+  }
+}
+
+function renderAnalyticsMoMError(message) {
+  const kpiGrid = document.getElementById('analyticsMoMKpiGrid');
+  if (kpiGrid) {
+    kpiGrid.innerHTML = `
+      <div class="col-span-1 sm:col-span-2 xl:col-span-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 p-8 text-center text-sm text-gray-500">
+        <i class="ri-information-line text-2xl text-indigo-500 mb-2 block"></i>
+        <p class="font-medium text-gray-700 mb-1">${analyticsEscapeHtml(t('analytics.mom.errorTitle') || 'MoM Analytics Initialization')}</p>
+        <p class="text-xs text-gray-400 max-w-md mx-auto">${analyticsEscapeHtml(message || t('analytics.mom.errorDesc') || 'Please ensure the server has finished restarting with the new MoM endpoint.')}</p>
+        <button onclick="loadAnalyticsMoM()" class="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 shadow-2xs hover:bg-gray-50">
+          <i class="ri-refresh-line"></i> ${analyticsEscapeHtml(t('analytics.mom.retry') || 'Retry')}
+        </button>
+      </div>`;
+  }
+}
+
+function renderAnalyticsMoM(result) {
+  renderAnalyticsMoMKpis(result);
+  renderAnalyticsMoMTrajectoryChart(result);
+  renderAnalyticsMoMBreakdowns(result);
+}
+
+function renderAnalyticsMoMKpis(result) {
+  const container = document.getElementById('analyticsMoMKpiGrid');
+  if (!container) return;
+
+  const { deltas, analyticsA, analyticsB, type } = result;
+
+  let cards = [];
+
+  if (type === 'product' || type === 'products') {
+    cards = [
+      {
+        title: t('analytics.mom.kpiTotalOutput') || 'Total Production Output',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: (t('analytics.mom.kpiAvgUnitsDay') || 'Avg {valA} units/day vs {valB} units/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
+        icon: 'ri-box-3-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: t('analytics.mom.kpiDefectRate') || 'Defect Rate (MoM)',
+        valA: `${analyticsA.defectRate}%`,
+        valB: `${analyticsB.defectRate}%`,
+        diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
+        isPositive: deltas.diffDefectRate <= 0,
+        subtext: (t('analytics.mom.kpiTotalDefects') || 'Total defects: {valA} vs {valB}')
+          .replace('{valA}', analyticsA.totalDefects.toLocaleString())
+          .replace('{valB}', analyticsB.totalDefects.toLocaleString()),
+        icon: 'ri-shield-check-line',
+        tone: 'bg-rose-50 text-rose-600'
+      },
+      {
+        title: t('analytics.mom.kpiManHours') || 'Man-Hours Invested',
+        valA: `${analyticsA.totalManHours}h`,
+        valB: `${analyticsB.totalManHours}h`,
+        diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
+        isPositive: deltas.diffHours >= 0,
+        subtext: (t('analytics.mom.kpiProductionDays') || '{valA} active production days vs {valB} days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: t('analytics.mom.kpiHourlyPace') || 'Hourly Pace (Productivity)',
+        valA: `${analyticsA.shotsPerHour} /h`,
+        valB: `${analyticsB.shotsPerHour} /h`,
+        diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
+        isPositive: deltas.diffShotsPerHour >= 0,
+        subtext: (t('analytics.mom.kpiShiftEfficiency') || 'Shift efficiency: {valA}% vs {valB}%')
+          .replace('{valA}', analyticsA.efficiency)
+          .replace('{valB}', analyticsB.efficiency),
+        icon: 'ri-speed-up-line',
+        tone: 'bg-blue-50 text-blue-600'
+      }
+    ];
+  } else if (type === 'worker' || type === 'workers') {
+    cards = [
+      {
+        title: t('analytics.mom.kpiWorkerOutput') || 'Worker Output Produced',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: (t('analytics.mom.kpiAvgUnitsDay') || 'Avg {valA} units/day vs {valB} units/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
+        icon: 'ri-team-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: t('analytics.mom.kpiDefectRate') || 'Defect Rate (MoM)',
+        valA: `${analyticsA.defectRate}%`,
+        valB: `${analyticsB.defectRate}%`,
+        diffText: `${deltas.diffDefectRate <= 0 ? '' : '+'}${deltas.diffDefectRate}%`,
+        isPositive: deltas.diffDefectRate <= 0,
+        subtext: (t('analytics.mom.kpiTotalDefects') || 'Total defects: {valA} vs {valB}')
+          .replace('{valA}', analyticsA.totalDefects.toLocaleString())
+          .replace('{valB}', analyticsB.totalDefects.toLocaleString()),
+        icon: 'ri-shield-check-line',
+        tone: 'bg-rose-50 text-rose-600'
+      },
+      {
+        title: t('analytics.mom.kpiTotalLaborHours') || 'Total Labor Hours',
+        valA: `${analyticsA.totalManHours}h`,
+        valB: `${analyticsB.totalManHours}h`,
+        diffText: `${deltas.diffHours >= 0 ? '+' : ''}${deltas.diffHours}h`,
+        isPositive: deltas.diffHours >= 0,
+        subtext: (t('analytics.mom.kpiDaysWorked') || '{valA} days worked vs {valB} days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: t('analytics.mom.kpiProductivityPace') || 'Productivity Pace',
+        valA: `${analyticsA.shotsPerHour} /h`,
+        valB: `${analyticsB.shotsPerHour} /h`,
+        diffText: `${deltas.diffShotsPerHour >= 0 ? '+' : ''}${deltas.diffShotsPerHour} /h`,
+        isPositive: deltas.diffShotsPerHour >= 0,
+        subtext: (t('analytics.mom.kpiTroubleDowntime') || 'Trouble downtime: {valA}h vs {valB}h')
+          .replace('{valA}', analyticsA.troubleHours)
+          .replace('{valB}', analyticsB.troubleHours),
+        icon: 'ri-speed-up-line',
+        tone: 'bg-blue-50 text-blue-600'
+      }
+    ];
+  } else {
+    // Machines (default)
+    cards = [
+      {
+        title: t('analytics.mom.kpiMachineEfficiency') || 'Efficiency (MoM)',
+        valA: `${analyticsA.efficiency}%`,
+        valB: `${analyticsB.efficiency}%`,
+        diffText: `${deltas.diffEfficiency >= 0 ? '+' : ''}${deltas.diffEfficiency}%`,
+        isPositive: deltas.diffEfficiency >= 0,
+        subtext: (t('analytics.mom.kpiShiftEfficiencyDetail') || 'Shift efficiency ({valA}h producing vs {valB}h)')
+          .replace('{valA}', analyticsA.producingHours)
+          .replace('{valB}', analyticsB.producingHours),
+        icon: 'ri-speed-up-line',
+        tone: 'bg-indigo-50 text-indigo-600'
+      },
+      {
+        title: t('analytics.mom.kpiMachineOutput') || 'Total Output / Shots',
+        valA: `${analyticsA.totalGood.toLocaleString()}`,
+        valB: `${analyticsB.totalGood.toLocaleString()}`,
+        diffText: `${deltas.diffShots >= 0 ? '+' : ''}${deltas.pctShots}% (${deltas.diffShots >= 0 ? '+' : ''}${deltas.diffShots.toLocaleString()})`,
+        isPositive: deltas.diffShots >= 0,
+        subtext: (t('analytics.mom.kpiAvgShotsDay') || 'Avg {valA} shots/day vs {valB} shots/day')
+          .replace('{valA}', analyticsA.avgShotsPerDay)
+          .replace('{valB}', analyticsB.avgShotsPerDay),
+        icon: 'ri-cpu-line',
+        tone: 'bg-blue-50 text-blue-600'
+      },
+      {
+        title: t('analytics.mom.kpiWorkingHours') || 'Working Hours',
+        valA: `${analyticsA.producingHours}h`,
+        valB: `${analyticsB.producingHours}h`,
+        diffText: `${deltas.diffProducingHours >= 0 ? '+' : ''}${deltas.diffProducingHours}h`,
+        isPositive: deltas.diffProducingHours >= 0,
+        subtext: (t('analytics.mom.kpiActiveDays') || '{valA} active days vs {valB} active days')
+          .replace('{valA}', analyticsA.operatingDays)
+          .replace('{valB}', analyticsB.operatingDays),
+        icon: 'ri-time-line',
+        tone: 'bg-emerald-50 text-emerald-600'
+      },
+      {
+        title: t('analytics.mom.kpiTroubleDowntimeTitle') || 'Trouble Downtime',
+        valA: `${analyticsA.troubleHours}h`,
+        valB: `${analyticsB.troubleHours}h`,
+        diffText: `${deltas.diffTroubleHours <= 0 ? '' : '+'}${deltas.diffTroubleHours}h`,
+        isPositive: deltas.diffTroubleHours <= 0,
+        subtext: (t('analytics.mom.kpiDefectRateDiff') || 'Defect rate: {rate}% (Δ {diff}%)')
+          .replace('{rate}', analyticsA.defectRate)
+          .replace('{diff}', `${deltas.diffDefectRate >= 0 ? '+' : ''}${deltas.diffDefectRate}`),
+        icon: 'ri-alarm-warning-line',
+        tone: 'bg-rose-50 text-rose-600'
+      }
+    ];
+  }
+
+  container.innerHTML = cards.map(c => `
+    <div class="rounded-2xl border border-gray-100 bg-white p-4 sm:p-5 shadow-xs transition hover:border-gray-200">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-gray-500">${c.title}</span>
+        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+          c.isPositive ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20' : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20'
+        }">
+          <i class="${c.isPositive ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'} text-sm leading-none"></i>
+          <span>${c.diffText}</span>
+        </span>
+      </div>
+
+      <div class="mt-3 flex items-baseline gap-2">
+        <span class="text-2xl font-semibold tracking-tight text-gray-900 tabular-nums">${c.valA}</span>
+        <span class="text-xs text-gray-400 font-medium tabular-nums">vs ${c.valB}</span>
+      </div>
+
+      <p class="mt-2 text-xs text-gray-400 truncate" title="${c.subtext}">${c.subtext}</p>
+    </div>
+  `).join('');
+}
+
+function renderAnalyticsMoMTrajectoryChart(result) {
+  const containerId = 'analyticsMoMTrajectoryChart';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const { trajectory = [], monthA, monthB, type } = result;
+
+  const titleEl = document.getElementById('analyticsMoMTrajectoryTitle');
+  const descEl = document.getElementById('analyticsMoMTrajectoryDesc');
+  if (titleEl && descEl) {
+    if (type === 'product' || type === 'products') {
+      titleEl.textContent = t('analytics.mom.trajectoryTitleProduct') || 'Product Volume Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescProduct') || 'Compare product output day-by-day to observe production velocity.';
+    } else if (type === 'worker' || type === 'workers') {
+      titleEl.textContent = t('analytics.mom.trajectoryTitleWorker') || 'Worker Output Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescWorker') || 'Compare worker output pace day-by-day across both months.';
+    } else {
+      titleEl.textContent = t('analytics.mom.trajectoryTitleMachine') || 'Machine Pace Trajectory (Day 1..31)';
+      descEl.textContent = t('analytics.mom.trajectoryDescMachine') || 'Compare pace day-by-day to see if machine is running ahead of or behind baseline.';
+    }
+  }
+
+  if (trajectory.length === 0) {
+    analyticsShowChartEmpty(containerId, t('analytics.mom.noTrajectoryData') || 'No trajectory data available');
+    return;
+  }
+
+  const days = trajectory.map(t => `${t.day}日`);
+  const isJa = (typeof currentLanguage !== 'undefined' && currentLanguage === 'ja') || localStorage.getItem('appLanguage') === 'ja';
+  const labelA = `${monthA} (${t('analytics.mom.target') || (isJa ? '対象月' : 'Target')})`;
+  const labelB = `${monthB} (${t('analytics.mom.baseline') || (isJa ? '比較月' : 'Baseline')})`;
+
+  let series = [];
+  let yAxisConfig = {};
+  let tooltipFormatter;
+
+  if (analyticsMoMChartMode === 'cumulative') {
+    series = [
+      {
+        name: labelA,
+        type: 'line',
+        data: trajectory.map(t => t.cumShotsA),
+        smooth: true,
+        symbolSize: 6,
+        itemStyle: { color: '#4f46e5' },
+        lineStyle: { width: 3, color: '#4f46e5' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(79, 70, 229, 0.18)' },
+              { offset: 1, color: 'rgba(79, 70, 229, 0.01)' }
+            ]
+          }
+        }
+      },
+      {
+        name: labelB,
+        type: 'line',
+        data: trajectory.map(t => t.cumShotsB),
+        smooth: true,
+        symbolSize: 4,
+        itemStyle: { color: '#a855f7' },
+        lineStyle: { width: 2, type: 'dashed', color: '#a855f7' }
+      }
+    ];
+
+    yAxisConfig = {
+      type: 'value',
+      name: t('analytics.mom.yAxisCumulative') || (isJa ? '累積ショット数' : 'Cumulative Output'),
+      axisLabel: { formatter: val => Number(val).toLocaleString() },
+      splitLine: { lineStyle: { color: '#f1f5f9' } }
+    };
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${t('analytics.mom.cumulativeBadge') || (isJa ? '累積比較' : 'Cumulative')}</span>
+      </div>`;
+
+      params.forEach(p => {
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${Number(val).toLocaleString()}</span> <span style="font-size:11px;font-weight:500;color:#64748b;">units</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
+      });
+
+      if (tPoint.cumShotsA !== null && tPoint.cumShotsA !== undefined && tPoint.cumShotsB !== null && tPoint.cumShotsB !== undefined) {
+        const diff = tPoint.cumShotsA - tPoint.cumShotsB;
+        const sign = diff >= 0 ? '+' : '';
+        const isPos = diff >= 0;
+        const diffColor = isPos ? '#059669' : '#dc2626';
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${t('analytics.mom.cumulativeVariance') || (isJa ? '累積差異' : 'Cumulative Variance')}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
+        </div>`;
+      }
+      return html;
+    };
+  } else if (analyticsMoMChartMode === 'daily') {
+    series = [
+      {
+        name: labelA,
+        type: 'bar',
+        barMaxWidth: 12,
+        itemStyle: { color: '#4f46e5', borderRadius: [4, 4, 0, 0] },
+        data: trajectory.map(t => t.shotsA)
+      },
+      {
+        name: labelB,
+        type: 'bar',
+        barMaxWidth: 12,
+        itemStyle: { color: '#cbd5e1', borderRadius: [4, 4, 0, 0] },
+        data: trajectory.map(t => t.shotsB)
+      }
+    ];
+
+    yAxisConfig = {
+      type: 'value',
+      name: t('analytics.mom.yAxisDaily') || (isJa ? '日別生産数' : 'Daily Output'),
+      axisLabel: { formatter: val => Number(val).toLocaleString() },
+      splitLine: { lineStyle: { color: '#f1f5f9' } }
+    };
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${t('analytics.mom.dailyBadge') || (isJa ? '日別比較' : 'Daily')}</span>
+      </div>`;
+
+      params.forEach(p => {
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${Number(val).toLocaleString()}</span> <span style="font-size:11px;font-weight:500;color:#64748b;">units</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
+      });
+
+      if (tPoint.shotsA !== null && tPoint.shotsA !== undefined && tPoint.shotsB !== null && tPoint.shotsB !== undefined) {
+        const diff = tPoint.shotsA - tPoint.shotsB;
+        const sign = diff >= 0 ? '+' : '';
+        const isPos = diff >= 0;
+        const diffColor = isPos ? '#059669' : '#dc2626';
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${t('analytics.mom.dailyVariance') || (isJa ? '日別差異' : 'Daily Variance')}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${diff.toLocaleString()} <span style="font-size:11px;font-weight:500;">units</span></span>
+        </div>`;
+      }
+      return html;
+    };
+  } else {
+    // Rate mode (Efficiency for machine, Defect rate for product, Pace for worker)
+    if (type === 'product' || type === 'products') {
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#ef4444' },
+          lineStyle: { width: 2.5, color: '#ef4444' },
+          data: trajectory.map(t => t.defRateA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.defRateB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: t('analytics.mom.yAxisDefectRate') || (isJa ? '不良率 %' : 'Defect Rate %'),
+        axisLabel: { formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    } else if (type === 'worker' || type === 'workers') {
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#2563eb' },
+          lineStyle: { width: 2.5, color: '#2563eb' },
+          data: trajectory.map(t => t.rateA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.rateB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: t('analytics.mom.yAxisPace') || (isJa ? 'ペース (個/時間)' : 'Pace (Units / Hour)'),
+        axisLabel: { formatter: '{value}/h' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    } else {
+      // Efficiency % for machine
+      series = [
+        {
+          name: labelA,
+          type: 'line',
+          smooth: true,
+          symbolSize: 6,
+          itemStyle: { color: '#10b981' },
+          lineStyle: { width: 2.5, color: '#10b981' },
+          data: trajectory.map(t => t.effA)
+        },
+        {
+          name: labelB,
+          type: 'line',
+          smooth: true,
+          symbolSize: 4,
+          itemStyle: { color: '#94a3b8' },
+          lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+          data: trajectory.map(t => t.effB)
+        }
+      ];
+      yAxisConfig = {
+        type: 'value',
+        name: t('analytics.mom.yAxisEfficiency') || (isJa ? '設備稼働率 %' : 'Efficiency %'),
+        max: 100,
+        axisLabel: { formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      };
+    }
+
+    tooltipFormatter = (params) => {
+      if (!params || params.length === 0) return '';
+      const dayIndex = params[0].dataIndex;
+      const tPoint = trajectory[dayIndex];
+      if (!tPoint) return '';
+
+      const dayLabel = isJa ? `${tPoint.day}日` : `Day ${tPoint.day}`;
+      let modeLabel = t('analytics.mom.modeRateEfficiency') || (isJa ? '設備稼働率比較' : 'Efficiency');
+      let unitSuffix = '%';
+      let decimals = 1;
+      let diffVal = null;
+      let betterWhenLower = false;
+
+      if (type === 'product' || type === 'products') {
+        modeLabel = t('analytics.mom.modeRateDefect') || (isJa ? '不良率比較' : 'Defect Rate');
+        unitSuffix = '%';
+        decimals = 2;
+        betterWhenLower = true;
+        if (tPoint.defRateA !== null && tPoint.defRateB !== null) {
+          diffVal = tPoint.defRateA - tPoint.defRateB;
+        }
+      } else if (type === 'worker' || type === 'workers') {
+        modeLabel = t('analytics.mom.modeRatePace') || (isJa ? '作業ペース比較' : 'Pace');
+        unitSuffix = ' units/h';
+        decimals = 0;
+        if (tPoint.rateA !== null && tPoint.rateB !== null) {
+          diffVal = tPoint.rateA - tPoint.rateB;
+        }
+      } else {
+        modeLabel = t('analytics.mom.modeRateEfficiency') || (isJa ? '設備稼働率比較' : 'Efficiency');
+        unitSuffix = '%';
+        decimals = 1;
+        if (tPoint.effA !== null && tPoint.effB !== null) {
+          diffVal = tPoint.effA - tPoint.effB;
+        }
+      }
+
+      let html = `<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f1f5f9;padding-bottom:6px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:12px;color:#1e293b;">${dayLabel}</span>
+        <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${modeLabel}</span>
+      </div>`;
+
+      params.forEach(p => {
+        const val = p.value;
+        const hasVal = val !== null && val !== undefined && !Number.isNaN(Number(val));
+        const valStr = hasVal
+          ? `<span style="font-weight:700;color:#0f172a;font-feature-settings:'tnum';">${decimals === 0 ? Number(val).toLocaleString() : Number(val).toFixed(decimals)}</span><span style="font-size:11px;font-weight:500;color:#64748b;">${unitSuffix}</span>`
+          : `<span style="color:#94a3b8;font-weight:400;">-</span>`;
+
+        html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;padding:2px 0;">
+          <span style="display:flex;align-items:center;gap:6px;color:${p.color};font-weight:600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};"></span>
+            ${analyticsEscapeHtml(p.seriesName)}:
+          </span>
+          <span style="font-size:12px;text-align:right;">${valStr}</span>
+        </div>`;
+      });
+
+      if (diffVal !== null) {
+        const sign = diffVal >= 0 ? '+' : '';
+        const isGood = betterWhenLower ? diffVal <= 0 : diffVal >= 0;
+        const diffColor = isGood ? '#059669' : '#dc2626';
+        const formattedDiff = decimals === 0 ? diffVal.toLocaleString() : diffVal.toFixed(decimals);
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:20px;font-size:12px;font-weight:600;">
+          <span style="color:${diffColor};">${t('analytics.mom.variance') || (isJa ? '差異' : 'Variance')}:</span>
+          <span style="color:${diffColor};font-weight:700;font-feature-settings:'tnum';">${sign}${formattedDiff}<span style="font-size:11px;font-weight:500;">${unitSuffix}</span></span>
+        </div>`;
+      }
+      return html;
+    };
+  }
+
+  analyticsRenderChart(containerId, {
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.98)',
+      borderColor: '#e2e8f0',
+      borderWidth: 1,
+      padding: [10, 14],
+      extraCssText: 'box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05); border-radius: 12px; font-family: Inter, -apple-system, sans-serif;',
+      textStyle: { color: '#0f172a', fontSize: 12 },
+      axisPointer: { type: analyticsMoMChartMode === 'daily' ? 'shadow' : 'line' },
+      formatter: tooltipFormatter
+    },
+    legend: {
+      data: [labelA, labelB],
+      top: 0,
+      right: 10,
+      textStyle: { fontSize: 11, fontWeight: 'bold' }
+    },
+    grid: { left: 55, right: 20, top: 35, bottom: 25 },
+    xAxis: {
+      type: 'category',
+      data: days,
+      axisLine: { lineStyle: { color: '#cbd5e1' } },
+      axisLabel: { fontSize: 10, interval: 2 }
+    },
+    yAxis: yAxisConfig,
+    series
+  });
+}
+
+function renderAnalyticsMoMBreakdowns(result) {
+  const { breakdown1 = {}, breakdown2 = {}, monthA, monthB, type } = result;
+
+  const title1 = document.getElementById('analyticsMoMBreakdown1Title');
+  const badge1 = document.getElementById('analyticsMoMBreakdown1Badge');
+  const content1 = document.getElementById('analyticsMoMBreakdown1Content');
+
+  const title2 = document.getElementById('analyticsMoMBreakdown2Title');
+  const badge2 = document.getElementById('analyticsMoMBreakdown2Badge');
+  const content2 = document.getElementById('analyticsMoMBreakdown2Content');
+
+  if (!content1 || !content2) return;
+
+  if (type === 'product' || type === 'products') {
+    if (title1) title1.innerHTML = `<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownMachineAllocTitle') || 'Machine Allocation Shift'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeOutputByMachine') || 'Output by machine';
+
+    const items1 = breakdown1.items || [];
+    if (items1.length === 0) {
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noMachineAllocData') || 'No machine allocation data found.'}</div>`;
+    } else {
+      content1.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">${t('analytics.mom.thMachine') || 'Machine'}</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thVolumeDelta') || 'Volume Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items1.map(m => {
+              const isUp = m.diff >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(m.name)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${m.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${m.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${m.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center font-semibold ${Number(m.shareDiff) >= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(m.shareDiff) >= 0 ? '+' : ''}${m.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (title2) title2.innerHTML = `<i class="ri-alarm-warning-line text-rose-600 mr-2"></i><span>${t('analytics.mom.breakdownDefectReasonTitle') || 'Defect Reason Shift'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeDefectShare') || 'Defect share';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noDefectRecordsProduct') || 'No defect records found for this product.'}</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">${t('analytics.mom.thDefectCause') || 'Defect Cause'}</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thCountDelta') || 'Count Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(d => {
+              const isWorse = d.diff > 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(d.reason)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${d.countA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${d.countB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isWorse ? 'text-rose-600' : 'text-emerald-600'}">
+                    ${d.diff >= 0 ? '+' : ''}${d.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center font-semibold ${Number(d.shareDiff) <= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(d.shareDiff) >= 0 ? '+' : ''}${d.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } else if (type === 'worker' || type === 'workers') {
+    if (title1) title1.innerHTML = `<i class="ri-cpu-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownMachineAssignTitle') || 'Machine Assignment Shift'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeHoursOutput') || 'Hours & output';
+
+    const items1 = breakdown1.items || [];
+    if (items1.length === 0) {
+      content1.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noMachineAssignData') || 'No machine assignment data found.'}</div>`;
+    } else {
+      content1.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">${t('analytics.mom.thMachine') || 'Machine'}</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thOutputDelta') || 'Output Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thHoursDelta') || 'Hours Δ'}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items1.map(m => {
+              const isUp = m.diffShots >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2 font-semibold text-gray-900 truncate max-w-[140px]">${analyticsEscapeHtml(m.name)}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${m.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${m.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${m.diffShots.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums text-gray-600">
+                    ${m.diffHours >= 0 ? '+' : ''}${m.diffHours}h
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    if (title2) title2.innerHTML = `<i class="ri-box-3-line text-violet-600 mr-2"></i><span>${t('analytics.mom.breakdownProductFocusTitle') || 'Product Focus Shift'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeOutputDefects') || 'Output & defects';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noProductRecordsWorker') || 'No product records for this worker.'}</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-2">${t('analytics.mom.thProduct') || 'Product'}</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thOutputDelta') || 'Output Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thDefectsDelta') || 'Defects Δ'}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(p => {
+              const isUp = p.diffShots >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-2">
+                    <span class="font-semibold text-gray-900 block truncate max-w-[140px]" title="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(p.hinban)}</span>
+                    ${p.productName ? `<span class="text-[10px] text-gray-400 block truncate max-w-[140px]">${analyticsEscapeHtml(p.productName)}</span>` : ''}
+                  </td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${p.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${p.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${p.diffShots.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums ${p.diffDefects > 0 ? 'text-rose-600 font-semibold' : 'text-emerald-600 font-semibold'}">
+                    ${p.diffDefects >= 0 ? '+' : ''}${p.diffDefects.toLocaleString()}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } else {
+    // Machines (default)
+    if (title1) title1.innerHTML = `<i class="ri-pie-chart-2-line text-emerald-600 mr-2"></i><span>${t('analytics.mom.breakdownTimeLossTitle') || 'Operating Time & Loss Distribution'}</span>`;
+    if (badge1) badge1.textContent = t('analytics.mom.badgeShiftAllocation') || 'Shift allocation';
+
+    const renderSingleRow = (title, data, isTarget) => {
+      const totHours = data.totalHours || 1;
+      const prodPct = Math.round((data.producingHours / totHours) * 100);
+      const troublePct = Math.round((data.troubleHours / totHours) * 100);
+      const breakPct = Math.round((data.breakHours / totHours) * 100);
+      const idlePct = Math.max(0, 100 - prodPct - troublePct - breakPct);
+
+      return `
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold ${isTarget ? 'text-indigo-600' : 'text-gray-600'}">${title}</span>
+              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">${data.totalHours}h ${t('analytics.mom.totalHoursSuffix') || 'total'}</span>
+            </div>
+            <span class="font-bold text-gray-900">${prodPct}% ${t('analytics.mom.pctProducing') || 'Producing'}</span>
+          </div>
+
+          <div class="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 shadow-2xs">
+            <div class="bg-emerald-500 transition-all" style="width: ${prodPct}%" title="${t('analytics.mom.labelProducing') || 'Producing:'} ${data.producingHours}h (${prodPct}%)"></div>
+            <div class="bg-sky-400 transition-all" style="width: ${breakPct}%" title="${t('analytics.mom.labelBreak') || 'Break:'} ${data.breakHours}h (${breakPct}%)"></div>
+            <div class="bg-rose-500 transition-all" style="width: ${troublePct}%" title="${t('analytics.mom.labelTrouble') || 'Trouble:'} ${data.troubleHours}h (${troublePct}%)"></div>
+            <div class="bg-gray-200 transition-all" style="width: ${idlePct}%" title="${t('analytics.mom.labelIdle') || 'Other/Idle:'} ${idlePct}%"></div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-gray-400 pt-0.5">
+            <span>${t('analytics.mom.labelProducing') || 'Producing:'} <strong class="text-emerald-700 font-semibold">${data.producingHours}h</strong></span>
+            <span>${t('analytics.mom.labelTrouble') || 'Trouble:'} <strong class="text-rose-600 font-semibold">${data.troubleHours}h</strong></span>
+            <span>${t('analytics.mom.labelBreak') || 'Break:'} <strong class="text-sky-700 font-semibold">${data.breakHours}h</strong></span>
+          </div>
+        </div>
+      `;
+    };
+
+    content1.innerHTML = `
+      <div class="space-y-4">
+        ${renderSingleRow(`${monthA} (${t('analytics.mom.target') || 'Target'})`, breakdown1.dataA || {}, true)}
+        ${renderSingleRow(`${monthB} (${t('analytics.mom.baseline') || 'Baseline'})`, breakdown1.dataB || {}, false)}
+      </div>
+    `;
+
+    if (title2) title2.innerHTML = `<i class="ri-box-3-line text-violet-600 mr-2"></i><span>${t('analytics.mom.breakdownProductMixTitle') || 'Product Mix Shift (Top Hinbans)'}</span>`;
+    if (badge2) badge2.textContent = t('analytics.mom.badgeVolumeShare') || 'Volume & share';
+
+    const items2 = breakdown2.items || [];
+    if (items2.length === 0) {
+      content2.innerHTML = `<div class="py-6 text-center text-xs text-gray-400">${t('analytics.mom.noProductRecordsRange') || 'No product records in this comparison range.'}</div>`;
+    } else {
+      content2.innerHTML = `
+        <table class="min-w-full text-xs divide-y divide-gray-100">
+          <thead>
+            <tr class="text-left font-semibold text-gray-400">
+              <th class="py-2 pr-3">${t('analytics.mom.thPartHinban') || 'Part / Hinban'}</th>
+              <th class="py-2 px-2 text-right">${monthA}</th>
+              <th class="py-2 px-2 text-right">${monthB}</th>
+              <th class="py-2 px-2 text-right">${t('analytics.mom.thVolumeDelta') || 'Volume Δ'}</th>
+              <th class="py-2 pl-2 text-right">${t('analytics.mom.thShareDelta') || 'Share Δ'}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            ${items2.map(p => {
+              const isUp = p.diff >= 0;
+              return `
+                <tr class="hover:bg-gray-50/70 transition">
+                  <td class="py-2 pr-3">
+                    <span class="font-semibold text-gray-900 block truncate max-w-[140px]" title="${analyticsEscapeHtml(p.hinban)}">${analyticsEscapeHtml(p.hinban)}</span>
+                    ${p.productName ? `<span class="text-[10px] text-gray-400 block truncate max-w-[140px]">${analyticsEscapeHtml(p.productName)}</span>` : ''}
+                  </td>
+                  <td class="py-2 px-2 text-right tabular-nums font-medium text-gray-900">${p.shotsA.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums text-gray-500">${p.shotsB.toLocaleString()}</td>
+                  <td class="py-2 px-2 text-right tabular-nums font-semibold ${isUp ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${isUp ? '+' : ''}${p.diff.toLocaleString()}
+                  </td>
+                  <td class="py-2 pl-2 text-right tabular-nums">
+                    <span class="inline-flex items-center gap-0.5 font-semibold ${Number(p.shareDiff) >= 0 ? 'text-emerald-600' : 'text-rose-500'}">
+                      ${Number(p.shareDiff) >= 0 ? '+' : ''}${p.shareDiff}%
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  }
 }
 
 function renderAnalyticsDefectsChart(topDefects) {
@@ -1557,21 +3767,21 @@ function renderAnalyticsQualityAlerts(data) {
 
   container.innerHTML = `
     <div class="space-y-4">
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertTopDefect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${topDefectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertTopDefect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${topDefectText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertWorstDay'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${worstDayText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertWorstDay'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${worstDayText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertMachineInspect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${machineInspectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertMachineInspect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${machineInspectText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.quality.alertProductInspect'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${productInspectText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.quality.alertProductInspect'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${productInspectText}</p>
       </div>
     </div>`;
 }
@@ -1581,39 +3791,39 @@ function renderAnalyticsHotspots(qualityHotspots) {
   if (!container) return;
 
   if (!Array.isArray(qualityHotspots) || qualityHotspots.length === 0) {
-    container.innerHTML = `<div class="px-6 py-10 text-sm text-slate-400">${analyticsEscapeHtml(t('analytics.quality.noHotspots'))}</div>`;
+    container.innerHTML = `<div class="px-6 py-10 text-sm text-gray-400">${analyticsEscapeHtml(t('analytics.quality.noHotspots'))}</div>`;
     return;
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTimestamp'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableProduct'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableWorker'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableDefectFocus'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableTrouble'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.quality.tableRemarks'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableTimestamp'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableProduct'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableWorker'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableDefectFocus'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableTrouble'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.quality.tableRemarks'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${qualityHotspots.map(item => {
           const issueSummary = item.topDefects && item.topDefects.length
             ? item.topDefects.map(defect => `${analyticsEscapeHtml(defect.name)} (${analyticsFormatNumber(defect.count)})`).join(', ')
             : analyticsEscapeHtml(t('analytics.quality.tableNoDefectDetail'));
           const productBits = [item.productName, item.hinban, item.kanbanId].filter(Boolean).map(analyticsEscapeHtml);
           const productMarkup = productBits.length
-            ? productBits.map((bit, index) => `<div class="${index === 0 ? '' : 'mt-1 text-xs text-slate-500'}">${bit}</div>`).join('')
+            ? productBits.map((bit, index) => `<div class="${index === 0 ? '' : 'mt-1 text-xs text-gray-500'}">${bit}</div>`).join('')
             : '-';
           return `
-            <tr>
-              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-slate-400">${analyticsEscapeHtml(item.source || t('analytics.common.unknown'))}</div></td>
-              <td class="px-6 py-4 align-top font-medium text-slate-900">${productMarkup}</td>
-              <td class="px-6 py-4 align-top">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
-              <td class="px-6 py-4 align-top"><div class="font-medium text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-slate-500">${issueSummary}</div></td>
-              <td class="px-6 py-4 align-top">${analyticsFormatHours(item.troubleTime)}</td>
-              <td class="px-6 py-4 align-top text-slate-500">${analyticsEscapeHtml(item.remarks || '-')}</td>
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-6 py-4 align-top text-gray-500">${analyticsEscapeHtml(analyticsFormatDateTime(item.timestamp))}<div class="mt-1 text-xs text-gray-400">${analyticsEscapeHtml(item.source || t('analytics.common.unknown'))}</div></td>
+              <td class="px-6 py-4 align-top font-semibold text-gray-900">${productMarkup}</td>
+              <td class="px-6 py-4 align-top font-medium text-gray-900">${(item.operators || []).map(analyticsEscapeHtml).join('<br>') || '-'}</td>
+              <td class="px-6 py-4 align-top"><div class="font-semibold text-rose-700">${analyticsEscapeHtml(t('analytics.quality.tableDefectsCount').replace('{n}', analyticsFormatNumber(item.totalDefects)))}</div><div class="mt-1 text-xs text-gray-500">${issueSummary}</div></td>
+              <td class="px-6 py-4 align-top tabular-nums text-gray-600">${analyticsFormatHours(item.troubleTime)}</td>
+              <td class="px-6 py-4 align-top text-gray-500">${analyticsEscapeHtml(item.remarks || '-')}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -1650,7 +3860,7 @@ function renderAnalyticsQualityTab(data) {
       detail: topDefect
         ? t('analytics.quality.detailCountedEvents').replace('{n}', analyticsFormatNumber(topDefect.count))
         : t('analytics.quality.kpiNoDefectActivity'),
-      tone: 'bg-slate-100 text-slate-700',
+      tone: 'bg-gray-100 text-gray-700',
       icon: 'ri-bug-line'
     },
     {
@@ -1755,17 +3965,17 @@ function renderAnalyticsProductHighlights(topProducts) {
 
   container.innerHTML = `
     <div class="space-y-4">
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteLead'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${leadText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteLead'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${leadText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteRiskiest'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${riskText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteRiskiest'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${riskText}</p>
       </div>
-      <div class="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">${analyticsEscapeHtml(t('analytics.product.noteSlowest'))}</p>
-        <p class="mt-2 text-sm text-slate-700">${slowText}</p>
+      <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition hover:border-gray-200">
+        <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(t('analytics.product.noteSlowest'))}</p>
+        <p class="mt-1.5 text-sm font-medium text-gray-900">${slowText}</p>
       </div>
     </div>`;
 }
@@ -1784,28 +3994,28 @@ function renderAnalyticsProductTable(topProducts) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableProduct'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableRecords'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableGood'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableHours'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableIssues'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableDefectRate'))}</th>
-          <th class="px-6 py-3 font-medium">${analyticsEscapeHtml(t('analytics.product.tableAvgCT'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableProduct'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableRecords'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableGood'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableHours'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableIssues'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableDefectRate'))}</th>
+          <th class="px-6 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.product.tableAvgCT'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rankedProducts.map(product => `
-          <tr>
-            <td class="px-6 py-4 font-medium text-slate-900">${analyticsEscapeHtml(analyticsGetProductLabel(product))}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.submissions)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.totalGoodCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatHours(product.totalManHours)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.issueCount)}</td>
-            <td class="px-6 py-4">${analyticsFormatPercent(product.defectRate)}</td>
-            <td class="px-6 py-4">${analyticsFormatNumber(product.averageCycleTime, 2)}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-6 py-4 font-semibold text-gray-900">${analyticsEscapeHtml(analyticsGetProductLabel(product))}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.submissions)}</td>
+            <td class="px-6 py-4 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.totalGoodCount)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatHours(product.totalManHours)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(product.issueCount)}</td>
+            <td class="px-6 py-4 tabular-nums ${Number(product.defectRate || 0) > 2 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatPercent(product.defectRate)}</td>
+            <td class="px-6 py-4 tabular-nums text-gray-600">${analyticsFormatNumber(product.averageCycleTime, 2)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1909,13 +4119,13 @@ function analyticsTrafficDot(tone) {
 function analyticsScoreTile(tile) {
   const valueClass = tile.tone === 'good' ? 'text-emerald-600' : tile.tone === 'watch' ? 'text-amber-600' : tile.tone === 'bad' ? 'text-rose-600' : 'text-gray-900';
   return `
-    <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <article class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition hover:border-gray-200">
       <div class="flex items-center justify-between gap-2">
         <p class="text-xs font-medium text-gray-500">${analyticsEscapeHtml(tile.title)}${tile.info ? ` <i class="ri-information-line align-middle text-gray-300" title="${analyticsEscapeHtml(tile.info)}"></i>` : ''}</p>
         ${analyticsTrafficDot(tile.tone)}
       </div>
-      <p class="mt-2 text-2xl font-semibold leading-tight ${valueClass}">${tile.value}</p>
-      <p class="mt-1 text-xs text-gray-400">${tile.detail || ''}</p>
+      <p class="mt-2 text-2xl font-semibold leading-tight tracking-tight tabular-nums ${valueClass}">${tile.value}</p>
+      <p class="mt-1 text-xs font-medium tabular-nums text-gray-400">${tile.detail || ''}</p>
     </article>`;
 }
 
@@ -2345,32 +4555,32 @@ function renderAnalyticsWorkerFocusTable(daysToShow) {
   }
 
   container.innerHTML = `
-    <table class="min-w-full divide-y divide-slate-200 text-sm">
-      <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+    <table class="min-w-full divide-y divide-gray-100 text-sm">
+      <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
         <tr>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colDate'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colTime'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colMachine'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colProduct'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colOutput'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colDefects'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colBreak'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colTrouble'))}</th>
-          <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.workerFocus.colShared'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colDate'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colTime'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colMachine'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colProduct'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colOutput'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colDefects'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colBreak'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colTrouble'))}</th>
+          <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.workerFocus.colShared'))}</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+      <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
         ${rows.map(record => `
-          <tr>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.date)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.startTime)} - ${analyticsEscapeHtml(record.endTime)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(record.source)}</td>
-            <td class="px-4 py-3">${analyticsEscapeHtml(analyticsGetProductLabel(record))}</td>
-            <td class="px-4 py-3 font-medium text-slate-900">${analyticsFormatNumber(record.goodCount)}</td>
-            <td class="px-4 py-3 ${Number(record.defectCount || 0) > 0 ? 'font-medium text-rose-600' : ''}">${analyticsFormatNumber(record.defectCount)}</td>
-            <td class="px-4 py-3">${analyticsFormatHours(record.breakTime)}</td>
-            <td class="px-4 py-3">${analyticsFormatHours(record.troubleTime)}</td>
-            <td class="px-4 py-3">${(record.operators || []).length > 1 ? analyticsEscapeHtml((record.operators || []).join(', ')) : '-'}</td>
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="px-4 py-3 text-gray-600">${analyticsEscapeHtml(record.date)}</td>
+            <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsEscapeHtml(record.startTime)} - ${analyticsEscapeHtml(record.endTime)}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(record.source)}</td>
+            <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(analyticsGetProductLabel(record))}</td>
+            <td class="px-4 py-3 font-semibold tabular-nums text-gray-900">${analyticsFormatNumber(record.goodCount)}</td>
+            <td class="px-4 py-3 tabular-nums ${Number(record.defectCount || 0) > 0 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${analyticsFormatNumber(record.defectCount)}</td>
+            <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(record.breakTime)}</td>
+            <td class="px-4 py-3 tabular-nums ${Number(record.troubleTime || 0) > 0 ? 'text-amber-600 font-medium' : 'text-gray-600'}">${analyticsFormatHours(record.troubleTime)}</td>
+            <td class="px-4 py-3 text-gray-600">${(record.operators || []).length > 1 ? analyticsEscapeHtml((record.operators || []).join(', ')) : '-'}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -3289,29 +5499,29 @@ function renderAnalyticsFinanceTab(data) {
       .filter(product => product.goodCount > 0 || product.defectCount > 0);
 
     tableEl.innerHTML = `
-      <table class="min-w-full divide-y divide-slate-200 text-sm">
-        <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+      <table class="min-w-full divide-y divide-gray-100 text-sm">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-700">
           <tr>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colProduct'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colPrice'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colPieces'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colDefects'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colEarned'))}</th>
-            <th class="px-4 py-3 font-medium">${analyticsEscapeHtml(t('analytics.finance.colLost'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colProduct'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colPrice'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colPieces'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colDefects'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colEarned'))}</th>
+            <th class="px-4 py-3 font-semibold">${analyticsEscapeHtml(t('analytics.finance.colLost'))}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${rows.map(product => `
-            <tr>
-              <td class="px-4 py-3 font-medium text-slate-900">
+            <tr class="hover:bg-gray-50/70 transition">
+              <td class="px-4 py-3 font-semibold text-gray-900">
                 ${analyticsEscapeHtml(analyticsGetProductLabel(product))}
                 ${product.priced ? '' : `<span class="ml-2 rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">${analyticsEscapeHtml(t('analytics.finance.unpricedBadge'))}</span>`}
               </td>
-              <td class="px-4 py-3">${product.priced ? analyticsFormatCurrency(product.price) : '-'}</td>
-              <td class="px-4 py-3">${analyticsFormatNumber(product.scopeGoodCount)}</td>
-              <td class="px-4 py-3">${analyticsFormatNumber(product.defectCount)}</td>
-              <td class="px-4 py-3 font-medium text-emerald-700">${product.priced ? analyticsFormatCurrency(product.scopeEarned) : '-'}</td>
-              <td class="px-4 py-3 ${product.scopeLost > 0 ? 'font-medium text-rose-600' : ''}">${product.priced ? analyticsFormatCurrency(product.scopeLost) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums text-gray-600">${product.priced ? analyticsFormatCurrency(product.price) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums font-medium text-gray-900">${analyticsFormatNumber(product.scopeGoodCount)}</td>
+              <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatNumber(product.defectCount)}</td>
+              <td class="px-4 py-3 tabular-nums font-semibold text-emerald-700">${product.priced ? analyticsFormatCurrency(product.scopeEarned) : '-'}</td>
+              <td class="px-4 py-3 tabular-nums ${product.scopeLost > 0 ? 'font-semibold text-rose-600' : 'text-gray-600'}">${product.priced ? analyticsFormatCurrency(product.scopeLost) : '-'}</td>
             </tr>`).join('')}
         </tbody>
       </table>`;
@@ -3458,7 +5668,7 @@ function renderAnalyticsWeeklyDigest(data) {
   }
 
   digestEl.classList.remove('hidden');
-  digestEl.innerHTML = `<i class="ri-chat-smile-2-line mr-2 text-base text-slate-400"></i>${analyticsEscapeHtml(sentences.join(' '))}`;
+  digestEl.innerHTML = `<i class="ri-chat-smile-2-line mr-2 text-base text-gray-400"></i>${analyticsEscapeHtml(sentences.join(' '))}`;
 }
 
 // ------------------------------------------------------------
@@ -3645,7 +5855,7 @@ function renderAnalyticsProductDetail(data) {
           <div class="h-4 flex-1 rounded bg-gray-100">
             <div class="h-4 rounded bg-rose-400" style="width:${Math.max((defect.count / maxCount) * 100, 3)}%"></div>
           </div>
-          <span class="w-10 text-right font-semibold text-gray-800">${analyticsFormatNumber(defect.count)}</span>
+          <span class="w-10 text-right font-semibold tabular-nums text-gray-800">${analyticsFormatNumber(defect.count)}</span>
         </div>`).join('');
     }
   }
@@ -3653,9 +5863,9 @@ function renderAnalyticsProductDetail(data) {
   // Machines & workers who make it
   if (peopleEl) {
     const machineChips = (profile.machines || []).map(machine =>
-      `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-700"><i class="ri-cpu-line text-gray-400"></i>${analyticsEscapeHtml(machine.name)} <span class="text-xs text-gray-400">${analyticsFormatNumber(machine.pieces)}</span></span>`).join(' ');
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-sm text-gray-700"><i class="ri-cpu-line text-gray-400"></i>${analyticsEscapeHtml(machine.name)} <span class="text-xs tabular-nums text-gray-400">${analyticsFormatNumber(machine.pieces)}</span></span>`).join(' ');
     const workerChips = (profile.workers || []).map(worker =>
-      `<span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800"><i class="ri-user-line text-sky-400"></i>${analyticsEscapeHtml(worker.name)} <span class="text-xs text-sky-500">${analyticsFormatCount(worker.pieces)}</span></span>`).join(' ');
+      `<span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800"><i class="ri-user-line text-sky-400"></i>${analyticsEscapeHtml(worker.name)} <span class="text-xs tabular-nums text-sky-500">${analyticsFormatCount(worker.pieces)}</span></span>`).join(' ');
     peopleEl.innerHTML = `<div class="flex flex-wrap gap-2">${machineChips}</div><div class="mt-3 flex flex-wrap gap-2">${workerChips}</div>`;
   }
 }
@@ -3932,7 +6142,9 @@ function analyticsRestoreViewState() {
     const stored = JSON.parse(localStorage.getItem(ANALYTICS_VIEW_STORAGE_KEY) || 'null');
     if (!stored) return;
 
-    if (stored.tab) analyticsActiveTab = stored.tab;
+    if (stored.tab) {
+      analyticsActiveTab = stored.tab === 'overview' ? 'productivity' : stored.tab;
+    }
     const assign = (id, value) => {
       const el = document.getElementById(id);
       if (el && value) el.value = value;
@@ -3968,9 +6180,15 @@ function renderAnalyticsActiveTab() {
     case 'finance':
       renderAnalyticsFinanceTab(analyticsData);
       break;
+    case 'mom':
+      initAnalyticsMoM(analyticsData);
+      loadAnalyticsMoM();
+      break;
+    case 'productivity':
     case 'overview':
     default:
-      renderAnalyticsOverview(analyticsData);
+      initAnalyticsProductivity();
+      loadAnalyticsProductivity();
       break;
   }
 }
@@ -4309,18 +6527,18 @@ function renderWorkerComparisonTable() {
     else if (computedScore > 0) scoreToneClass = "text-rose-700 bg-rose-100";
 
     return `
-      <tr class="hover:bg-gray-50 transition">
-        <td class="px-4 py-3 font-medium text-gray-900">${analyticsEscapeHtml(workerName)}</td>
+      <tr class="hover:bg-gray-50/70 transition">
+        <td class="px-4 py-3 font-semibold text-gray-900">${analyticsEscapeHtml(workerName)}</td>
         <td class="px-4 py-3">
-          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${scoreToneClass}">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tabular-nums ${scoreToneClass}">
             ${computedScore > 0 ? Math.round(computedScore) : '-'}
           </span>
         </td>
-        <td class="px-4 py-3 font-medium text-gray-900">${analyticsFormatCount(data.totalGoodCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatCount(data.totalDefectCount || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalManHours || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalBreakTime || 0)}</td>
-        <td class="px-4 py-3 text-gray-600">${analyticsFormatHours(data.totalTroubleTime || 0)}</td>
+        <td class="px-4 py-3 tabular-nums font-semibold text-gray-900">${analyticsFormatCount(data.totalGoodCount || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatCount(data.totalDefectCount || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalManHours || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalBreakTime || 0)}</td>
+        <td class="px-4 py-3 tabular-nums text-gray-600">${analyticsFormatHours(data.totalTroubleTime || 0)}</td>
       </tr>
     `;
   });
@@ -4339,21 +6557,38 @@ function renderWorkerComparisonTable() {
   });
 }
 
-function initializeAnalytics() {
+function initializeAnalytics(targetTab = null) {
   const root = document.getElementById('analyticsRoot');
   if (!root) return;
   if (typeof applyTranslations === 'function') applyTranslations(root);
   analyticsRestoreViewState();
+
+  // URL hash route takes priority over stored tab
+  const hashSubtab = targetTab || (window.location.hash && window.location.hash.startsWith('#analytics/') ? window.location.hash.split('/')[1] : null);
+  if (hashSubtab) {
+    analyticsActiveTab = hashSubtab === 'overview' ? 'productivity' : hashSubtab;
+  }
+
   analyticsSetDefaultFilters();
   analyticsSyncShiftControls();
   analyticsUpdateTabState();
   loadAnalyticsFilterOptions();
+  if (analyticsActiveTab === 'productivity' || analyticsActiveTab === 'overview') {
+    initAnalyticsProductivity();
+    loadAnalyticsProductivity();
+  } else if (analyticsActiveTab === 'mom') {
+    initAnalyticsMoM(analyticsData);
+    loadAnalyticsMoM();
+  }
   loadAnalytics();
 }
 
 window.addEventListener('resize', () => {
   Object.values(analyticsCharts).forEach(chart => {
     if (chart) chart.resize();
+  });
+  analyticsProductivityCharts.forEach(chart => {
+    if (chart && typeof chart.resize === 'function') chart.resize();
   });
 });
 
@@ -4379,3 +6614,32 @@ window.analyticsUpdateFilterOptionLabels = analyticsUpdateFilterOptionLabels;
 window.openWorkerComparisonModal = openWorkerComparisonModal;
 window.closeWorkerComparisonModal = closeWorkerComparisonModal;
 window.handleWorkerCompareSelection = handleWorkerCompareSelection;
+window.setAnalyticsMoMSubTab = setAnalyticsMoMSubTab;
+window.handleAnalyticsMoMFilterChange = handleAnalyticsMoMFilterChange;
+window.handleAnalyticsMoMSwapMonths = handleAnalyticsMoMSwapMonths;
+window.setAnalyticsMoMChartMode = setAnalyticsMoMChartMode;
+window.loadAnalyticsMoM = loadAnalyticsMoM;
+window.handleAnalyticsMachineMoMChange = handleAnalyticsMoMFilterChange;
+window.loadAnalyticsMachineMoM = loadAnalyticsMoM;
+window.initAnalyticsProductivity = initAnalyticsProductivity;
+window.loadAnalyticsProductivity = loadAnalyticsProductivity;
+window.handleAnalyticsProductivityTargetChange = handleAnalyticsProductivityTargetChange;
+window.printAnalyticsProductivityWhiteboard = printAnalyticsProductivityWhiteboard;
+window.openProductivitySubmittedDetail = openProductivitySubmittedDetail;
+window.closeAnalyticsProductivityRecordModal = closeAnalyticsProductivityRecordModal;
+window.handleProductivityCellClick = handleProductivityCellClick;
+window.switchProductivityDetailTab = switchProductivityDetailTab;
+window.handleAnalyticsProdModalEdit = handleAnalyticsProdModalEdit;
+window.openAnalyticsMonthPickerModal = openAnalyticsMonthPickerModal;
+window.closeAnalyticsMonthPickerModal = closeAnalyticsMonthPickerModal;
+window.handleAnalyticsMonthPickerModalBackdrop = handleAnalyticsMonthPickerModalBackdrop;
+window.analyticsCalendarChangeYear = analyticsCalendarChangeYear;
+window.analyticsCalendarSelectMonth = analyticsCalendarSelectMonth;
+window.analyticsCalendarSelectThisMonth = analyticsCalendarSelectThisMonth;
+window.updateAnalyticsMoMMonthDisplays = updateAnalyticsMoMMonthDisplays;
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeAnalyticsMonthPickerModal();
+  }
+});

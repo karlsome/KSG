@@ -21,60 +21,66 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/encoding-japanese@1.0.30/encoding.min.js"></script>
   
+  <!-- Global Fonts & Universal Admin Theme -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/admin-theme.css" />
+
   <!-- Global Configuration -->
   <script src="/js/config.js"></script>
 </head>
 
-<body class="bg-gray-50">
+<body class="bg-gray-50 font-sans antialiased text-gray-900">
   <!-- Mobile Sidebar Overlay -->
-  <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-30 hidden z-40 md:hidden" onclick="toggleSidebar()"></div>
+  <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-30 hidden z-40 md:hidden" onclick="closeMobileSidebar()"></div>
 
   <div class="relative flex flex-col md:flex-row min-h-screen">
-    <!-- Sidebar -->
+    <!-- Sidebar (Desktop mini-rail + hover expand, Mobile drawer) -->
     <aside id="sidebar"
-  class="fixed md:fixed md:top-0 md:left-0 md:h-screen w-64 bg-white border-r border-gray-200 flex flex-col transition-transform transform -translate-x-full md:translate-x-0 z-50">
-      <div class="p-4 border-b border-gray-200 flex justify-center items-center">
-        <a href="/">
-          <img src="https://ksg-corp.co.jp/wp/wp-content/themes/corporate/assets/images/common/corp_logo.png" alt="Sasaki Coating Logo" class="h-16" />
+      class="fixed top-0 left-0 h-screen bg-white border-r border-gray-200 flex flex-col z-50 -translate-x-full md:translate-x-0">
+      <div id="sidebarLogoContainer" class="flex items-center justify-center border-b border-gray-200 overflow-hidden shrink-0">
+        <a href="/" class="flex items-center justify-center w-full h-full">
+          <img id="sidebarLogo" src="https://ksg-corp.co.jp/wp/wp-content/themes/corporate/assets/images/common/corp_logo.png" alt="Sasaki Coating Logo" />
         </a>
       </div>
-      <nav class="flex-1 overflow-y-auto p-4">
+      <nav class="flex-1 overflow-y-auto overflow-x-hidden p-2">
         <ul id="dynamicNav" class="relative flex flex-col gap-2">
           <div id="dynamicNavIndicator" aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 rounded-lg border border-sky-100 bg-sky-50 shadow-sm opacity-0 transition-all duration-300 ease-out"></div>
           <li>
-            <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-dashboard-line text-xl"></i>
-              <span data-nav="dashboard"></span>
+            <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Dashboard">
+              <i class="ri-dashboard-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="dashboard" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-line-chart-line text-xl"></i>
-              <span data-nav="analytics"></span>
+            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Analytics">
+              <i class="ri-line-chart-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="analytics" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-user-settings-line text-xl"></i>
-              <span data-nav="userManagement"></span>
+            <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="User Management">
+              <i class="ri-user-settings-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="userManagement" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#master-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-database-2-line text-xl"></i>
-              <span data-nav="masterDB"></span>
+            <a href="#master-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Master DB">
+              <i class="ri-database-2-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="masterDB" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#opc-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-settings-3-line text-xl"></i>
-              <span data-nav="opcManagement"></span>
+            <a href="#opc-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="OPC Management">
+              <i class="ri-settings-3-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="opcManagement" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#submitted-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-file-list-3-line text-xl"></i>
-              <span data-nav="submittedDB"></span>
+            <a href="#submitted-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Submitted Data">
+              <i class="ri-file-list-3-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="submittedDB" class="sidebar-label"></span>
             </a>
           </li>
         </ul>
@@ -82,12 +88,12 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col overflow-y-auto md:ml-64 min-h-screen">
+    <main class="flex-1 flex flex-col overflow-y-auto min-h-screen w-full md:ml-16">
       <header class="bg-white border-b border-gray-200 p-4">
         <div class="flex items-center justify-between">
           <div class="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
-            <!-- Hamburger button for mobile -->
-            <button id="mobileMenuButton" class="md:hidden text-gray-600 focus:outline-none text-2xl">
+            <!-- Hamburger button for mobile only -->
+            <button id="mobileMenuButton" class="md:hidden text-gray-600 hover:text-gray-900 focus:outline-none text-2xl p-1 rounded-lg hover:bg-gray-100 transition-colors" title="Menu">
               <i class="ri-menu-line"></i>
             </button>
             <input type="text" id="searchInput" class="w-full md:w-64 p-2 bg-gray-100 rounded-md" />
@@ -144,27 +150,60 @@
       }
     });
 
-    // Sidebar toggle
+    // Sidebar & mobile drawer logic
     const sidebar = document.getElementById("sidebar");
     const menuBtn = document.getElementById("mobileMenuButton");
     const overlay = document.getElementById("sidebarOverlay");
 
-    function toggleSidebar() {
-      sidebar.classList.toggle("-translate-x-full");
-      overlay.classList.toggle("hidden");
+    function openMobileSidebar() {
+      if (sidebar) sidebar.classList.remove("-translate-x-full");
+      if (overlay) overlay.classList.remove("hidden");
     }
 
-    function handleNavClick() {
-      // Only hide sidebar on mobile
+    function closeMobileSidebar() {
+      if (sidebar) sidebar.classList.add("-translate-x-full");
+      if (overlay) overlay.classList.add("hidden");
+    }
+
+    function toggleSidebar() {
       if (window.innerWidth < 768) {
-        toggleSidebar();
+        if (!sidebar) return;
+        const isHidden = sidebar.classList.contains("-translate-x-full");
+        if (isHidden) {
+          openMobileSidebar();
+        } else {
+          closeMobileSidebar();
+        }
       }
     }
 
-    menuBtn.addEventListener("click", toggleSidebar);
+    function handleNavClick() {
+      if (window.innerWidth < 768) {
+        closeMobileSidebar();
+      }
+    }
+
+    if (menuBtn) {
+      menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSidebar();
+      });
+    }
+
+    if (overlay) {
+      overlay.addEventListener("click", () => {
+        closeMobileSidebar();
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth >= 768 && overlay) {
+        overlay.classList.add("hidden");
+      }
+    });
 
     // Page loading functionality
-    function loadPage(page) {
+    function loadPage(page, initialSubtab = '') {
       const mainContent = document.getElementById('mainContent');
       closeDashboardSubmissionDetail(null, true);
       closeDashboardInsightModal(null, true);
@@ -177,7 +216,12 @@
       
       switch(page) {
         case 'dashboard':
+          if (typeof dashboardResetMachineStatusLiveState === 'function') {
+            dashboardResetMachineStatusLiveState();
+          }
           mainContent.innerHTML = buildAdminDashboardShell();
+          renderDashboardFactoryOptions();
+          loadDashboardFactories();
           setTimeout(() => loadAdminDashboard(), 0);
           break;
 
@@ -192,14 +236,14 @@
 
               const existingScript = document.querySelector('script[src="/js/analytics.js"]');
               if (existingScript) {
-                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                if (typeof initializeAnalytics === 'function') initializeAnalytics(initialSubtab);
                 return;
               }
 
               const script = document.createElement('script');
               script.src = '/js/analytics.js';
               script.onload = () => {
-                if (typeof initializeAnalytics === 'function') initializeAnalytics();
+                if (typeof initializeAnalytics === 'function') initializeAnalytics(initialSubtab);
               };
               document.body.appendChild(script);
             })
@@ -234,13 +278,21 @@
               // Apply translations to the loaded content
               applyTranslations(mainContent);
               
+              const existingScript = document.querySelector('script[src="/js/masterDB.js"]');
+              if (existingScript) {
+                if (typeof loadMasterData === 'function') {
+                  loadMasterData(initialSubtab);
+                }
+                return;
+              }
+
               // Load the masterDB.js script
               const script = document.createElement('script');
               script.src = '/js/masterDB.js';
               script.onload = () => {
                 // Initialize the master DB page
                 if (typeof loadMasterData === 'function') {
-                  loadMasterData();
+                  loadMasterData(initialSubtab);
                 }
               };
               document.body.appendChild(script);
@@ -333,8 +385,11 @@
             .then(html => {
               const parser = new DOMParser();
               const doc = parser.parseFromString(html, 'text/html');
-              const container = doc.querySelector('.container') || doc.querySelector('body > div');
-              mainContent.innerHTML = container ? container.outerHTML : html;
+              const container = doc.querySelector('#submittedDBRoot') || doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.innerHTML : html;
+
+              // Apply translations to the loaded content
+              applyTranslations(mainContent);
 
               // Load the submittedDB.js script
               const existingScript = document.querySelector('script[src="/js/submittedDB.js"]');
@@ -373,10 +428,24 @@
     let adminDashboardSocket = null;
     let adminDashboardSocketConnected = false;
     let adminDashboardRealtimeRefreshTimeout = null;
+    let adminDashboardHasPendingRefresh = false;
+    let lastDashboardFetchCompletedAt = 0;
+    let dashboardAvailableFactories = [];
     const DASHBOARD_OPERATOR_FIELDS = ['operator1', 'operator2', 'operator3', 'operator4'];
     const DASHBOARD_WORKDAY_HOURS = 8;
     const DASHBOARD_AUTO_REFRESH_MS = 15000;
-    const DASHBOARD_REALTIME_DEBOUNCE_MS = 250;
+    const DASHBOARD_REALTIME_DEBOUNCE_MS = 1000;
+    const DASHBOARD_MIN_REFRESH_COOLDOWN_MS = 2500;
+    const DASHBOARD_SELECTED_FACTORY_KEY = 'dashboardSelectedFactory';
+
+    function getDashboardSelectedFactory() {
+      return localStorage.getItem(DASHBOARD_SELECTED_FACTORY_KEY) || 'all';
+    }
+
+    function setDashboardSelectedFactory(value) {
+      localStorage.setItem(DASHBOARD_SELECTED_FACTORY_KEY, String(value || 'all').trim());
+    }
+
     const DASHBOARD_SUBMITTED_FIXED_KEYS = new Set([
       '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
       'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
@@ -574,7 +643,7 @@
         case 'trouble':
           return 'bg-rose-50 text-rose-700 ring-rose-200';
         default:
-          return 'bg-slate-100 text-slate-600 ring-slate-200';
+          return 'bg-gray-100 text-gray-600 ring-gray-200';
       }
     }
 
@@ -587,7 +656,7 @@
         case 'trouble':
           return 'bg-rose-500';
         default:
-          return 'bg-slate-300';
+          return 'bg-gray-300';
       }
     }
 
@@ -606,71 +675,134 @@
 
     function getDashboardSocketSession() {
       const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+      const company = currentUser.company || currentUser.dbName || (typeof COMPANY !== 'undefined' ? COMPANY : '') || 'KSG';
       return {
-        username: currentUser.username || '',
-        role: currentUser.role || '',
-        dbName: currentUser.dbName || '',
+        username: currentUser.username || 'admin',
+        role: currentUser.role || 'admin',
+        dbName: company,
+        company: company,
         token: localStorage.getItem('ksgToken') || ''
       };
     }
 
-    function scheduleAdminDashboardRealtimeRefresh() {
-      if (currentPage !== 'dashboard') return;
-
-      if (adminDashboardRealtimeRefreshTimeout) {
-        clearTimeout(adminDashboardRealtimeRefreshTimeout);
+    function scheduleAdminDashboardRealtimeRefresh(immediate = false) {
+      if (currentPage !== 'dashboard') {
+        console.log(`[Dashboard Socket] ⏭️ Skipping refresh: current page is '${currentPage}'`);
+        return;
       }
+
+      const refreshBtn = document.getElementById('dashboardRefreshBtn');
+      if (refreshBtn?.disabled) {
+        console.log('[Dashboard Socket] ⏳ Fetch already in flight; marked pending refresh.');
+        adminDashboardHasPendingRefresh = true;
+        return;
+      }
+
+      const now = Date.now();
+      const elapsedSinceLastFetch = now - lastDashboardFetchCompletedAt;
+
+      // Prevent debounce starvation: if a refresh is already scheduled, don't keep pushing it back!
+      if (adminDashboardRealtimeRefreshTimeout) {
+        if (!immediate) {
+          console.log(`[Dashboard Socket] ⏳ Refresh already queued (elapsed since last fetch: ${elapsedSinceLastFetch}ms). Letting scheduled timer run.`);
+          return;
+        }
+        console.log('[Dashboard Socket] ⚡ Immediate refresh requested: resetting existing timer to run immediately.');
+        clearTimeout(adminDashboardRealtimeRefreshTimeout);
+        adminDashboardRealtimeRefreshTimeout = null;
+      }
+
+      let delay = immediate ? 0 : DASHBOARD_REALTIME_DEBOUNCE_MS;
+
+      if (!immediate && elapsedSinceLastFetch < DASHBOARD_MIN_REFRESH_COOLDOWN_MS) {
+        delay = Math.max(delay, DASHBOARD_MIN_REFRESH_COOLDOWN_MS - elapsedSinceLastFetch);
+      } else if (immediate && elapsedSinceLastFetch < 600) {
+        delay = Math.max(0, 600 - elapsedSinceLastFetch);
+      }
+
+      console.log(`[Dashboard Socket] ⏱️ Scheduling dashboard refresh in ${delay}ms (immediate: ${immediate}, elapsed: ${elapsedSinceLastFetch}ms)`);
 
       adminDashboardRealtimeRefreshTimeout = window.setTimeout(() => {
         adminDashboardRealtimeRefreshTimeout = null;
-        if (document.getElementById('dashboardRefreshBtn')?.disabled) return;
+        if (document.getElementById('dashboardRefreshBtn')?.disabled) {
+          console.log('[Dashboard Socket] ⏳ Button disabled when timer fired; setting pending refresh.');
+          adminDashboardHasPendingRefresh = true;
+          return;
+        }
+        console.log('[Dashboard Socket] 🔄 Timer fired: triggering loadAdminDashboard()');
         loadAdminDashboard();
-      }, DASHBOARD_REALTIME_DEBOUNCE_MS);
+      }, delay);
     }
 
     function registerAdminDashboardSocket() {
-      if (!adminDashboardSocket || !adminDashboardSocket.connected) return;
+      if (!adminDashboardSocket || !adminDashboardSocket.connected) {
+        console.warn('[Dashboard Socket] Cannot register: socket not connected.');
+        return;
+      }
 
       const session = getDashboardSocketSession();
-      if (!session.token && !session.username) return;
+      console.log('[Dashboard Socket] 📤 Registering dashboard socket with session:', {
+        username: session.username,
+        role: session.role,
+        dbName: session.dbName,
+        hasToken: Boolean(session.token)
+      });
 
       adminDashboardSocket.emit('admin_dashboard_register', session);
     }
 
     function initializeAdminDashboardSocket() {
-      if (typeof io === 'undefined' || adminDashboardSocket) return;
+      if (typeof io === 'undefined') {
+        console.warn('[Dashboard Socket] ⚠️ Socket.IO library not found in window.');
+        return;
+      }
+      if (adminDashboardSocket) {
+        console.log('[Dashboard Socket] Socket already initialized.');
+        return;
+      }
 
-      adminDashboardSocket = io(API_URL || window.location.origin, {
+      const socketUrl = API_URL || window.location.origin;
+      console.log('[Dashboard Socket] 🔌 Connecting to Socket.IO server at:', socketUrl);
+
+      adminDashboardSocket = io(socketUrl, {
         transports: ['websocket', 'polling']
       });
 
       adminDashboardSocket.on('connect', () => {
+        console.log('[Dashboard Socket] 🟢 Connected! Socket ID:', adminDashboardSocket.id);
         adminDashboardSocketConnected = false;
         registerAdminDashboardSocket();
-        scheduleAdminDashboardRealtimeRefresh();
       });
 
-      adminDashboardSocket.on('disconnect', () => {
+      adminDashboardSocket.on('disconnect', (reason) => {
         adminDashboardSocketConnected = false;
+        console.warn('[Dashboard Socket] 🔴 Disconnected. Reason:', reason);
       });
 
       adminDashboardSocket.on('connect_error', (error) => {
         adminDashboardSocketConnected = false;
-        console.error('admin dashboard socket connect error:', error);
+        console.error('[Dashboard Socket] ❌ Connection error:', error?.message || error);
       });
 
-      adminDashboardSocket.on('admin_dashboard_registered', () => {
+      adminDashboardSocket.on('admin_dashboard_registered', (data) => {
         adminDashboardSocketConnected = true;
-        scheduleAdminDashboardRealtimeRefresh();
+        console.log('[Dashboard Socket] ✅ Registered successfully:', data);
       });
 
       adminDashboardSocket.on('admin_dashboard_error', (data) => {
         adminDashboardSocketConnected = false;
-        console.error('admin dashboard socket registration error:', data?.error || 'unknown error');
+        console.error('[Dashboard Socket] ❌ Registration error from server:', data);
       });
 
-      adminDashboardSocket.on('admin_dashboard_update', () => {
-        scheduleAdminDashboardRealtimeRefresh();
+      adminDashboardSocket.on('admin_dashboard_update', (update = {}) => {
+        console.log('[Dashboard Socket] 📥 Received admin_dashboard_update event:', update);
+        const isImmediate = Boolean(
+          update?.immediate ||
+          update?.reason === 'tablet-submit-success' ||
+          update?.reason === 'tablet-session-cleared' ||
+          update?.reason?.startsWith('submitted-db-')
+        );
+        scheduleAdminDashboardRealtimeRefresh(isImmediate);
       });
     }
 
@@ -709,6 +841,65 @@
       syncDashboardModalBodyLock();
     }
 
+    async function loadDashboardFactories() {
+      const selectEl = document.getElementById('dashboardFactorySelect');
+      if (!selectEl) return;
+
+      try {
+        const currentUser = JSON.parse(localStorage.getItem('authUser') || '{}');
+        const company = currentUser.company || currentUser.dbName || 'KSG';
+        const headers = getDashboardAuthHeaders();
+        const res = await fetch(`${API_URL}/api/factories?company=${encodeURIComponent(company)}`, { headers });
+        const result = await res.json();
+
+        if (result.success && Array.isArray(result.factories)) {
+          const factoryNames = result.factories
+            .map(f => (typeof f === 'string' ? f : f?.name))
+            .map(name => String(name || '').trim())
+            .filter(Boolean);
+
+          dashboardAvailableFactories = [...new Set(factoryNames)];
+          renderDashboardFactoryOptions();
+        }
+      } catch (err) {
+        console.warn('Failed to load factories for dashboard:', err);
+      }
+    }
+
+    function renderDashboardFactoryOptions() {
+      const selectEl = document.getElementById('dashboardFactorySelect');
+      if (!selectEl) return;
+
+      const currentSelected = getDashboardSelectedFactory();
+      const allLabel = dashboardText('allFactories') || 'All Factories';
+
+      const optionsHtml = [
+        `<option value="all">${escapeDashboardHtml(allLabel)}</option>`,
+        ...dashboardAvailableFactories.map(name =>
+          `<option value="${escapeDashboardHtml(name)}">${escapeDashboardHtml(name)}</option>`
+        )
+      ].join('');
+
+      selectEl.innerHTML = optionsHtml;
+
+      if (currentSelected && selectEl.querySelector(`option[value="${CSS.escape(currentSelected)}"]`)) {
+        selectEl.value = currentSelected;
+      } else {
+        selectEl.value = 'all';
+        setDashboardSelectedFactory('all');
+      }
+    }
+
+    function handleDashboardFactoryChange(selectedFactory) {
+      if (typeof dashboardResetMachineStatusLiveState === 'function') {
+        dashboardResetMachineStatusLiveState();
+      }
+      setDashboardSelectedFactory(selectedFactory || 'all');
+      loadAdminDashboard();
+    }
+
+    window.handleDashboardFactoryChange = handleDashboardFactoryChange;
+
     function buildAdminDashboardShell() {
       const loadingCard = `
         <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -726,6 +917,12 @@
                 <p class="mt-2 max-w-3xl text-sm text-gray-500">${dashboardText('welcome')}</p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
+                <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                  <i class="ri-building-line text-gray-400"></i>
+                  <select id="dashboardFactorySelect" onchange="handleDashboardFactoryChange(this.value)" class="bg-transparent text-sm font-medium text-gray-700 focus:outline-none cursor-pointer">
+                    <option value="all">${dashboardText('allFactories') || 'All Factories'}</option>
+                  </select>
+                </div>
                 <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
                   <span class="text-gray-500">${dashboardText('lastUpdated')}:</span>
                   <span id="dashboardLastUpdated">-</span>
@@ -774,6 +971,17 @@
             <div id="dashboardMachineTimelineContainer" class="flex flex-col gap-6 p-6"></div>
             <div id="dashboardMachineTimelineSummary" class="border-t border-gray-100 bg-gray-50/50 p-6"></div>
           </section>
+
+          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="flex flex-col gap-1 border-b border-gray-100 px-6 py-4">
+              <h3 class="text-lg font-semibold text-gray-900">${getDashboardMachineStatusCopy().title}</h3>
+              <p class="text-sm text-gray-500">${getDashboardMachineStatusCopy().subtitle}</p>
+            </div>
+            <div id="dashboardMachineStatusTable" class="px-2 py-4">
+              <div class="px-4 py-10 text-sm text-gray-400">${t('common.loading')}</div>
+            </div>
+          </section>
+
           <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div class="space-y-6 xl:col-span-2">
               <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -821,8 +1029,9 @@
               </section>
 
               <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                <div class="border-b border-gray-100 px-6 py-4">
+                <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
                   <h3 class="text-lg font-semibold text-gray-900">${dashboardText('workerHoursToday')}</h3>
+                  <span id="dashboardWorkerHoursCount" class="text-xs font-medium text-gray-400"></span>
                 </div>
                 <div id="dashboardWorkerHours" class="p-6">
                   <p class="text-sm text-gray-400">${t('common.loading')}</p>
@@ -830,16 +1039,6 @@
               </section>
             </div>
           </div>
-
-          <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-            <div class="flex flex-col gap-1 border-b border-gray-100 px-6 py-4">
-              <h3 class="text-lg font-semibold text-gray-900">${getDashboardMachineStatusCopy().title}</h3>
-              <p class="text-sm text-gray-500">${getDashboardMachineStatusCopy().subtitle}</p>
-            </div>
-            <div id="dashboardMachineStatusTable" class="px-2 py-4">
-              <div class="px-4 py-10 text-sm text-gray-400">${t('common.loading')}</div>
-            </div>
-          </section>
 
           <div id="dashboardSubmissionModal" class="fixed inset-0 z-50 hidden bg-black/40 p-4" onclick="closeDashboardSubmissionDetail(event)">
             <div class="mx-auto flex h-full max-w-3xl items-center justify-center">
@@ -931,58 +1130,58 @@
       body.innerHTML = `
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div class="rounded-2xl bg-emerald-50 px-4 py-3 text-center">
-            <p class="text-xs text-emerald-700">${dashboardText('goodPieces')}</p>
-            <p class="mt-2 text-2xl font-semibold text-emerald-600">${goodCountStr}</p>
+            <p class="text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}</p>
+            <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-emerald-600">${goodCountStr}</p>
           </div>
           <div class="rounded-2xl bg-violet-50 px-4 py-3 text-center">
-            <p class="text-xs text-violet-700">${dashboardText('cycleTimeShort')}</p>
-            <p class="mt-2 text-2xl font-semibold text-violet-600">${cycleTimeStr}</p>
+            <p class="text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}</p>
+            <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-violet-600">${cycleTimeStr}</p>
           </div>
           <div class="rounded-2xl bg-indigo-50 px-4 py-3 text-center">
-            <p class="text-xs text-indigo-700">${dashboardText('piecesPerHourShort')}</p>
-            <p class="mt-2 text-2xl font-semibold text-indigo-600">${piecesPerHourValue}</p>
+            <p class="text-xs font-medium text-indigo-700">${dashboardText('piecesPerHourShort')}</p>
+            <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-indigo-600">${piecesPerHourValue}</p>
           </div>
           <div class="rounded-2xl bg-rose-50 px-4 py-3 text-center">
-            <p class="text-xs text-rose-700">${dashboardText('defects')}</p>
-            <p class="mt-2 text-2xl font-semibold text-rose-600">${defectsStr}</p>
+            <p class="text-xs font-medium text-rose-700">${dashboardText('defects')}</p>
+            <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-rose-600">${defectsStr}</p>
           </div>
           <div class="rounded-2xl bg-amber-50 px-4 py-3 text-center">
-            <p class="text-xs text-amber-700">${dashboardText('troubleHours')}</p>
-            <p class="mt-2 text-2xl font-semibold text-amber-600">${formatDashboardNumber(record.trouble_time || 0, 2)} h</p>
+            <p class="text-xs font-medium text-amber-700">${dashboardText('troubleHours')}</p>
+            <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-amber-600">${formatDashboardNumber(record.trouble_time || 0, 2)} h</p>
           </div>
         </div>
 
         <div class="mt-5 grid gap-4 lg:grid-cols-2">
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('product')}</p>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+            <p class="text-xs font-medium text-gray-500">${dashboardText('product')}</p>
             <div class="mt-3 space-y-2 text-sm text-gray-700">
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('hinban')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.hinban || '—')}</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('kanbanId')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.kanban_id || '—')}</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('lhRh')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.lh_rh || '—')}</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('operators')}</span><span class="text-right font-medium">${formatDashboardOperators(operators)}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('hinban')}</span><span class="text-right font-semibold text-gray-900">${escapeDashboardHtml(record.hinban || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('kanbanId')}</span><span class="text-right font-semibold text-gray-900">${escapeDashboardHtml(record.kanban_id || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('lhRh')}</span><span class="text-right font-semibold text-gray-900">${escapeDashboardHtml(record.lh_rh || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('operators')}</span><span class="text-right font-semibold text-gray-900">${formatDashboardOperators(operators)}</span></div>
             </div>
           </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('time')}</p>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+            <p class="text-xs font-medium text-gray-500">${dashboardText('time')}</p>
             <div class="mt-3 space-y-2 text-sm text-gray-700">
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('start')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.start_time || '—')}</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('end')}</span><span class="text-right font-medium">${escapeDashboardHtml(record.end_time || '—')}</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('breakTime')}</span><span class="text-right font-medium">${formatDashboardNumber(record.break_time || 0, 2)} h</span></div>
-              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('troubleHours')}</span><span class="text-right font-medium">${formatDashboardNumber(record.trouble_time || 0, 2)} h</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('start')}</span><span class="text-right font-semibold tabular-nums text-gray-900">${escapeDashboardHtml(record.start_time || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('end')}</span><span class="text-right font-semibold tabular-nums text-gray-900">${escapeDashboardHtml(record.end_time || '—')}</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('breakTime')}</span><span class="text-right font-semibold tabular-nums text-gray-900">${formatDashboardNumber(record.break_time || 0, 2)} h</span></div>
+              <div class="flex justify-between gap-4"><span class="text-gray-500">${dashboardText('troubleHours')}</span><span class="text-right font-semibold tabular-nums text-gray-900">${formatDashboardNumber(record.trouble_time || 0, 2)} h</span></div>
             </div>
           </div>
         </div>
 
         <div class="mt-5 rounded-2xl border border-gray-100 bg-white">
           <div class="border-b border-gray-100 px-4 py-3">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('defectBreakdown')}</p>
+            <p class="text-xs font-medium text-gray-500">${dashboardText('defectBreakdown')}</p>
           </div>
           <div class="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
             ${defects.length > 0
               ? defects.map(defect => `
                 <div class="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-4 text-center">
                   <p class="truncate text-xs font-medium text-rose-700" title="${escapeDashboardHtml(defect.name)}">${escapeDashboardHtml(defect.name)}</p>
-                  <p class="mt-2 text-2xl font-semibold text-rose-600">${formatDashboardNumber(defect.count)}</p>
+                  <p class="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-rose-600">${formatDashboardNumber(defect.count)}</p>
                 </div>`).join('')
               : `<div class="col-span-full rounded-2xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-400">${dashboardText('noDefects')}</div>`}
           </div>
@@ -990,15 +1189,23 @@
 
         ${record.remarks ? `
           <div class="mt-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">${dashboardText('remarks')}</p>
+            <p class="text-xs font-medium text-amber-800">${dashboardText('remarks')}</p>
             <p class="mt-2 whitespace-pre-wrap text-sm text-gray-700">${escapeDashboardHtml(record.remarks)}</p>
           </div>` : ''}
 
         ${record.other_description ? `
           <div class="mt-5 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">${dashboardText('otherDescription')}</p>
+            <p class="text-xs font-medium text-gray-500">${dashboardText('otherDescription')}</p>
             <p class="mt-2 whitespace-pre-wrap text-sm text-gray-700">${escapeDashboardHtml(record.other_description)}</p>
           </div>` : ''}`;
+    }
+
+    let dashboardPrevMachineStatusMap = new Map();
+    let dashboardMachineStatusInitialized = false;
+
+    function dashboardResetMachineStatusLiveState() {
+      dashboardPrevMachineStatusMap.clear();
+      dashboardMachineStatusInitialized = false;
     }
 
     function renderDashboardMachineStatusTable(rows = [], snapshotAt = '') {
@@ -1009,15 +1216,82 @@
 
       const copy = getDashboardMachineStatusCopy();
       if (!Array.isArray(rows) || rows.length === 0) {
+        dashboardResetMachineStatusLiveState();
         container.innerHTML = `<div class="flex h-48 items-center justify-center text-sm text-gray-400">${copy.noData}</div>`;
         return;
       }
+
+      const nextStatusMap = new Map();
+
+      const rowsHtml = rows.map((row, index) => {
+        const rowKey = String(row.machineKey || row.machineName || row.tabletName || `row-${index}`);
+        const statusLabel = copy.status[row.status] || copy.status.idle;
+        const updatedLabel = row.updatedAt ? `${copy.updated}: ${formatDashboardRelativeTime(row.updatedAt)}` : '&nbsp;';
+        const productMeta = row.productId ? `<span class="text-xs font-medium text-gray-400">${escapeDashboardHtml(row.productId)}</span>` : '<span class="text-xs text-gray-300">&nbsp;</span>';
+        const efficiencyValue = row.efficiency === null || row.efficiency === undefined
+          ? '—'
+          : formatDashboardPercent(row.efficiency, 1);
+        const piecesPerHourValue = formatDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
+        const cycleTimeMeta = row.cycleTime
+          ? `<span class="mt-1 block text-xs text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
+          : '';
+
+        const currentElapsed = row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—';
+        const currentStopped = row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—';
+        const currentCount = row.currentCount === null || row.currentCount === undefined ? '—' : formatDashboardNumber(row.currentCount);
+        const currentTarget = row.targetQuantity === null || row.targetQuantity === undefined ? '—' : formatDashboardNumber(row.targetQuantity);
+
+        const prev = dashboardMachineStatusInitialized ? dashboardPrevMachineStatusMap.get(rowKey) : null;
+        const isCountChanged = prev ? prev.count !== currentCount : false;
+
+        nextStatusMap.set(rowKey, {
+          count: currentCount
+        });
+
+        return `
+          <tr class="align-top transition hover:bg-gray-50/70">
+            <td class="border-b border-gray-100 px-4 py-4">
+              <div class="flex items-start gap-3">
+                <div class="mt-1 h-2.5 w-2.5 rounded-full ${getDashboardMachineStatusDotTone(row.status)}"></div>
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
+                    <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${getDashboardMachineStatusTone(row.status)}">${statusLabel}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">${escapeDashboardHtml(row.factory || row.tabletName || '—')}</p>
+                  <p class="mt-1 text-xs text-gray-400">${updatedLabel}</p>
+                </div>
+              </div>
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-gray-700">
+              <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.productName || '—')}</p>
+              ${productMeta}
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium text-gray-700">${escapeDashboardHtml(row.kanbanId || '—')}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs text-gray-700">${formatDashboardOperators(row.operators || [])}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-600">${currentTarget}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${escapeDashboardHtml(row.startTime || '—')}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—'}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-medium tabular-nums text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—'}</td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">
+              <span class="${isCountChanged ? 'live-value-changed' : ''}">${currentCount}</span>
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">
+              ${efficiencyValue}
+              ${cycleTimeMeta}
+            </td>
+            <td class="border-b border-gray-100 px-4 py-4 text-xs font-semibold tabular-nums text-gray-900">${piecesPerHourValue}</td>
+          </tr>`;
+      }).join('');
+
+      dashboardPrevMachineStatusMap = nextStatusMap;
+      dashboardMachineStatusInitialized = true;
 
       container.innerHTML = `
         <div class="overflow-x-auto px-4">
           <table class="min-w-[1240px] w-full border-separate border-spacing-0 text-sm">
             <thead>
-              <tr class="text-left text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+              <tr class="text-left text-xs font-semibold text-gray-700 bg-gray-50/50">
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.machine}</th>
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.product}</th>
                 <th class="sticky top-0 z-10 border-b border-gray-200 bg-white px-4 py-3">${copy.headers.kanban}</th>
@@ -1032,51 +1306,7 @@
               </tr>
             </thead>
             <tbody>
-              ${rows.map(row => {
-                const statusLabel = copy.status[row.status] || copy.status.idle;
-                const updatedLabel = row.updatedAt ? `${copy.updated}: ${formatDashboardRelativeTime(row.updatedAt)}` : '&nbsp;';
-                const productMeta = row.productId ? `<span class="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">${escapeDashboardHtml(row.productId)}</span>` : '<span class="text-[11px] text-gray-300">&nbsp;</span>';
-                const efficiencyValue = row.efficiency === null || row.efficiency === undefined
-                  ? '—'
-                  : formatDashboardPercent(row.efficiency, 1);
-                const piecesPerHourValue = formatDashboardMachineStatusLivePiecesPerHour(row, snapshotAt);
-                const cycleTimeMeta = row.cycleTime
-                  ? `<span class="mt-1 block text-[11px] text-gray-400">${copy.cycleTime} ${formatDashboardNumber(row.cycleTime, 2)} min</span>`
-                  : '';
-
-                return `
-                  <tr class="align-top transition hover:bg-slate-50/70">
-                    <td class="border-b border-gray-100 px-4 py-4">
-                      <div class="flex items-start gap-3">
-                        <div class="mt-1 h-2.5 w-2.5 rounded-full ${getDashboardMachineStatusDotTone(row.status)}"></div>
-                        <div>
-                          <div class="flex flex-wrap items-center gap-2">
-                            <p class="font-semibold text-gray-900">${escapeDashboardHtml(row.machineName || '—')}</p>
-                            <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${getDashboardMachineStatusTone(row.status)}">${statusLabel}</span>
-                          </div>
-                          <p class="mt-1 text-xs text-gray-500">${escapeDashboardHtml(row.factory || row.tabletName || '—')}</p>
-                          <p class="mt-1 text-[11px] text-gray-400">${updatedLabel}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-gray-700">
-                      <p class="font-medium text-gray-900">${escapeDashboardHtml(row.productName || '—')}</p>
-                      ${productMeta}
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${escapeDashboardHtml(row.kanbanId || '—')}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 text-gray-700">${formatDashboardOperators(row.operators || [])}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-600">${row.targetQuantity === null || row.targetQuantity === undefined ? '—' : formatDashboardNumber(row.targetQuantity)}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${escapeDashboardHtml(row.startTime || '—')}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.elapsedMinutes) : '—'}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] text-gray-700">${row.isStarted ? formatDashboardDurationMinutes(row.stoppedMinutes) : '—'}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">${row.currentCount === null || row.currentCount === undefined ? '—' : formatDashboardNumber(row.currentCount)}</td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">
-                      ${efficiencyValue}
-                      ${cycleTimeMeta}
-                    </td>
-                    <td class="border-b border-gray-100 px-4 py-4 font-mono text-[13px] font-semibold text-gray-900">${piecesPerHourValue}</td>
-                  </tr>`;
-              }).join('')}
+              ${rowsHtml}
             </tbody>
           </table>
         </div>`;
@@ -1386,6 +1616,24 @@
       renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd);
     }
 
+    window.toggleFactoryCardCollapse = function(factoryKey) {
+      const content = document.getElementById(`factory-content-${factoryKey}`);
+      const chevron = document.getElementById(`factory-chevron-${factoryKey}`);
+      if (!content) return;
+      const isHidden = content.classList.contains('hidden');
+      if (isHidden) {
+        content.classList.remove('hidden');
+        if (chevron) {
+          chevron.classList.remove('-rotate-90');
+        }
+      } else {
+        content.classList.add('hidden');
+        if (chevron) {
+          chevron.classList.add('-rotate-90');
+        }
+      }
+    };
+
     function renderDashboardMachineTimelineSummary(machines, targetDate, shiftStart, shiftEnd) {
       const summaryContainer = document.getElementById('dashboardMachineTimelineSummary');
       if (!summaryContainer) return;
@@ -1405,9 +1653,24 @@
       }
       const totalShiftMins = Math.max(1, shiftEnd - shiftStart);
 
-      let cardsHtml = '';
+      const resolveMachineFactory = (machine) => {
+        if (machine && machine.factory && String(machine.factory).trim() && machine.factory !== 'その他') {
+          return String(machine.factory).trim();
+        }
+        if (adminDashboardData && Array.isArray(adminDashboardData.machineStatus)) {
+          const matched = adminDashboardData.machineStatus.find(ms =>
+            ms.machineName === machine.source ||
+            ms.machineKey === machine.source ||
+            ms.tabletName === machine.source
+          );
+          if (matched && matched.factory && String(matched.factory).trim()) {
+            return String(matched.factory).trim();
+          }
+        }
+        return (machine && machine.factory) || 'その他';
+      };
 
-      machines.forEach(machine => {
+      const renderMachineCard = (machine, factoryName, maxFactoryShots = 0) => {
         const dayData = (machine.days || []).find(d => d.date === targetDate);
         const records = dayData ? dayData.records || [] : [];
         
@@ -1472,41 +1735,242 @@
         const prodHr = Math.floor(totalProducing / 60);
         const prodMn = Math.round(totalProducing % 60);
         const prodFmt = prodHr > 0 ? `${prodHr}h ${prodMn}m` : `${prodMn}m`;
-        
-        cardsHtml += `
-          <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-            <h4 class="text-sm font-semibold text-gray-900 mb-4 truncate" title="${escapeDashboardHtml(machine.source)}">${escapeDashboardHtml(machine.source)}</h4>
-            
-            <div class="space-y-3">
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}</span>
-                <span class="font-medium text-emerald-600">${efficiency.toFixed(1)}%</span>
+        const workingHours = (totalProducing / 60).toFixed(2);
+
+        const totalShots = records.reduce((sum, r) => sum + (Number(r.goodCount) || 0), 0);
+        const totalDefects = records.reduce((sum, r) => sum + (Number(r.defectCount) || 0), 0);
+        const defectRate = (totalShots + totalDefects > 0)
+          ? ((totalDefects / (totalShots + totalDefects)) * 100).toFixed(1) + '%'
+          : '0.0%';
+        const avgPerHour = (totalProducing > 0 && totalShots > 0)
+          ? Math.round(totalShots / (totalProducing / 60))
+          : 0;
+
+        const hasLiveSession = records.some(r => r.isLive);
+        const isActive = hasLiveSession || totalProducing > 0 || totalShots > 0;
+        const pctOfPeak = maxFactoryShots > 0
+          ? Math.min(100, Math.round((totalShots / maxFactoryShots) * 100))
+          : Math.min(100, Math.round(efficiency));
+
+        const ratingText = efficiency >= 75
+          ? (t('analytics.timelineSummary.optimal') || 'Optimal')
+          : (efficiency >= 40
+            ? (t('analytics.timelineSummary.standard') || 'Standard')
+            : (t('analytics.timelineSummary.low') || 'Low'));
+
+        const peakText = (t('analytics.timelineSummary.ofPeak') || '{pct}% of peak').replace('{pct}', pctOfPeak);
+
+        return `
+          <div class="group flex flex-col justify-between rounded-xl border border-gray-200/90 bg-white p-4 sm:p-5 shadow-xs transition-all duration-200 hover:border-indigo-300 hover:shadow-md">
+            <div>
+              <!-- Machine Header matching dashboard typography -->
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-start gap-2.5 min-w-0">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shadow-2xs">
+                    <i class="ri-robot-2-line text-lg"></i>
+                  </div>
+                  <div class="min-w-0">
+                    <h5 class="text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors truncate" title="${escapeDashboardHtml(machine.source)}">
+                      ${escapeDashboardHtml(machine.source)}
+                    </h5>
+                    <div class="mt-1 flex items-center">
+                      <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                        ${escapeDashboardHtml(factoryName)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                ${isActive ? `
+                  <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ring-emerald-600/20 bg-emerald-50 text-emerald-700 shrink-0">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    ${escapeDashboardHtml(t('analytics.timelineSummary.active') || 'ACTIVE')}
+                  </span>
+                ` : `
+                  <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ring-gray-200 bg-gray-50 text-gray-500 shrink-0">
+                    <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+                    ${escapeDashboardHtml(t('analytics.timelineSummary.idle') || 'IDLE')}
+                  </span>
+                `}
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendProducing'))}</span>
-                <span class="font-medium text-gray-900">${prodFmt}</span>
+
+              <!-- Hero Metric matching dashboard typography -->
+              <div class="mt-4 rounded-xl bg-gray-50/80 p-3 border border-gray-100">
+                <div class="flex items-baseline justify-between text-xs">
+                  <span class="font-medium text-gray-500">
+                    ${totalShots > 0 ? escapeDashboardHtml(t('analytics.timelineSummary.totalShots') || 'Total Shots') : escapeDashboardHtml(t('analytics.timelineSummary.efficiency') || 'Efficiency')}
+                  </span>
+                  ${totalShots > 0 ? `
+                    <span class="text-xs font-medium text-gray-400">${escapeDashboardHtml(peakText)}</span>
+                  ` : `
+                    <span class="text-xs font-semibold ${efficiency >= 75 ? 'text-emerald-600' : (efficiency >= 40 ? 'text-blue-600' : 'text-amber-600')}">
+                      ${escapeDashboardHtml(ratingText)}
+                    </span>
+                  `}
+                </div>
+                <div class="mt-1 flex items-baseline gap-1.5">
+                  <span class="text-2xl font-semibold tracking-tight text-gray-900">
+                    ${totalShots > 0 ? totalShots.toLocaleString() : efficiency.toFixed(1)}
+                  </span>
+                  <span class="text-xs font-medium text-gray-500">
+                    ${totalShots > 0 ? escapeDashboardHtml(t('analytics.timelineSummary.shots') || 'shots') : '%'}
+                  </span>
+                </div>
+                <!-- Progress Bar -->
+                <div class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                  <div class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-500 transition-all duration-300" style="width: ${pctOfPeak}%"></div>
+                </div>
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendIdle'))}</span>
-                <span class="font-medium text-gray-900">${Math.round(totalIdle)}m</span>
+
+              <!-- 2x2 Sub-metrics Grid matching dashboard typography -->
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                ${totalShots > 0 ? `
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.avgPerDay') || 'Avg / Day')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${totalShots.toLocaleString()} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.perDay') || '/d')}</span></span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.avgPerHour') || 'Avg / Hour')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${avgPerHour} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.perHour') || '/h')}</span></span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.hoursPerDay') || 'Hours / Day')}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${workingHours} <span class="text-xs font-normal text-gray-400">${escapeDashboardHtml(t('analytics.timelineSummary.hourUnit') || 'h')}</span></span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.timelineSummary.defectRate') || 'Defect Rate')}</span>
+                    <span class="text-sm font-semibold ${totalDefects > 0 ? 'text-rose-600' : 'text-gray-900'} mt-0.5 block">${defectRate}</span>
+                  </div>
+                ` : `
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.bottleneck.legendProducing'))}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${prodFmt}</span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.bottleneck.legendIdle'))}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${Math.round(totalIdle)}m</span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover'))}</span>
+                    <span class="text-sm font-semibold text-gray-900 mt-0.5 block">${Math.round(totalChangeover)}m</span>
+                  </div>
+                  <div class="rounded-lg border border-gray-100 bg-white p-2.5 shadow-2xs">
+                    <span class="text-xs font-medium text-gray-500 block">${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble'))}</span>
+                    <span class="text-sm font-semibold ${totalTrouble > 0 ? 'text-rose-600' : 'text-gray-900'} mt-0.5 block">${Math.round(totalTrouble)}m</span>
+                  </div>
+                `}
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendChangeover'))}</span>
-                <span class="font-medium text-gray-900">${Math.round(totalChangeover)}m</span>
+            </div>
+
+            <!-- Footer matching dashboard typography -->
+            <div class="flex items-center justify-between pt-3 mt-4 border-t border-gray-100 text-xs text-gray-500">
+              <span class="font-medium">${records.length} ${escapeDashboardHtml(records.length === 1 ? (t('analytics.timelineSummary.record') || 'record') : (t('analytics.timelineSummary.records') || 'records'))} (${prodFmt})</span>
+              <span class="text-indigo-600 font-medium hover:text-indigo-700 inline-flex items-center gap-1 transition cursor-pointer">
+                ${escapeDashboardHtml(t('analytics.timelineSummary.details') || 'Details')} <i class="ri-arrow-right-line"></i>
+              </span>
+            </div>
+          </div>
+        `;
+      };
+
+      // Group machines by factory
+      const factoryMap = new Map();
+      machines.forEach(machine => {
+        const factory = resolveMachineFactory(machine);
+        if (!factoryMap.has(factory)) {
+          factoryMap.set(factory, []);
+        }
+        factoryMap.get(factory).push(machine);
+      });
+
+      // Sort factory names: known factories in alphabetical order, 'その他' last
+      const sortedFactoryNames = [...factoryMap.keys()].sort((a, b) => {
+        if (a === 'その他') return 1;
+        if (b === 'その他') return -1;
+        return a.localeCompare(b, 'ja');
+      });
+
+      let factoryCardsHtml = '';
+      sortedFactoryNames.forEach(factoryName => {
+        const groupMachines = factoryMap.get(factoryName) || [];
+        const factoryKey = encodeURIComponent(factoryName).replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Calculate factory-level aggregate metrics
+        let factoryTotalShots = 0;
+        let factoryActiveCount = 0;
+        let maxMachineShots = 0;
+
+        groupMachines.forEach(m => {
+          const dayData = (m.days || []).find(d => d.date === targetDate);
+          const recs = dayData ? dayData.records || [] : [];
+          const shots = recs.reduce((sum, r) => sum + (Number(r.goodCount) || 0), 0);
+          const hasLive = recs.some(r => r.isLive);
+          factoryTotalShots += shots;
+          if (shots > maxMachineShots) maxMachineShots = shots;
+          if (hasLive || shots > 0 || recs.length > 0) factoryActiveCount++;
+        });
+
+        const cardsHtml = groupMachines.map(m => renderMachineCard(m, factoryName, maxMachineShots)).join('');
+
+        factoryCardsHtml += `
+          <!-- Outer Factory Card (Card within Card) -->
+          <div class="rounded-2xl border border-gray-200/90 bg-white p-5 sm:p-6 shadow-xs transition hover:border-gray-300">
+            <!-- Factory Card Header matching dashboard typography -->
+            <div class="flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none" onclick="toggleFactoryCardCollapse('${factoryKey}')">
+              <div class="flex items-center gap-2.5">
+                <button type="button" onclick="event.stopPropagation(); toggleFactoryCardCollapse('${factoryKey}')" class="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs" title="${escapeDashboardHtml(t('analytics.timelineSummary.toggleCollapse') || 'Toggle collapse')}">
+                  <i id="factory-chevron-${factoryKey}" class="ri-arrow-down-s-line text-lg transition-transform duration-200"></i>
+                </button>
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 border border-emerald-200/90 text-emerald-600 shadow-2xs">
+                  <i class="ri-building-line text-lg"></i>
+                </div>
+                <div class="flex items-center gap-2">
+                  <h4 class="text-base font-semibold text-gray-900">${escapeDashboardHtml(factoryName)}</h4>
+                  <span class="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                    ${groupMachines.length} ${escapeDashboardHtml(groupMachines.length === 1 ? (t('analytics.timelineSummary.machine') || 'machine') : (t('analytics.timelineSummary.machines') || 'machines'))}
+                  </span>
+                </div>
               </div>
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500">${escapeDashboardHtml(t('analytics.bottleneck.legendTrouble'))}</span>
-                <span class="font-medium text-rose-600">${Math.round(totalTrouble)}m</span>
+
+              <!-- Factory Aggregate Stats on the right -->
+              <div class="flex items-center gap-2 sm:gap-3 text-xs">
+                <div class="flex items-center gap-1.5 rounded-lg bg-gray-50 px-2.5 py-1 border border-gray-200/60">
+                  <span class="text-gray-500 font-medium">${escapeDashboardHtml(t('analytics.timelineSummary.activeLabel') || 'Active:')}</span>
+                  <span class="font-semibold text-emerald-600">${factoryActiveCount} / ${groupMachines.length}</span>
+                </div>
+                ${factoryTotalShots > 0 ? `
+                  <div class="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 border border-emerald-200/80">
+                    <span class="text-emerald-700 font-medium">${escapeDashboardHtml(t('analytics.timelineSummary.totalLabel') || 'Total:')}</span>
+                    <span class="font-semibold text-emerald-800">${factoryTotalShots.toLocaleString()}</span>
+                    <span class="text-xs text-emerald-600">${escapeDashboardHtml(t('analytics.timelineSummary.shots') || 'shots')}</span>
+                  </div>
+                ` : ''}
               </div>
+            </div>
+
+            <!-- Inner Machine Cards Grid (Card within Card) -->
+            <div id="factory-content-${factoryKey}" class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 transition-all">
+              ${cardsHtml}
             </div>
           </div>
         `;
       });
 
       summaryContainer.innerHTML = `
-        <h3 class="text-sm font-medium text-gray-700 mb-4">${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          ${cardsHtml}
+        <div class="space-y-6">
+          <div class="flex items-center justify-between pb-2 border-b border-gray-200/60">
+            <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <i class="ri-dashboard-3-line text-indigo-600"></i>
+              <span>${escapeDashboardHtml(t('analytics.timelineSummary.title') || 'Machine Daily Summary')}</span>
+            </h3>
+            <span class="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+              ${machines.length} ${escapeDashboardHtml(machines.length === 1 ? (t('analytics.timelineSummary.machine') || 'Machine') : (t('analytics.timelineSummary.machines') || 'Machines'))}
+            </span>
+          </div>
+          <div class="space-y-6">
+            ${factoryCardsHtml}
+          </div>
         </div>
       `;
     }
@@ -1616,13 +2080,13 @@
             <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sm font-semibold text-sky-700">${index + 1}</div>
             <div class="min-w-0 flex-1">
               <p class="truncate text-base font-semibold text-gray-900">${escapeDashboardHtml(operator.name || '—')}</p>
-              <p class="mt-1 text-xs uppercase tracking-wide text-gray-400">${dashboardText('operatorSummary')}</p>
+              <p class="mt-1 text-xs font-medium text-gray-500">${dashboardText('operatorSummary')}</p>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">${dashboardText('submissions')}: ${formatDashboardNumber(operator.submissions || 0)}</span>
-                <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: ${formatDashboardNumber(operator.totalGoodCount || 0)}</span>
-                <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</span>
+                <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">${dashboardText('submissions')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(operator.submissions || 0)}</span></span>
+                <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('goodPieces')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(operator.totalGoodCount || 0)}</span></span>
+                <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</span></span>
                 ${buildDashboardPiecesPerHourBadge(operator.averageCycleTime)}
-                ${operator.totalTroubleHours > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(operator.totalTroubleHours, 2)} h</span>` : ''}
+                ${operator.totalTroubleHours > 0 ? `<span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(operator.totalTroubleHours, 2)} h</span></span>` : ''}
               </div>
             </div>
           </div>
@@ -1694,6 +2158,11 @@
           html = `<div class="rounded-2xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">${dashboardText('noTodaySubmissions')}</div>`;
       }
 
+      const selectedFactory = getDashboardSelectedFactory();
+      if (selectedFactory && selectedFactory !== 'all') {
+        subtitle = subtitle ? `${subtitle} · ${selectedFactory}` : selectedFactory;
+      }
+
       titleEl.textContent = title;
       subEl.textContent = subtitle;
       bodyEl.innerHTML = html;
@@ -1728,8 +2197,8 @@
           value: formatDashboardNumber(today.submissions || 0),
           subtext: dashboardText('submissions'),
           icon: 'ri-file-chart-line',
-          tone: 'bg-slate-50 text-slate-700',
-          valueClass: 'text-slate-900'
+          tone: 'bg-gray-100 text-gray-700',
+          valueClass: 'text-gray-900'
         },
         {
           key: 'goodPiecesToday',
@@ -1781,13 +2250,13 @@
       ];
 
       cardsEl.innerHTML = cards.map(card => `
-        <article class="cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-gray-200 hover:bg-gray-50" role="button" tabindex="0" aria-label="${dashboardText('quickLookHint')}" onclick="openDashboardInsightModal('${card.key}')" onkeydown="handleDashboardInsightCardKeydown(event, '${card.key}')">
+        <article class="cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-gray-200 hover:bg-gray-50/50" role="button" tabindex="0" aria-label="${dashboardText('quickLookHint')}" onclick="openDashboardInsightModal('${card.key}')" onkeydown="handleDashboardInsightCardKeydown(event, '${card.key}')">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <p class="text-sm font-medium text-gray-500">${card.title}</p>
-              <p class="mt-4 text-3xl font-semibold ${card.valueClass}">${card.value}</p>
-              <p class="mt-2 text-xs uppercase tracking-wide text-gray-400">${card.subtext}</p>
-              <p class="mt-3 text-xs font-medium text-gray-400">${dashboardText('quickLookHint')}</p>
+              <p class="text-xs font-medium text-gray-500">${card.title}</p>
+              <p class="mt-3 text-3xl font-semibold tracking-tight tabular-nums ${card.valueClass}">${card.value}</p>
+              <p class="mt-1 text-xs font-medium tabular-nums text-gray-400">${card.subtext}</p>
+              <p class="mt-2 text-xs font-medium text-gray-400">${dashboardText('quickLookHint')}</p>
             </div>
             <div class="rounded-2xl px-3 py-2 ${card.tone}">
               <i class="${card.icon} text-xl"></i>
@@ -1804,7 +2273,13 @@
       }
       if (!metaEl) return;
 
+      const selectedFactory = getDashboardSelectedFactory();
       const chips = [
+        ...(selectedFactory && selectedFactory !== 'all' ? [{
+          label: dashboardText('factory') || '工場',
+          value: selectedFactory,
+          tone: 'border-indigo-100 bg-indigo-50 text-indigo-700'
+        }] : []),
         { label: dashboardText('activeKanbans'), value: formatDashboardNumber(today.activeKanbans || 0), tone: 'border-sky-100 bg-sky-50' },
         { label: dashboardText('troubleHours'), value: `${formatDashboardNumber(today.totalTroubleHours || 0, 2)} h`, tone: 'border-amber-100 bg-amber-50' },
         { label: dashboardText('activeRecords'), value: formatDashboardNumber(meta.activeRecords || 0), tone: 'border-emerald-100 bg-emerald-50' },
@@ -1842,7 +2317,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
                 <span>${formatDashboardDateTime(record.timestamp)}</span>
-                <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700">${relativeTime}</span>
+                <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">${relativeTime}</span>
                 <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.source || '—')}</span>
                 <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">${escapeDashboardHtml(record.lhRh || '—')}</span>
               </div>
@@ -1851,12 +2326,12 @@
               <p class="mt-2 text-sm text-gray-600">${formatDashboardOperators(record.operators)}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2 lg:max-w-md lg:justify-end">
-              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('createdTotal')}: ${formatDashboardNumber(totalCreated)}</span>
+              <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">${dashboardText('createdTotal')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(totalCreated)}</span></span>
               ${defectBadge}
-              <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('defectRate')}: ${formatDashboardPercent(defectRate, 1)}</span>
-              <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(record.cycleTime || 0, 2)}</span>
+              <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">${dashboardText('defectRate')}: <span class="tabular-nums font-semibold">${formatDashboardPercent(defectRate, 1)}</span></span>
+              <span class="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">${dashboardText('cycleTimeShort')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(record.cycleTime || 0, 2)}</span></span>
               ${buildDashboardPiecesPerHourBadge(record.cycleTime)}
-              ${record.troubleTime > 0 ? `<span class="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</span>` : ''}
+              ${record.troubleTime > 0 ? `<span class="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">${dashboardText('troubleHours')}: <span class="tabular-nums font-semibold">${formatDashboardNumber(record.troubleTime, 2)} h</span></span>` : ''}
             </div>
           </article>`;
       }).join('');
@@ -1880,12 +2355,12 @@
       const defectsMarkup = topDefects.length > 0
         ? `
           <div>
-            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('topDefects')}</p>
+            <p class="mb-2 text-xs font-medium text-gray-500">${dashboardText('topDefects')}</p>
             <div class="space-y-2">
               ${topDefects.map(defect => `
                 <div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
                   <span class="truncate pr-4">${escapeDashboardHtml(defect.name)}</span>
-                  <strong>${formatDashboardNumber(defect.count)}</strong>
+                  <strong class="tabular-nums">${formatDashboardNumber(defect.count)}</strong>
                 </div>`).join('')}
             </div>
           </div>`
@@ -1894,7 +2369,7 @@
       const issuesMarkup = issueRecords.length > 0
         ? `
           <div class="mt-6">
-            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">${dashboardText('latestIssueCases')}</p>
+            <p class="mb-2 text-xs font-medium text-gray-500">${dashboardText('latestIssueCases')}</p>
             <div class="space-y-3">
               ${issueRecords.map(record => {
                 const issueSummary = record.topDefects && record.topDefects.length > 0
@@ -1913,11 +2388,11 @@
                       </div>
                       <div class="rounded-xl bg-white px-3 py-2 text-right shadow-sm">
                         <p class="text-xs text-gray-400">${dashboardText('defects')}</p>
-                        <p class="text-lg font-semibold text-rose-600">${formatDashboardNumber(record.totalDefects)}</p>
+                        <p class="text-lg font-semibold tabular-nums text-rose-600">${formatDashboardNumber(record.totalDefects)}</p>
                       </div>
                     </div>
                     <p class="mt-3 text-xs text-gray-600">${issueSummary}</p>
-                    ${record.troubleTime > 0 ? `<p class="mt-2 text-xs font-medium text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</p>` : ''}
+                    ${record.troubleTime > 0 ? `<p class="mt-2 text-xs font-medium tabular-nums text-amber-700">${dashboardText('troubleHours')}: ${formatDashboardNumber(record.troubleTime, 2)} h</p>` : ''}
                     ${note ? `<p class="mt-2 line-clamp-2 text-xs text-gray-600">${escapeDashboardHtml(note)}</p>` : ''}
                   </div>`;
               }).join('')}
@@ -1944,16 +2419,16 @@
 
             return `
             <div class="flex items-start gap-3 rounded-2xl bg-gray-50 px-4 py-3">
-              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-semibold text-white">${index + 1}</div>
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gray-900 text-sm font-semibold text-white">${index + 1}</div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(product.productName || '—')}</p>
                 <p class="truncate text-xs text-gray-500">${[product.hinban, product.lhRh].filter(Boolean).map(value => escapeDashboardHtml(value)).join(' / ') || '—'}</p>
               </div>
               <div class="text-right text-xs text-gray-500">
-                <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(product.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
-                <p>${dashboardText('submissions')}: ${formatDashboardNumber(product.submissions)}</p>
-                <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(product.averageCycleTime || 0, 2)}</p>
-                ${piecesPerHourText ? `<p>${piecesPerHourText}</p>` : ''}
+                <p><strong class="text-sm text-emerald-600 tabular-nums">${formatDashboardNumber(product.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
+                <p>${dashboardText('submissions')}: <span class="tabular-nums font-medium">${formatDashboardNumber(product.submissions)}</span></p>
+                <p>${dashboardText('cycleTimeShort')}: <span class="tabular-nums font-medium">${formatDashboardNumber(product.averageCycleTime || 0, 2)}</span></p>
+                ${piecesPerHourText ? `<p class="tabular-nums">${piecesPerHourText}</p>` : ''}
               </div>
             </div>`;
           }).join('')}
@@ -1979,12 +2454,12 @@
               <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-sm font-semibold text-white">${index + 1}</div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(operator.name || '—')}</p>
-                <p class="text-xs text-gray-500">${dashboardText('submissions')}: ${formatDashboardNumber(operator.submissions)}</p>
+                <p class="text-xs text-gray-500">${dashboardText('submissions')}: <span class="tabular-nums font-medium">${formatDashboardNumber(operator.submissions)}</span></p>
               </div>
               <div class="text-right text-xs text-gray-500">
-                <p><strong class="text-sm text-emerald-600">${formatDashboardNumber(operator.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
-                <p>${dashboardText('cycleTimeShort')}: ${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</p>
-                ${piecesPerHourText ? `<p>${piecesPerHourText}</p>` : ''}
+                <p><strong class="text-sm text-emerald-600 tabular-nums">${formatDashboardNumber(operator.totalGoodCount)}</strong> ${dashboardText('goodPieces')}</p>
+                <p>${dashboardText('cycleTimeShort')}: <span class="tabular-nums font-medium">${formatDashboardNumber(operator.averageCycleTime || 0, 2)}</span></p>
+                ${piecesPerHourText ? `<p class="tabular-nums">${piecesPerHourText}</p>` : ''}
               </div>
             </div>`;
           }).join('')}
@@ -1996,13 +2471,18 @@
       if (!container) return;
       const machineStatusCopy = getDashboardMachineStatusCopy();
 
+      const countEl = document.getElementById('dashboardWorkerHoursCount');
+      if (countEl) {
+        countEl.textContent = workers.length > 0 ? `${workers.length} ${dashboardText('operators') || 'operators'}` : '';
+      }
+
       if (!Array.isArray(workers) || workers.length === 0) {
         container.innerHTML = `<p class="text-sm text-gray-400">${dashboardText('noWorkerHoursToday')}</p>`;
         return;
       }
 
       container.innerHTML = `
-        <div class="space-y-3">
+        <div class="space-y-3 max-h-[380px] overflow-y-auto pr-1">
           ${workers.map((worker, index) => {
             const progress = Math.max(0, Math.min(Number(worker.shiftProgressPercent ?? 0) || 0, 100));
             const displayHours = Math.max(0, Math.min(Number(worker.displayWorkHours ?? 0) || 0, DASHBOARD_WORKDAY_HOURS));
@@ -2033,25 +2513,25 @@
             const statusTone = getDashboardMachineStatusTone(activeStatus);
 
             return `
-              <div class="rounded-2xl bg-gray-50 px-4 py-4">
+              <div class="rounded-2xl bg-gray-50 px-4 py-3">
                 <div class="flex items-start gap-3">
                   <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${badgeClass} text-sm font-semibold text-white">${index + 1}</div>
                   <div class="min-w-0 flex-1">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <p class="truncate text-sm font-semibold text-gray-900">${escapeDashboardHtml(worker.name || '—')}</p>
-                        <p class="mt-1 text-xs text-gray-500">${dashboardText('submissions')}: ${formatDashboardNumber(worker.submissions || 0)}</p>
-                        ${worker.liveSessionCount > 0 ? `<div class="mt-2 flex flex-wrap items-center gap-2"><span class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${statusTone}">${statusLabel}</span>${activeMachines.length > 0 ? `<span class="truncate text-[11px] text-gray-400">${escapeDashboardHtml(activeMachines.join(', '))}</span>` : ''}</div>` : ''}
+                        <p class="mt-1 text-xs text-gray-500">${dashboardText('submissions')}: <span class="tabular-nums font-medium">${formatDashboardNumber(worker.submissions || 0)}</span></p>
+                        ${worker.liveSessionCount > 0 ? `<div class="mt-2 flex flex-wrap items-center gap-2"><span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusTone}">${statusLabel}</span>${activeMachines.length > 0 ? `<span class="truncate text-xs text-gray-400">${escapeDashboardHtml(activeMachines.join(', '))}</span>` : ''}</div>` : ''}
                       </div>
                       <div class="shrink-0 text-right">
-                        <p class="text-lg font-semibold ${hoursClass}">${formatDashboardNumber(displayHours, 2)}H</p>
-                        <p class="text-xs text-gray-400">/ ${DASHBOARD_WORKDAY_HOURS}H</p>
+                        <p class="text-lg font-semibold tabular-nums ${hoursClass}">${formatDashboardNumber(displayHours, 2)}H</p>
+                        <p class="text-xs text-gray-400 tabular-nums">/ ${DASHBOARD_WORKDAY_HOURS}H</p>
                       </div>
                     </div>
                     <div class="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
                       <div class="h-full rounded-full bg-gradient-to-r ${barClass}" style="width: ${progress}%"></div>
                     </div>
-                    <p class="mt-2 text-[11px] font-medium ${hoursClass}">${formatDashboardNumber(progress, 0)}%</p>
+                    <p class="mt-2 text-xs font-medium tabular-nums ${hoursClass}">${formatDashboardNumber(progress, 0)}%</p>
                   </div>
                 </div>
               </div>`;
@@ -2168,11 +2648,19 @@
       if (refreshBtn) refreshBtn.disabled = true;
       if (refreshLabel) refreshLabel.textContent = `${dashboardText('refresh')}...`;
 
+      const fetchStartTime = Date.now();
       try {
         const headers = getDashboardAuthHeaders();
+        const selectedFactory = getDashboardSelectedFactory();
+        const factoryQuery = selectedFactory && selectedFactory !== 'all'
+          ? `?factory=${encodeURIComponent(selectedFactory)}`
+          : '';
+
+        console.log(`[Dashboard] 🚀 loadAdminDashboard() started (request #${requestId}, factory: '${selectedFactory || 'all'}')`);
+
         const [summaryResponse, machineStatusResponse] = await Promise.all([
-          fetch(`${API_URL}/api/admin/dashboard-summary`, { headers }),
-          fetch(`${API_URL}/api/admin/dashboard-machine-status`, { headers })
+          fetch(`${API_URL}/api/admin/dashboard-summary${factoryQuery}`, { headers }),
+          fetch(`${API_URL}/api/admin/dashboard-machine-status${factoryQuery}`, { headers })
         ]);
         const [summaryResult, machineStatusResult] = await Promise.all([
           summaryResponse.json(),
@@ -2180,6 +2668,7 @@
         ]);
 
         if (requestId !== adminDashboardRequestId || currentPage !== 'dashboard') {
+          console.log(`[Dashboard] ⚠️ Request #${requestId} superseded or page left (current request #${adminDashboardRequestId})`);
           return;
         }
 
@@ -2196,16 +2685,27 @@
           machineStatus: machineStatusResult.rows || [],
           machineStatusGeneratedAt: machineStatusResult.generatedAt || ''
         });
+
+        console.log(`[Dashboard] ✅ loadAdminDashboard() rendered successfully (request #${requestId}, Submissions: ${summaryResult?.today?.submissions ?? 0}, Machines: ${summaryResult?.machineDaily?.length ?? 0}, Status Rows: ${machineStatusResult?.rows?.length ?? 0})`);
       } catch (error) {
-        console.error('dashboard load error:', error);
+        console.error(`[Dashboard] ❌ loadAdminDashboard() error (request #${requestId}):`, error);
         if (errorEl) {
           errorEl.textContent = error.message || 'Failed to load dashboard';
           errorEl.classList.remove('hidden');
         }
       } finally {
+        lastDashboardFetchCompletedAt = Date.now();
+        console.log(`[Dashboard] 🏁 Request #${requestId} completed in ${Date.now() - fetchStartTime}ms`);
+
         if (requestId === adminDashboardRequestId && currentPage === 'dashboard') {
           if (refreshBtn) refreshBtn.disabled = false;
           if (refreshLabel) refreshLabel.textContent = previousLabel || dashboardText('refresh');
+
+          if (adminDashboardHasPendingRefresh) {
+            console.log('[Dashboard Socket] 🔁 Triggering queued pending refresh from finally block');
+            adminDashboardHasPendingRefresh = false;
+            scheduleAdminDashboardRealtimeRefresh();
+          }
         }
       }
     }
@@ -2228,10 +2728,15 @@
     
     // Apply translations to sidebar, header, and other static elements
     function applyPageTranslations() {
-      // Sidebar nav labels
+      // Sidebar nav labels and mini-rail tooltips
       document.querySelectorAll('[data-nav]').forEach(el => {
         const key = el.getAttribute('data-nav');
-        el.textContent = t('nav.' + key);
+        const translated = t('nav.' + key);
+        el.textContent = translated;
+        const parentLink = el.closest('a');
+        if (parentLink) {
+          parentLink.title = translated;
+        }
       });
       // Header
       document.getElementById('searchInput').placeholder = t('common.search');
@@ -2276,19 +2781,97 @@
       indicator.style.transform = `translateY(${activeItem.offsetTop}px)`;
     }
 
-    // Listen for language changes - update sidebar/header + reload current page
-    let currentPage = 'dashboard';
+    // Single Page Application (SPA) Hash Routing with Sub-Tab Support
+    const VALID_ADMIN_PAGES = new Set([
+      'dashboard',
+      'analytics',
+      'user-management',
+      'master-db',
+      'opc-management',
+      'submitted-db'
+    ]);
+
+    function parseAdminHash() {
+      const rawHash = window.location.hash 
+        ? window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '').trim() 
+        : '';
+      const parts = rawHash.split('/');
+      const page = VALID_ADMIN_PAGES.has(parts[0]) ? parts[0] : 'dashboard';
+      const subtab = parts[1] || '';
+      return { page, subtab, rawHash };
+    }
+
+    function activateSubTab(page, subtab) {
+      if (page === 'analytics') {
+        if (typeof window.setAnalyticsTab === 'function') {
+          window.setAnalyticsTab(subtab || 'productivity', false);
+        }
+      } else if (page === 'master-db') {
+        if (typeof window.switchMainTab === 'function') {
+          window.switchMainTab(subtab || 'master', false);
+        }
+      }
+    }
+
+    let currentPage = null;
+    let activeAdminSubTab = '';
     const origLoadPage = loadPage;
-    loadPage = function(page) {
-      currentPage = page;
-      updateActiveNavItem(page);
-      origLoadPage(page);
+
+    window.updateSubTabHash = function(page, subtab) {
+      if (currentPage === page) {
+        activeAdminSubTab = subtab;
+        const targetHash = '#' + page + (subtab ? '/' + subtab : '');
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      }
     };
+
+    loadPage = function(pageInput, subtabInput = '', updateHash = true) {
+      let page = pageInput;
+      let subtab = subtabInput;
+      if (typeof page === 'string' && page.includes('/')) {
+        const parts = page.split('/');
+        page = parts[0];
+        if (!subtab) subtab = parts[1] || '';
+      }
+      const targetPage = VALID_ADMIN_PAGES.has(page) ? page : 'dashboard';
+      const isNewPage = (currentPage !== targetPage);
+      currentPage = targetPage;
+      activeAdminSubTab = subtab;
+
+      updateActiveNavItem(targetPage);
+      requestAnimationFrame(() => updateActiveNavItem(targetPage));
+
+      if (updateHash) {
+        const targetHash = '#' + targetPage + (subtab ? '/' + subtab : '');
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      }
+
+      if (isNewPage) {
+        origLoadPage(targetPage, subtab);
+      } else {
+        activateSubTab(targetPage, subtab);
+      }
+    };
+
+    // Listen for browser Back/Forward navigation
+    window.addEventListener('hashchange', () => {
+      const { page, subtab } = parseAdminHash();
+      if (page !== currentPage) {
+        loadPage(page, subtab, false);
+      } else if (subtab !== activeAdminSubTab) {
+        activeAdminSubTab = subtab;
+        activateSubTab(page, subtab);
+      }
+    });
 
     window.addEventListener('languageChanged', () => {
       applyPageTranslations();
       // Reload current page to refresh dynamic content
-      origLoadPage(currentPage);
+      origLoadPage(currentPage, activeAdminSubTab);
       requestAnimationFrame(() => updateActiveNavItem(currentPage));
     });
 
@@ -2303,7 +2886,7 @@
       loadAdminDashboard();
     }, DASHBOARD_AUTO_REFRESH_MS);
 
-    // Load dashboard by default
+    // Initialize application on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
       // Parse JWT token from URL and store in localStorage
       const urlParams = new URLSearchParams(window.location.search);
@@ -2321,7 +2904,13 @@
       initializeAdminDashboardSocket();
 
       applyPageTranslations();
-      loadPage('dashboard');
+      
+      // Load initial page and subtab from URL hash (persisting across refresh), fallback to dashboard
+      const { page: initialPage, subtab: initialSubtab } = parseAdminHash();
+      loadPage(initialPage, initialSubtab, false);
+      if (window.location.hash && window.location.hash !== '#' + initialPage + (initialSubtab ? '/' + initialSubtab : '')) {
+        window.location.hash = '#' + initialPage + (initialSubtab ? '/' + initialSubtab : '');
+      }
 
       // Initialize language selector
       const languageSelector = document.getElementById('languageSelector');

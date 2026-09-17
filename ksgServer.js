@@ -52,16 +52,61 @@ function getAdminDashboardRoomName(dbName = 'KSG') {
     return `admin_dashboard_${normalizedDbName}`;
 }
 
+const adminDashboardDebounceTimers = new Map();
+const adminDashboardPendingUpdates = new Map();
+
 function emitAdminDashboardRefresh(dbName = 'KSG', update = {}) {
     const normalizedDbName = String(dbName || 'KSG').trim() || 'KSG';
+    const isImmediate = Boolean(update.immediate || update.reason === 'tablet-submit-success' || update.reason === 'tablet-session-cleared');
+    const room = getAdminDashboardRoomName(normalizedDbName);
 
-    io.to(getAdminDashboardRoomName(normalizedDbName)).emit('admin_dashboard_update', {
-        dbName: normalizedDbName,
-        reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
-        source: String(update.source || 'server').trim() || 'server',
-        timestamp: update.timestamp || new Date().toISOString(),
-        ...update
+    console.log(`📡 [ADMIN DASHBOARD] emitAdminDashboardRefresh called (db: ${normalizedDbName}, immediate: ${isImmediate}, reason: ${update.reason || 'changed'}, source: ${update.source || 'server'})`);
+
+    if (isImmediate) {
+        if (adminDashboardDebounceTimers.has(normalizedDbName)) {
+            clearTimeout(adminDashboardDebounceTimers.get(normalizedDbName));
+            adminDashboardDebounceTimers.delete(normalizedDbName);
+        }
+        adminDashboardPendingUpdates.delete(normalizedDbName);
+        const payload = {
+            dbName: normalizedDbName,
+            reason: String(update.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
+            source: String(update.source || 'server').trim() || 'server',
+            timestamp: update.timestamp || new Date().toISOString(),
+            ...update
+        };
+
+        console.log(`📢 [ADMIN DASHBOARD] Emitting immediate admin_dashboard_update to room [${room}] & [admin_dashboard_all]`);
+        io.to(room).emit('admin_dashboard_update', payload);
+        io.to('admin_dashboard_all').emit('admin_dashboard_update', payload);
+        return;
+    }
+
+    adminDashboardPendingUpdates.set(normalizedDbName, {
+        ...(adminDashboardPendingUpdates.get(normalizedDbName) || {}),
+        ...update,
+        timestamp: new Date().toISOString()
     });
+
+    if (!adminDashboardDebounceTimers.has(normalizedDbName)) {
+        const timer = setTimeout(() => {
+            adminDashboardDebounceTimers.delete(normalizedDbName);
+            const pending = adminDashboardPendingUpdates.get(normalizedDbName) || {};
+            adminDashboardPendingUpdates.delete(normalizedDbName);
+            const payload = {
+                dbName: normalizedDbName,
+                reason: String(pending.reason || 'dashboard-data-changed').trim() || 'dashboard-data-changed',
+                source: String(pending.source || 'server').trim() || 'server',
+                timestamp: pending.timestamp || new Date().toISOString(),
+                ...pending
+            };
+
+            console.log(`📢 [ADMIN DASHBOARD] Emitting debounced admin_dashboard_update to room [${room}] & [admin_dashboard_all]`);
+            io.to(room).emit('admin_dashboard_update', payload);
+            io.to('admin_dashboard_all').emit('admin_dashboard_update', payload);
+        }, 800);
+        adminDashboardDebounceTimers.set(normalizedDbName, timer);
+    }
 }
 
 app.use(express.json({ limit: '50mb' }));
@@ -2110,6 +2155,19 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             return `${h}:${m}`;
         })();
 
+        const troubleDetails = (submissionData.trouble_details && typeof submissionData.trouble_details === 'object')
+            ? submissionData.trouble_details
+            : (submissionData.troubleDetails && typeof submissionData.troubleDetails === 'object' ? submissionData.troubleDetails : {});
+
+        let troubleMinutes = 0;
+        if (submissionData.trouble_time !== undefined) {
+            troubleMinutes = parseFloat(submissionData.trouble_time) || 0;
+        } else if (Object.keys(troubleDetails).length > 0) {
+            troubleMinutes = Object.values(troubleDetails).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+        } else if (submissionData['機械トラブル時間'] !== undefined) {
+            troubleMinutes = parseFloat(submissionData['機械トラブル時間']) || 0;
+        }
+
         // Calculate man_hours from start/end times if not provided or zero
         let manHours = parseFloat(submissionData.工数) || 0;
         if (manHours === 0 && submissionData.開始時間 && endTime) {
@@ -2120,9 +2178,10 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
                 let endMinutes = endH * 60 + endM;
                 if (endMinutes < startMinutes) endMinutes += 24 * 60; // midnight crossover
                 const breakTime = parseFloat(submissionData.休憩時間) || 0;
-                const troubleTime = parseFloat(submissionData['機械トラブル時間']) || 0;
-                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleTime).toFixed(2));
-                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleTime}h)`);
+                // troubleMinutes is in minutes; convert to decimal hours for man-hour calculation
+                const troubleHours = troubleMinutes / 60;
+                manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleHours).toFixed(2));
+                console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleHours}h (${troubleMinutes}m))`);
             } catch (e) {
                 console.warn('⚠️ [TABLET] Could not calculate man_hours:', e.message);
             }
@@ -2142,7 +2201,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             '品番', '製品名', 'kanbanID', 'hakoIresu', 'LH/RH', '工場',
             '技能員①', '技能員②', '良品数', '工数',
             'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
-            'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys'
+            'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys',
+            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -2186,7 +2246,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             start_time: submissionData.開始時間 || '',
             end_time: endTime,
             break_time: parseFloat(submissionData.休憩時間) || 0,
-            trouble_time: parseFloat(submissionData['機械トラブル時間']) || 0,
+            trouble_time: troubleMinutes,
+            trouble_details: troubleDetails,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,
             submitted_from: submittedFrom,
@@ -2293,7 +2354,7 @@ const SUBMITTED_DB_FIXED_FIELDS = new Set([
     ...SUBMITTED_DB_OPERATOR_FIELDS,
     'good_count', 'man_hours', 'cycle_time',
     'other_description', 'start_time', 'end_time', 'break_time',
-    'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
+    'trouble_time', 'trouble_details', 'remarks', 'excluded_man_hours', 'submitted_from',
     'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
@@ -2313,6 +2374,11 @@ function normalizeSubmittedDBUpdates(source = {}) {
 
     for (const [key, rawValue] of Object.entries(source)) {
         if (!key || SUBMITTED_DB_NON_EDITABLE_FIELDS.has(key) || key.includes('.') || key.startsWith('$')) {
+            continue;
+        }
+
+        if (key === 'trouble_details' && typeof rawValue === 'object') {
+            updates.trouble_details = rawValue;
             continue;
         }
 
@@ -2494,15 +2560,39 @@ function buildGoogleSheetExpectedFieldsForSubmissionRecord(record = {}, ngGroup 
             countUp: !nonCountUpDefectKeys.has(key),
         }));
 
-    if (recordDefectFields.length === 0) {
-        return expectedFields;
+    if (recordDefectFields.length > 0) {
+        const postDefectFieldIndex = expectedFields.findIndex(field => field.key === 'other_description');
+        if (postDefectFieldIndex === -1) {
+            expectedFields.push(...recordDefectFields);
+        } else {
+            expectedFields.splice(postDefectFieldIndex, 0, ...recordDefectFields);
+        }
     }
 
-    const postDefectFieldIndex = expectedFields.findIndex(field => field.key === 'other_description');
-    if (postDefectFieldIndex === -1) {
-        expectedFields.push(...recordDefectFields);
-    } else {
-        expectedFields.splice(postDefectFieldIndex, 0, ...recordDefectFields);
+    // Add trouble detail fields from record.trouble_details right after trouble_time
+    if (record.trouble_details && typeof record.trouble_details === 'object') {
+        const troubleKeys = Object.keys(record.trouble_details)
+            .map(k => String(k || '').trim())
+            .filter(Boolean);
+
+        const existingKeys = new Set(expectedFields.map(f => String(f?.key || '').trim()));
+        const troubleFields = troubleKeys
+            .filter(key => !existingKeys.has(key))
+            .map(key => ({
+                key,
+                header: key,
+                aliases: [key],
+                kind: 'trouble',
+            }));
+
+        if (troubleFields.length > 0) {
+            const troubleTimeIndex = expectedFields.findIndex(field => field.key === 'trouble_time');
+            if (troubleTimeIndex !== -1) {
+                expectedFields.splice(troubleTimeIndex + 1, 0, ...troubleFields);
+            } else {
+                expectedFields.push(...troubleFields);
+            }
+        }
     }
 
     return expectedFields;
@@ -2945,18 +3035,27 @@ function computeSubmittedDBOperatorDaily(records = []) {
         .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
-function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = []) {
+function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMachineNames = [], machineFactoryMap = null) {
     const machineMap = new Map();
-    
+
+    const getFactoryFor = (name, fallback = '') => {
+        if (machineFactoryMap && machineFactoryMap.has(name)) {
+            const f = machineFactoryMap.get(name);
+            if (f && f !== 'その他') return f;
+        }
+        return fallback || 'その他';
+    };
+
     // Pre-populate with all known machines to ensure they appear even if idle today
     allMachineNames.forEach(name => {
-        if (name) machineMap.set(name, { source: name, dayMap: new Map() });
+        if (name) machineMap.set(name, { source: name, factory: getFactoryFor(name), dayMap: new Map() });
     });
 
     records.forEach(record => {
         const source = String(record.submitted_from ?? '').trim();
         if (!source) return;
 
+        const recordFactory = String(record.工場 ?? '').trim();
         const dateInfo = getSubmittedDBRecordDateInfo(record);
         const goodCount = Number(record.good_count ?? 0) || 0;
         const defects = getSubmittedDBRecordDefects(record);
@@ -2984,7 +3083,11 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
             remarks: String(record.remarks ?? '').trim()
         };
 
-        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
+        const machineEntry = machineMap.get(source) || { source, factory: getFactoryFor(source, recordFactory), dayMap: new Map() };
+        if ((!machineEntry.factory || machineEntry.factory === 'その他') && recordFactory) {
+            machineEntry.factory = recordFactory;
+        }
+
         const dayEntry = machineEntry.dayMap.get(dateInfo.key) || {
             date: dateInfo.key,
             label: dateInfo.label,
@@ -3015,11 +3118,15 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         const source = String(session.source ?? '').trim();
         if (!source) return;
 
-        const machineEntry = machineMap.get(source) || { source, dayMap: new Map() };
-        
+        const sessionFactory = String(session.factoryLocation || session.工場 || '').trim();
+        const machineEntry = machineMap.get(source) || { source, factory: getFactoryFor(source, sessionFactory), dayMap: new Map() };
+        if ((!machineEntry.factory || machineEntry.factory === 'その他') && sessionFactory) {
+            machineEntry.factory = sessionFactory;
+        }
+
         const now = new Date();
         const todayKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        
+
         const dayEntry = machineEntry.dayMap.get(todayKey) || {
             date: todayKey,
             label: `${now.getMonth()+1}/${now.getDate()}`,
@@ -3054,7 +3161,7 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
         });
 
         if (session.productName || session.hinban) dayEntry.products.add(session.productName || session.hinban);
-        
+
         machineEntry.dayMap.set(todayKey, dayEntry);
         machineMap.set(source, machineEntry);
     });
@@ -3062,6 +3169,7 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
     return [...machineMap.values()]
         .map(machineEntry => ({
             source: machineEntry.source,
+            factory: getFactoryFor(machineEntry.source, machineEntry.factory),
             days: [...machineEntry.dayMap.values()]
                 .sort((a, b) => a.date.localeCompare(b.date))
                 .map(day => ({
@@ -3071,7 +3179,16 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
                     records: day.records.sort((a, b) => a.startTime.localeCompare(b.startTime))
                 }))
         }))
-        .sort((a, b) => a.source.localeCompare(b.source, 'ja'));
+        .sort((a, b) => {
+            const fa = a.factory || '';
+            const fb = b.factory || '';
+            if (fa !== fb) {
+                if (fa === 'その他') return 1;
+                if (fb === 'その他') return -1;
+                return fa.localeCompare(fb, 'ja');
+            }
+            return a.source.localeCompare(b.source, 'ja');
+        });
 }
 
 // Worker-vs-worker efficiency on the same product (fair comparison because
@@ -4373,6 +4490,828 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
     }
 });
 
+// GET /api/admin/analytics/mom
+// Computes Month-over-Month (MoM) comparison for machines, products, and workers
+async function handleAnalyticsMoMRequest(req, res) {
+    try {
+        if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+
+        const now = new Date();
+        const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevYM = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+        const type = String(req.query.type || 'machine').toLowerCase().trim();
+        const monthA = String(req.query.monthA || currentYM).trim();
+        const monthB = String(req.query.monthB || prevYM).trim();
+        const machine = String(req.query.machine || 'all').trim();
+        const hinban = String(req.query.hinban || '').trim();
+        const lhRh = String(req.query.lhRh || 'all').trim();
+        const operator = String(req.query.operator || '').trim();
+
+        // Calculate start and end dates for both months
+        const [yA, mA] = monthA.split('-').map(Number);
+        const lastDayA = new Date(yA, mA, 0).getDate();
+        const startA = `${monthA}-01`;
+        const endA = `${monthA}-${String(lastDayA).padStart(2, '0')}`;
+
+        const [yB, mB] = monthB.split('-').map(Number);
+        const lastDayB = new Date(yB, mB, 0).getDate();
+        const startB = `${monthB}-01`;
+        const endB = `${monthB}-${String(lastDayB).padStart(2, '0')}`;
+
+        const overallStart = startA < startB ? startA : startB;
+        const overallEnd = endA > endB ? endA : endB;
+
+        const filter = {
+            is_deleted: { $ne: true }
+        };
+
+        const dateExpr = buildSubmittedDBDateRangeExpr(overallStart, overallEnd);
+        if (dateExpr) filter.$expr = dateExpr;
+
+        if (type === 'machine' && machine && machine !== 'all') {
+            filter.submitted_from = machine;
+        }
+        if (type === 'product') {
+            if (hinban && hinban !== 'all') filter.hinban = hinban;
+            if (lhRh && lhRh !== 'all') filter.lh_rh = lhRh;
+        }
+        if (type === 'worker' && operator && operator !== 'all') {
+            const safeOp = escapeSubmittedDBRegex(operator);
+            filter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(f => ({
+                [f]: { $regex: safeOp, $options: 'i' }
+            }));
+        }
+
+        const [records, optionsDoc] = await Promise.all([
+            collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
+            collection.aggregate([
+                { $match: { is_deleted: { $ne: true } } },
+                {
+                    $group: {
+                        _id: null,
+                        sources: { $addToSet: '$submitted_from' },
+                        products: { $addToSet: { hinban: '$hinban', productName: '$product_name' } },
+                        op1: { $addToSet: '$operator1' },
+                        op2: { $addToSet: '$operator2' },
+                        op3: { $addToSet: '$operator3' },
+                        op4: { $addToSet: '$operator4' }
+                    }
+                }
+            ]).next()
+        ]);
+
+        const availableMachines = (optionsDoc?.sources || [])
+            .filter(name => typeof name === 'string' && name.trim().length > 0)
+            .sort((a, b) => a.localeCompare(b));
+
+        const productMap = new Map();
+        (optionsDoc?.products || []).forEach(p => {
+            if (p && p.hinban && !productMap.has(p.hinban)) {
+                productMap.set(p.hinban, { hinban: p.hinban, productName: p.productName || '' });
+            }
+        });
+        const availableProducts = Array.from(productMap.values()).sort((a, b) => a.hinban.localeCompare(b.hinban));
+
+        const opSet = new Set();
+        if (optionsDoc) {
+            ['op1', 'op2', 'op3', 'op4'].forEach(k => {
+                (optionsDoc[k] || []).forEach(v => {
+                    if (typeof v === 'string' && v.trim()) opSet.add(v.trim());
+                });
+            });
+        }
+        const availableOperators = [...opSet].sort((a, b) => a.localeCompare(b));
+
+        const computeMonthStats = (targetYM, numDaysInMonth) => {
+            let totalGood = 0;
+            let totalDefects = 0;
+            let totalManHours = 0;
+            let totalBreak = 0;
+            let totalTrouble = 0;
+            const daily = {};
+            const daysActive = new Set();
+
+            const machineMap = new Map();
+            const partMap = new Map();
+            const defectMap = new Map();
+            const workerMap = new Map();
+
+            for (let d = 1; d <= 31; d++) {
+                daily[d] = {
+                    day: d,
+                    goodCount: 0,
+                    defectCount: 0,
+                    manHours: 0,
+                    troubleHours: 0,
+                    breakHours: 0,
+                    recordsCount: 0
+                };
+            }
+
+            records.forEach(r => {
+                const dateInfo = getSubmittedDBRecordDateInfo(r);
+                if (!dateInfo.key.startsWith(targetYM)) return;
+
+                const dayNum = parseInt(dateInfo.key.slice(8, 10), 10);
+                const good = Number(r.good_count ?? 0) || 0;
+                const defectsList = getSubmittedDBRecordDefects(r);
+                const defects = defectsList.reduce((sum, def) => sum + (Number(def.count) || 0), 0);
+                const manHours = Number(r.man_hours ?? 0) || 0;
+                const breakTime = Number(r.break_time ?? 0) || 0;
+                const troubleTime = Number(r.trouble_time ?? 0) || 0;
+                const mName = String(r.submitted_from ?? '').trim() || 'Unknown Machine';
+                const hinbanVal = String(r.hinban ?? '').trim() || 'Unknown Part';
+                const productName = String(r.product_name ?? '').trim();
+                const ops = getSubmittedDBRecordOperators(r);
+
+                totalGood += good;
+                totalDefects += defects;
+                totalManHours += manHours;
+                totalBreak += breakTime;
+                totalTrouble += troubleTime;
+                daysActive.add(dateInfo.key);
+
+                if (dayNum >= 1 && dayNum <= 31) {
+                    daily[dayNum].goodCount += good;
+                    daily[dayNum].defectCount += defects;
+                    daily[dayNum].manHours += manHours;
+                    daily[dayNum].troubleHours += troubleTime;
+                    daily[dayNum].breakHours += breakTime;
+                    daily[dayNum].recordsCount += 1;
+                }
+
+                if (!machineMap.has(mName)) machineMap.set(mName, { name: mName, shots: 0, defects: 0, manHours: 0 });
+                const mEntry = machineMap.get(mName);
+                mEntry.shots += good;
+                mEntry.defects += defects;
+                mEntry.manHours += manHours;
+
+                if (!partMap.has(hinbanVal)) partMap.set(hinbanVal, { hinban: hinbanVal, productName, shots: 0, defects: 0, manHours: 0 });
+                const p = partMap.get(hinbanVal);
+                p.shots += good;
+                p.defects += defects;
+                p.manHours += manHours;
+
+                defectsList.forEach(d => {
+                    const reason = d.name || 'Other';
+                    defectMap.set(reason, (defectMap.get(reason) || 0) + d.count);
+                });
+
+                ops.forEach(op => {
+                    if (!workerMap.has(op)) workerMap.set(op, { name: op, shots: 0, defects: 0, manHours: 0 });
+                    const wEntry = workerMap.get(op);
+                    wEntry.shots += good;
+                    wEntry.defects += defects;
+                    wEntry.manHours += manHours;
+                });
+            });
+
+            const operatingDays = daysActive.size;
+            const avgShotsPerDay = operatingDays > 0 ? Math.round((totalGood / operatingDays) * 10) / 10 : 0;
+            const avgHoursPerDay = operatingDays > 0 ? Math.round((totalManHours / operatingDays) * 10) / 10 : 0;
+            const totalCreated = totalGood + totalDefects;
+            const defectRate = totalCreated > 0
+                ? Math.round((totalDefects / totalCreated) * 1000) / 10
+                : 0;
+
+            const producingHours = Math.max(0, totalManHours - totalBreak - totalTrouble);
+            const efficiency = totalManHours > 0 ? Math.round((producingHours / totalManHours) * 1000) / 10 : 0;
+            const shotsPerHour = totalManHours > 0 ? Math.round((totalGood / totalManHours) * 10) / 10 : 0;
+
+            return {
+                month: targetYM,
+                lastDay: numDaysInMonth,
+                totalGood,
+                totalDefects,
+                totalCreated,
+                totalManHours: Math.round(totalManHours * 10) / 10,
+                producingHours: Math.round(producingHours * 10) / 10,
+                breakHours: Math.round(totalBreak * 10) / 10,
+                troubleHours: Math.round(totalTrouble * 10) / 10,
+                operatingDays,
+                avgShotsPerDay,
+                avgHoursPerDay,
+                defectRate,
+                efficiency,
+                shotsPerHour,
+                daily,
+                machines: Array.from(machineMap.values()).sort((a, b) => b.shots - a.shots),
+                parts: Array.from(partMap.values()).sort((a, b) => b.shots - a.shots),
+                defects: Array.from(defectMap.entries()).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+                workers: Array.from(workerMap.values()).sort((a, b) => b.shots - a.shots)
+            };
+        };
+
+        const analyticsA = computeMonthStats(monthA, lastDayA);
+        const analyticsB = computeMonthStats(monthB, lastDayB);
+
+        // Deltas
+        const diffShots = analyticsA.totalGood - analyticsB.totalGood;
+        const pctShots = analyticsB.totalGood > 0
+            ? Math.round(((analyticsA.totalGood - analyticsB.totalGood) / analyticsB.totalGood) * 1000) / 10
+            : (analyticsA.totalGood > 0 ? 100 : 0);
+        const diffAvgShots = Math.round((analyticsA.avgShotsPerDay - analyticsB.avgShotsPerDay) * 10) / 10;
+        const diffHours = Math.round((analyticsA.totalManHours - analyticsB.totalManHours) * 10) / 10;
+        const diffProducingHours = Math.round((analyticsA.producingHours - analyticsB.producingHours) * 10) / 10;
+        const diffTroubleHours = Math.round((analyticsA.troubleHours - analyticsB.troubleHours) * 10) / 10;
+        const diffDefectRate = Math.round((analyticsA.defectRate - analyticsB.defectRate) * 10) / 10;
+        const diffEfficiency = Math.round((analyticsA.efficiency - analyticsB.efficiency) * 10) / 10;
+        const diffShotsPerHour = Math.round((analyticsA.shotsPerHour - analyticsB.shotsPerHour) * 10) / 10;
+
+        // Trajectory (Day 1..31)
+        const isCurrentMonthA = monthA === currentYM;
+        const currentDay = now.getDate();
+
+        let cumA = 0;
+        let cumB = 0;
+        const trajectory = [];
+
+        for (let d = 1; d <= 31; d++) {
+            const dayA = analyticsA.daily[d];
+            const dayB = analyticsB.daily[d];
+
+            const inMonthB = d <= lastDayB;
+            const inMonthA = d <= lastDayA;
+
+            if (inMonthB) cumB += dayB.goodCount;
+
+            let valA = null;
+            let valCumA = null;
+            let valEffA = null;
+            let valDefA = null;
+            let valRateA = null;
+
+            if (inMonthA && (!isCurrentMonthA || d <= currentDay)) {
+                cumA += dayA.goodCount;
+                valA = dayA.goodCount;
+                valCumA = cumA;
+                const tot = dayA.manHours;
+                const prod = Math.max(0, dayA.manHours - dayA.breakHours - dayA.troubleHours);
+                valEffA = tot > 0 ? Math.round((prod / tot) * 1000) / 10 : null;
+                valDefA = (dayA.goodCount + dayA.defectCount > 0) ? Math.round((dayA.defectCount / (dayA.goodCount + dayA.defectCount)) * 1000) / 10 : null;
+                valRateA = tot > 0 ? Math.round((dayA.goodCount / tot) * 10) / 10 : null;
+            }
+
+            const totB = dayB.manHours;
+            const prodB = Math.max(0, dayB.manHours - dayB.breakHours - dayB.troubleHours);
+            const valEffB = (inMonthB && totB > 0) ? Math.round((prodB / totB) * 1000) / 10 : null;
+            const valDefB = (inMonthB && (dayB.goodCount + dayB.defectCount > 0)) ? Math.round((dayB.defectCount / (dayB.goodCount + dayB.defectCount)) * 1000) / 10 : null;
+            const valRateB = (inMonthB && totB > 0) ? Math.round((dayB.goodCount / totB) * 10) / 10 : null;
+
+            trajectory.push({
+                day: d,
+                shotsA: inMonthA ? valA : null,
+                shotsB: inMonthB ? dayB.goodCount : null,
+                cumShotsA: inMonthA ? valCumA : null,
+                cumShotsB: inMonthB ? cumB : null,
+                effA: inMonthA ? valEffA : null,
+                effB: inMonthB ? valEffB : null,
+                defRateA: inMonthA ? valDefA : null,
+                defRateB: inMonthB ? valDefB : null,
+                rateA: inMonthA ? valRateA : null,
+                rateB: inMonthB ? valRateB : null
+            });
+        }
+
+        // Deep-dive breakdowns for each sub-tab
+        let breakdown1 = {};
+        let breakdown2 = {};
+
+        if (type === 'machine') {
+            breakdown1 = {
+                kind: 'lossShift',
+                dataA: {
+                    producingHours: analyticsA.producingHours,
+                    troubleHours: analyticsA.troubleHours,
+                    breakHours: analyticsA.breakHours,
+                    totalHours: analyticsA.totalManHours
+                },
+                dataB: {
+                    producingHours: analyticsB.producingHours,
+                    troubleHours: analyticsB.troubleHours,
+                    breakHours: analyticsB.breakHours,
+                    totalHours: analyticsB.totalManHours
+                }
+            };
+
+            const partMapAll = new Map();
+            analyticsA.parts.forEach(p => partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: p.shots, shotsB: 0 }));
+            analyticsB.parts.forEach(p => {
+                if (!partMapAll.has(p.hinban)) partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: 0, shotsB: p.shots });
+                else partMapAll.get(p.hinban).shotsB = p.shots;
+            });
+            const totalVolA = analyticsA.totalGood || 1;
+            const totalVolB = analyticsB.totalGood || 1;
+            const shiftList = Array.from(partMapAll.values()).map(p => {
+                const diff = p.shotsA - p.shotsB;
+                const shareA = Math.round((p.shotsA / totalVolA) * 1000) / 10;
+                const shareB = Math.round((p.shotsB / totalVolB) * 1000) / 10;
+                return {
+                    ...p,
+                    diff,
+                    pctDiff: p.shotsB > 0 ? Math.round((diff / p.shotsB) * 1000) / 10 : (p.shotsA > 0 ? 100 : 0),
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown2 = { kind: 'productMixShift', items: shiftList };
+
+        } else if (type === 'product') {
+            const machineMapAll = new Map();
+            analyticsA.machines.forEach(m => machineMapAll.set(m.name, { name: m.name, shotsA: m.shots, shotsB: 0 }));
+            analyticsB.machines.forEach(m => {
+                if (!machineMapAll.has(m.name)) machineMapAll.set(m.name, { name: m.name, shotsA: 0, shotsB: m.shots });
+                else machineMapAll.get(m.name).shotsB = m.shots;
+            });
+            const totalVolA = analyticsA.totalGood || 1;
+            const totalVolB = analyticsB.totalGood || 1;
+            const machineShifts = Array.from(machineMapAll.values()).map(m => {
+                const diff = m.shotsA - m.shotsB;
+                const shareA = Math.round((m.shotsA / totalVolA) * 1000) / 10;
+                const shareB = Math.round((m.shotsB / totalVolB) * 1000) / 10;
+                return {
+                    ...m,
+                    diff,
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown1 = { kind: 'machineAllocationShift', items: machineShifts };
+
+            const defectMapAll = new Map();
+            analyticsA.defects.forEach(d => defectMapAll.set(d.reason, { reason: d.reason, countA: d.count, countB: 0 }));
+            analyticsB.defects.forEach(d => {
+                if (!defectMapAll.has(d.reason)) defectMapAll.set(d.reason, { reason: d.reason, countA: 0, countB: d.count });
+                else defectMapAll.get(d.reason).countB = d.count;
+            });
+            const totalDefA = analyticsA.totalDefects || 1;
+            const totalDefB = analyticsB.totalDefects || 1;
+            const defectShifts = Array.from(defectMapAll.values()).map(d => {
+                const diff = d.countA - d.countB;
+                const shareA = Math.round((d.countA / totalDefA) * 1000) / 10;
+                const shareB = Math.round((d.countB / totalDefB) * 1000) / 10;
+                return {
+                    ...d,
+                    diff,
+                    shareA,
+                    shareB,
+                    shareDiff: Math.round((shareA - shareB) * 10) / 10
+                };
+            }).sort((a, b) => Math.max(b.countA, b.countB) - Math.max(a.countA, a.countB)).slice(0, 8);
+            breakdown2 = { kind: 'defectShift', items: defectShifts };
+
+        } else if (type === 'worker') {
+            const machineMapAll = new Map();
+            analyticsA.machines.forEach(m => machineMapAll.set(m.name, { name: m.name, shotsA: m.shots, shotsB: 0, hoursA: m.manHours, hoursB: 0 }));
+            analyticsB.machines.forEach(m => {
+                if (!machineMapAll.has(m.name)) machineMapAll.set(m.name, { name: m.name, shotsA: 0, shotsB: m.shots, hoursA: 0, hoursB: m.manHours });
+                else {
+                    machineMapAll.get(m.name).shotsB = m.shots;
+                    machineMapAll.get(m.name).hoursB = m.manHours;
+                }
+            });
+            const machineShifts = Array.from(machineMapAll.values()).map(m => ({
+                ...m,
+                diffShots: m.shotsA - m.shotsB,
+                diffHours: Math.round((m.hoursA - m.hoursB) * 10) / 10
+            })).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown1 = { kind: 'machineAssignmentShift', items: machineShifts };
+
+            const partMapAll = new Map();
+            analyticsA.parts.forEach(p => partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: p.shots, shotsB: 0, defA: p.defects, defB: 0 }));
+            analyticsB.parts.forEach(p => {
+                if (!partMapAll.has(p.hinban)) partMapAll.set(p.hinban, { hinban: p.hinban, productName: p.productName, shotsA: 0, shotsB: p.shots, defA: 0, defB: p.defects });
+                else {
+                    partMapAll.get(p.hinban).shotsB = p.shots;
+                    partMapAll.get(p.hinban).defB = p.defects;
+                }
+            });
+            const partShifts = Array.from(partMapAll.values()).map(p => ({
+                ...p,
+                diffShots: p.shotsA - p.shotsB,
+                diffDefects: p.defA - p.defB
+            })).sort((a, b) => Math.max(b.shotsA, b.shotsB) - Math.max(a.shotsA, a.shotsB)).slice(0, 8);
+            breakdown2 = { kind: 'productFocusShift', items: partShifts };
+        }
+
+        res.json({
+            success: true,
+            type,
+            monthA,
+            monthB,
+            machine,
+            hinban,
+            lhRh,
+            operator,
+            availableOptions: {
+                machines: availableMachines,
+                products: availableProducts,
+                operators: availableOperators
+            },
+            analyticsA,
+            analyticsB,
+            deltas: {
+                diffShots,
+                pctShots,
+                diffAvgShots,
+                diffHours,
+                diffProducingHours,
+                diffTroubleHours,
+                diffDefectRate,
+                diffEfficiency,
+                diffShotsPerHour
+            },
+            trajectory,
+            breakdown1,
+            breakdown2
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error calculating MoM analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to calculate MoM analytics' });
+    }
+}
+
+app.get('/api/admin/analytics/mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
+app.get('/api/admin/analytics/machine-mom', validateSubmittedDBAccess, handleAnalyticsMoMRequest);
+
+// --------------------------------------------------------------------------
+// GET /api/admin/analytics/productivity
+// Aggregates monthly worker productivity (1h/pc = 加工数 / 工数) per 設備 (machine)
+// Displays daily productivity points, target lines, and paper-sheet data table
+// --------------------------------------------------------------------------
+async function handleAnalyticsProductivityRequest(req, res) {
+    try {
+        if (!mongoClient) {
+            return res.status(503).json({ success: false, error: 'Database not connected' });
+        }
+
+        const db = mongoClient.db(req.dbName || 'KSG');
+        const collection = db.collection('submittedDB');
+
+        const now = new Date();
+        let targetYear = now.getFullYear();
+        let targetMonth = now.getMonth() + 1;
+
+        if (req.query.month) {
+            const parts = String(req.query.month).trim().split(/[-/]/).map(Number);
+            if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+                targetYear = parts[0];
+                targetMonth = parts[1];
+            }
+        }
+
+        const defaultTarget = Number(req.query.target) > 0 ? Number(req.query.target) : 220;
+        const defaultWarning = Number(req.query.warning) > 0 ? Number(req.query.warning) : 210;
+        const requestedSource = String(req.query.source ?? '').trim();
+        const requestedOperator = String(req.query.operator ?? '').trim();
+        const requestedFactory = String(req.query.factory ?? '').trim();
+
+        // Load masterDB records for product-level 目標 and 警戒 settings
+        const masterCollection = db.collection('masterDB');
+        const masterDocs = await masterCollection.find({}).project({
+            品番: 1,
+            製品名: 1,
+            設備: 1,
+            kanbanID: 1,
+            目標: 1,
+            警戒: 1
+        }).toArray();
+
+        const masterByProduct = new Map();
+        const masterByHinban = new Map();
+        const masterByEquipment = new Map();
+
+        (masterDocs || []).forEach(m => {
+            const pName = String(m.製品名 ?? '').trim().toLowerCase();
+            const hinban = String(m.品番 ?? '').trim().toLowerCase();
+            const equip = String(m.設備 ?? '').trim().toLowerCase();
+            const targetVal = (m.目標 !== undefined && m.目標 !== null && m.目標 !== '') ? Number(m.目標) : null;
+            const warningVal = (m.警戒 !== undefined && m.警戒 !== null && m.警戒 !== '') ? Number(m.警戒) : null;
+
+            if (pName && !masterByProduct.has(pName)) {
+                masterByProduct.set(pName, { target: targetVal, warning: warningVal });
+            }
+            if (hinban && !masterByHinban.has(hinban)) {
+                masterByHinban.set(hinban, { target: targetVal, warning: warningVal });
+            }
+            if (equip && !masterByEquipment.has(equip)) {
+                masterByEquipment.set(equip, { target: targetVal, warning: warningVal });
+            }
+        });
+
+        const baseMonthFilter = {
+            is_deleted: { $ne: true },
+            date_year: targetYear,
+            date_month: targetMonth
+        };
+        if (requestedFactory && requestedFactory !== 'all') {
+            baseMonthFilter['工場'] = requestedFactory;
+        }
+
+        // Fetch available sources and operators for filter options (without using .distinct to comply with MongoDB apiStrict:true)
+        const allMonthDocs = await collection.find(baseMonthFilter).project({
+            submitted_from: 1,
+            operator1: 1,
+            operator2: 1,
+            operator3: 1,
+            operator4: 1
+        }).toArray();
+
+        const availableSourcesSet = new Set();
+        const availableOperatorsSet = new Set();
+        (allMonthDocs || []).forEach(doc => {
+            const sourceName = String(doc.submitted_from ?? '').trim();
+            if (sourceName) availableSourcesSet.add(sourceName);
+            SUBMITTED_DB_OPERATOR_FIELDS.forEach(field => {
+                const name = String(doc[field] ?? '').trim();
+                if (name) availableOperatorsSet.add(name);
+            });
+        });
+        const sortedSources = Array.from(availableSourcesSet).sort((a, b) => a.localeCompare(b, 'ja'));
+        const sortedOperators = Array.from(availableOperatorsSet).sort((a, b) => a.localeCompare(b, 'ja'));
+
+        // Query filtered records
+        const queryFilter = { ...baseMonthFilter };
+        if (requestedSource && requestedSource !== 'all') {
+            queryFilter.submitted_from = requestedSource;
+        }
+        if (requestedOperator && requestedOperator !== 'all') {
+            const safeOp = escapeSubmittedDBRegex(requestedOperator);
+            queryFilter.$or = SUBMITTED_DB_OPERATOR_FIELDS.map(f => ({
+                [f]: { $regex: safeOp, $options: 'i' }
+            }));
+        }
+
+        const records = await collection.find(queryFilter)
+            .sort({ date_day: 1, timestamp: 1 })
+            .toArray();
+
+        const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+
+        // Data structure for aggregation:
+        // map: source -> Map(operator -> Map(day -> { pieces, hours, cycleTimes: [], kanbans: Set, remarks: [] }))
+        const sourceMap = new Map();
+
+        records.forEach(record => {
+            const source = String(record.submitted_from ?? '').trim() || '未指定';
+            const operators = getSubmittedDBRecordOperators(record);
+            const targetOperators = operators.length > 0 ? operators : ['(未設定)'];
+
+            // If an operator filter was specified, only include matching operators
+            const matchingOperators = (requestedOperator && requestedOperator !== 'all')
+                ? targetOperators.filter(op => op.toLowerCase().includes(requestedOperator.toLowerCase()))
+                : targetOperators;
+
+            if (matchingOperators.length === 0) return;
+
+            const operatorCount = Math.max(operators.length, 1);
+            const goodCount = Math.max(0, Number(record.good_count ?? 0) || 0);
+            const totalPieces = goodCount; // 良品数 (good_count from submitted data page)
+            const manHours = Math.max(0, Number(record.man_hours ?? 0) || 0);
+            const cycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
+            const kanbanId = String(record.kanban_id ?? '').trim();
+            const productName = String(record.product_name ?? '').trim();
+            const hinban = String(record.hinban ?? '').trim();
+            const remarks = String(record.remarks ?? '').trim();
+
+            let day = Number(record.date_day ?? 0);
+            if (!day || day < 1 || day > daysInMonth) {
+                if (record.timestamp) {
+                    day = new Date(record.timestamp).getDate();
+                }
+            }
+            if (!day || day < 1 || day > daysInMonth) return;
+
+            const attributedPieces = totalPieces / operatorCount;
+            const attributedHours = manHours / operatorCount;
+
+            if (!sourceMap.has(source)) {
+                sourceMap.set(source, new Map());
+            }
+            const opMap = sourceMap.get(source);
+
+            matchingOperators.forEach(op => {
+                if (!opMap.has(op)) {
+                    opMap.set(op, new Map());
+                }
+                const dayMap = opMap.get(op);
+                if (!dayMap.has(day)) {
+                    dayMap.set(day, {
+                        pieces: 0,
+                        hours: 0,
+                        cycleTimes: [],
+                        kanbans: new Set(),
+                        productNames: new Set(),
+                        hinbans: new Set(),
+                        remarks: [],
+                        recordIds: []
+                    });
+                }
+                const dayEntry = dayMap.get(day);
+                dayEntry.pieces += attributedPieces;
+                dayEntry.hours += attributedHours;
+                if (cycleTime > 0) dayEntry.cycleTimes.push(cycleTime);
+                if (kanbanId) dayEntry.kanbans.add(kanbanId);
+                if (productName) dayEntry.productNames.add(productName);
+                if (hinban) dayEntry.hinbans.add(hinban);
+                if (remarks && !dayEntry.remarks.includes(remarks)) {
+                    dayEntry.remarks.push(remarks);
+                }
+                if (record._id && !dayEntry.recordIds.includes(String(record._id))) {
+                    dayEntry.recordIds.push(String(record._id));
+                }
+            });
+        });
+
+        // Format machines and operators output
+        const machines = [];
+        let grandTotalPieces = 0;
+        let grandTotalHours = 0;
+        let grandAchievedCount = 0;
+        let totalWorkerCards = 0;
+
+        for (const [source, opMap] of sourceMap.entries()) {
+            let machinePieces = 0;
+            let machineHours = 0;
+            const operatorsList = [];
+
+            for (const [operatorName, dayMap] of opMap.entries()) {
+                let opPieces = 0;
+                let opHours = 0;
+                const dailyData = [];
+
+                // Collect working days & product names
+                const sortedDays = Array.from(dayMap.keys()).sort((a, b) => a - b);
+                const opProductNames = new Set();
+                const opHinbans = new Set();
+
+                sortedDays.forEach(day => {
+                    const d = dayMap.get(day);
+                    opPieces += d.pieces;
+                    opHours += d.hours;
+                    if (d.productNames) {
+                        d.productNames.forEach(p => opProductNames.add(p));
+                    }
+                    if (d.hinbans) {
+                        d.hinbans.forEach(h => opHinbans.add(h));
+                    }
+
+                    let oneHrPc = null;
+                    if (d.hours > 0 && d.pieces > 0) {
+                        oneHrPc = Math.round((d.pieces / d.hours) * 100) / 100;
+                    } else if (d.cycleTimes.length > 0) {
+                        const avgCt = d.cycleTimes.reduce((a, b) => a + b, 0) / d.cycleTimes.length;
+                        if (avgCt > 0) oneHrPc = Math.round((60 / avgCt) * 100) / 100;
+                    }
+
+                    dailyData.push({
+                        day,
+                        dateLabel: `${targetMonth}/${day}`,
+                        kanban: Array.from(d.kanbans).join(' ') || '-',
+                        pieces: Math.round(d.pieces * 10) / 10,
+                        hours: Math.round(d.hours * 100) / 100,
+                        oneHrPc,
+                        remarks: d.remarks.join('; '),
+                        recordIds: d.recordIds || []
+                    });
+                });
+
+                // Determine per-product / per-machine target and warning from masterDB
+                let cardTarget = null;
+                let cardWarning = null;
+
+                // 1. Match by product names
+                for (const p of opProductNames) {
+                    const m = masterByProduct.get(p.toLowerCase());
+                    if (m) {
+                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    }
+                }
+                // 2. Match by hinbans
+                if (cardTarget == null || cardWarning == null) {
+                    for (const h of opHinbans) {
+                        const m = masterByHinban.get(h.toLowerCase());
+                        if (m) {
+                            if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                            if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                        }
+                    }
+                }
+                // 3. Match by equipment / source
+                if (cardTarget == null || cardWarning == null) {
+                    const m = masterByEquipment.get(source.toLowerCase());
+                    if (m) {
+                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
+                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    }
+                }
+
+                if (cardTarget == null) cardTarget = defaultTarget;
+                if (cardWarning == null) cardWarning = defaultWarning;
+
+                const monthlyAvg1hPc = opHours > 0
+                    ? Math.round((opPieces / opHours) * 100) / 100
+                    : null;
+                const achievementRate = (monthlyAvg1hPc && cardTarget > 0)
+                    ? Math.round((monthlyAvg1hPc / cardTarget) * 1000) / 10
+                    : 0;
+
+                if (monthlyAvg1hPc && monthlyAvg1hPc >= cardTarget) {
+                    grandAchievedCount += 1;
+                }
+                totalWorkerCards += 1;
+
+                machinePieces += opPieces;
+                machineHours += opHours;
+
+                operatorsList.push({
+                    operatorName,
+                    source,
+                    productName: Array.from(opProductNames).join(', '),
+                    monthlyPieces: Math.round(opPieces * 10) / 10,
+                    monthlyHours: Math.round(opHours * 100) / 100,
+                    monthlyAvg1hPc,
+                    target: cardTarget,
+                    warning: cardWarning,
+                    achievementRate,
+                    dailyData
+                });
+            }
+
+            // Sort operators alphabetically
+            operatorsList.sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'ja'));
+
+            const machineAvg1hPc = machineHours > 0
+                ? Math.round((machinePieces / machineHours) * 100) / 100
+                : null;
+
+            grandTotalPieces += machinePieces;
+            grandTotalHours += machineHours;
+
+            const machineMaster = masterByEquipment.get(source.toLowerCase());
+            const machineTarget = (machineMaster && machineMaster.target != null && machineMaster.target > 0) ? machineMaster.target : defaultTarget;
+            const machineWarning = (machineMaster && machineMaster.warning != null && machineMaster.warning > 0) ? machineMaster.warning : defaultWarning;
+
+            machines.push({
+                machineName: source,
+                target: machineTarget,
+                warning: machineWarning,
+                monthlyPieces: Math.round(machinePieces * 10) / 10,
+                monthlyHours: Math.round(machineHours * 100) / 100,
+                monthlyAvg1hPc: machineAvg1hPc,
+                operatorCount: operatorsList.length,
+                operators: operatorsList
+            });
+        }
+
+        // Sort machines alphabetically
+        machines.sort((a, b) => a.machineName.localeCompare(b.machineName, 'ja'));
+
+        const overall1hPc = grandTotalHours > 0
+            ? Math.round((grandTotalPieces / grandTotalHours) * 100) / 100
+            : null;
+
+        res.json({
+            success: true,
+            month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+            year: targetYear,
+            monthNumber: targetMonth,
+            target: defaultTarget,
+            warning: defaultWarning,
+            daysInMonth,
+            summary: {
+                totalMachines: machines.length,
+                totalOperators: totalWorkerCards,
+                totalPieces: Math.round(grandTotalPieces * 10) / 10,
+                totalHours: Math.round(grandTotalHours * 100) / 100,
+                overall1hPc,
+                achievedCount: grandAchievedCount,
+                achievementRate: (overall1hPc && defaultTarget > 0)
+                    ? Math.round((overall1hPc / defaultTarget) * 1000) / 10
+                    : 0
+            },
+            filterOptions: {
+                availableSources: sortedSources,
+                availableOperators: sortedOperators
+            },
+            machines
+        });
+    } catch (error) {
+        console.error('❌ [ADMIN] Error calculating Productivity analytics:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to calculate productivity analytics' });
+    }
+}
+
+app.get('/api/admin/analytics/productivity', validateSubmittedDBAccess, handleAnalyticsProductivityRequest);
+
 // POST /api/admin/analytics/product-cycle-time
 // Saves the observed best pace as the product's standard cycle time in masterDB
 // (the "register best pace as standard" nudge on the Product tab detail view).
@@ -4429,6 +5368,9 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
 
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
+        const selectedFactory = String(req.query.factory || '').trim();
+        const hasFactoryFilter = Boolean(selectedFactory && selectedFactory !== 'all');
+
         const now = new Date();
         const today = getJapanCalendarDate();
         const last7Days = Array.from({ length: 7 }, (_, index) => {
@@ -4442,29 +5384,88 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             date_day: day.day
         }));
 
-        const activeFilter = { is_deleted: { $ne: true } };
+        const activeFilter = {
+            is_deleted: { $ne: true },
+            ...(hasFactoryFilter ? { 工場: selectedFactory } : {})
+        };
         const todayFilter = {
             ...activeFilter,
             date_year: today.year,
             date_month: today.month,
             date_day: today.day
         };
+        const trashFilter = {
+            is_deleted: true,
+            ...(hasFactoryFilter ? { 工場: selectedFactory } : {})
+        };
+        const sessionFilter = {
+            isStarted: true,
+            ...(hasFactoryFilter ? { $or: [{ factoryLocation: selectedFactory }, { 工場: selectedFactory }] } : {})
+        };
+        const tabletFilter = hasFactoryFilter
+            ? { enabled: { $ne: false }, $or: [{ factoryLocation: selectedFactory }, { 工場: selectedFactory }] }
+            : {};
+        const equipmentFilter = hasFactoryFilter
+            ? { 工場: selectedFactory }
+            : {};
 
-        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets] = await Promise.all([
+        const aggregatePipeline = hasFactoryFilter
+            ? [{ $match: { is_deleted: { $ne: true }, 工場: selectedFactory } }, { $group: { _id: "$submitted_from" } }]
+            : [{ $match: { is_deleted: { $ne: true } } }, { $group: { _id: "$submitted_from" } }];
+
+        const [todayRecords, recentRecords, trendRecords, activeRecords, trashRecords, sessionRecords, uniqueSourcesDocs, tablets, equipmentDocs] = await Promise.all([
             collection.find(todayFilter).sort({ timestamp: -1 }).toArray(),
             collection.find(activeFilter).sort({ timestamp: -1 }).limit(8).toArray(),
             collection.find({ ...activeFilter, $or: last7DayFilters }).toArray(),
             collection.countDocuments(activeFilter),
-            collection.countDocuments({ is_deleted: true }),
+            collection.countDocuments(trashFilter),
             db.collection(TABLET_ACTIVE_SESSION_COLLECTION)
-                .find({ isStarted: true })
+                .find(sessionFilter)
                 .sort({ updatedAt: -1 })
                 .toArray(),
-            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray(),
-            db.collection('tabletDB').find({}).toArray()
+            collection.aggregate(aggregatePipeline).toArray(),
+            db.collection('tabletDB').find(tabletFilter).toArray(),
+            db.collection('equipment').find(equipmentFilter, { projection: { 設備名: 1, 工場: 1 } }).toArray()
         ]);
 
-        const allMachineNames = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+        const equipmentNames = (equipmentDocs || []).map(e => String(e.設備名 || '').trim()).filter(Boolean);
+        const tabletNames = (tablets || []).map(t => String(t.設備名 || t.tabletName || '').trim()).filter(Boolean);
+        const submittedSources = (uniqueSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
+        const allMachineNames = [...new Set([...equipmentNames, ...tabletNames, ...submittedSources])];
+
+        const machineFactoryMap = new Map();
+        (equipmentDocs || []).forEach(e => {
+            const name = String(e.設備名 || '').trim();
+            const factories = normalizeMachineStatusStringList(e.工場);
+            if (name && factories.length > 0) {
+                machineFactoryMap.set(name, factories[0]);
+            }
+        });
+        (tablets || []).forEach(t => {
+            const eqName = String(t.設備名 || '').trim();
+            const tabName = String(t.tabletName || '').trim();
+            const factory = String(t.factoryLocation || t.工場 || '').trim();
+            if (factory) {
+                if (eqName && !machineFactoryMap.has(eqName)) machineFactoryMap.set(eqName, factory);
+                if (tabName && !machineFactoryMap.has(tabName)) machineFactoryMap.set(tabName, factory);
+            }
+        });
+        (sessionRecords || []).forEach(s => {
+            const eqName = String(s.equipmentName || '').trim();
+            const tabName = String(s.tabletName || '').trim();
+            const factory = String(s.factoryLocation || s.工場 || '').trim();
+            if (factory) {
+                if (eqName && !machineFactoryMap.has(eqName)) machineFactoryMap.set(eqName, factory);
+                if (tabName && !machineFactoryMap.has(tabName)) machineFactoryMap.set(tabName, factory);
+            }
+        });
+        (todayRecords || []).forEach(r => {
+            const source = String(r.submitted_from || '').trim();
+            const factory = String(r.工場 || '').trim();
+            if (source && factory && !machineFactoryMap.has(source)) {
+                machineFactoryMap.set(source, factory);
+            }
+        });
 
         const tabletMap = new Map();
         tablets.forEach(t => tabletMap.set(t.tabletName, t.設備名 || t.tabletName));
@@ -4486,7 +5487,8 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             return {
                 id: session._id,
                 isLive: true,
-                source: tabletMap.get(session.tabletName) || session.tabletName,
+                source: tabletMap.get(session.tabletName) || session.equipmentName || session.tabletName,
+                factoryLocation: session.factoryLocation || session.工場 || '',
                 startTime: formattedStart,
                 endTime: formattedNow,
                 breakTime: breakMins / 60,
@@ -4791,6 +5793,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
         res.json({
             success: true,
             generatedAt: now.toISOString(),
+            factory: selectedFactory || 'all',
             today: {
                 date: today.key,
                 submissions: todayRecords.length,
@@ -4819,7 +5822,7 @@ app.get('/api/admin/dashboard-summary', validateSubmittedDBAccess, async (req, r
             topOperators,
             workerHoursToday,
             dailyTrend: last7Days.map(day => trendMap.get(day.key)),
-            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames)
+            machineDaily: computeSubmittedDBMachineDaily(todayRecords, liveSessions, allMachineNames, machineFactoryMap)
         });
     } catch (error) {
         console.error('❌ [ADMIN] Error fetching dashboard summary:', error);
@@ -4870,6 +5873,8 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
         if (!mongoClient) return res.status(503).json({ success: false, error: 'Database not connected' });
 
         const db = mongoClient.db(req.dbName || 'KSG');
+        const selectedFactory = String(req.query.factory || '').trim();
+        const hasFactoryFilter = Boolean(selectedFactory && selectedFactory !== 'all');
         const now = new Date();
         const machineStatusRank = {
             trouble: 3,
@@ -4956,7 +5961,10 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
             });
         });
 
-        const machineEntries = [...machineMap.values()];
+        const machineEntries = [...machineMap.values()].filter(entry => {
+            if (!hasFactoryFilter) return true;
+            return entry.factoryLocations.some(loc => String(loc).trim().toLowerCase() === selectedFactory.toLowerCase());
+        });
         const kanbanIds = [...new Set(machineEntries.map(entry => String(entry.session?.kanbanId ?? '').trim()).filter(Boolean))];
         const productIds = [...new Set(machineEntries.map(entry => String(entry.session?.productId ?? '').trim()).filter(Boolean))];
 
@@ -5001,6 +6009,7 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
                     machineName: entry.machineName || '—',
                     machineDescription: entry.description || '',
                     factory: entry.factoryLocations.join(', '),
+                    factoryLocations: entry.factoryLocations,
                     tabletId: entry.tabletId || '',
                     tabletName: entry.tabletName || '',
                     status: String(session?.status ?? '').trim() || 'idle',
@@ -5031,6 +6040,7 @@ app.get('/api/admin/dashboard-machine-status', validateSubmittedDBAccess, async 
         res.json({
             success: true,
             generatedAt: now.toISOString(),
+            factory: selectedFactory || 'all',
             rows
         });
     } catch (error) {
@@ -5074,17 +6084,23 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             ...(view === 'trash' ? { is_deleted: true } : { is_deleted: { $ne: true } })
         };
 
-        // --- Sorting ---
-        const sortField = req.query.sortField || 'timestamp';
+        // --- Sorting (Server-level) ---
+        const sortField = String(req.query.sortField || 'timestamp').trim();
         const sortDir   = req.query.sortDir   === 'asc' ? 1 : -1;
         const sort = { [sortField]: sortDir };
+        if (sortField !== '_id') {
+            sort._id = sortDir;
+        }
 
-        // --- Pagination ---
-        const limit = exportAll ? 0 : Math.min(parseInt(req.query.limit) || 100, 500);
+        // --- Pagination (Server-level: strictly 100 at a time) ---
+        const limit = exportAll ? 0 : Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 100);
         const page  = exportAll ? 1 : Math.max(parseInt(req.query.page)  || 1, 1);
         const skip  = (page - 1) * limit;
 
-        const findCursor = collection.find(filter).sort(sort);
+        const findCursor = collection.find(filter)
+            .collation({ locale: 'ja', numericOrdering: true })
+            .sort(sort);
+
         if (!exportAll) {
             findCursor.skip(skip).limit(limit);
         }
@@ -5096,6 +6112,16 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             collection.countDocuments({ ...baseFilter, is_deleted: { $ne: true } }),
             collection.countDocuments({ ...baseFilter, is_deleted: true })
         ]);
+
+        // Collect defect keys from the records for dynamic defect columns
+        const defectColumns = new Set();
+        data.forEach(record => {
+            Object.keys(record).forEach(k => {
+                if (!SUBMITTED_DB_FIXED_FIELDS.has(k)) {
+                    defectColumns.add(k);
+                }
+            });
+        });
 
         // --- Aggregate summary ---
         const summaryPipeline = [
@@ -5121,6 +6147,7 @@ app.get('/api/admin/submitted-db', validateSubmittedDBAccess, async (req, res) =
             totalPages: exportAll ? 1 : Math.ceil(total / limit),
             summary,
             view,
+            defectColumns: Array.from(defectColumns),
             counts: {
                 active: activeCount,
                 trash: trashCount
@@ -5164,6 +6191,13 @@ app.post('/api/admin/submitted-db/soft-delete', validateSubmittedDBAccess, async
                 }
             }
         );
+
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-soft-delete',
+            source: 'submittedDB',
+            deletedCount: result.modifiedCount,
+            immediate: true
+        });
 
         res.json({
             success: true,
@@ -5334,6 +6368,13 @@ app.patch('/api/admin/submitted-db/:id', validateSubmittedDBAccess, async (req, 
             };
         }
 
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-updated',
+            source: 'submittedDB',
+            updatedId: req.params.id,
+            immediate: true
+        });
+
         res.json({ success: true, data, googleSheets });
     } catch (error) {
         const statusCode = error.statusCode || 500;
@@ -5375,6 +6416,13 @@ app.post('/api/admin/submitted-db/restore', validateSubmittedDBAccess, async (re
             }
         );
 
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-restore',
+            source: 'submittedDB',
+            restoredCount: result.modifiedCount,
+            immediate: true
+        });
+
         res.json({
             success: true,
             matchedCount: result.matchedCount,
@@ -5405,6 +6453,13 @@ app.post('/api/admin/submitted-db/permanent-delete', validateSubmittedDBPermanen
         const result = await collection.deleteMany({
             _id: { $in: validIds },
             is_deleted: true
+        });
+
+        emitAdminDashboardRefresh(req.dbName || 'KSG', {
+            reason: 'submitted-db-permanent-delete',
+            source: 'submittedDB',
+            deletedCount: result.deletedCount,
+            immediate: true
         });
 
         res.json({
@@ -6564,32 +7619,41 @@ io.on('connection', (socket) => {
     socket.on('admin_dashboard_register', async (data = {}) => {
         try {
             const session = extractSubmittedDBSocketContext(data);
-            const userContext = await resolveSubmittedDBUserFromSession(session);
-            const room = getAdminDashboardRoomName(userContext.dbName);
+            let targetDbName = 'KSG';
+            let targetUsername = 'admin';
+
+            try {
+                const userContext = await resolveSubmittedDBUserFromSession(session);
+                targetDbName = userContext.dbName || 'KSG';
+                targetUsername = userContext.username || 'admin';
+            } catch (authErr) {
+                console.warn(`⚠️ [ADMIN DASHBOARD] Socket ${socket.id} registration auth fallback:`, authErr.message);
+                targetDbName = session.dbName || 'KSG';
+                targetUsername = session.username || 'admin';
+            }
+
+            const room = getAdminDashboardRoomName(targetDbName);
 
             if (socket.adminDashboardRoom && socket.adminDashboardRoom !== room) {
                 socket.leave(socket.adminDashboardRoom);
             }
 
             socket.join(room);
+            socket.join('admin_dashboard_all');
             socket.adminDashboardRoom = room;
             socket.clientType = 'admin-dashboard';
 
-            console.log(`📈 Admin dashboard ${socket.id} subscribed to ${room} as ${userContext.username}`);
+            console.log(`📈 [ADMIN DASHBOARD] Socket ${socket.id} subscribed to [${room}] & [admin_dashboard_all] as ${targetUsername}`);
             socket.emit('admin_dashboard_registered', {
                 success: true,
-                dbName: userContext.dbName,
-                username: userContext.username,
+                dbName: targetDbName,
+                username: targetUsername,
                 room
             });
         } catch (error) {
-            const statusCode = error.statusCode || 500;
-            if (statusCode === 500) {
-                console.error('❌ Admin dashboard socket registration error:', error);
-            }
+            console.error('❌ Admin dashboard socket registration error:', error);
             socket.emit('admin_dashboard_error', {
-                error: error.message || 'Dashboard subscription failed',
-                statusCode
+                error: error.message || 'Dashboard subscription failed'
             });
         }
     });
@@ -7134,10 +8198,18 @@ function extractSubmittedDBSessionContext(req) {
 
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
-        context.username = decoded.username || context.username;
-        context.role = decoded.role || context.role;
-        context.dbName = decoded.dbName || context.dbName;
+        try {
+            const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+            context.username = decoded.username || context.username;
+            context.role = decoded.role || context.role;
+            context.dbName = decoded.dbName || context.dbName;
+        } catch (jwtErr) {
+            // Token expired or invalid; keep headers context
+        }
+    }
+
+    if (!context.dbName) {
+        context.dbName = 'KSG';
     }
 
     return context;
@@ -7147,15 +8219,19 @@ function extractSubmittedDBSocketContext(payload = {}) {
     const context = {
         username: String(payload.username || '').trim(),
         role: String(payload.role || '').trim(),
-        dbName: String(payload.dbName || '').trim()
+        dbName: String(payload.dbName || payload.company || 'KSG').trim() || 'KSG'
     };
 
     const token = String(payload.token || '').trim();
     if (token) {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        context.username = decoded.username || context.username;
-        context.role = decoded.role || context.role;
-        context.dbName = decoded.dbName || context.dbName;
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            context.username = decoded.username || context.username;
+            context.role = decoded.role || context.role;
+            context.dbName = decoded.dbName || context.dbName;
+        } catch (jwtErr) {
+            // Token expired or invalid; keep payload context
+        }
     }
 
     return context;
@@ -10429,6 +11505,138 @@ app.post("/deleteNGGroups", async (req, res) => {
     res.json({ deletedCount: result.deletedCount });
   } catch (err) {
     console.error("Error deleting ngGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ==========================================
+// TROUBLE GROUPS ROUTES
+// ==========================================
+
+// Get all trouble groups
+app.post("/getTroubleGroups", async (req, res) => {
+  const { dbName } = req.body;
+  if (!dbName) return res.status(400).json({ error: "dbName is required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const groups = await db.collection("troubleGroups").find({}).sort({ createdAt: -1 }).toArray();
+    res.json(groups);
+  } catch (err) {
+    console.error("Error fetching troubleGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create Trouble group
+app.post("/createTroubleGroup", async (req, res) => {
+  const { dbName, username, groupName, items, assignedTablets } = req.body;
+  if (!dbName || !username || !groupName) return res.status(400).json({ error: "dbName, username, groupName required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(dbName);
+    const tabletList = Array.isArray(assignedTablets) ? assignedTablets.map(s => String(s).trim()).filter(Boolean) : [];
+
+    // Reassign tablets from any other trouble groups
+    if (tabletList.length > 0) {
+      await db.collection("troubleGroups").updateMany(
+        { assignedTablets: { $in: tabletList } },
+        { $pull: { assignedTablets: { $in: tabletList } } }
+      );
+    }
+
+    const newGroup = {
+      groupName: String(groupName).trim(),
+      items: Array.isArray(items) ? items : [],
+      assignedTablets: tabletList,
+      createdBy: username,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    const result = await db.collection("troubleGroups").insertOne(newGroup);
+    res.json({ message: "Trouble Group created", insertedId: result.insertedId });
+  } catch (err) {
+    console.error("Error creating troubleGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update Trouble group
+app.post("/updateTroubleGroup", async (req, res) => {
+  const { groupId, dbName, username, groupName, items, assignedTablets } = req.body;
+  if (!groupId || !dbName || !username) return res.status(400).json({ error: "groupId, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const updateData = { updatedAt: new Date(), updatedBy: username };
+    if (groupName !== undefined) updateData.groupName = String(groupName).trim();
+    if (items !== undefined) updateData.items = Array.isArray(items) ? items : [];
+    if (assignedTablets !== undefined) {
+      const tabletList = Array.isArray(assignedTablets) ? assignedTablets.map(s => String(s).trim()).filter(Boolean) : [];
+      // Reassign tablets from any other trouble groups
+      if (tabletList.length > 0) {
+        await db.collection("troubleGroups").updateMany(
+          { _id: { $ne: new ObjectId(groupId) }, assignedTablets: { $in: tabletList } },
+          { $pull: { assignedTablets: { $in: tabletList } } }
+        );
+      }
+      updateData.assignedTablets = tabletList;
+    }
+
+    const result = await db.collection("troubleGroups").updateOne(
+      { _id: new ObjectId(groupId) },
+      { $set: updateData }
+    );
+    res.json({ modifiedCount: result.modifiedCount });
+  } catch (err) {
+    console.error("Error updating troubleGroup:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete Trouble groups (batch)
+app.post("/deleteTroubleGroups", async (req, res) => {
+  const { groupIds, dbName, username } = req.body;
+  if (!groupIds || !dbName || !username) return res.status(400).json({ error: "groupIds, dbName, username required" });
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const { ObjectId } = require('mongodb');
+    const db = mongoClient.db(dbName);
+    const result = await db.collection("troubleGroups").deleteMany({
+      _id: { $in: groupIds.map(id => new ObjectId(id)) }
+    });
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error("Error deleting troubleGroups:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get trouble options for a tablet
+app.post("/getTabletTroubleOptions", async (req, res) => {
+  const { dbName, tabletName } = req.body;
+  const targetDb = dbName || req.user?.dbName || "KSG";
+  const targetTablet = String(tabletName || req.user?.tabletName || req.tablet?.tabletName || "").trim();
+  try {
+    if (!mongoClient) return res.status(503).json({ error: "Database not connected" });
+    const db = mongoClient.db(targetDb);
+    if (!targetTablet) {
+      return res.json({ groupName: "", items: [] });
+    }
+    const group = await db.collection("troubleGroups").findOne({
+      assignedTablets: targetTablet
+    });
+    if (!group) {
+      return res.json({ groupName: "", items: [] });
+    }
+    res.json({
+      groupId: String(group._id),
+      groupName: group.groupName || "",
+      items: group.items || []
+    });
+  } catch (err) {
+    console.error("Error fetching tablet trouble options:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

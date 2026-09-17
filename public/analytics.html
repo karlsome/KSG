@@ -72,6 +72,32 @@
         border: none;
         box-shadow: none;
       }
+
+      /* Print mode: isolate productivity sheets for whiteboard */
+      body.analytics-printing-productivity * {
+        visibility: hidden;
+      }
+      body.analytics-printing-productivity #analyticsProductivityContainer,
+      body.analytics-printing-productivity #analyticsProductivityContainer * {
+        visibility: visible;
+      }
+      body.analytics-printing-productivity #analyticsProductivityContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body.analytics-printing-productivity .productivity-worker-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        break-after: page;
+        page-break-after: always;
+        margin-bottom: 24px;
+        border: 1px solid #d1d5db !important;
+        box-shadow: none !important;
+      }
     }
   </style>
 
@@ -95,9 +121,9 @@
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-gray-100 pb-2" id="analyticsTabButtons">
-        <button type="button" data-analytics-tab="overview" onclick="setAnalyticsTab('overview')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
-          <i class="ri-home-5-line"></i>
-          <span data-i18n="analytics.tabs.overview">Overview</span>
+        <button type="button" data-analytics-tab="productivity" onclick="setAnalyticsTab('productivity')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-line-chart-line"></i>
+          <span data-i18n="analytics.tabs.productivity">生産性</span>
         </button>
         <button type="button" data-analytics-tab="worker" onclick="setAnalyticsTab('worker')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
           <i class="ri-team-line"></i>
@@ -119,9 +145,13 @@
           <i class="ri-money-cny-circle-line"></i>
           <span data-i18n="analytics.tabs.finance">Finance</span>
         </button>
+        <button type="button" data-analytics-tab="mom" onclick="setAnalyticsTab('mom')" class="analytics-tab-btn inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition">
+          <i class="ri-funds-line"></i>
+          <span data-i18n="analytics.tabs.mom">MoM</span>
+        </button>
       </div>
 
-      <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+      <div id="analyticsGlobalFilterCard" class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <!-- Always shown: Date Range -->
           <div id="filter-container-date" class="grid grid-cols-2 gap-4 col-span-1 md:col-span-2 lg:col-span-1">
@@ -207,7 +237,7 @@
 
   <div id="analyticsError" class="hidden rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"></div>
 
-  <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+  <section id="analyticsScopeSummarySection" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
     <div class="mb-4 flex items-center justify-between gap-4">
       <div>
         <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.scopeSummary.title">Scope Summary</h3>
@@ -243,27 +273,72 @@
   </section>
 
   <div class="space-y-6">
-    <section id="analyticsPanelOverview" data-analytics-panel="overview" class="space-y-6">
-      <div id="analyticsWeeklyDigest" class="hidden rounded-2xl border border-slate-100 bg-slate-50 px-5 py-4 text-sm leading-relaxed text-slate-700"></div>
+    <section id="analyticsPanelProductivity" data-analytics-panel="productivity" class="space-y-6">
+      <!-- Productivity Control Bar (Styled consistently with MoM Tab) -->
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <!-- Row 1: Header Title & Action Buttons -->
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shadow-2xs">
+                  <i class="ri-line-chart-line text-lg"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.productivity.activityBanner">生産性向上活動</h3>
+              </div>
+              <p class="mt-1 text-sm text-gray-500">
+                1h/pc（出来高/1人h = 良品数 ÷ 実工数）の月次・日別稼働推移
+              </p>
+            </div>
 
-      <div id="analyticsOverviewHighlights" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
-
-      <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,1fr)]">
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.overview.outputTrendTitle">Output and issue trend</h3>
-            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.overview.outputTrendDesc">See whether production, labor, and issues are moving together or drifting apart.</p>
+            <!-- Actions: Refresh & Print -->
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="loadAnalyticsProductivity()" class="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs cursor-pointer" title="更新">
+                <i class="ri-refresh-line text-base"></i>
+                <span data-i18n="analytics.refresh">更新</span>
+              </button>
+              <button type="button" onclick="printAnalyticsProductivityWhiteboard()" class="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-2xs transition hover:bg-indigo-700 cursor-pointer">
+                <i class="ri-printer-line text-base"></i>
+                <span data-i18n="analytics.productivity.printWhiteboard">シート印刷</span>
+              </button>
+            </div>
           </div>
-          <div id="analyticsTrendChart" class="h-[380px] px-2 py-4"></div>
-        </section>
 
-        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-6 py-4">
-            <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.overview.attentionTitle">What needs attention</h3>
-            <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.overview.attentionDesc">Shortlist of the biggest quality, labor, and machine signals in the selected range.</p>
+          <!-- Row 2: Filter Controls styled consistently with MoM -->
+          <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-4">
+            <!-- Month Picker (Calendar Modal Trigger) -->
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-medium text-gray-500" data-i18n="analytics.productivity.monthLabel">対象月:</span>
+              <button type="button" id="analyticsProductivityMonthBtn" onclick="openAnalyticsMonthPickerModal()" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs hover:border-indigo-400 hover:bg-gray-50/80 transition cursor-pointer">
+                <i class="ri-calendar-line text-indigo-600 text-base"></i>
+                <span id="analyticsProductivityMonthDisplay">2026年9月</span>
+                <i class="ri-arrow-down-s-line text-gray-400 text-sm ml-0.5"></i>
+              </button>
+              <input type="hidden" id="analyticsProductivityMonth" value="">
+            </div>
+
+            <!-- 設備 (Source) Selector -->
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-medium text-gray-500" data-i18n="analytics.productivity.equipmentLabel">設備:</span>
+              <select id="analyticsProductivitySource" onchange="loadAnalyticsProductivity()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer min-w-[180px]">
+                <option value="all" data-i18n="analytics.productivity.allEquipments">全ての設備</option>
+              </select>
+            </div>
+
+            <!-- 作業者 (Operator) Selector -->
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-medium text-gray-500" data-i18n="analytics.productivity.filterWorker">作業者:</span>
+              <select id="analyticsProductivityOperator" onchange="loadAnalyticsProductivity()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer min-w-[150px]">
+                <option value="all" data-i18n="analytics.productivity.allWorkers">全ての作業者</option>
+              </select>
+            </div>
           </div>
-          <div id="analyticsOverviewDrivers" class="p-6"></div>
-        </section>
+        </div>
+      </section>
+
+      <!-- Main Whiteboard Content Container -->
+      <div id="analyticsProductivityContainer" class="space-y-8">
+        <!-- Dynamic Equipment Sections & Worker Productivity Cards injected here -->
       </div>
     </section>
 
@@ -295,19 +370,19 @@
           </div>
         </div>
         <div class="space-y-5 px-6 py-5" id="analyticsWorkerReportBody">
-          <div id="analyticsWorkerInsight" class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"></div>
+          <div id="analyticsWorkerInsight" class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700"></div>
           <div id="analyticsWorkerScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"></div>
           <div id="analyticsWorkerDailySection">
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.timelineTitle">Day timeline</p>
+            <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.timelineTitle">Day timeline</p>
             <div id="analyticsWorkerDayTimeline"></div>
           </div>
           <div id="analyticsWorkerMonthlySection" class="hidden space-y-5">
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.calendarTitle">Month at a glance (click a day for details)</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.calendarTitle">Month at a glance (click a day for details)</p>
               <div id="analyticsWorkerCalendar"></div>
             </div>
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.workerFocus.monthTrendTitle">Daily output this month</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.workerFocus.monthTrendTitle">Daily output this month</p>
               <div id="analyticsWorkerMonthChart" class="h-[300px]"></div>
             </div>
           </div>
@@ -400,6 +475,7 @@
     </section>
 
     <section id="analyticsPanelMachine" data-analytics-panel="machine" class="hidden space-y-6">
+
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
@@ -530,16 +606,16 @@
           <div id="analyticsProductDetailHeader"></div>
           <div id="analyticsProductDetailScoreboard" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"></div>
           <div>
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.paceTitle">Pace history (minutes per piece — lower is faster)</p>
+            <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.paceTitle">Pace history (minutes per piece — lower is faster)</p>
             <div id="analyticsProductPaceChart" class="h-[300px]"></div>
           </div>
           <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.defectsTitle">Defects on this product</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.defectsTitle">Defects on this product</p>
               <div id="analyticsProductDefectBars"></div>
             </div>
             <div>
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400" data-i18n="analytics.productDetail.peopleTitle">Made by</p>
+              <p class="mb-2 text-xs font-medium text-gray-500" data-i18n="analytics.productDetail.peopleTitle">Made by</p>
               <div id="analyticsProductPeople"></div>
             </div>
           </div>
@@ -644,6 +720,173 @@
       </details>
     </section>
 
+    <!-- Dedicated Month-over-Month (MoM) Panel -->
+    <section id="analyticsPanelMoM" data-analytics-panel="mom" class="hidden space-y-6">
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-6 py-4">
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div class="flex items-center gap-2">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shadow-2xs">
+                  <i class="ri-funds-line text-lg"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.mom.title">Month-over-Month (MoM) Analytics</h3>
+                <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">MoM</span>
+              </div>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.mom.description">
+                Compare machine, product, and worker performance and trajectories across historical months.
+              </p>
+            </div>
+
+            <!-- Common Month Selectors & Controls -->
+            <div class="flex flex-wrap items-center gap-2">
+              <!-- Month A (Target) -->
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.targetLabel">Target:</span>
+                <button type="button" id="analyticsMoMMonthABtn" onclick="openAnalyticsMonthPickerModal('analyticsMoMMonthA')" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs hover:border-indigo-400 hover:bg-gray-50/80 transition cursor-pointer">
+                  <i class="ri-calendar-line text-indigo-600 text-base"></i>
+                  <span id="analyticsMoMMonthADisplay">2026年9月 (当月)</span>
+                  <i class="ri-arrow-down-s-line text-gray-400 text-sm ml-0.5"></i>
+                </button>
+                <input type="hidden" id="analyticsMoMMonthA" value="2026-09">
+              </div>
+
+              <!-- Swap Button -->
+              <button type="button" onclick="handleAnalyticsMoMSwapMonths()" class="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs cursor-pointer" title="Swap months" data-i18n-title="analytics.mom.swapMonths">
+                <i class="ri-arrow-left-right-line text-base"></i>
+              </button>
+
+              <!-- Month B (Baseline) -->
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.baselineLabel">vs Baseline:</span>
+                <button type="button" id="analyticsMoMMonthBBtn" onclick="openAnalyticsMonthPickerModal('analyticsMoMMonthB')" class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs hover:border-indigo-400 hover:bg-gray-50/80 transition cursor-pointer">
+                  <i class="ri-calendar-line text-indigo-600 text-base"></i>
+                  <span id="analyticsMoMMonthBDisplay">2026年8月 (前月)</span>
+                  <i class="ri-arrow-down-s-line text-gray-400 text-sm ml-0.5"></i>
+                </button>
+                <input type="hidden" id="analyticsMoMMonthB" value="2026-08">
+              </div>
+
+              <!-- Refresh Button -->
+              <button type="button" onclick="loadAnalyticsMoM()" class="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs cursor-pointer" title="Refresh MoM" data-i18n-title="analytics.mom.refreshTitle">
+                <i id="analyticsMoMRefreshIcon" class="ri-refresh-line text-base"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Sub-Tab Switcher & Contextual Filter Row -->
+          <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
+            <!-- 3 Sub-Tabs: Machines, Products, Workers -->
+            <div class="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1 shadow-2xs" id="analyticsMoMSubTabButtons">
+              <button type="button" id="analyticsMoMSubTabBtn-machines" data-mom-subtab="machines" onclick="setAnalyticsMoMSubTab('machines')" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-white text-indigo-600 shadow-xs">
+                <i class="ri-cpu-line"></i>
+                <span data-i18n="analytics.mom.subtabMachines">Machines</span>
+              </button>
+              <button type="button" id="analyticsMoMSubTabBtn-products" data-mom-subtab="products" onclick="setAnalyticsMoMSubTab('products')" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer">
+                <i class="ri-box-3-line"></i>
+                <span data-i18n="analytics.mom.subtabProducts">Products</span>
+              </button>
+              <button type="button" id="analyticsMoMSubTabBtn-workers" data-mom-subtab="workers" onclick="setAnalyticsMoMSubTab('workers')" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer">
+                <i class="ri-team-line"></i>
+                <span data-i18n="analytics.mom.subtabWorkers">Workers</span>
+              </button>
+            </div>
+
+            <!-- Contextual Filters per Sub-Tab -->
+            <div class="flex flex-wrap items-center gap-3">
+              <!-- Machines Sub-Tab Filter -->
+              <div id="analyticsMoMFilterContainerMachines" class="flex items-center gap-2">
+                <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.filterMachine">Machine:</span>
+                <select id="analyticsMoMMachineSelect" onchange="handleAnalyticsMoMFilterChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer">
+                  <option value="all" data-i18n="analytics.mom.allMachinesOption">All Machines (Fleet Average)</option>
+                </select>
+              </div>
+
+              <!-- Products Sub-Tab Filters -->
+              <div id="analyticsMoMFilterContainerProducts" class="hidden flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.filterProduct">Product / Hinban:</span>
+                  <select id="analyticsMoMProductSelect" onchange="handleAnalyticsMoMFilterChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer max-w-[260px]">
+                    <option value="" data-i18n="analytics.mom.allProductsOption">All Products</option>
+                  </select>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.filterDirection">Direction:</span>
+                  <select id="analyticsMoMProductLhRh" onchange="handleAnalyticsMoMFilterChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer">
+                    <option value="all" data-i18n="analytics.mom.allDirectionsOption">All Directions</option>
+                    <option value="LH">LH</option>
+                    <option value="RH">RH</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Workers Sub-Tab Filter -->
+              <div id="analyticsMoMFilterContainerWorkers" class="hidden flex flex-wrap items-center gap-2">
+                <span class="text-xs font-medium text-gray-500" data-i18n="analytics.mom.filterWorker">Worker / Operator:</span>
+                <select id="analyticsMoMWorkerSelect" onchange="handleAnalyticsMoMFilterChange()" class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-2xs focus:border-indigo-500 focus:outline-none cursor-pointer">
+                  <option value="" data-i18n="analytics.mom.allWorkersOption">All Workers (Team Average)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MoM Body: KPIs, Trajectory Chart, Two-Column Breakdown -->
+        <div class="space-y-6 p-6">
+          <!-- 4 Variance / Delta KPI Comparison Cards -->
+          <div id="analyticsMoMKpiGrid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"></div>
+
+          <!-- Day 1..31 Trajectory Chart Card -->
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/50 p-4 sm:p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div>
+                <h4 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <i class="ri-line-chart-line text-indigo-600"></i>
+                  <span id="analyticsMoMTrajectoryTitle">Month Trajectory (Day 1..31)</span>
+                </h4>
+                <p class="text-xs text-gray-500 mt-0.5" id="analyticsMoMTrajectoryDesc">
+                  Compare pace day-by-day to see if output is running ahead of or behind baseline.
+                </p>
+              </div>
+              <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-2xs" id="analyticsMoMChartModeButtons">
+                <button type="button" id="analyticsMoMModeCumulative" onclick="setAnalyticsMoMChartMode('cumulative')" class="rounded-lg px-3 py-1 text-xs font-semibold bg-indigo-50 text-indigo-600 transition cursor-pointer shadow-2xs" data-i18n="analytics.mom.modeCumulative">Cumulative Pace</button>
+                <button type="button" id="analyticsMoMModeDaily" onclick="setAnalyticsMoMChartMode('daily')" class="rounded-lg px-3 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer" data-i18n="analytics.mom.modeDaily">Daily Output</button>
+                <button type="button" id="analyticsMoMModeRate" onclick="setAnalyticsMoMChartMode('rate')" class="rounded-lg px-3 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition cursor-pointer">Efficiency %</button>
+              </div>
+            </div>
+            <div id="analyticsMoMTrajectoryChart" class="h-[320px] w-full"></div>
+          </div>
+
+          <!-- Two-Column Breakdown & Shift Deep-Dive Cards -->
+          <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <!-- Left Breakdown Card -->
+            <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-xs">
+              <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+                <h4 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <i class="ri-pie-chart-2-line text-emerald-600"></i>
+                  <span id="analyticsMoMBreakdown1Title" data-i18n="analytics.mom.breakdownTimeLossTitle">Operating Time & Loss Distribution</span>
+                </h4>
+                <span class="text-xs text-gray-400 font-medium" id="analyticsMoMBreakdown1Badge" data-i18n="analytics.mom.badgeShiftAllocation">Shift allocation</span>
+              </div>
+              <div id="analyticsMoMBreakdown1Content" class="space-y-4 pt-4"></div>
+            </div>
+
+            <!-- Right Breakdown Card -->
+            <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-xs">
+              <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+                <h4 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <i class="ri-box-3-line text-violet-600"></i>
+                  <span id="analyticsMoMBreakdown2Title" data-i18n="analytics.mom.breakdownProductMixTitle">Product Mix Shift (Top Hinbans)</span>
+                </h4>
+                <span class="text-xs text-gray-400 font-medium" id="analyticsMoMBreakdown2Badge" data-i18n="analytics.mom.badgeVolumeShare">Volume & share</span>
+              </div>
+              <div id="analyticsMoMBreakdown2Content" class="overflow-x-auto pt-2"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
     <!-- Worker Comparison Modal -->
     <div id="analyticsWorkerComparisonModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-gray-900/50 backdrop-blur-sm transition-opacity">
       <div class="relative w-full max-w-5xl rounded-2xl bg-white p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -672,7 +915,7 @@
         
         <div class="overflow-x-auto rounded-xl border border-gray-200">
           <table class="w-full text-left text-sm text-gray-600">
-            <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <thead class="bg-gray-50 text-xs font-semibold text-gray-700">
               <tr>
                 <th class="px-4 py-3 border-b cursor-pointer hover:bg-gray-100 transition" onclick="sortWorkerComparison('worker')">
                   <div class="flex items-center gap-1">Worker <i id="sortIcon-worker" class="ri-arrow-up-down-line text-gray-400"></i></div>
@@ -701,6 +944,157 @@
               <!-- Rows injected here via JS -->
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Productivity Month Picker Calendar Modal -->
+  <div id="analyticsMonthPickerModal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-gray-900/40 backdrop-blur-xs transition-opacity p-4" onclick="handleAnalyticsMonthPickerModalBackdrop(event)">
+    <div class="relative w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-gray-100 space-y-4" onclick="event.stopPropagation()">
+      <!-- Modal Header: Year Navigation & Quick Actions -->
+      <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+        <div class="flex items-center gap-1">
+          <button type="button" onclick="analyticsCalendarChangeYear(-1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs cursor-pointer" title="前年" data-i18n-title="analytics.productivity.prevYear">
+            <i class="ri-arrow-left-s-line text-lg"></i>
+          </button>
+          <span id="analyticsCalendarYearDisplay" class="text-base font-bold text-gray-900 px-2 min-w-[70px] text-center">2026年</span>
+          <button type="button" onclick="analyticsCalendarChangeYear(1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition shadow-2xs cursor-pointer" title="翌年" data-i18n-title="analytics.productivity.nextYear">
+            <i class="ri-arrow-right-s-line text-lg"></i>
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="analyticsCalendarTargetLabel" class="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100/80">対象月</span>
+          <button type="button" onclick="analyticsCalendarSelectThisMonth()" class="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 transition cursor-pointer" data-i18n="analytics.productivity.thisMonth">
+            今月
+          </button>
+          <button type="button" onclick="closeAnalyticsMonthPickerModal()" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer" title="閉じる">
+            <i class="ri-close-line text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 12-Month Calendar Grid (4 rows x 3 cols) -->
+      <div id="analyticsCalendarMonthGrid" class="grid grid-cols-3 gap-2.5 pt-1"></div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-between pt-2 border-t border-gray-100 text-xs text-gray-500">
+        <span id="analyticsCalendarSelectedDisplay">選択中: 2026年9月</span>
+        <button type="button" onclick="closeAnalyticsMonthPickerModal()" class="rounded-lg px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 transition cursor-pointer" data-i18n="analytics.productivity.close">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Productivity Submitted Record Modal (matching submittedDB detail modal) -->
+  <div id="analyticsProductivityRecordModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4" onclick="closeAnalyticsProductivityRecordModal(event)">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+      <!-- Modal Header -->
+      <div class="flex items-start justify-between p-6 border-b">
+        <div>
+          <p id="analyticsProdModalDate" class="text-xs text-gray-400 mb-1"></p>
+          <h2 id="analyticsProdModalTitle" class="text-xl font-bold text-gray-800"></h2>
+          <p id="analyticsProdModalSub" class="text-sm text-gray-500 mt-0.5"></p>
+        </div>
+        <button type="button" onclick="closeAnalyticsProductivityRecordModal()" class="ml-4 text-gray-400 hover:text-gray-700 text-2xl leading-none cursor-pointer" title="閉じる">&times;</button>
+      </div>
+
+      <!-- Multiple Records Tabs (shown only if > 1 record) -->
+      <div id="analyticsProdModalRecordTabsContainer" class="hidden border-b border-gray-100 bg-gray-50 px-6 py-2.5 overflow-x-auto">
+        <div id="analyticsProdModalRecordTabs" class="flex gap-2 min-w-max"></div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="overflow-y-auto flex-1 p-6 space-y-5">
+        <!-- Loading State -->
+        <div id="analyticsProdModalLoading" class="flex flex-col items-center justify-center py-16 text-center space-y-3">
+          <div class="inline-block h-8 w-8 animate-spin rounded-full border-3 border-slate-700 border-t-transparent"></div>
+          <p class="text-xs font-semibold text-gray-500">submittedDB から実績データを読込中...</p>
+        </div>
+
+        <!-- Main Content -->
+        <div id="analyticsProdModalContent" class="space-y-5 hidden">
+          <!-- Production Info (5 cards) -->
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div class="bg-gray-50 rounded-xl p-3 text-center">
+              <p class="text-xs text-gray-400 mb-1">良品数</p>
+              <p id="analyticsProdModalGood" class="text-2xl font-bold text-green-600"></p>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center">
+              <p class="text-xs text-gray-400 mb-1">工数</p>
+              <p id="analyticsProdModalManHours" class="text-2xl font-bold text-blue-600"></p>
+              <p class="text-xs text-gray-400">h</p>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center">
+              <p class="text-xs text-gray-400 mb-1">CT</p>
+              <p id="analyticsProdModalCT" class="text-2xl font-bold text-purple-600"></p>
+              <p class="text-xs text-gray-400">min/piece</p>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center">
+              <p id="analyticsProdModalPiecesPerHourLabel" class="text-xs text-indigo-700 mb-1">1時間 / pc</p>
+              <p id="analyticsProdModalPiecesPerHour" class="text-2xl font-bold text-indigo-600"></p>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3 text-center">
+              <p class="text-xs text-gray-400 mb-1">LH/RH</p>
+              <p id="analyticsProdModalLhRh" class="text-2xl font-bold text-gray-700"></p>
+            </div>
+          </div>
+
+          <!-- Operators + Time -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="bg-gray-50 rounded-xl p-4 space-y-2">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">作業者</p>
+              <div class="flex items-center gap-2">
+                <i class="ri-user-line text-blue-400"></i>
+                <span id="analyticsProdModalOp1" class="text-sm text-gray-700"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <i class="ri-user-line text-gray-300"></i>
+                <span id="analyticsProdModalOp2" class="text-sm text-gray-400"></span>
+              </div>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-4 space-y-2">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">時間</p>
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-500">開始</span><span id="analyticsProdModalStart" class="font-medium"></span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-500">終了</span><span id="analyticsProdModalEnd" class="font-medium"></span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-500">休憩</span><span id="analyticsProdModalBreak" class="font-medium"></span>
+              </div>
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-500">トラブル</span><span id="analyticsProdModalTrouble" class="font-medium"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Defects -->
+          <div id="analyticsProdModalDefectsSection">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">不良内訳</p>
+            <div id="analyticsProdModalDefects" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
+          </div>
+
+          <!-- Remarks -->
+          <div id="analyticsProdModalRemarksSection" class="hidden">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">備考</p>
+            <p id="analyticsProdModalRemarks" class="text-sm text-gray-700 bg-yellow-50 border border-yellow-200 rounded-lg p-3"></p>
+          </div>
+          <div id="analyticsProdModalOtherSection" class="hidden">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">その他詳細</p>
+            <p id="analyticsProdModalOther" class="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-3"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex justify-between items-center px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+        <span id="analyticsProdModalFrom" class="text-xs text-gray-400"></span>
+        <div class="flex items-center gap-2">
+          <button type="button" id="analyticsProdModalEditBtn" onclick="handleAnalyticsProdModalEdit()" class="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-800 cursor-pointer">編集</button>
+          <button type="button" id="analyticsProdModalCloseBtn" onclick="closeAnalyticsProductivityRecordModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 cursor-pointer">閉じる</button>
         </div>
       </div>
     </div>

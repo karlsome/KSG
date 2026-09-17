@@ -36,8 +36,21 @@ if (typeof window.opcManagementState === 'undefined') {
         currentConversionData: null,
         listenersBound: false,
         scanningInProgress: false,
-        scanTimeout: null
+        scanTimeout: null,
+        realTimeSortField: '',
+        realTimeSortOrder: 'asc',
+        variablesSortField: '',
+        variablesSortOrder: 'asc'
     };
+} else {
+    if (typeof window.opcManagementState.realTimeSortField === 'undefined') {
+        window.opcManagementState.realTimeSortField = '';
+        window.opcManagementState.realTimeSortOrder = 'asc';
+    }
+    if (typeof window.opcManagementState.variablesSortField === 'undefined') {
+        window.opcManagementState.variablesSortField = '';
+        window.opcManagementState.variablesSortOrder = 'asc';
+    }
 }
 
 // Shorthand references for cleaner code
@@ -51,10 +64,38 @@ function initOpcState() {
     selectedVariablesForCombine = window.opcManagementState.selectedVariablesForCombine;
     currentConversionData = window.opcManagementState.currentConversionData;
 }
+initOpcState();
 
 // Get company from localStorage
 //const COMPANY = localStorage.getItem('company') || 'sasaki';
 //const API_URL = 'http://localhost:3000';
+
+// Helper to match device identifier (id or name, case-insensitive)
+function matchesDevice(deviceA, deviceB) {
+    if (!deviceA || !deviceB) return false;
+    if (deviceA === deviceB) return true;
+    if (String(deviceA).toLowerCase() === String(deviceB).toLowerCase()) return true;
+    
+    const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+        ? allDevicesDataCache 
+        : (window.opcManagementState?.allDevicesDataCache || {});
+    
+    // Check against devices in cache
+    for (const [key, devData] of Object.entries(devicesCache)) {
+        const d = devData?.device;
+        const id = d?.device_id || key;
+        const name = d?.device_name;
+        
+        const matchesA = (id && String(id).toLowerCase() === String(deviceA).toLowerCase()) ||
+                         (name && String(name).toLowerCase() === String(deviceA).toLowerCase()) ||
+                         (String(key).toLowerCase() === String(deviceA).toLowerCase());
+        const matchesB = (id && String(id).toLowerCase() === String(deviceB).toLowerCase()) ||
+                         (name && String(name).toLowerCase() === String(deviceB).toLowerCase()) ||
+                         (String(key).toLowerCase() === String(deviceB).toLowerCase());
+        if (matchesA && matchesB) return true;
+    }
+    return false;
+}
 
 // Note: initializeOPCManagement() is called directly from index.html after script load
 
@@ -62,6 +103,9 @@ async function initializeOPCManagement() {
     try {
         // Initialize state references
         initOpcState();
+        
+        // Setup event listeners immediately so elements respond even while data loads
+        setupEventListeners();
         
         // Load Raspberry Pis once and reuse the list for bulk data preload
         const devices = await loadRaspberryPis();
@@ -83,29 +127,38 @@ async function initializeOPCManagement() {
             initialDevice = select.value;
         }
 
-        if (initialDevice && select) {
-            select.value = initialDevice;
-            currentRaspberryId = initialDevice;
-            window.opcManagementState.currentRaspberryId = initialDevice;
+        if (select) {
+            if (initialDevice && select.querySelector(`option[value="${initialDevice}"]`)) {
+                select.value = initialDevice;
+            } else if (select.options.length > 1) {
+                initialDevice = select.options[1].value;
+                select.value = initialDevice;
+            }
+        }
+
+        if (initialDevice && select && select.value) {
+            currentRaspberryId = select.value;
+            window.opcManagementState.currentRaspberryId = currentRaspberryId;
 
             // Reuse preloaded cache when available, otherwise fetch selected device data
-            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[initialDevice];
+            const cachedDeviceData = window.opcManagementState.allDevicesDataCache[currentRaspberryId];
             if (cachedDeviceData) {
                 window.opcManagementState.rawDataCache = cachedDeviceData;
                 rawDataCache = cachedDeviceData;
                 renderRealTimeData(cachedDeviceData);
             } else {
-                await loadRealTimeData(initialDevice);
+                await loadRealTimeData(currentRaspberryId);
             }
-            
-            // Re-render variables now that currentRaspberryId is set
-            renderVariables();
         }
+        
+        // Compute variable values and render with current device filter
+        updateVariableValues();
+        renderVariables();
         
         // Initialize WebSocket
         initializeWebSocket();
         
-        // Setup event listeners
+        // Ensure event listeners are attached to all DOM elements
         setupEventListeners();
         
     } catch (error) {
@@ -123,7 +176,7 @@ async function loadRaspberryPis() {
         const select = document.getElementById('opc-raspberry-filter');
         if (!select) {
             console.error('Raspberry Pi filter select element not found');
-            return;
+            return [];
         }
         
         select.innerHTML = `<option value="">${t('opcManagement.selectRaspberryPi')}</option>`;
@@ -137,6 +190,12 @@ async function loadRaspberryPis() {
                 option.textContent = device.device_name || device.device_id;
                 select.appendChild(option);
             });
+        }
+
+        // Attach change listener immediately to select element
+        if (select && !select.dataset.listenerBound) {
+            select.addEventListener('change', handleRaspberryChange);
+            select.dataset.listenerBound = 'true';
         }
 
         return devices;
@@ -224,7 +283,7 @@ function initializeWebSocket() {
             if (window.opcManagementState.scanningInProgress) {
                 resetScanButton();
                 showScanResult(data);
-                if (data.raspberryId === window.opcManagementState.currentRaspberryId) {
+                if (matchesDevice(data.raspberryId, window.opcManagementState.currentRaspberryId)) {
                     loadRealTimeData(data.raspberryId);
                 }
             }
@@ -244,57 +303,59 @@ function updateConnectionStatus(connected) {
     
     if (connected) {
         statusEl.innerHTML = `
-            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            <span class="text-sm font-medium text-green-700">${t('opcManagement.connected')}</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-semibold text-emerald-700">${t('opcManagement.connected')}</span>
         `;
-        statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50';
+        statusEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-2xs';
     } else {
         statusEl.innerHTML = `
-            <span class="w-2 h-2 rounded-full bg-red-500"></span>
-            <span class="text-sm font-medium text-red-700">${t('opcManagement.disconnected')}</span>
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            <span class="text-xs font-semibold text-rose-700">${t('opcManagement.disconnected')}</span>
         `;
-        statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50';
+        statusEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200/60 shadow-2xs';
     }
 }
 
 // Setup event listeners
 function setupEventListeners() {
-    if (window.opcManagementState.listenersBound) {
-        return;
-    }
-
     // Raspberry Pi selection
     const filterSelect = document.getElementById('opc-raspberry-filter');
-    if (filterSelect) {
+    if (filterSelect && !filterSelect.dataset.listenerBound) {
         filterSelect.addEventListener('change', handleRaspberryChange);
+        filterSelect.dataset.listenerBound = 'true';
     }
     
     // Scan nodes button
     const refreshBtn = document.getElementById('refresh-data-btn');
-    if (refreshBtn) {
+    if (refreshBtn && !refreshBtn.dataset.listenerBound) {
         refreshBtn.addEventListener('click', () => {
-            if (currentRaspberryId && !window.opcManagementState.scanningInProgress) {
-                triggerNodeScan(currentRaspberryId);
+            const activeId = currentRaspberryId || window.opcManagementState?.currentRaspberryId || document.getElementById('opc-raspberry-filter')?.value;
+            if (activeId && !window.opcManagementState.scanningInProgress) {
+                triggerNodeScan(activeId);
             }
         });
+        refreshBtn.dataset.listenerBound = 'true';
     }
     
     // Conversion form
     const conversionForm = document.getElementById('opc-conversion-form');
-    if (conversionForm) {
+    if (conversionForm && !conversionForm.dataset.listenerBound) {
         conversionForm.addEventListener('submit', handleConversionSubmit);
+        conversionForm.dataset.listenerBound = 'true';
     }
     
     // Combine form
     const combineForm = document.getElementById('opc-combine-form');
-    if (combineForm) {
+    if (combineForm && !combineForm.dataset.listenerBound) {
         combineForm.addEventListener('submit', handleCombineSubmit);
+        combineForm.dataset.listenerBound = 'true';
     }
     
     // Edit variable form
     const editForm = document.getElementById('opc-edit-variable-form');
-    if (editForm) {
+    if (editForm && !editForm.dataset.listenerBound) {
         editForm.addEventListener('submit', handleEditVariableSubmit);
+        editForm.dataset.listenerBound = 'true';
     }
 
     window.opcManagementState.listenersBound = true;
@@ -314,7 +375,8 @@ async function handleRaspberryChange(e) {
         clearDataDisplay();
     }
     
-    // Also re-render variables to filter by selected device
+    // Recalculate variable values and re-render variables to filter by selected device
+    updateVariableValues();
     renderVariables();
 }
 
@@ -327,7 +389,18 @@ async function loadRealTimeData(deviceId) {
         if (data.success) {
             window.opcManagementState.rawDataCache = data;
             rawDataCache = data;
+            
+            // Sync allDevicesDataCache with the latest data for this device
+            if (!window.opcManagementState.allDevicesDataCache) {
+                window.opcManagementState.allDevicesDataCache = {};
+            }
+            window.opcManagementState.allDevicesDataCache[deviceId] = data;
+            if (allDevicesDataCache && typeof allDevicesDataCache === 'object') {
+                allDevicesDataCache[deviceId] = data;
+            }
+
             renderRealTimeData(data);
+            updateVariableValues();
         } else {
             showNotification(t('opcManagement.failedToLoadData') + ': ' + (data.error || t('opcManagement.unknown')), 'error');
         }
@@ -360,7 +433,7 @@ function handleRealtimeData(data) {
     }
     
     // Update rawDataCache if this is the currently selected device (for Real-Time Data table)
-    if (deviceId === currentRaspberryId) {
+    if (matchesDevice(deviceId, currentRaspberryId)) {
         if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
             const updatedData = window.opcManagementState.rawDataCache;
             if (data.data && Array.isArray(data.data)) {
@@ -421,7 +494,7 @@ function handleDiscoveredNodesUpdate(data) {
     }
     
     // Also update rawDataCache if this is the currently selected device (for Real-Time Data table)
-    if (raspberryId === window.opcManagementState.currentRaspberryId) {
+    if (matchesDevice(raspberryId, window.opcManagementState.currentRaspberryId)) {
         if (window.opcManagementState.rawDataCache && window.opcManagementState.rawDataCache.datapoints) {
             updates.forEach(update => {
                 const dpIndex = window.opcManagementState.rawDataCache.datapoints.findIndex(dp => 
@@ -448,35 +521,102 @@ function handleDiscoveredNodesUpdate(data) {
 function renderRealTimeData(data) {
     const container = document.getElementById('opc-raw-data-container');
     
-    if (!data.datapoints || data.datapoints.length === 0) {
+    if (!data || !data.datapoints || data.datapoints.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
-                <i class="ri-inbox-line text-5xl mb-4"></i>
-                <p class="text-lg">${t('opcManagement.selectDeviceToView')}</p>
+                <i class="ri-inbox-line text-4xl mb-3 text-gray-400"></i>
+                <p class="text-sm font-medium text-gray-600">${t('opcManagement.selectDeviceToView')}</p>
             </div>
         `;
         return;
     }
+
+    const headers = [
+        { key: 'name', label: t('opcManagement.variableName') },
+        { key: 'opcNodeId', label: t('opcManagement.opcNodeId') },
+        { key: 'type', label: t('opcManagement.type') },
+        { key: 'value', label: t('opcManagement.currentValue') },
+        { key: 'quality', label: t('opcManagement.quality') },
+        { key: 'timestamp', label: t('opcManagement.lastUpdated') }
+    ];
+
+    let datapoints = [...data.datapoints];
+    if (window.opcManagementState.realTimeSortField) {
+        const field = window.opcManagementState.realTimeSortField;
+        const order = window.opcManagementState.realTimeSortOrder;
+
+        datapoints.sort((a, b) => {
+            let res = 0;
+            if (field === 'name') {
+                const nameA = a.name || a.opcNodeId || '';
+                const nameB = b.name || b.opcNodeId || '';
+                res = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'opcNodeId') {
+                const nodeA = a.opcNodeId || '';
+                const nodeB = b.opcNodeId || '';
+                res = nodeA.localeCompare(nodeB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'type') {
+                const typeA = Array.isArray(a.value) ? 'Array' : 'Single';
+                const typeB = Array.isArray(b.value) ? 'Array' : 'Single';
+                res = typeA.localeCompare(typeB);
+            } else if (field === 'value') {
+                const isArrayA = Array.isArray(a.value);
+                const isArrayB = Array.isArray(b.value);
+                if (isArrayA && isArrayB) {
+                    res = a.value.length - b.value.length;
+                } else if (isArrayA) {
+                    res = 1;
+                } else if (isArrayB) {
+                    res = -1;
+                } else {
+                    const numA = Number(a.value);
+                    const numB = Number(b.value);
+                    if (!isNaN(numA) && !isNaN(numB) && a.value !== null && b.value !== null && a.value !== '' && b.value !== '') {
+                        res = numA - numB;
+                    } else {
+                        res = String(a.value ?? '').localeCompare(String(b.value ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+                    }
+                }
+            } else if (field === 'quality') {
+                const qA = a.quality || t('opcManagement.unknown');
+                const qB = b.quality || t('opcManagement.unknown');
+                res = qA.localeCompare(qB);
+            } else if (field === 'timestamp') {
+                const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                res = timeA - timeB;
+            }
+            return order === 'asc' ? res : -res;
+        });
+    }
     
     let html = `
         <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50 border-b-2 border-gray-200">
+            <table class="min-w-full divide-y divide-gray-100 text-xs">
+                <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.opcNodeId')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.type')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.quality')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.lastUpdated')}</th>
+                        ${headers.map(h => {
+                            const isSorted = window.opcManagementState.realTimeSortField === h.key;
+                            const sortIcon = isSorted 
+                                ? (window.opcManagementState.realTimeSortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600')
+                                : 'ri-arrow-up-down-line text-gray-400';
+                            return `
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="handleRealTimeSort('${h.key}')">
+                                    <div class="flex items-center gap-1">
+                                        <span>${h.label}</span>
+                                        <i class="${sortIcon}"></i>
+                                    </div>
+                                </th>
+                            `;
+                        }).join('')}
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
+                <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
     `;
     
     const now = new Date();
     
-    data.datapoints.forEach(dp => {
+    datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
         const displayValue = isArray ? `[${dp.value.length} ${t('common.items')}]` : dp.value;
         const dpDataStr = JSON.stringify(dp).replace(/"/g, '&quot;');
@@ -500,10 +640,10 @@ function renderRealTimeData(data) {
             if (isStale) {
                 const ageMinutes = Math.floor(ageSeconds / 60);
                 if (ageMinutes < 60) {
-                    ageDisplay = ` <span class="text-orange-600 text-xs font-medium">⚠️ ${ageMinutes}m ago</span>`;
+                    ageDisplay = ` <span class="text-amber-600 text-2xs font-medium ml-1">⚠️ ${ageMinutes}m ago</span>`;
                 } else {
                     const ageHours = Math.floor(ageMinutes / 60);
-                    ageDisplay = ` <span class="text-red-600 text-xs font-medium">⚠️ ${ageHours}h ago</span>`;
+                    ageDisplay = ` <span class="text-rose-600 text-2xs font-medium ml-1">⚠️ ${ageHours}h ago</span>`;
                 }
             }
         }
@@ -512,47 +652,47 @@ function renderRealTimeData(data) {
         const quality = dp.quality || t('opcManagement.unknown');
         let qualityBadge = '';
         if (quality === 'Good' || quality === t('opcManagement.good')) {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">${t('opcManagement.good')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60">✔ ${t('opcManagement.good')}</span>`;
         } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">${t('opcManagement.bad')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200/60">❌ ${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">Uncertain</span>';
+            qualityBadge = '<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200/60">⚠️ Uncertain</span>';
         } else {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-gray-100 text-gray-600 border border-gray-200/60">${t('opcManagement.unknown')}</span>`;
         }
         
         // Apply styling for bad quality or stale data
-        let valueClass = 'font-mono text-sm font-semibold';
+        let valueClass = 'font-mono text-xs font-bold';
         if (quality === 'Bad') {
-            valueClass += ' text-red-600';
+            valueClass += ' text-rose-600';
         } else if (quality === 'Uncertain') {
-            valueClass += ' text-yellow-700';
+            valueClass += ' text-amber-600';
         } else if (isStale) {
-            valueClass += ' text-orange-600';
+            valueClass += ' text-amber-600';
         } else {
             valueClass += ' text-gray-900';
         }
         
         html += `
             <tr onclick='showDataDetailModal(${dpDataStr})' 
-                class="hover:bg-blue-50 cursor-pointer transition-colors">
-                <td class="px-4 py-3">
-                    <div class="font-medium text-gray-900">${dp.name || dp.opcNodeId}</div>
+                class="hover:bg-indigo-50/40 cursor-pointer transition">
+                <td class="px-3 py-2 text-xs font-medium text-gray-900 whitespace-nowrap">
+                    ${dp.name || dp.opcNodeId}
                 </td>
-                <td class="px-4 py-3">
-                    <code class="text-xs text-gray-600">${dp.opcNodeId}</code>
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
+                    <code class="text-xs text-gray-600 font-mono bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200/60">${dp.opcNodeId}</code>
                 </td>
-                <td class="px-4 py-3">
-                    <span class="px-2 py-1 text-xs rounded ${isArray ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}">
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
+                    <span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md ${isArray ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60' : 'bg-gray-100 text-gray-700 border border-gray-200/60'}">
                         ${isArray ? 'Array' : 'Single'}
                     </span>
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
                     <span class="${valueClass}">${displayValue}</span>
                 </td>
-                <td class="px-4 py-3">${qualityBadge}</td>
-                <td class="px-4 py-3">
-                    <span class="text-xs text-gray-500">${timestampStr}${ageDisplay}</span>
+                <td class="px-3 py-2 text-xs whitespace-nowrap">${qualityBadge}</td>
+                <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                    ${timestampStr}${ageDisplay}
                 </td>
             </tr>
         `;
@@ -566,6 +706,19 @@ function renderRealTimeData(data) {
     
     container.innerHTML = html;
 }
+
+window.handleRealTimeSort = function(field) {
+    if (!window.opcManagementState) return;
+    if (window.opcManagementState.realTimeSortField === field) {
+        window.opcManagementState.realTimeSortOrder = window.opcManagementState.realTimeSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.opcManagementState.realTimeSortField = field;
+        window.opcManagementState.realTimeSortOrder = 'asc';
+    }
+    if (window.opcManagementState.rawDataCache) {
+        renderRealTimeData(window.opcManagementState.rawDataCache);
+    }
+};
 
 // Global variable to track last viewed datapoint for modal flow
 let lastViewedDatapoint = null;
@@ -581,13 +734,13 @@ function showDataDetailModal(datapoint) {
     let valueDisplay = '';
     if (isArray) {
         valueDisplay = `
-            <div class="max-h-60 overflow-y-auto bg-gray-50 p-3 rounded">
-                <div class="font-mono text-sm space-y-1">
+            <div class="max-h-60 overflow-y-auto bg-gray-50/70 p-2.5 rounded-xl border border-gray-200/70">
+                <div class="font-mono text-xs space-y-1">
                     ${datapoint.value.map((val, idx) => `
-                        <div class="flex items-center justify-between p-2 hover:bg-blue-100 rounded cursor-pointer transition-colors"
+                        <div class="flex items-center justify-between p-2 hover:bg-indigo-50/60 rounded-lg cursor-pointer transition border border-transparent hover:border-indigo-100"
                              onclick="createVariableFromArrayItem(${idx}, ${JSON.stringify(val).replace(/"/g, '&quot;')})">
-                            <span><strong>[${idx}]:</strong> ${val}</span>
-                            <button class="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">
+                            <span><strong class="text-gray-900">[${idx}]:</strong> ${val}</span>
+                            <button class="text-xs font-semibold bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700 shadow-2xs transition cursor-pointer">
                                 <i class="ri-add-line"></i> Create
                             </button>
                         </div>
@@ -596,88 +749,88 @@ function showDataDetailModal(datapoint) {
             </div>
         `;
     } else {
-        valueDisplay = `<div class="font-mono text-lg font-semibold text-gray-900">${datapoint.value}</div>`;
+        valueDisplay = `<div class="font-mono text-base font-bold text-gray-900">${datapoint.value}</div>`;
     }
     
     const modalHtml = `
-        <div id="dataDetailModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="flex items-center justify-between p-6 border-b">
-                    <h2 class="text-2xl font-semibold flex items-center">
-                        <i class="ri-database-2-line mr-3"></i>
+        <div id="dataDetailModal" class="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-100">
+                <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/50">
+                    <h2 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <i class="ri-database-2-line text-indigo-600 text-base"></i>
                         Data Details
                     </h2>
-                    <button onclick="closeDataDetailModal()" class="text-gray-500 hover:text-gray-700 transition-colors">
-                        <i class="ri-close-line text-2xl"></i>
+                    <button onclick="closeDataDetailModal()" class="text-gray-400 hover:text-gray-600 transition p-1 rounded-lg hover:bg-gray-100 cursor-pointer">
+                        <i class="ri-close-line text-lg"></i>
                     </button>
                 </div>
                 
-                <div class="p-6 space-y-6">
-                    <div class="grid grid-cols-2 gap-4">
+                <div class="p-5 space-y-3.5 overflow-y-auto text-xs">
+                    <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Variable Name</label>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Variable Name</label>
                             <div class="font-semibold text-gray-900">${datapoint.name || datapoint.opcNodeId}</div>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Raspberry Pi ID</label>
-                            <div class="font-mono text-sm">${datapoint.raspberryId || currentRaspberryId}</div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Raspberry Pi ID</label>
+                            <div class="font-mono text-xs text-gray-700">${datapoint.raspberryId || currentRaspberryId}</div>
                         </div>
                     </div>
                     
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1">OPC Node ID</label>
-                        <code class="block bg-gray-100 px-3 py-2 rounded font-mono text-sm">${datapoint.opcNodeId}</code>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">OPC Node ID</label>
+                        <code class="block bg-gray-50 border border-gray-200/60 px-3 py-1.5 rounded-lg font-mono text-xs text-gray-800">${datapoint.opcNodeId}</code>
                     </div>
                     
-                    <div class="grid grid-cols-3 gap-4">
+                    <div class="grid grid-cols-3 gap-3">
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Data Type</label>
-                            <span class="inline-block px-2 py-1 text-sm rounded bg-blue-100 text-blue-700">${datapoint.dataType || 'unknown'}</span>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Data Type</label>
+                            <span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/60">${datapoint.dataType || 'unknown'}</span>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Namespace</label>
-                            <div class="font-mono text-sm">${datapoint.namespace || 'N/A'}</div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Namespace</label>
+                            <div class="font-mono text-xs text-gray-700">${datapoint.namespace || 'N/A'}</div>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Type</label>
-                            <span class="inline-block px-2 py-1 text-sm rounded ${isArray ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}">
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
+                            <span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md ${isArray ? 'bg-purple-50 text-purple-700 border border-purple-200/60' : 'bg-gray-100 text-gray-700 border border-gray-200/60'}">
                                 ${isArray ? `Array [${datapoint.value.length}]` : 'Single'}
                             </span>
                         </div>
                     </div>
                     
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 uppercase mb-2">Current Value</label>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Current Value</label>
                         ${valueDisplay}
                     </div>
                     
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100 text-2xs text-gray-500">
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Last Updated</label>
-                            <div class="text-sm text-gray-700">${timestamp}</div>
+                            <span class="font-medium text-gray-400">Last Updated:</span>
+                            <span class="ml-1 text-gray-700">${timestamp}</span>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-500 uppercase mb-1">Discovered At</label>
-                            <div class="text-sm text-gray-700">${datapoint.discoveredAt ? new Date(datapoint.discoveredAt).toLocaleString() : 'N/A'}</div>
+                            <span class="font-medium text-gray-400">Discovered At:</span>
+                            <span class="ml-1 text-gray-700">${datapoint.discoveredAt ? new Date(datapoint.discoveredAt).toLocaleString() : 'N/A'}</span>
                         </div>
                     </div>
                 </div>
                 
-                <div class="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/50">
                     <button onclick="closeDataDetailModal()" 
-                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                        class="rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 shadow-2xs hover:bg-gray-50 transition cursor-pointer">
                         Close
                     </button>
                     ${isArray ? 
                         `<button disabled 
-                            class="px-6 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed flex items-center opacity-60">
-                            <i class="ri-add-circle-line mr-2"></i>
-                            Create Variable (Use array items below)
+                            class="rounded-xl bg-gray-200 text-gray-400 px-4 py-1.5 text-xs font-semibold cursor-not-allowed flex items-center gap-1.5">
+                            <i class="ri-add-circle-line"></i>
+                            Create Variable (Use array items above)
                         </button>` 
                         : 
                         `<button onclick="createVariableFromDetail()" 
-                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center">
-                            <i class="ri-add-circle-line mr-2"></i>
+                            class="rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-indigo-700 transition flex items-center gap-1.5 cursor-pointer">
+                            <i class="ri-add-circle-line"></i>
                             Create Variable
                         </button>`
                     }
@@ -719,30 +872,6 @@ function createVariableFromArrayItem(arrayIndex, value) {
     }, 100);
 }
 
-function createVariableFromArrayItem(arrayIndex, value) {
-    console.log('createVariableFromArrayItem called with index:', arrayIndex, 'value:', value);
-    
-    if (!lastViewedDatapoint) {
-        console.error('No lastViewedDatapoint available');
-        return;
-    }
-    
-    const dp = lastViewedDatapoint;
-    
-    // Close detail modal
-    closeDataDetailModal();
-    
-    // Open conversion modal with array index
-    setTimeout(() => {
-        console.log('Opening conversion modal for array item:', {
-            id: dp._id,
-            arrayIndex: arrayIndex,
-            value: value,
-            name: `${dp.name || dp.opcNodeId}[${arrayIndex}]`
-        });
-        openConversionModal(dp._id, arrayIndex, value, `${dp.name || dp.opcNodeId}[${arrayIndex}]`, dp.opcNodeId);
-    }, 100);
-}
 
 function createVariableFromDetail() {
     console.log('createVariableFromDetail called');
@@ -1019,6 +1148,9 @@ async function loadVariables() {
         const data = await response.json();
         
         variablesCache = data.conversions || [];
+        if (window.opcManagementState) {
+            window.opcManagementState.variablesCache = variablesCache;
+        }
         
         console.log('📊 Loaded variables count:', variablesCache.length);
         
@@ -1039,18 +1171,32 @@ async function loadVariables() {
 }
 
 // Render variables in right panel
-function renderVariables() {
+function renderVariables(customVars = null) {
     const container = document.getElementById('opc-variables-container');
     if (!container) return;
     
-    let variablesToRender = variablesCache;
-    if (currentRaspberryId) {
-        variablesToRender = variablesCache.filter(variable => {
-            if (variable.raspberryId === currentRaspberryId) return true;
+    // Resolve base variables: prefer customVars if explicitly passed, otherwise variablesCache, then window.opcManagementState.variablesCache
+    let baseVars = [];
+    if (Array.isArray(customVars) && customVars.length > 0) {
+        baseVars = customVars;
+    } else if (Array.isArray(variablesCache) && variablesCache.length > 0) {
+        baseVars = variablesCache;
+    } else if (window.opcManagementState && Array.isArray(window.opcManagementState.variablesCache) && window.opcManagementState.variablesCache.length > 0) {
+        baseVars = window.opcManagementState.variablesCache;
+    } else if (Array.isArray(variablesCache)) {
+        baseVars = variablesCache;
+    }
+
+    let variablesToRender = [...baseVars];
+    const activeDeviceId = currentRaspberryId || (window.opcManagementState && window.opcManagementState.currentRaspberryId) || document.getElementById('opc-raspberry-filter')?.value || '';
+    
+    if (activeDeviceId) {
+        variablesToRender = variablesToRender.filter(variable => {
+            if (matchesDevice(variable.raspberryId, activeDeviceId)) return true;
             if (variable.sourceType === 'combined' && Array.isArray(variable.sourceVariables)) {
                 return variable.sourceVariables.some(sourceVarName => {
-                    const sourceVar = variablesCache.find(v => v.variableName === sourceVarName);
-                    return sourceVar && sourceVar.raspberryId === currentRaspberryId;
+                    const sourceVar = baseVars.find(v => v.variableName === sourceVarName);
+                    return sourceVar && matchesDevice(sourceVar.raspberryId, activeDeviceId);
                 });
             }
             return false;
@@ -1060,28 +1206,74 @@ function renderVariables() {
     if (variablesToRender.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
-                <i class="ri-price-tag-3-line text-5xl mb-4"></i>
-                <p class="text-lg">${t('opcManagement.noVariablesCreated')}</p>
-                <p class="text-sm mt-2">${t('opcManagement.clickDataToCreate')}</p>
+                <i class="ri-price-tag-3-line text-4xl mb-3 text-gray-400"></i>
+                <p class="text-sm font-medium text-gray-600">${t('opcManagement.noVariablesCreated')}</p>
+                <p class="text-xs text-gray-400 mt-1">${t('opcManagement.clickDataToCreate')}</p>
             </div>
         `;
         return;
+    }
+
+    const headers = [
+        { key: 'variableName', label: t('opcManagement.variableName') },
+        { key: 'currentValue', label: t('opcManagement.currentValue') },
+        { key: 'status', label: t('opcManagement.status') }
+    ];
+
+    if (window.opcManagementState && window.opcManagementState.variablesSortField) {
+        const field = window.opcManagementState.variablesSortField;
+        const order = window.opcManagementState.variablesSortOrder;
+        
+        variablesToRender.sort((a, b) => {
+            let res = 0;
+            if (field === 'variableName') {
+                const nameA = a.variableName || '';
+                const nameB = b.variableName || '';
+                res = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'currentValue') {
+                const valA = a.currentValue !== undefined ? a.currentValue : '';
+                const valB = b.currentValue !== undefined ? b.currentValue : '';
+                const numA = Number(valA);
+                const numB = Number(valB);
+                if (!isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '') {
+                    res = numA - numB;
+                } else {
+                    res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+                }
+            } else if (field === 'status') {
+                const qA = a.quality || t('opcManagement.unknown');
+                const qB = b.quality || t('opcManagement.unknown');
+                res = qA.localeCompare(qB);
+            }
+            return order === 'asc' ? res : -res;
+        });
     }
     
     const now = new Date();
     
     let html = `
         <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50 border-b-2 border-gray-200">
+            <table class="min-w-full divide-y divide-gray-100 text-xs">
+                <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.variableName')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.currentValue')}</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${t('opcManagement.status')}</th>
-                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">${t('opcManagement.actions')}</th>
+                        ${headers.map(h => {
+                            const isSorted = window.opcManagementState && window.opcManagementState.variablesSortField === h.key;
+                            const sortIcon = isSorted 
+                                ? (window.opcManagementState.variablesSortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600')
+                                : 'ri-arrow-up-down-line text-gray-400';
+                            return `
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="handleVariablesSort('${h.key}')">
+                                    <div class="flex items-center gap-1">
+                                        <span>${h.label}</span>
+                                        <i class="${sortIcon}"></i>
+                                    </div>
+                                </th>
+                            `;
+                        }).join('')}
+                        <th class="px-3 py-2 text-center text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap w-24">${t('opcManagement.actions')}</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
+                <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
     `;
     
     variablesToRender.forEach(variable => {
@@ -1093,39 +1285,49 @@ function renderVariables() {
         let quality = variable.quality || t('opcManagement.unknown');
         let dataTimestamp = variable.timestamp || null;
         
-        if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
-            const deviceCache = allDevicesDataCache[variable.raspberryId];
-            const deviceInfo = deviceCache.device;
-            deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
+        const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+            ? allDevicesDataCache 
+            : (window.opcManagementState?.allDevicesDataCache || {});
             
-            // Find the actual variable name from datapoints
-            // Try to match by opcNodeId first (stable), then fall back to datapointId
-            if (deviceCache.datapoints) {
-                let datapoint = null;
-                
-                // Try opcNodeId first (stable across restarts)
-                if (variable.opcNodeId) {
-                    datapoint = deviceCache.datapoints.find(dp => 
-                        dp.opcNodeId === variable.opcNodeId
-                    );
-                }
-                
-                // Fall back to datapointId
-                if (!datapoint && variable.datapointId) {
-                    datapoint = deviceCache.datapoints.find(dp => 
-                        dp._id && dp._id.toString() === variable.datapointId.toString()
-                    );
-                }
-                
-                if (datapoint) {
-                    // Use the actual variable name (e.g., "example5"), not the OPC Node ID
-                    sourceVariableName = datapoint.name || datapoint.opcNodeId;
-                    quality = datapoint.quality || quality;
-                    dataTimestamp = datapoint.timestamp || dataTimestamp;
-                }
+        if (variable.raspberryId) {
+            let deviceCache = devicesCache[variable.raspberryId];
+            if (!deviceCache) {
+                const matchedKey = Object.keys(devicesCache).find(key => matchesDevice(key, variable.raspberryId));
+                if (matchedKey) deviceCache = devicesCache[matchedKey];
             }
-        } else if (variable.raspberryId) {
-            deviceDisplay = variable.raspberryId;
+            if (deviceCache) {
+                const deviceInfo = deviceCache.device;
+                deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
+                
+                // Find the actual variable name from datapoints
+                // Try to match by opcNodeId first (stable), then fall back to datapointId
+                if (deviceCache.datapoints) {
+                    let datapoint = null;
+                    
+                    // Try opcNodeId first (stable across restarts)
+                    if (variable.opcNodeId) {
+                        datapoint = deviceCache.datapoints.find(dp => 
+                            dp.opcNodeId === variable.opcNodeId
+                        );
+                    }
+                    
+                    // Fall back to datapointId
+                    if (!datapoint && variable.datapointId) {
+                        datapoint = deviceCache.datapoints.find(dp => 
+                            dp._id && dp._id.toString() === variable.datapointId.toString()
+                        );
+                    }
+                    
+                    if (datapoint) {
+                        // Use the actual variable name (e.g., "example5"), not the OPC Node ID
+                        sourceVariableName = datapoint.name || datapoint.opcNodeId;
+                        quality = datapoint.quality || quality;
+                        dataTimestamp = datapoint.timestamp || dataTimestamp;
+                    }
+                }
+            } else {
+                deviceDisplay = variable.raspberryId;
+            }
         }
         
         // Build full source path with device name
@@ -1143,13 +1345,13 @@ function renderVariables() {
         // Quality badge
         let qualityBadge = '';
         if (quality === 'Good' || quality === t('opcManagement.good')) {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700">✔ ${t('opcManagement.good')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60">✔ ${t('opcManagement.good')}</span>`;
         } else if (quality === 'Bad' || quality === t('opcManagement.bad')) {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700">❌ ${t('opcManagement.bad')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200/60">❌ ${t('opcManagement.bad')}</span>`;
         } else if (quality === 'Uncertain') {
-            qualityBadge = '<span class="px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700">⚠️ Uncertain</span>';
+            qualityBadge = '<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200/60">⚠️ Uncertain</span>';
         } else {
-            qualityBadge = `<span class="px-2 py-1 text-xs font-semibold rounded bg-gray-100 text-gray-700">${t('opcManagement.unknown')}</span>`;
+            qualityBadge = `<span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-md bg-gray-100 text-gray-600 border border-gray-200/60">${t('opcManagement.unknown')}</span>`;
         }
         
         // Calculate staleness
@@ -1161,50 +1363,50 @@ function renderVariables() {
             if (ageSeconds > 60) {
                 const ageMinutes = Math.floor(ageSeconds / 60);
                 if (ageMinutes < 60) {
-                    ageWarning = `<div class="text-xs text-orange-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageMinutes}m ${t('opcManagement.ago')})</div>`;
+                    ageWarning = `<div class="text-2xs text-amber-600 mt-0.5 font-medium">⚠️ ${t('opcManagement.stale')} (${ageMinutes}m ${t('opcManagement.ago')})</div>`;
                 } else {
                     const ageHours = Math.floor(ageMinutes / 60);
-                    ageWarning = `<div class="text-xs text-red-600 mt-1">⚠️ ${t('opcManagement.stale')} (${ageHours}h ${t('opcManagement.ago')})</div>`;
+                    ageWarning = `<div class="text-2xs text-rose-600 mt-0.5 font-medium">⚠️ ${t('opcManagement.stale')} (${ageHours}h ${t('opcManagement.ago')})</div>`;
                 }
             }
         }
         
         // Value styling based on quality
-        let valueClass = 'font-mono text-lg font-bold';
+        let valueClass = 'font-mono text-sm font-semibold';
         if (quality === 'Bad') {
-            valueClass += ' text-red-600';
+            valueClass += ' text-rose-600';
         } else if (quality === 'Uncertain') {
-            valueClass += ' text-yellow-700';
+            valueClass += ' text-amber-600';
         } else if (ageWarning) {
-            valueClass += ' text-orange-600';
+            valueClass += ' text-amber-600';
         } else {
             valueClass += ' text-gray-900';
         }
         
         html += `
-            <tr class="hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-3">
-                    <div class="font-semibold text-gray-800">${variable.variableName}</div>
-                    <div class="text-xs text-gray-500 mt-1">
+            <tr class="hover:bg-gray-50/70 transition">
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
+                    <div class="font-semibold text-gray-900">${variable.variableName}</div>
+                    <div class="text-2xs text-gray-500 font-mono mt-0.5">
                         ${fullSourcePath}
                     </div>
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
                     <div class="${valueClass}">${value}</div>
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-3 py-2 text-xs whitespace-nowrap">
                     ${qualityBadge}
                     ${ageWarning}
                 </td>
-                <td class="px-4 py-3 text-center">
-                    <div class="flex justify-center gap-2">
-                        <button onclick="editVariable('${variable._id}')" 
-                            class="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded transition-colors">
-                            <i class="ri-edit-line"></i>
+                <td class="px-3 py-2 text-center whitespace-nowrap">
+                    <div class="flex justify-center items-center gap-1">
+                        <button onclick="editVariable('${variable._id}')" title="Edit"
+                            class="p-1.5 rounded-lg text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 transition cursor-pointer">
+                            <i class="ri-edit-line text-sm"></i>
                         </button>
-                        <button onclick="deleteVariable('${variable._id}')" 
-                            class="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded transition-colors">
-                            <i class="ri-delete-bin-line"></i>
+                        <button onclick="deleteVariable('${variable._id}')" title="Delete"
+                            class="p-1.5 rounded-lg text-rose-600 hover:text-rose-900 hover:bg-rose-50 transition cursor-pointer">
+                            <i class="ri-delete-bin-line text-sm"></i>
                         </button>
                     </div>
                 </td>
@@ -1221,12 +1423,35 @@ function renderVariables() {
     container.innerHTML = html;
 }
 
+window.handleVariablesSort = function(field) {
+    if (!window.opcManagementState) return;
+    if (window.opcManagementState.variablesSortField === field) {
+        window.opcManagementState.variablesSortOrder = window.opcManagementState.variablesSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.opcManagementState.variablesSortField = field;
+        window.opcManagementState.variablesSortOrder = 'asc';
+    }
+    renderVariables();
+};
+
 // Update variable values based on all devices data
 function updateVariableValues() {
+    const vars = (variablesCache && Array.isArray(variablesCache) && variablesCache.length > 0)
+        ? variablesCache
+        : (window.opcManagementState?.variablesCache || []);
+        
+    const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+        ? allDevicesDataCache 
+        : (window.opcManagementState?.allDevicesDataCache || {});
+
     // Pass 1: Compute single/array variable values first
-    variablesCache.forEach(variable => {
+    vars.forEach(variable => {
         if (variable.sourceType !== 'combined') {
-            const deviceData = allDevicesDataCache[variable.raspberryId];
+            let deviceData = devicesCache[variable.raspberryId];
+            if (!deviceData && variable.raspberryId) {
+                const matchedKey = Object.keys(devicesCache).find(key => matchesDevice(key, variable.raspberryId));
+                if (matchedKey) deviceData = devicesCache[matchedKey];
+            }
             if (!deviceData || !deviceData.datapoints) {
                 return; // Skip if device data not loaded yet
             }
@@ -1245,7 +1470,7 @@ function updateVariableValues() {
             }
             
             if (datapoint) {
-                const rawValue = variable.arrayIndex !== null 
+                const rawValue = variable.arrayIndex !== null && variable.arrayIndex !== undefined
                     ? (Array.isArray(datapoint.value) ? datapoint.value[variable.arrayIndex] : null)
                     : datapoint.value;
                 
@@ -1263,13 +1488,13 @@ function updateVariableValues() {
     });
     
     // Pass 2: Compute combined variables using resolved source values and metadata
-    variablesCache.forEach(variable => {
+    vars.forEach(variable => {
         if (variable.sourceType === 'combined') {
             variable.currentValue = calculateCombinedValue(variable);
             
             if (Array.isArray(variable.sourceVariables) && variable.sourceVariables.length > 0) {
                 const sourceVars = variable.sourceVariables
-                    .map(name => variablesCache.find(v => v.variableName === name))
+                    .map(name => vars.find(v => v.variableName === name))
                     .filter(Boolean);
                 
                 const qualities = sourceVars.map(v => v.quality).filter(Boolean);
@@ -1307,63 +1532,63 @@ function openCombinedVariableModal() {
     selectedSourceVariables = [];
     
     const modalHtml = `
-        <div id="combinedVariableModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-                <div class="flex items-center justify-between p-6 border-b">
-                    <h2 class="text-xl font-semibold text-green-600 flex items-center">
-                        <i class="ri-links-line mr-3"></i>
+        <div id="combinedVariableModal" class="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-100">
+                <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/50">
+                    <h2 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <i class="ri-links-line text-emerald-600 text-base"></i>
                         ${t('opcManagement.createCombinedVariable')}
                     </h2>
-                    <button onclick="closeCombinedVariableModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
-                        <i class="ri-close-line text-2xl"></i>
+                    <button onclick="closeCombinedVariableModal()" class="text-gray-400 hover:text-gray-600 transition p-1 rounded-lg hover:bg-gray-100 cursor-pointer">
+                        <i class="ri-close-line text-lg"></i>
                     </button>
                 </div>
                 
-                <div class="flex-1 overflow-y-auto p-6">
-                    <div class="grid grid-cols-3 gap-6">
+                <div class="flex-1 overflow-y-auto p-5">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- Column 1: Available Variables -->
-                        <div class="border-2 border-gray-200 rounded-lg p-4">
-                            <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
-                                <i class="ri-list-check mr-2 text-blue-600"></i>
+                        <div class="border border-gray-200 rounded-xl p-3.5 bg-gray-50/30 flex flex-col">
+                            <h3 class="text-xs font-semibold text-gray-800 mb-3 flex items-center gap-1.5">
+                                <i class="ri-list-check text-blue-600"></i>
                                 ${t('opcManagement.availableVariables')}
                             </h3>
-                            <div id="availableVariablesList" class="space-y-2 max-h-96 overflow-y-auto">
+                            <div id="availableVariablesList" class="space-y-1.5 max-h-96 overflow-y-auto">
                                 <!-- Will be populated dynamically -->
                             </div>
                         </div>
                         
                         <!-- Column 2: Selected Variables -->
-                        <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
-                            <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
-                                <i class="ri-checkbox-multiple-line mr-2 text-purple-600"></i>
+                        <div class="border border-purple-200 rounded-xl p-3.5 bg-purple-50/30 flex flex-col">
+                            <h3 class="text-xs font-semibold text-purple-900 mb-3 flex items-center gap-1.5">
+                                <i class="ri-checkbox-multiple-line text-purple-600"></i>
                                 ${t('opcManagement.selectedVariables')}
                             </h3>
-                            <div id="selectedVariablesList" class="space-y-2 min-h-[300px]">
+                            <div id="selectedVariablesList" class="space-y-1.5 min-h-[260px]">
                                 <div class="text-center text-gray-400 py-12">
-                                    <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                                    <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
+                                    <i class="ri-hand-coin-line text-3xl mb-2 text-gray-300"></i>
+                                    <p class="text-xs">${t('opcManagement.clickVariablesToAdd')}</p>
                                 </div>
                             </div>
                         </div>
                         
                         <!-- Column 3: Combined Variable Settings -->
-                        <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                            <h3 class="font-semibold text-gray-800 mb-4 flex items-center">
-                                <i class="ri-settings-3-line mr-2 text-green-600"></i>
+                        <div class="border border-emerald-200 rounded-xl p-3.5 bg-emerald-50/30 flex flex-col">
+                            <h3 class="text-xs font-semibold text-emerald-900 mb-3 flex items-center gap-1.5">
+                                <i class="ri-settings-3-line text-emerald-600"></i>
                                 ${t('opcManagement.variableSettings')}
                             </h3>
-                            <div class="space-y-4">
+                            <div class="space-y-3">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.variableNameLabel')} *</label>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">${t('opcManagement.variableNameLabel')} *</label>
                                     <input type="text" id="combinedVariableName" 
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                        class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-800 shadow-2xs transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                         placeholder="${t('opcManagement.enterVariableNamePlaceholder')}">
                                 </div>
                                 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">${t('opcManagement.operation')} *</label>
+                                    <label class="block text-xs font-semibold text-gray-700 mb-1">${t('opcManagement.operation')} *</label>
                                     <select id="combinedOperation" onchange="updateCombinedPreview()"
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                                        class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-800 shadow-2xs transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
                                         <option value="">${t('opcManagement.selectOperationPlaceholder')}</option>
                                         <option value="concatenate">${t('opcManagement.concatenateJoin')}</option>
                                         <option value="add">${t('opcManagement.add')}</option>
@@ -1374,14 +1599,14 @@ function openCombinedVariableModal() {
                                     </select>
                                 </div>
                                 
-                                <div class="bg-white border border-gray-200 rounded p-3 mt-4">
-                                    <div class="text-xs text-gray-500 mb-1">${t('opcManagement.preview')}</div>
-                                    <div id="combinedPreview" class="font-mono text-lg font-semibold text-gray-900">-</div>
+                                <div class="bg-white border border-gray-200/70 rounded-xl p-3 mt-3">
+                                    <div class="text-2xs font-semibold text-gray-500 mb-0.5">${t('opcManagement.preview')}</div>
+                                    <div id="combinedPreview" class="font-mono text-base font-bold text-gray-900">-</div>
                                 </div>
                                 
                                 <button onclick="saveCombinedVariable()" 
-                                    class="w-full mt-6 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center font-semibold">
-                                    <i class="ri-save-line mr-2"></i>
+                                    class="w-full mt-4 px-3.5 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center font-semibold text-xs shadow-2xs cursor-pointer">
+                                    <i class="ri-save-line mr-1.5"></i>
                                     ${t('opcManagement.saveCombinedVariable')}
                                 </button>
                             </div>
@@ -1408,8 +1633,8 @@ function renderAvailableVariables() {
     if (variablesCache.length === 0) {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-8">
-                <i class="ri-inbox-line text-3xl mb-2"></i>
-                <p class="text-sm">${t('opcManagement.noVariablesAvailable')}</p>
+                <i class="ri-inbox-line text-3xl mb-2 text-gray-300"></i>
+                <p class="text-xs">${t('opcManagement.noVariablesAvailable')}</p>
             </div>
         `;
         return;
@@ -1420,14 +1645,14 @@ function renderAvailableVariables() {
         const isSelected = selectedSourceVariables.includes(variable.variableName);
         html += `
             <div onclick="toggleSourceVariable('${variable.variableName}')" 
-                class="p-3 border rounded cursor-pointer transition-all ${
+                class="p-2.5 border rounded-xl cursor-pointer transition text-xs ${
                     isSelected 
-                        ? 'bg-purple-100 border-purple-400' 
-                        : 'bg-white border-gray-200 hover:border-blue-300'
+                        ? 'bg-purple-100 border-purple-300 text-purple-900 shadow-2xs' 
+                        : 'bg-white border-gray-200 hover:border-indigo-300'
                 }">
-                <div class="font-medium text-sm">${variable.variableName}</div>
-                <div class="text-xs text-gray-500 mt-1">
-                    ${t('opcManagement.value')}: <span class="font-mono">${variable.currentValue || '-'}</span>
+                <div class="font-semibold text-xs">${variable.variableName}</div>
+                <div class="text-2xs text-gray-500 mt-0.5">
+                    ${t('opcManagement.value')}: <span class="font-mono font-medium">${variable.currentValue || '-'}</span>
                 </div>
             </div>
         `;
@@ -1458,8 +1683,8 @@ function renderSelectedVariables() {
     if (selectedSourceVariables.length === 0) {
         container.innerHTML = `
             <div class="text-center text-gray-400 py-12">
-                <i class="ri-hand-coin-line text-4xl mb-2"></i>
-                <p class="text-sm">${t('opcManagement.clickVariablesToAdd')}</p>
+                <i class="ri-hand-coin-line text-3xl mb-2 text-gray-300"></i>
+                <p class="text-xs">${t('opcManagement.clickVariablesToAdd')}</p>
             </div>
         `;
         return;
@@ -1469,18 +1694,18 @@ function renderSelectedVariables() {
     selectedSourceVariables.forEach((varName, index) => {
         const variable = variablesCache.find(v => v.variableName === varName);
         html += `
-            <div class="p-3 bg-white border-2 border-purple-300 rounded flex items-center justify-between">
+            <div class="p-2.5 bg-white border border-purple-200 rounded-xl flex items-center justify-between text-xs shadow-2xs">
                 <div class="flex-1">
-                    <div class="font-medium text-sm">${varName}</div>
-                    <div class="text-xs text-gray-500 mt-1">
+                    <div class="font-semibold text-xs text-gray-900">${varName}</div>
+                    <div class="text-2xs text-gray-500 mt-0.5">
                         <span class="font-mono">${variable ? variable.currentValue : '-'}</span>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-semibold text-purple-600">#${index + 1}</span>
+                <div class="flex items-center gap-1.5">
+                    <span class="text-2xs font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200/60">#${index + 1}</span>
                     <button onclick="event.stopPropagation(); toggleSourceVariable('${varName}')" 
-                        class="text-red-500 hover:text-red-700 p-1">
-                        <i class="ri-close-circle-line"></i>
+                        class="text-rose-500 hover:text-rose-700 p-1 cursor-pointer">
+                        <i class="ri-close-circle-line text-sm"></i>
                     </button>
                 </div>
             </div>
@@ -1676,20 +1901,21 @@ function renderSelectedVariablesForCombine() {
     const container = document.getElementById('combine-selected-vars');
     
     if (selectedVariablesForCombine.length === 0) {
-        container.innerHTML = '<span class="text-gray-400 text-sm">No variables selected</span>';
+        container.innerHTML = '<span class="text-gray-400 text-xs">No variables selected</span>';
         return;
     }
     
     container.innerHTML = selectedVariablesForCombine.map(varName => `
-        <span class="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200/60 rounded-xl text-xs font-semibold">
             ${varName}
             <button onclick="removeVariableFromCombine('${varName}')" 
-                class="hover:text-blue-900">
+                class="hover:text-indigo-900 cursor-pointer">
                 <i class="ri-close-line"></i>
             </button>
         </span>
     `).join('');
 }
+
 
 // Remove variable from combine list
 function removeVariableFromCombine(varName) {
@@ -2149,20 +2375,20 @@ function renderEditSourceVariables() {
     console.log('🎨 Rendering edit source variables:', editingSourceVariables);
     
     if (editingSourceVariables.length === 0) {
-        container.innerHTML = '<span class="text-gray-400 text-sm">No variables selected</span>';
+        container.innerHTML = '<span class="text-gray-400 text-xs">No variables selected</span>';
         return;
     }
     
     container.innerHTML = editingSourceVariables.map((varName, index) => `
-        <div class="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm mr-2 mb-2">
-            <button onclick="moveVariableInEdit(${index}, -1)" class="hover:text-blue-900 ${index === 0 ? 'opacity-50 cursor-not-allowed' : ''}" ${index === 0 ? 'disabled' : ''}>
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200/60 rounded-xl text-xs font-semibold">
+            <button onclick="moveVariableInEdit(${index}, -1)" class="hover:text-indigo-900 cursor-pointer ${index === 0 ? 'opacity-40 cursor-not-allowed' : ''}" ${index === 0 ? 'disabled' : ''}>
                 <i class="ri-arrow-left-s-line"></i>
             </button>
-            <span class="font-medium">${varName}</span>
-            <button onclick="moveVariableInEdit(${index}, 1)" class="hover:text-blue-900 ${index === editingSourceVariables.length - 1 ? 'opacity-50 cursor-not-allowed' : ''}" ${index === editingSourceVariables.length - 1 ? 'disabled' : ''}>
+            <span>${varName}</span>
+            <button onclick="moveVariableInEdit(${index}, 1)" class="hover:text-indigo-900 cursor-pointer ${index === editingSourceVariables.length - 1 ? 'opacity-40 cursor-not-allowed' : ''}" ${index === editingSourceVariables.length - 1 ? 'disabled' : ''}>
                 <i class="ri-arrow-right-s-line"></i>
             </button>
-            <button onclick="removeVariableFromEdit('${varName}')" class="hover:text-blue-900">
+            <button onclick="removeVariableFromEdit('${varName}')" class="hover:text-rose-600 ml-0.5 cursor-pointer">
                 <i class="ri-close-line"></i>
             </button>
         </div>
@@ -2216,8 +2442,8 @@ function closeOPCModal(modalId) {
 function clearDataDisplay() {
     document.getElementById('opc-raw-data-container').innerHTML = `
         <div class="text-center py-12 text-gray-500">
-            <i class="ri-inbox-line text-5xl mb-4"></i>
-            <p class="text-lg">Select a Raspberry Pi to view data</p>
+            <i class="ri-inbox-line text-4xl mb-3 text-gray-400"></i>
+            <p class="text-sm font-medium text-gray-600">Select a Raspberry Pi to view data</p>
         </div>
     `;
 }
@@ -2225,13 +2451,13 @@ function clearDataDisplay() {
 // Show notification
 function showNotification(message, type = 'info') {
     const colors = {
-        success: 'bg-green-500',
-        error: 'bg-red-500',
-        info: 'bg-blue-500'
+        success: 'bg-emerald-600 text-white shadow-emerald-500/20',
+        error: 'bg-rose-600 text-white shadow-rose-500/20',
+        info: 'bg-indigo-600 text-white shadow-indigo-500/20'
     };
     
     const notification = document.createElement('div');
-    notification.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-slide-in`;
+    notification.className = `fixed top-4 right-4 ${colors[type]} px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg z-50 flex items-center gap-2 transition transform duration-200`;
     notification.textContent = message;
     
     document.body.appendChild(notification);
@@ -2291,7 +2517,7 @@ function resetScanButton() {
     const btn = document.getElementById('refresh-data-btn');
     if (btn) {
         btn.disabled = false;
-        btn.innerHTML = '<i class="ri-scan-2-line"></i> <span>Scan Nodes</span>';
+        btn.innerHTML = '<i class="ri-scan-2-line text-blue-600"></i> <span>Scan Nodes</span>';
     }
 }
 
@@ -2303,32 +2529,33 @@ function showScanResult(result) {
 
     if (result.error) {
         titleEl.textContent = 'Scan Failed';
-        titleEl.className = 'text-lg font-semibold text-red-600';
-        bodyEl.innerHTML = `<p class="text-red-500">${result.error}</p>`;
+        titleEl.className = 'text-sm font-bold text-rose-600';
+        bodyEl.innerHTML = `<p class="text-rose-600 font-medium">${result.error}</p>`;
     } else if (result.newNodeCount === 0) {
         titleEl.textContent = 'Scan Complete';
-        titleEl.className = 'text-lg font-semibold text-gray-800';
+        titleEl.className = 'text-sm font-bold text-gray-900';
         bodyEl.innerHTML = `
             <div class="flex flex-col items-center py-4 gap-2">
-                <i class="ri-checkbox-circle-line text-4xl text-gray-400"></i>
-                <p class="text-gray-600 font-medium">No new nodes found</p>
-                <p class="text-xs text-gray-400">${result.totalNodes} total nodes scanned</p>
+                <i class="ri-checkbox-circle-line text-4xl text-gray-300"></i>
+                <p class="text-gray-700 font-medium text-xs">No new nodes found</p>
+                <p class="text-2xs text-gray-400">${result.totalNodes} total nodes scanned</p>
             </div>`;
     } else {
         titleEl.textContent = `${result.newNodeCount} New Node${result.newNodeCount > 1 ? 's' : ''} Found`;
-        titleEl.className = 'text-lg font-semibold text-green-600';
+        titleEl.className = 'text-sm font-bold text-emerald-600';
         const nodeList = result.newNodes.map(n => `
             <div class="flex items-start gap-2 py-2 border-b border-gray-100 last:border-0">
-                <span class="mt-1.5 w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></span>
+                <span class="mt-1 w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
                 <div>
-                    <p class="font-medium text-gray-800">${n.variableName}</p>
-                    <p class="text-xs text-gray-500">${n.opcNodeId} &bull; ${n.dataType || 'unknown'}</p>
+                    <p class="font-semibold text-gray-900 text-xs">${n.variableName}</p>
+                    <p class="text-2xs text-gray-500 font-mono">${n.opcNodeId} &bull; ${n.dataType || 'unknown'}</p>
                 </div>
             </div>`).join('');
         bodyEl.innerHTML = `
-            <p class="text-xs text-gray-500 mb-3">${result.totalNodes} total nodes scanned</p>
-            <div class="max-h-64 overflow-y-auto">${nodeList}</div>`;
+            <p class="text-2xs text-gray-500 mb-2 font-medium">${result.totalNodes} total nodes scanned</p>
+            <div class="max-h-60 overflow-y-auto">${nodeList}</div>`;
     }
 
     modal.classList.remove('hidden');
 }
+

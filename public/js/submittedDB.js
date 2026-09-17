@@ -10,6 +10,7 @@ let _sdbSortField = 'timestamp';
 let _sdbSortDir = 'desc';
 let _sdbView = 'active';
 let _sdbAllData = [];
+let _sdbKnownDefectCols = new Set();
 let _sdbDebounceTimer = null;
 let _sdbSelectedIds = new Set();
 let _sdbSelectedRecords = new Map();
@@ -80,6 +81,11 @@ function sdbDebouncedLoad() {
 
 function sdbGoToPage(page) {
   _sdbCurrentPage = page;
+  loadSubmittedDB();
+}
+
+function sdbOnLimitChange() {
+  _sdbCurrentPage = 1;
   loadSubmittedDB();
 }
 
@@ -351,6 +357,15 @@ async function loadSubmittedDB() {
     _sdbCounts = result.counts || { active: 0, trash: 0 };
     _sdbCanPermanentDelete = !!result.canPermanentDelete;
 
+    if (Array.isArray(result.defectColumns)) {
+      result.defectColumns.forEach(c => _sdbKnownDefectCols.add(c));
+    }
+    _sdbAllData.forEach(record => {
+      Object.keys(record).forEach(k => {
+        if (!SDB_FIXED_KEYS.has(k)) _sdbKnownDefectCols.add(k);
+      });
+    });
+
     renderSubmittedDBTable(
       _sdbAllData,
       result.total,
@@ -414,11 +429,10 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
     return;
   }
 
-  const defectCols = new Set();
   records.forEach(record => Object.keys(record).forEach(key => {
-    if (!SDB_FIXED_KEYS.has(key)) defectCols.add(key);
+    if (!SDB_FIXED_KEYS.has(key)) _sdbKnownDefectCols.add(key);
   }));
-  const defectColsList = [...defectCols].sort();
+  const defectColsList = [..._sdbKnownDefectCols].sort();
 
   const fixedCols = [
     { key: 'timestamp', label: '日時', fmt: sdbFormatDateTime },
@@ -562,14 +576,14 @@ function sdbBuildParams(options = {}) {
   const { all = false } = options;
   const params = new URLSearchParams();
 
-  const startDate = document.getElementById('sdbFilterStartDate')?.value;
-  const endDate = document.getElementById('sdbFilterEndDate')?.value;
-  const hinban = document.getElementById('sdbFilterHinban')?.value.trim();
-  const kanbanId = document.getElementById('sdbFilterKanbanId')?.value.trim();
-  const productName = document.getElementById('sdbFilterProductName')?.value.trim();
-  const operator = document.getElementById('sdbFilterOperator')?.value.trim();
-  const lhRh = document.getElementById('sdbFilterLhRh')?.value;
-  const factory = document.getElementById('sdbFilterFactory')?.value;
+  const startDate = document.getElementById('sdbFilterStartDate')?.value || '';
+  const endDate = document.getElementById('sdbFilterEndDate')?.value || '';
+  const hinban = document.getElementById('sdbFilterHinban')?.value?.trim() || '';
+  const kanbanId = document.getElementById('sdbFilterKanbanId')?.value?.trim() || '';
+  const productName = document.getElementById('sdbFilterProductName')?.value?.trim() || '';
+  const operator = document.getElementById('sdbFilterOperator')?.value?.trim() || '';
+  const lhRh = document.getElementById('sdbFilterLhRh')?.value || 'all';
+  const factory = document.getElementById('sdbFilterFactory')?.value || 'all';
   const limit = document.getElementById('sdbFilterLimit')?.value || '100';
 
   if (startDate) params.set('startDate', startDate);
@@ -1150,9 +1164,14 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalBreak', isEditing
     ? sdbBuildModalInput('break_time', record.break_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
     : (record.break_time != null ? `${record.break_time} h` : '—'), { html: isEditing });
+  const hasTroubleDetails = record.trouble_details && typeof record.trouble_details === 'object' && Object.keys(record.trouble_details).length > 0;
+  const troubleDetailText = hasTroubleDetails
+    ? `<div class="text-2xs text-gray-500 mt-1 font-normal">${Object.entries(record.trouble_details).map(([k, v]) => `${k}: ${v}分`).join('<br>')}</div>`
+    : '';
+
   sdbSetModalElementContent('sdbModalTrouble', isEditing
-    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
-    : (record.trouble_time != null ? `${record.trouble_time} h` : '—'), { html: isEditing });
+    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '1', className: textInputClass })
+    : (record.trouble_time != null ? `${record.trouble_time} 分${troubleDetailText}` : '—'), { html: true });
 
   sdbRenderModalDefects(record, isEditing);
 
@@ -1452,6 +1471,26 @@ function initializeSubmittedDB() {
   _sdbCanPermanentDelete = false;
   _sdbModalRecordId = '';
   _sdbModalEditMode = false;
+  if (typeof window !== 'undefined' && window.location && window.location.search) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('hinban')) {
+      const el = document.getElementById('sdbFilterHinban');
+      if (el) el.value = urlParams.get('hinban');
+    }
+    if (urlParams.has('kanbanId')) {
+      const el = document.getElementById('sdbFilterKanbanId');
+      if (el) el.value = urlParams.get('kanbanId');
+    }
+    if (urlParams.has('productName')) {
+      const el = document.getElementById('sdbFilterProductName');
+      if (el) el.value = urlParams.get('productName');
+    }
+    if (urlParams.has('operator')) {
+      const el = document.getElementById('sdbFilterOperator');
+      if (el) el.value = urlParams.get('operator');
+    }
+  }
+
   sdbApplyPiecesPerHourLabel();
   sdbResetSelection();
   updateSubmittedDBTabs();
@@ -1477,3 +1516,4 @@ window.handleSdbModalDelete = handleSdbModalDelete;
 window.openSdbDetail = openSdbDetail;
 window.closeSdbDetail = closeSdbDetail;
 window.initializeSubmittedDB = initializeSubmittedDB;
+window.sdbOnLimitChange = sdbOnLimitChange;

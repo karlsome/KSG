@@ -9,7 +9,7 @@
     <script src="/js/config.js"></script>
 </head>
 <body>
-    <div class="container mx-auto px-4 py-6">
+    <div id="submittedDBRoot" class="w-full">
         <!-- Header -->
         <div class="flex flex-col gap-4 mb-6">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -92,11 +92,10 @@
                 </div>
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-gray-600">表示件数</label>
-                    <select id="sdbFilterLimit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm" onchange="loadSubmittedDB()">
+                    <select id="sdbFilterLimit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm" onchange="sdbOnLimitChange()">
+                        <option value="25">25件</option>
                         <option value="50">50件</option>
                         <option value="100" selected>100件</option>
-                        <option value="200">200件</option>
-                        <option value="500">500件</option>
                     </select>
                 </div>
                 <div class="flex gap-2 ml-auto items-end">
@@ -220,7 +219,7 @@
             </div>
         </div>
     </div><!-- end modal -->
-    </div><!-- end container -->
+    </div><!-- end root -->
 
 </body>
 </html>

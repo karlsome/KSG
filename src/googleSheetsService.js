@@ -467,7 +467,11 @@ function buildSheetRowValues({ headers = [], fieldColumnMap = new Map(), expecte
       return;
     }
 
-    rowValues[columnIndex - 1] = formatFieldValue(field, submission[field.key]);
+    const rawValue = submission[field.key] !== undefined
+      ? submission[field.key]
+      : (submission.trouble_details && typeof submission.trouble_details === 'object' ? submission.trouble_details[field.key] : undefined);
+
+    rowValues[columnIndex - 1] = formatFieldValue(field, rawValue);
   });
 
   return rowValues;
@@ -800,4 +804,5 @@ module.exports = {
   appendSubmissionToSheet,
   updateSubmissionRowInSheet,
   buildStoredMappings,
+  buildSheetRowValues,
 };
