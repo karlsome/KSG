@@ -33,54 +33,54 @@
 
 <body class="bg-gray-50 font-sans antialiased text-gray-900">
   <!-- Mobile Sidebar Overlay -->
-  <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-30 hidden z-40 md:hidden" onclick="toggleSidebar()"></div>
+  <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-30 hidden z-40 md:hidden" onclick="closeMobileSidebar()"></div>
 
   <div class="relative flex flex-col md:flex-row min-h-screen">
-    <!-- Sidebar -->
+    <!-- Sidebar (Desktop mini-rail + hover expand, Mobile drawer) -->
     <aside id="sidebar"
-  class="fixed md:fixed md:top-0 md:left-0 md:h-screen w-64 bg-white border-r border-gray-200 flex flex-col transition-transform transform -translate-x-full md:translate-x-0 z-50">
-      <div class="p-4 border-b border-gray-200 flex justify-center items-center">
-        <a href="/">
-          <img src="https://ksg-corp.co.jp/wp/wp-content/themes/corporate/assets/images/common/corp_logo.png" alt="Sasaki Coating Logo" class="h-16" />
+      class="fixed top-0 left-0 h-screen bg-white border-r border-gray-200 flex flex-col z-50 -translate-x-full md:translate-x-0">
+      <div class="h-16 flex items-center justify-center border-b border-gray-200 px-2 overflow-hidden shrink-0">
+        <a href="/" class="flex items-center justify-center w-full h-full">
+          <img id="sidebarLogo" src="https://ksg-corp.co.jp/wp/wp-content/themes/corporate/assets/images/common/corp_logo.png" alt="Sasaki Coating Logo" />
         </a>
       </div>
-      <nav class="flex-1 overflow-y-auto p-4">
+      <nav class="flex-1 overflow-y-auto overflow-x-hidden p-2">
         <ul id="dynamicNav" class="relative flex flex-col gap-2">
           <div id="dynamicNavIndicator" aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 rounded-lg border border-sky-100 bg-sky-50 shadow-sm opacity-0 transition-all duration-300 ease-out"></div>
           <li>
-            <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-dashboard-line text-xl"></i>
-              <span data-nav="dashboard"></span>
+            <a href="#dashboard" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Dashboard">
+              <i class="ri-dashboard-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="dashboard" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-line-chart-line text-xl"></i>
-              <span data-nav="analytics"></span>
+            <a href="#analytics" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Analytics">
+              <i class="ri-line-chart-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="analytics" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-user-settings-line text-xl"></i>
-              <span data-nav="userManagement"></span>
+            <a href="#user-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="User Management">
+              <i class="ri-user-settings-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="userManagement" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#master-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-database-2-line text-xl"></i>
-              <span data-nav="masterDB"></span>
+            <a href="#master-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Master DB">
+              <i class="ri-database-2-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="masterDB" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#opc-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-settings-3-line text-xl"></i>
-              <span data-nav="opcManagement"></span>
+            <a href="#opc-management" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="OPC Management">
+              <i class="ri-settings-3-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="opcManagement" class="sidebar-label"></span>
             </a>
           </li>
           <li>
-            <a href="#submitted-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700">
-              <i class="ri-file-list-3-line text-xl"></i>
-              <span data-nav="submittedDB"></span>
+            <a href="#submitted-db" class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700" title="Submitted Data">
+              <i class="ri-file-list-3-line text-xl shrink-0 w-6 text-center"></i>
+              <span data-nav="submittedDB" class="sidebar-label"></span>
             </a>
           </li>
         </ul>
@@ -88,12 +88,12 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col overflow-y-auto md:ml-64 min-h-screen">
+    <main class="flex-1 flex flex-col overflow-y-auto min-h-screen w-full md:ml-16">
       <header class="bg-white border-b border-gray-200 p-4">
         <div class="flex items-center justify-between">
           <div class="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-4">
-            <!-- Hamburger button for mobile -->
-            <button id="mobileMenuButton" class="md:hidden text-gray-600 focus:outline-none text-2xl">
+            <!-- Hamburger button for mobile only -->
+            <button id="mobileMenuButton" class="md:hidden text-gray-600 hover:text-gray-900 focus:outline-none text-2xl p-1 rounded-lg hover:bg-gray-100 transition-colors" title="Menu">
               <i class="ri-menu-line"></i>
             </button>
             <input type="text" id="searchInput" class="w-full md:w-64 p-2 bg-gray-100 rounded-md" />
@@ -150,24 +150,57 @@
       }
     });
 
-    // Sidebar toggle
+    // Sidebar & mobile drawer logic
     const sidebar = document.getElementById("sidebar");
     const menuBtn = document.getElementById("mobileMenuButton");
     const overlay = document.getElementById("sidebarOverlay");
 
-    function toggleSidebar() {
-      sidebar.classList.toggle("-translate-x-full");
-      overlay.classList.toggle("hidden");
+    function openMobileSidebar() {
+      if (sidebar) sidebar.classList.remove("-translate-x-full");
+      if (overlay) overlay.classList.remove("hidden");
     }
 
-    function handleNavClick() {
-      // Only hide sidebar on mobile
+    function closeMobileSidebar() {
+      if (sidebar) sidebar.classList.add("-translate-x-full");
+      if (overlay) overlay.classList.add("hidden");
+    }
+
+    function toggleSidebar() {
       if (window.innerWidth < 768) {
-        toggleSidebar();
+        if (!sidebar) return;
+        const isHidden = sidebar.classList.contains("-translate-x-full");
+        if (isHidden) {
+          openMobileSidebar();
+        } else {
+          closeMobileSidebar();
+        }
       }
     }
 
-    menuBtn.addEventListener("click", toggleSidebar);
+    function handleNavClick() {
+      if (window.innerWidth < 768) {
+        closeMobileSidebar();
+      }
+    }
+
+    if (menuBtn) {
+      menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleSidebar();
+      });
+    }
+
+    if (overlay) {
+      overlay.addEventListener("click", () => {
+        closeMobileSidebar();
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      if (window.innerWidth >= 768 && overlay) {
+        overlay.classList.add("hidden");
+      }
+    });
 
     // Page loading functionality
     function loadPage(page, initialSubtab = '') {
@@ -352,8 +385,11 @@
             .then(html => {
               const parser = new DOMParser();
               const doc = parser.parseFromString(html, 'text/html');
-              const container = doc.querySelector('.container') || doc.querySelector('body > div');
-              mainContent.innerHTML = container ? container.outerHTML : html;
+              const container = doc.querySelector('#submittedDBRoot') || doc.querySelector('.container') || doc.querySelector('body > div');
+              mainContent.innerHTML = container ? container.innerHTML : html;
+
+              // Apply translations to the loaded content
+              applyTranslations(mainContent);
 
               // Load the submittedDB.js script
               const existingScript = document.querySelector('script[src="/js/submittedDB.js"]');
@@ -2692,10 +2728,15 @@
     
     // Apply translations to sidebar, header, and other static elements
     function applyPageTranslations() {
-      // Sidebar nav labels
+      // Sidebar nav labels and mini-rail tooltips
       document.querySelectorAll('[data-nav]').forEach(el => {
         const key = el.getAttribute('data-nav');
-        el.textContent = t('nav.' + key);
+        const translated = t('nav.' + key);
+        el.textContent = translated;
+        const parentLink = el.closest('a');
+        if (parentLink) {
+          parentLink.title = translated;
+        }
       });
       // Header
       document.getElementById('searchInput').placeholder = t('common.search');

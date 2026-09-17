@@ -405,4 +405,86 @@ table td input[type="checkbox"] {
   }
 }
 
+/* ==========================================================================
+   Collapsible Mini-Sidebar (Desktop Icon Rail + Hover Expand, Mobile Drawer)
+   ========================================================================== */
+
+/* Desktop (>= 768px): Icon rail with smooth hover expansion */
+@media (min-width: 768px) {
+  #sidebar {
+    width: 4rem !important; /* 64px icon rail */
+    transform: translateX(0) !important;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease;
+    overflow-x: hidden;
+  }
+
+  #sidebar:hover {
+    width: 16rem !important; /* 256px expanded */
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  }
+
+  /* Logo scaling */
+  #sidebarLogo {
+    height: 2rem;
+    max-width: 100%;
+    object-fit: contain;
+    transition: height 0.25s ease;
+  }
+
+  #sidebar:hover #sidebarLogo {
+    height: 2.75rem;
+  }
+
+  /* Nav Links in mini rail: centered icon when collapsed, left aligned with gap when hovered */
+  #sidebar #dynamicNav a {
+    transition: gap 0.25s ease, padding 0.25s ease;
+  }
+
+  #sidebar:not(:hover) #dynamicNav a {
+    gap: 0;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Text label animation */
+  #sidebar .sidebar-label {
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    transition: opacity 0.18s ease, max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+  }
+
+  #sidebar:hover .sidebar-label {
+    opacity: 1;
+    max-width: 180px;
+    pointer-events: auto;
+  }
+}
+
+/* Mobile (< 768px): Off-screen drawer toggled by hamburger */
+@media (max-width: 767px) {
+  #sidebar {
+    width: 16rem !important; /* 256px drawer */
+    transition: transform 0.3s ease-in-out;
+  }
+
+  #sidebar .sidebar-label {
+    opacity: 1 !important;
+    max-width: none !important;
+    pointer-events: auto !important;
+  }
+
+  #sidebarLogo {
+    height: 2.75rem;
+    max-width: 100%;
+    object-fit: contain;
+  }
+}
+
+
 
