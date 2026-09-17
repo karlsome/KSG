@@ -1452,6 +1452,26 @@ function initializeSubmittedDB() {
   _sdbCanPermanentDelete = false;
   _sdbModalRecordId = '';
   _sdbModalEditMode = false;
+  if (typeof window !== 'undefined' && window.location && window.location.search) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('hinban')) {
+      const el = document.getElementById('sdbFilterHinban');
+      if (el) el.value = urlParams.get('hinban');
+    }
+    if (urlParams.has('kanbanId')) {
+      const el = document.getElementById('sdbFilterKanbanId');
+      if (el) el.value = urlParams.get('kanbanId');
+    }
+    if (urlParams.has('productName')) {
+      const el = document.getElementById('sdbFilterProductName');
+      if (el) el.value = urlParams.get('productName');
+    }
+    if (urlParams.has('operator')) {
+      const el = document.getElementById('sdbFilterOperator');
+      if (el) el.value = urlParams.get('operator');
+    }
+  }
+
   sdbApplyPiecesPerHourLabel();
   sdbResetSelection();
   updateSubmittedDBTabs();

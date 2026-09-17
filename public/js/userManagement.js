@@ -361,8 +361,10 @@ function sortUsersBy(field) {
 }
 
 function getSortIndicator(field) {
-  if (userQueryState.sortField !== field) return '';
-  return userQueryState.sortOrder === 'asc' ? ' ↑' : ' ↓';
+  const isSorted = userQueryState.sortField === field;
+  return isSorted
+    ? (userQueryState.sortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600')
+    : 'ri-arrow-up-down-line text-gray-400';
 }
 
 function showCreateUserForm() {
@@ -789,52 +791,56 @@ function renderUserTable(users, paginationState = userQueryState) {
       </div>
     </div>
 
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-        <thead class="bg-gray-100">
+    <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
+      <table class="min-w-full divide-y divide-gray-100 text-xs">
+        <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
-            ${headers.map(h => `
-              <th class="px-4 py-3 text-left font-semibold text-gray-700">
-                <button class="inline-flex items-center gap-1 hover:text-blue-700" onclick="sortUsersBy('${h}')">
-                  <span>${headerTranslations[h]}</span><span>${getSortIndicator(h)}</span>
-                </button>
-              </th>
-            `).join("")}
-            <th class="px-4 py-3 text-left font-semibold text-gray-700">${t('userManagement.actions')}</th>
+            ${headers.map(h => {
+              const sortIcon = getSortIndicator(h);
+              return `
+                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="sortUsersBy('${h}')">
+                  <div class="flex items-center gap-1">
+                    <span>${headerTranslations[h]}</span>
+                    <i class="${sortIcon}"></i>
+                  </div>
+                </th>
+              `;
+            }).join("")}
+            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 select-none whitespace-nowrap">${t('userManagement.actions')}</th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${users.length === 0 ? `
             <tr>
-              <td class="px-4 py-6 text-center text-gray-500" colspan="12">No users found</td>
+              <td class="px-3 py-8 text-center text-xs font-medium text-gray-400" colspan="12">No users found</td>
             </tr>
           ` : users.map(u => `
-            <tr class="hover:bg-gray-50" id="userRow-${u._id}">
+            <tr class="hover:bg-gray-50/70 transition" id="userRow-${u._id}">
               ${headers.map(h => `
-                <td class="px-4 py-3">
+                <td class="px-3 py-2 text-xs">
                   ${
                     h === "role"
-                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-role user-id="${u._id}">
+                      ? `<select class="border border-gray-200 p-1 rounded-lg text-xs bg-white focus:border-indigo-500 focus:outline-none" disabled data-role user-id="${u._id}">
                           ${availableRoles.map(r => `
                             <option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>
                           `).join("")}
                         </select>`
                       : h === "division"
-                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
+                      ? `<select class="border border-gray-200 p-1 rounded-lg text-xs bg-white focus:border-indigo-500 focus:outline-none" disabled data-field="${h}" user-id="${u._id}">
                           <option value="">${t('userManagement.selectDepartment')}</option>
                           ${availableDepartments.map(d => `
                             <option value="${d}" ${u[h] === d ? "selected" : ""}>${d}</option>
                           `).join("")}
                         </select>`
                       : h === "section"
-                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
+                      ? `<select class="border border-gray-200 p-1 rounded-lg text-xs bg-white focus:border-indigo-500 focus:outline-none" disabled data-field="${h}" user-id="${u._id}">
                           <option value="">${t('userManagement.selectSection')}</option>
                           ${availableSections.map(s => `
                             <option value="${s}" ${u[h] === s ? "selected" : ""}>${s}</option>
                           `).join("")}
                         </select>`
                       : h === "enable"
-                      ? `<select class="border border-gray-300 p-1 rounded" disabled data-field="${h}" user-id="${u._id}">
+                      ? `<select class="border border-gray-200 p-1 rounded-lg text-xs bg-white focus:border-indigo-500 focus:outline-none" disabled data-field="${h}" user-id="${u._id}">
                           <option value="enabled" ${(u[h] || "enabled") === "enabled" ? "selected" : ""}>${t('userManagement.enabled')}</option>
                           <option value="disabled" ${u[h] === "disabled" ? "selected" : ""}>${t('userManagement.disabled')}</option>
                         </select>`
@@ -850,7 +856,7 @@ function renderUserTable(users, paginationState = userQueryState) {
                               }
                             }
                             return factoryList.length > 0 
-                              ? factoryList.map(f => `<span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">${f}</span>`).join('')
+                              ? factoryList.map(f => `<span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">${f}</span>`).join('')
                               : '<span class="text-gray-400">-</span>';
                           })()}
                         </div>`
@@ -866,18 +872,18 @@ function renderUserTable(users, paginationState = userQueryState) {
                               }
                             }
                             return equipmentList.length > 0
-                              ? equipmentList.map(e => `<span class="inline-block px-2 py-1 bg-green-100 text-green-800 rounded text-xs">${e}</span>`).join('')
+                              ? equipmentList.map(e => `<span class="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-medium">${e}</span>`).join('')
                               : '<span class="text-gray-400">-</span>';
                           })()}
                         </div>`
-                      : `<input class="border border-gray-300 p-1 rounded w-full" value="${u[h] || ""}" disabled data-field="${h}" user-id="${u._id}" />`
+                      : `<input class="border border-gray-200 p-1 rounded-lg text-xs w-full bg-white focus:border-indigo-500 focus:outline-none" value="${u[h] || ""}" disabled data-field="${h}" user-id="${u._id}" />`
                   }
                 </td>
               `).join("")}
-              <td class="px-4 py-3" id="actions-${u._id}">
-                <button class="text-blue-600 hover:underline text-sm" onclick="startEditingUser('${u._id}')">${t('userManagement.edit')}</button>
-                  <button class="ml-2 text-orange-600 hover:underline text-sm" onclick="showResetPasswordModal('${u._id}', '${u.username}')">${t('userManagement.resetPassword')}</button>
-                <button class="ml-2 text-red-600 hover:underline text-sm" onclick="deleteUser('${u._id}')">${t('userManagement.delete')}</button>
+              <td class="px-3 py-2 text-xs whitespace-nowrap" id="actions-${u._id}">
+                <button class="text-indigo-600 hover:text-indigo-800 font-medium text-xs transition-colors cursor-pointer" onclick="startEditingUser('${u._id}')">${t('userManagement.edit')}</button>
+                <button class="ml-2 text-amber-600 hover:text-amber-800 font-medium text-xs transition-colors cursor-pointer" onclick="showResetPasswordModal('${u._id}', '${u.username}')">${t('userManagement.resetPassword')}</button>
+                <button class="ml-2 text-rose-600 hover:text-rose-800 font-medium text-xs transition-colors cursor-pointer" onclick="deleteUser('${u._id}')">${t('userManagement.delete')}</button>
               </td>
             </tr>
           `).join("")}

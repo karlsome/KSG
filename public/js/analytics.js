@@ -1334,41 +1334,33 @@ async function openProductivitySubmittedDetail(dayData, context) {
   _currentProdDetailRecords = [];
   _currentProdDetailActiveIndex = 0;
 
+  const dateEl = document.getElementById('analyticsProdModalDate');
   const titleEl = document.getElementById('analyticsProdModalTitle');
-  const subEl = document.getElementById('analyticsProdModalSubtitle');
-  const countBadge = document.getElementById('analyticsProdModalCountBadge');
+  const subEl = document.getElementById('analyticsProdModalSub');
+  const loadingEl = document.getElementById('analyticsProdModalLoading');
+  const contentEl = document.getElementById('analyticsProdModalContent');
   const tabsContainer = document.getElementById('analyticsProdModalRecordTabsContainer');
   const tabsEl = document.getElementById('analyticsProdModalRecordTabs');
-  const bodyEl = document.getElementById('analyticsProdModalBody');
-  const metaEl = document.getElementById('analyticsProdModalFooterMeta');
 
+  if (dateEl) {
+    dateEl.textContent = dayData?.dateLabel ? `${dayData.dateLabel} (Day ${dayData.day})` : '';
+  }
   if (titleEl) {
-    titleEl.textContent = (typeof t === 'function' ? t('analytics.productivity.recordDetailTitle') : null) || '生産実績詳細 (submittedDB)';
+    titleEl.textContent = context?.productName || context?.machineName || '生産実績詳細';
   }
   if (subEl) {
-    const parts = [
-      context?.operatorName,
-      context?.machineName,
-      dayData?.dateLabel ? `${dayData.dateLabel} (Day ${dayData.day})` : ''
-    ].filter(Boolean);
-    subEl.textContent = parts.join('  ·  ');
+    const parts = [context?.operatorName, dayData?.kanban].filter(Boolean);
+    subEl.textContent = parts.join('  /  ');
   }
-  if (countBadge) countBadge.classList.add('hidden');
+
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (contentEl) contentEl.classList.add('hidden');
   if (tabsContainer) tabsContainer.classList.add('hidden');
   if (tabsEl) tabsEl.innerHTML = '';
-  if (metaEl) metaEl.innerHTML = '';
 
   // Show modal
   modal.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
-
-  // Render loading state in body
-  bodyEl.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-16 text-center space-y-3">
-      <div class="inline-block h-8 w-8 animate-spin rounded-full border-3 border-indigo-600 border-t-transparent"></div>
-      <p class="text-xs font-semibold text-gray-500">submittedDB から実績データを読込中...</p>
-    </div>
-  `;
 
   // Fetch records by IDs
   let records = [];
@@ -1463,12 +1455,8 @@ async function openProductivitySubmittedDetail(dayData, context) {
   _currentProdDetailRecords = records;
   _currentProdDetailActiveIndex = 0;
 
-  // Update Count Badge & Tabs
+  // Update Tabs if multiple records
   if (records.length > 1) {
-    if (countBadge) {
-      countBadge.textContent = `${records.length} 件の実績`;
-      countBadge.classList.remove('hidden');
-    }
     if (tabsContainer && tabsEl) {
       tabsContainer.classList.remove('hidden');
       tabsEl.innerHTML = records.map((rec, idx) => {
@@ -1477,17 +1465,13 @@ async function openProductivitySubmittedDetail(dayData, context) {
         const label = [timeSpan, pcs].filter(Boolean).join(' · ');
         const isActive = idx === 0;
         return `
-          <button type="button" onclick="switchProductivityDetailTab(${idx})" class="prod-detail-tab-btn px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition shadow-2xs ${isActive ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}">
+          <button type="button" onclick="switchProductivityDetailTab(${idx})" class="prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs ${isActive ? 'bg-slate-700 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'}">
             ${analyticsEscapeHtml(label)}
           </button>
         `;
       }).join('');
     }
   } else {
-    if (countBadge) {
-      countBadge.textContent = records[0]._synthetic ? 'サマリーデータ' : '1 件の実績';
-      countBadge.classList.remove('hidden');
-    }
     if (tabsContainer) tabsContainer.classList.add('hidden');
   }
 
@@ -1502,9 +1486,9 @@ function switchProductivityDetailTab(index) {
   const tabBtns = document.querySelectorAll('.prod-detail-tab-btn');
   tabBtns.forEach((btn, idx) => {
     if (idx === index) {
-      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition shadow-2xs bg-indigo-600 text-white shadow-indigo-100';
+      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs bg-slate-700 text-white';
     } else {
-      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition shadow-2xs bg-white border border-gray-200 text-gray-700 hover:bg-gray-100';
+      btn.className = 'prod-detail-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition shadow-2xs bg-white border border-gray-200 text-gray-700 hover:bg-gray-100';
     }
   });
 
@@ -1512,10 +1496,10 @@ function switchProductivityDetailTab(index) {
 }
 
 function renderProductivityRecordInModal(index) {
-  const bodyEl = document.getElementById('analyticsProdModalBody');
-  const metaEl = document.getElementById('analyticsProdModalFooterMeta');
-  const openSdbLink = document.getElementById('analyticsProdModalOpenSdbLink');
-  if (!bodyEl) return;
+  const loadingEl = document.getElementById('analyticsProdModalLoading');
+  const contentEl = document.getElementById('analyticsProdModalContent');
+  if (loadingEl) loadingEl.classList.add('hidden');
+  if (contentEl) contentEl.classList.remove('hidden');
 
   const record = _currentProdDetailRecords[index];
   if (!record) return;
@@ -1523,42 +1507,56 @@ function renderProductivityRecordInModal(index) {
   const context = _currentProdDetailContext || {};
   const dayData = _currentProdDetailDayData || {};
 
-  // Compute Rate & Colors
-  const goodCount = Number(record.good_count ?? 0);
-  const manHours = Number(record.man_hours ?? 0);
-  let rateVal = null;
-  if (goodCount > 0 && manHours > 0) {
-    rateVal = Math.round(goodCount / manHours);
-  } else if (dayData.oneHrPc != null) {
-    rateVal = Math.round(dayData.oneHrPc);
-  } else if (record.cycle_time && Number(record.cycle_time) > 0) {
-    rateVal = Math.round(60 / Number(record.cycle_time));
-  }
+  // Header: Date, Title, Subtitle
+  const dateEl = document.getElementById('analyticsProdModalDate');
+  const titleEl = document.getElementById('analyticsProdModalTitle');
+  const subEl = document.getElementById('analyticsProdModalSub');
 
-  const target = context.target || 80;
-  const warning = context.warning || 50;
-
-  let rateCardBg = 'bg-gray-50 border-gray-200';
-  let rateValColor = 'text-gray-900';
-  let rateBadge = '';
-
-  if (rateVal != null) {
-    if (rateVal >= target) {
-      rateCardBg = 'bg-emerald-50/70 border-emerald-200';
-      rateValColor = 'text-emerald-700';
-      rateBadge = `<span class="inline-flex items-center rounded-md bg-emerald-100 px-1.5 py-0.5 text-3xs font-semibold text-emerald-800">目標達成</span>`;
-    } else if (rateVal >= warning) {
-      rateCardBg = 'bg-amber-50/70 border-amber-200';
-      rateValColor = 'text-amber-700';
-      rateBadge = `<span class="inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-3xs font-semibold text-amber-800">注意</span>`;
+  if (dateEl) {
+    if (record.timestamp) {
+      dateEl.textContent = new Date(record.timestamp).toLocaleString('ja-JP');
+    } else if (dayData?.dateLabel) {
+      dateEl.textContent = `${dayData.dateLabel} (Day ${dayData.day})`;
     } else {
-      rateCardBg = 'bg-rose-50/70 border-rose-200';
-      rateValColor = 'text-rose-700';
-      rateBadge = `<span class="inline-flex items-center rounded-md bg-rose-100 px-1.5 py-0.5 text-3xs font-semibold text-rose-800">警戒ライン未満</span>`;
+      dateEl.textContent = '';
     }
   }
 
-  // Extract defects (all keys not in SDB_FIXED_KEYS)
+  if (titleEl) {
+    titleEl.textContent = record.product_name || context.productName || context.machineName || '—';
+  }
+
+  if (subEl) {
+    const subParts = [record.hinban, record.kanban_id || dayData.kanban].filter(Boolean);
+    subEl.textContent = subParts.length > 0 ? subParts.join('  /  ') : '—';
+  }
+
+  // 5 KPI Cards: 良品数, 工数, CT, 1時間/pc, LH/RH
+  const goodEl = document.getElementById('analyticsProdModalGood');
+  if (goodEl) {
+    goodEl.textContent = String(record.good_count ?? dayData.pieces ?? '—');
+  }
+
+  const manHoursEl = document.getElementById('analyticsProdModalManHours');
+  if (manHoursEl) {
+    manHoursEl.textContent = record.man_hours != null ? Number(record.man_hours).toFixed(2) : (dayData.hours != null ? Number(dayData.hours).toFixed(2) : '—');
+  }
+
+  const ctEl = document.getElementById('analyticsProdModalCT');
+  if (ctEl) {
+    ctEl.textContent = record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—';
+  }
+
+  // 1時間 / pc calculation matching submittedDB
+  const pphLabelEl = document.getElementById('analyticsProdModalPiecesPerHourLabel');
+  if (pphLabelEl && typeof t === 'function') {
+    const label = t('dashboard.piecesPerHourShort');
+    if (label && label !== 'dashboard.piecesPerHourShort') {
+      pphLabelEl.textContent = label;
+    }
+  }
+
+  const pphEl = document.getElementById('analyticsProdModalPiecesPerHour');
   const SDB_FIXED_KEYS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     '工場', 'hinban', 'product_name', 'kanban_id', 'hako_iresu', 'lh_rh',
@@ -1570,213 +1568,151 @@ function renderProductivityRecordInModal(index) {
     '_synthetic'
   ]);
 
-  const defectEntries = Object.entries(record)
-    .filter(([k]) => !SDB_FIXED_KEYS.has(k))
-    .sort((a, b) => a[0].localeCompare(b[0]));
+  if (pphEl) {
+    const goodCount = Math.max(0, Number(record.good_count ?? dayData.pieces ?? 0) || 0);
+    const defectTotal = Object.entries(record)
+      .filter(([k]) => !SDB_FIXED_KEYS.has(k))
+      .reduce((sum, [, v]) => sum + (Math.max(0, Number(v ?? 0) || 0)), 0);
+    const totalCount = goodCount + defectTotal;
+    const hours = Math.max(0, Number(record.man_hours ?? dayData.hours ?? 0) || 0);
+    const ct = Math.max(0, Number(record.cycle_time ?? 0) || 0);
 
-  const totalDefects = defectEntries.reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+    let pphVal = null;
+    if (hours > 0 && totalCount > 0) {
+      pphVal = (totalCount / hours).toFixed(2);
+    } else if (ct > 0) {
+      pphVal = (60 / ct).toFixed(2);
+    } else if (dayData.oneHrPc != null) {
+      pphVal = Number(dayData.oneHrPc).toFixed(2);
+    }
 
-  // Time & break
-  const startTime = record.start_time || '—';
-  const endTime = record.end_time || '—';
-  const breakHours = record.break_time != null ? `${Number(record.break_time).toFixed(2)} h` : '—';
-  const troubleHours = record.trouble_time != null ? `${Number(record.trouble_time).toFixed(2)} h` : '—';
-  const excludedHours = record.excluded_man_hours != null ? `${Number(record.excluded_man_hours).toFixed(2)} h` : null;
-
-  // Build Body HTML
-  bodyEl.innerHTML = `
-    <!-- Top Identity Card -->
-    <div class="rounded-2xl border border-gray-100 bg-gradient-to-r from-gray-50 via-indigo-50/30 to-white p-4 shadow-2xs">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <span class="text-2xs font-semibold uppercase tracking-wider text-indigo-600">製品 / ライン情報</span>
-          <h4 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span>${analyticsEscapeHtml(record.product_name || context.productName || context.machineName || '—')}</span>
-            ${record.lh_rh ? `<span class="inline-flex items-center rounded-lg bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-800">${analyticsEscapeHtml(record.lh_rh)}</span>` : ''}
-          </h4>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-3 text-xs">
-          <div class="rounded-xl border border-gray-200/80 bg-white px-3 py-1.5 shadow-2xs">
-            <span class="text-3xs text-gray-400 block font-medium">品番 (Hinban)</span>
-            <span class="font-semibold text-gray-800">${analyticsEscapeHtml(record.hinban || '—')}</span>
-          </div>
-          <div class="rounded-xl border border-gray-200/80 bg-white px-3 py-1.5 shadow-2xs">
-            <span class="text-3xs text-gray-400 block font-medium">看板ID</span>
-            <span class="font-semibold text-gray-800">${analyticsEscapeHtml(record.kanban_id || dayData.kanban || '—')}</span>
-          </div>
-          <div class="rounded-xl border border-gray-200/80 bg-white px-3 py-1.5 shadow-2xs">
-            <span class="text-3xs text-gray-400 block font-medium">工場</span>
-            <span class="font-semibold text-gray-800">${analyticsEscapeHtml(record['工場'] || '—')}</span>
-          </div>
-          ${record.hako_iresu != null ? `
-          <div class="rounded-xl border border-gray-200/80 bg-white px-3 py-1.5 shadow-2xs">
-            <span class="text-3xs text-gray-400 block font-medium">箱入数</span>
-            <span class="font-semibold text-gray-800">${record.hako_iresu} 個/箱</span>
-          </div>` : ''}
-        </div>
-      </div>
-    </div>
-
-    <!-- 4 Primary Metric Cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <!-- 良品数 -->
-      <div class="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-2xs">
-        <span class="text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
-          <i class="ri-checkbox-circle-line"></i> 良品数
-        </span>
-        <div class="mt-2 text-2xl sm:text-3xl font-bold text-emerald-700 tabular-nums">
-          ${analyticsFormatNumber(record.good_count ?? dayData.pieces ?? 0)}
-          <span class="text-xs font-medium text-emerald-600">個</span>
-        </div>
-      </div>
-
-      <!-- 実工数 -->
-      <div class="rounded-2xl border border-blue-100 bg-blue-50/40 p-4 shadow-2xs">
-        <span class="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
-          <i class="ri-time-line"></i> 実工数
-        </span>
-        <div class="mt-2 text-2xl sm:text-3xl font-bold text-blue-700 tabular-nums">
-          ${record.man_hours != null ? Number(record.man_hours).toFixed(2) : (dayData.hours != null ? dayData.hours.toFixed(2) : '—')}
-          <span class="text-xs font-medium text-blue-600">h</span>
-        </div>
-      </div>
-
-      <!-- 出来高 / 1人h -->
-      <div class="rounded-2xl border ${rateCardBg} p-4 shadow-2xs">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold text-gray-700 flex items-center gap-1">
-            <i class="ri-speed-up-line"></i> 出来高/1人h
-          </span>
-          ${rateBadge}
-        </div>
-        <div class="mt-2 text-2xl sm:text-3xl font-bold ${rateValColor} tabular-nums">
-          ${rateVal != null ? rateVal : '—'}
-          <span class="text-xs font-medium">ヶ/1h</span>
-        </div>
-        <div class="mt-1 text-3xs text-gray-400 font-medium">目標 ${target} · 警戒 ${warning}</div>
-      </div>
-
-      <!-- サイクルタイム -->
-      <div class="rounded-2xl border border-purple-100 bg-purple-50/40 p-4 shadow-2xs">
-        <span class="text-xs font-semibold text-purple-800 flex items-center gap-1.5">
-          <i class="ri-timer-line"></i> サイクルタイム
-        </span>
-        <div class="mt-2 text-2xl sm:text-3xl font-bold text-purple-700 tabular-nums">
-          ${record.cycle_time != null ? Number(record.cycle_time).toFixed(2) : '—'}
-          <span class="text-xs font-medium text-purple-600">分/個</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 作業時間・作業者 Card -->
-    <div class="rounded-2xl border border-gray-100 bg-white p-4 shadow-2xs space-y-3">
-      <div class="flex items-center gap-2 border-b border-gray-100 pb-2.5">
-        <i class="ri-user-star-line text-indigo-600"></i>
-        <h5 class="text-xs font-bold text-gray-800 uppercase tracking-wide">作業者・時間帯情報</h5>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div class="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-1.5">
-          <div class="flex items-center justify-between">
-            <span class="text-gray-500 font-medium">作業者①:</span>
-            <span class="font-bold text-gray-900">${analyticsEscapeHtml(record.operator1 || context.operatorName || '—')}</span>
-          </div>
-          ${record.operator2 ? `
-          <div class="flex items-center justify-between border-t border-gray-200/60 pt-1">
-            <span class="text-gray-500 font-medium">作業者②:</span>
-            <span class="font-bold text-gray-900">${analyticsEscapeHtml(record.operator2)}</span>
-          </div>` : ''}
-        </div>
-
-        <div class="rounded-xl border border-gray-100 bg-gray-50/50 p-3 space-y-1.5">
-          <div class="flex items-center justify-between">
-            <span class="text-gray-500 font-medium">稼働時間帯:</span>
-            <span class="font-semibold text-gray-800 font-mono">${startTime} 〜 ${endTime}</span>
-          </div>
-          <div class="flex items-center justify-between border-t border-gray-200/60 pt-1 text-2xs">
-            <span class="text-gray-500 font-medium">休憩 / トラブル:</span>
-            <span class="text-gray-700 font-medium">休憩 <strong class="font-semibold text-gray-900">${breakHours}</strong> · 停止 <strong class="font-semibold text-rose-600">${troubleHours}</strong>${excludedHours ? ` · 除外 ${excludedHours}` : ''}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 不良内訳 (Defects Breakdown) -->
-    <div class="rounded-2xl border border-gray-100 bg-white p-4 shadow-2xs space-y-3">
-      <div class="flex items-center justify-between border-b border-gray-100 pb-2.5">
-        <div class="flex items-center gap-2">
-          <i class="ri-alert-line text-amber-500"></i>
-          <h5 class="text-xs font-bold text-gray-800 uppercase tracking-wide">不良内訳 (Defects)</h5>
-        </div>
-        <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${totalDefects > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}">
-          合計: ${totalDefects} 件
-        </span>
-      </div>
-
-      ${defectEntries.length === 0 || totalDefects === 0 ? `
-        <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 flex items-center gap-3 text-xs text-emerald-800 font-medium">
-          <i class="ri-checkbox-circle-fill text-emerald-600 text-lg"></i>
-          <span>不良なし (0件が記録されています)</span>
-        </div>
-      ` : `
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
-          ${defectEntries.map(([key, val]) => {
-            const count = Number(val || 0);
-            const hasDefect = count > 0;
-            return `
-              <div class="rounded-xl border p-2.5 transition ${hasDefect ? 'border-rose-200 bg-rose-50/70 shadow-2xs' : 'border-gray-100 bg-gray-50/40 opacity-60'}">
-                <div class="truncate text-3xs font-medium ${hasDefect ? 'text-rose-700' : 'text-gray-400'}" title="${analyticsEscapeHtml(key)}">${analyticsEscapeHtml(key)}</div>
-                <div class="text-xl font-bold tabular-nums mt-0.5 ${hasDefect ? 'text-rose-700' : 'text-gray-300'}">${count}</div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `}
-    </div>
-
-    <!-- 備考・停止理由 (Remarks & Stoppage) -->
-    ${(record.remarks || record.other_description) ? `
-      <div class="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-4 shadow-2xs space-y-2">
-        <div class="flex items-center gap-1.5 text-xs font-bold text-amber-800">
-          <i class="ri-information-line"></i>
-          <span>理由・備考 (Remarks)</span>
-        </div>
-        ${record.remarks ? `<p class="text-xs font-medium text-amber-950 whitespace-pre-wrap bg-white/80 rounded-xl p-3 border border-amber-200/60">${analyticsEscapeHtml(record.remarks)}</p>` : ''}
-        ${record.other_description ? `
-          <div class="text-xs text-amber-900 pt-1">
-            <span class="font-semibold text-amber-800">その他詳細:</span> ${analyticsEscapeHtml(record.other_description)}
-          </div>` : ''}
-      </div>
-    ` : ''}
-  `;
-
-  // Update Footer Meta
-  if (metaEl) {
-    const recordIdStr = record._id ? String(record._id) : (record._synthetic ? 'Synthetic Summary' : '—');
-    const timestampStr = record.timestamp ? new Date(record.timestamp).toLocaleString('ja-JP') : (record.date_year ? `${record.date_year}/${record.date_month}/${record.date_day}` : '—');
-    const sourceStr = record.submitted_from || 'Tablet';
-
-    metaEl.innerHTML = `
-      <span>ID: <strong class="text-gray-600 font-mono">${recordIdStr.slice(-8)}</strong></span>
-      <span>·</span>
-      <span>登録日時: <strong class="text-gray-600">${timestampStr}</strong></span>
-      <span>·</span>
-      <span>端末: <strong class="text-gray-600">${analyticsEscapeHtml(sourceStr)}</strong></span>
-    `;
+    pphEl.textContent = pphVal != null ? pphVal : '—';
   }
 
-  // Update direct link to submittedDB
-  if (openSdbLink) {
-    openSdbLink.target = '_blank';
-    openSdbLink.rel = 'noopener';
-    if (record._id) {
-      openSdbLink.href = `submittedDB.html?search=${encodeURIComponent(String(record._id))}`;
-    } else if (context.operatorName) {
-      openSdbLink.href = `submittedDB.html?operator=${encodeURIComponent(context.operatorName)}`;
+  const lhRhEl = document.getElementById('analyticsProdModalLhRh');
+  if (lhRhEl) {
+    lhRhEl.textContent = record.lh_rh || '—';
+  }
+
+  // Operators + Time
+  const op1El = document.getElementById('analyticsProdModalOp1');
+  if (op1El) {
+    op1El.textContent = record.operator1 || context.operatorName || '—';
+  }
+  const op2El = document.getElementById('analyticsProdModalOp2');
+  if (op2El) {
+    op2El.textContent = record.operator2 || '';
+  }
+
+  const startEl = document.getElementById('analyticsProdModalStart');
+  if (startEl) startEl.textContent = record.start_time || '—';
+
+  const endEl = document.getElementById('analyticsProdModalEnd');
+  if (endEl) endEl.textContent = record.end_time || '—';
+
+  const breakEl = document.getElementById('analyticsProdModalBreak');
+  if (breakEl) {
+    breakEl.textContent = record.break_time != null ? `${record.break_time} h` : '—';
+  }
+
+  const troubleEl = document.getElementById('analyticsProdModalTrouble');
+  if (troubleEl) {
+    troubleEl.textContent = record.trouble_time != null ? `${record.trouble_time} h` : '—';
+  }
+
+  // Defects Section
+  const defectEntries = Object.entries(record)
+    .filter(([key]) => !SDB_FIXED_KEYS.has(key))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  const defectSection = document.getElementById('analyticsProdModalDefectsSection');
+  const defectsEl = document.getElementById('analyticsProdModalDefects');
+  if (defectSection && defectsEl) {
+    if (defectEntries.length === 0) {
+      defectSection.classList.add('hidden');
+      defectsEl.innerHTML = '';
     } else {
-      openSdbLink.href = 'submittedDB.html';
+      defectSection.classList.remove('hidden');
+      defectsEl.innerHTML = defectEntries.map(([key, value]) => {
+        const defectCount = Number(value ?? 0);
+        const hasDefect = defectCount > 0;
+        return `<div class="rounded-xl border p-3 text-center ${hasDefect ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}">
+          <p class="text-xs font-medium ${hasDefect ? 'text-red-700' : 'text-gray-400'} mb-1 truncate" title="${analyticsEscapeHtml(key)}">${analyticsEscapeHtml(key)}</p>
+          <p class="text-2xl font-bold ${hasDefect ? 'text-red-600' : 'text-gray-300'}">${defectCount}</p>
+        </div>`;
+      }).join('');
     }
+  }
+
+  // Remarks Section
+  const remarksSection = document.getElementById('analyticsProdModalRemarksSection');
+  const remarksEl = document.getElementById('analyticsProdModalRemarks');
+  if (remarksSection && remarksEl) {
+    if (record.remarks) {
+      remarksSection.classList.remove('hidden');
+      remarksEl.textContent = record.remarks;
+    } else {
+      remarksSection.classList.add('hidden');
+    }
+  }
+
+  // Other Details Section
+  const otherSection = document.getElementById('analyticsProdModalOtherSection');
+  const otherEl = document.getElementById('analyticsProdModalOther');
+  if (otherSection && otherEl) {
+    if (record.other_description) {
+      otherSection.classList.remove('hidden');
+      otherEl.textContent = record.other_description;
+    } else {
+      otherSection.classList.add('hidden');
+    }
+  }
+
+  // Footer: 工場 & 送信元
+  const fromEl = document.getElementById('analyticsProdModalFrom');
+  if (fromEl) {
+    const footerBits = [];
+    if (record.工場) footerBits.push(`工場: ${record.工場}`);
+    if (record.submitted_from) footerBits.push(`送信元: ${record.submitted_from}`);
+    fromEl.textContent = footerBits.join('  |  ');
+  }
+}
+
+function handleAnalyticsProdModalEdit() {
+  const record = _currentProdDetailRecords?.[_currentProdDetailActiveIndex];
+  closeAnalyticsProductivityRecordModal();
+
+  const searchParams = new URLSearchParams();
+  if (record?.hinban) searchParams.set('hinban', record.hinban);
+  if (record?.kanban_id) searchParams.set('kanbanId', record.kanban_id);
+  if (record?.product_name) searchParams.set('productName', record.product_name);
+  if (record?.operator1) searchParams.set('operator', record.operator1);
+
+  if (typeof loadPage === 'function') {
+    loadPage('submitted-db');
+    setTimeout(() => {
+      if (record?.hinban) {
+        const el = document.getElementById('sdbFilterHinban');
+        if (el) el.value = record.hinban;
+      }
+      if (record?.kanban_id) {
+        const el = document.getElementById('sdbFilterKanbanId');
+        if (el) el.value = record.kanban_id;
+      }
+      if (record?.product_name) {
+        const el = document.getElementById('sdbFilterProductName');
+        if (el) el.value = record.product_name;
+      }
+      if (record?.operator1) {
+        const el = document.getElementById('sdbFilterOperator');
+        if (el) el.value = record.operator1;
+      }
+      if (typeof loadSubmittedDB === 'function') {
+        loadSubmittedDB();
+      }
+    }, 300);
+  } else {
+    window.location.href = `/submittedDB.html?${searchParams.toString()}`;
   }
 }
 
@@ -6317,3 +6253,4 @@ window.openProductivitySubmittedDetail = openProductivitySubmittedDetail;
 window.closeAnalyticsProductivityRecordModal = closeAnalyticsProductivityRecordModal;
 window.handleProductivityCellClick = handleProductivityCellClick;
 window.switchProductivityDetailTab = switchProductivityDetailTab;
+window.handleAnalyticsProdModalEdit = handleAnalyticsProdModalEdit;
