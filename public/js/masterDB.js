@@ -349,6 +349,16 @@ window.addEventListener('languageChanged', () => {
   if (currentSubTab === 'history') {
     loadActivityHistory(currentTab);
   }
+  // Refresh trouble modal title if open
+  const troubleModal = document.getElementById('troubleGroupModal');
+  if (troubleModal && !troubleModal.classList.contains('hidden')) {
+    const title = document.getElementById('troubleGroupModalTitle');
+    if (title) {
+      title.textContent = _editingTroubleGroup
+        ? `${t('masterDB.editTroubleGroupTitle')}: ${_editingTroubleGroup.groupName}`
+        : t('masterDB.createTroubleGroupTitle');
+    }
+  }
 });
 
 // ====================
@@ -5477,7 +5487,7 @@ async function loadTroubleGroups() {
   const dbName = currentUser.dbName || "KSG";
   const container = document.getElementById('troubleTableContainer');
   if (!container) return;
-  container.innerHTML = '<p class="text-gray-500">読み込み中...</p>';
+  container.innerHTML = `<p class="text-gray-500">${t('common.loading')}</p>`;
   try {
     const res = await fetch(BASE_URL + "getTroubleGroups", {
       method: "POST",
@@ -5488,7 +5498,7 @@ async function loadTroubleGroups() {
     renderTroubleGroupsTable(allTroubleGroups);
   } catch (e) {
     console.error("Failed to load troubleGroups:", e);
-    container.innerHTML = '<p class="text-red-500">読み込みエラー</p>';
+    container.innerHTML = `<p class="text-red-500">${t('masterDB.troubleLoadError')}</p>`;
   }
 }
 
@@ -5496,35 +5506,38 @@ function renderTroubleGroupsTable(groups) {
   const container = document.getElementById('troubleTableContainer');
   if (!container) return;
 
+  const isEn = typeof getCurrentLanguage === 'function' && getCurrentLanguage() === 'en';
+  const dateLocale = isEn ? 'en-US' : 'ja-JP';
+
   const tableHTML = `
     <div class="flex justify-between items-center mb-4">
       <div class="flex gap-3">
         <button onclick="showTroubleGroupModal()" class="inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 transition shadow-2xs cursor-pointer">
-          <i class="ri-add-line"></i>新規トラブルグループ作成
+          <i class="ri-add-line"></i>${t('masterDB.createTroubleGroup')}
         </button>
         <button id="deleteTroubleGroupsBtn" class="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition shadow-2xs opacity-50 cursor-not-allowed cursor-pointer" disabled onclick="confirmDeleteTroubleGroups()">
-          <i class="ri-delete-bin-line"></i>削除 (<span id="troubleGroupSelectedCount">0</span>)
+          <i class="ri-delete-bin-line"></i>${t('common.delete')} (<span id="troubleGroupSelectedCount">0</span>)
         </button>
       </div>
-      <div class="text-xs font-medium text-gray-500 tabular-nums">合計: <span class="text-xs font-semibold text-gray-900 tabular-nums">${groups.length}</span> グループ</div>
+      <div class="text-xs font-medium text-gray-500 tabular-nums">${t('common.total')}: <span class="text-xs font-semibold text-gray-900 tabular-nums">${groups.length}</span> ${t('masterDB.troubleGroupsCount')}</div>
     </div>
     <div class="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-xs">
       <table class="min-w-full divide-y divide-gray-100 text-xs">
         <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600">
           <tr>
             <th class="px-3 py-2 w-10 text-center select-none"><input type="checkbox" id="selectAllTroubleGroups" onchange="toggleSelectAllTroubleGroups()" class="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
-            <th class="px-3 py-2 select-none whitespace-nowrap">グループ名</th>
-            <th class="px-3 py-2 select-none whitespace-nowrap">トラブル項目数</th>
-            <th class="px-3 py-2 select-none">トラブル一覧プレビュー</th>
-            <th class="px-3 py-2 select-none">割り当てタブレット</th>
-            <th class="px-3 py-2 select-none whitespace-nowrap">作成者</th>
-            <th class="px-3 py-2 select-none whitespace-nowrap">作成日時</th>
-            <th class="px-3 py-2 text-right select-none whitespace-nowrap">操作</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.troubleGroupName')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.troubleItemsCount')}</th>
+            <th class="px-3 py-2 select-none">${t('masterDB.troubleItemsPreview')}</th>
+            <th class="px-3 py-2 select-none">${t('masterDB.troubleAssignedTablets')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.createdBy')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.createdAt')}</th>
+            <th class="px-3 py-2 text-right select-none whitespace-nowrap">${t('common.actions')}</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
           ${groups.length === 0 ? `
-            <tr><td colspan="8" class="px-3 py-8 text-center text-xs font-medium text-gray-400">トラブルグループがありません。「新規トラブルグループ作成」から作成してください。</td></tr>
+            <tr><td colspan="8" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('masterDB.noTroubleGroupsFound')}</td></tr>
           ` : groups.map(g => {
             const items = g.items || [];
             const tablets = g.assignedTablets || [];
@@ -5532,7 +5545,7 @@ function renderTroubleGroupsTable(groups) {
             <tr class="hover:bg-gray-50/70 transition">
               <td class="px-3 py-2 text-center"><input type="checkbox" class="troubleGroupCheckbox w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" value="${g._id}" onchange="updateTroubleGroupSelectCount()"></td>
               <td class="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">${escapeHtml(g.groupName || '')}</td>
-              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${items.length} 項目</td>
+              <td class="px-3 py-2 tabular-nums text-gray-600 whitespace-nowrap">${items.length} ${t('masterDB.itemsUnit')}</td>
               <td class="px-3 py-2">
                 <div class="flex flex-wrap gap-1 items-center max-w-md">
                   ${items.slice(0, 5).map((item, idx) => `
@@ -5545,7 +5558,7 @@ function renderTroubleGroupsTable(groups) {
               </td>
               <td class="px-3 py-2">
                 <div class="flex flex-wrap gap-1 items-center max-w-xs">
-                  ${tablets.length === 0 ? `<span class="text-2xs text-gray-400 italic">未割り当て</span>` : tablets.map(tab => `
+                  ${tablets.length === 0 ? `<span class="text-2xs text-gray-400 italic">${t('masterDB.unassigned')}</span>` : tablets.map(tab => `
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-2xs border border-blue-200">
                       <i class="ri-tablet-line text-3xs"></i>${escapeHtml(tab)}
                     </span>
@@ -5553,10 +5566,10 @@ function renderTroubleGroupsTable(groups) {
                 </div>
               </td>
               <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(g.createdBy || '-')}</td>
-              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
+              <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString(dateLocale) : '-'}</td>
               <td class="px-3 py-2 text-right whitespace-nowrap">
                 <button onclick="showTroubleGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
-                  <i class="ri-edit-line"></i>編集
+                  <i class="ri-edit-line"></i>${t('common.edit')}
                 </button>
               </td>
             </tr>
@@ -5595,7 +5608,8 @@ async function confirmDeleteTroubleGroups() {
   const checked = document.querySelectorAll('.troubleGroupCheckbox:checked');
   const ids = Array.from(checked).map(cb => cb.value);
   if (ids.length === 0) return;
-  if (!confirm(`選択した ${ids.length} 件のトラブルグループを削除しますか？`)) return;
+  const confirmMsg = (t('masterDB.deleteTroubleGroupsConfirm') || 'Are you sure you want to delete the selected {count} trouble group(s)?').replace('{count}', ids.length);
+  if (!confirm(confirmMsg)) return;
 
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
@@ -5608,10 +5622,11 @@ async function confirmDeleteTroubleGroups() {
       body: JSON.stringify({ groupIds: ids, dbName, username })
     });
     const result = await res.json();
-    alert(`${result.deletedCount} 件削除しました`);
+    const successMsg = (t('masterDB.troubleGroupsDeletedSuccess') || '{count} trouble group(s) deleted successfully').replace('{count}', result.deletedCount);
+    alert(successMsg);
     loadTroubleGroups();
   } catch (e) {
-    alert("削除エラー: " + e.message);
+    alert((t('masterDB.troubleDeleteError') || 'Delete error') + ": " + e.message);
   }
 }
 
@@ -5623,7 +5638,7 @@ async function showTroubleGroupModal(group = null) {
   const itemsList = document.getElementById('troubleItemsList');
   const emptyMsg = document.getElementById('troubleItemsEmpty');
 
-  title.textContent = group ? `トラブルグループ編集: ${group.groupName}` : 'トラブルグループ新規作成';
+  title.textContent = group ? `${t('masterDB.editTroubleGroupTitle')}: ${group.groupName}` : t('masterDB.createTroubleGroupTitle');
   nameInput.value = group ? group.groupName : '';
   itemsList.innerHTML = '';
 
@@ -5657,6 +5672,9 @@ async function showTroubleGroupModal(group = null) {
   }
 
   renderTroubleTabletsCheckboxes(group ? (group.assignedTablets || []) : []);
+  if (typeof applyTranslations === 'function') {
+    applyTranslations(modal);
+  }
   modal.classList.remove('hidden');
 }
 
@@ -5676,15 +5694,16 @@ function addTroubleItemRow(item = null) {
   row.className = 'flex items-center gap-2 trouble-item-row p-1.5 bg-gray-50/80 border border-gray-200 rounded-xl transition';
   row.innerHTML = `
     <span class="trouble-order-badge flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-800 text-xs font-bold flex items-center justify-center select-none tabular-nums">1</span>
-    <input type="text" placeholder="トラブル名（例: machine problem, 機械故障, 不良多発）" value="${escapeHtml(name)}"
-           class="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl trouble-item-name text-xs bg-white focus:border-indigo-500 focus:outline-none placeholder:text-gray-400 shadow-2xs" />
-    <button type="button" onclick="moveTroubleItem(this, -1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="上へ移動">
+    <input type="text" placeholder="${t('masterDB.troubleItemPlaceholder')}" value="${escapeHtml(name)}"
+           class="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl trouble-item-name text-xs bg-white focus:border-indigo-500 focus:outline-none placeholder:text-gray-400 shadow-2xs"
+           data-i18n-placeholder="masterDB.troubleItemPlaceholder" />
+    <button type="button" onclick="moveTroubleItem(this, -1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="${t('masterDB.moveUp')}" data-i18n-title="masterDB.moveUp">
       <i class="ri-arrow-up-s-line text-sm"></i>
     </button>
-    <button type="button" onclick="moveTroubleItem(this, 1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="下へ移動">
+    <button type="button" onclick="moveTroubleItem(this, 1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-lg transition cursor-pointer flex-shrink-0" title="${t('masterDB.moveDown')}" data-i18n-title="masterDB.moveDown">
       <i class="ri-arrow-down-s-line text-sm"></i>
     </button>
-    <button type="button" onclick="removeTroubleItem(this)" class="w-7 h-7 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition flex-shrink-0 cursor-pointer" title="削除">
+    <button type="button" onclick="removeTroubleItem(this)" class="w-7 h-7 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition flex-shrink-0 cursor-pointer" title="${t('common.delete')}" data-i18n-title="common.delete">
       <i class="ri-delete-bin-line text-sm"></i>
     </button>
   `;
@@ -5738,7 +5757,7 @@ function renderTroubleTabletsCheckboxes(assigned = []) {
   const assignedSet = new Set(assigned);
 
   if (!allTablets || allTablets.length === 0) {
-    container.innerHTML = '<p class="col-span-2 text-gray-400 text-xs text-center py-2">タブレットが見つかりません</p>';
+    container.innerHTML = `<p class="col-span-2 text-gray-400 text-xs text-center py-2">${t('masterDB.noTabletsFound')}</p>`;
     return;
   }
 
@@ -5839,7 +5858,7 @@ async function saveTroubleGroup() {
   const username = currentUser.username || "admin";
 
   const groupName = document.getElementById('troubleGroupName').value.trim();
-  if (!groupName) { alert('グループ名を入力してください'); return; }
+  if (!groupName) { alert(t('masterDB.troubleGroupNameRequired')); return; }
 
   const items = [];
   document.querySelectorAll('#troubleItemsList .trouble-item-row').forEach(row => {
@@ -5848,7 +5867,7 @@ async function saveTroubleGroup() {
   });
 
   if (items.length === 0) {
-    alert('少なくとも1つのトラブル項目を追加してください');
+    alert(t('masterDB.troubleItemsRequired'));
     return;
   }
 
@@ -5865,7 +5884,7 @@ async function saveTroubleGroup() {
         body: JSON.stringify({ groupId: _editingTroubleGroup._id, dbName, username, groupName, items, assignedTablets })
       });
       if (!res.ok) throw new Error("Update failed");
-      alert('トラブルグループを更新しました');
+      alert(t('masterDB.troubleGroupUpdatedSuccess'));
     } else {
       const res = await fetch(BASE_URL + "createTroubleGroup", {
         method: "POST",
@@ -5873,12 +5892,12 @@ async function saveTroubleGroup() {
         body: JSON.stringify({ dbName, username, groupName, items, assignedTablets })
       });
       if (!res.ok) throw new Error("Create failed");
-      alert('トラブルグループを作成しました');
+      alert(t('masterDB.troubleGroupCreatedSuccess'));
     }
     closeTroubleGroupModal();
     loadTroubleGroups();
   } catch (e) {
-    alert('保存エラー: ' + e.message);
+    alert((t('masterDB.troubleSaveError') || 'Save error') + ': ' + e.message);
   }
 }
 

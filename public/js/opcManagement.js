@@ -36,8 +36,21 @@ if (typeof window.opcManagementState === 'undefined') {
         currentConversionData: null,
         listenersBound: false,
         scanningInProgress: false,
-        scanTimeout: null
+        scanTimeout: null,
+        realTimeSortField: '',
+        realTimeSortOrder: 'asc',
+        variablesSortField: '',
+        variablesSortOrder: 'asc'
     };
+} else {
+    if (typeof window.opcManagementState.realTimeSortField === 'undefined') {
+        window.opcManagementState.realTimeSortField = '';
+        window.opcManagementState.realTimeSortOrder = 'asc';
+    }
+    if (typeof window.opcManagementState.variablesSortField === 'undefined') {
+        window.opcManagementState.variablesSortField = '';
+        window.opcManagementState.variablesSortOrder = 'asc';
+    }
 }
 
 // Shorthand references for cleaner code
@@ -51,6 +64,7 @@ function initOpcState() {
     selectedVariablesForCombine = window.opcManagementState.selectedVariablesForCombine;
     currentConversionData = window.opcManagementState.currentConversionData;
 }
+initOpcState();
 
 // Get company from localStorage
 //const COMPANY = localStorage.getItem('company') || 'sasaki';
@@ -448,7 +462,7 @@ function handleDiscoveredNodesUpdate(data) {
 function renderRealTimeData(data) {
     const container = document.getElementById('opc-raw-data-container');
     
-    if (!data.datapoints || data.datapoints.length === 0) {
+    if (!data || !data.datapoints || data.datapoints.length === 0) {
         container.innerHTML = `
             <div class="text-center py-12 text-gray-500">
                 <i class="ri-inbox-line text-4xl mb-3 text-gray-400"></i>
@@ -457,18 +471,85 @@ function renderRealTimeData(data) {
         `;
         return;
     }
+
+    const headers = [
+        { key: 'name', label: t('opcManagement.variableName') },
+        { key: 'opcNodeId', label: t('opcManagement.opcNodeId') },
+        { key: 'type', label: t('opcManagement.type') },
+        { key: 'value', label: t('opcManagement.currentValue') },
+        { key: 'quality', label: t('opcManagement.quality') },
+        { key: 'timestamp', label: t('opcManagement.lastUpdated') }
+    ];
+
+    let datapoints = [...data.datapoints];
+    if (window.opcManagementState.realTimeSortField) {
+        const field = window.opcManagementState.realTimeSortField;
+        const order = window.opcManagementState.realTimeSortOrder;
+
+        datapoints.sort((a, b) => {
+            let res = 0;
+            if (field === 'name') {
+                const nameA = a.name || a.opcNodeId || '';
+                const nameB = b.name || b.opcNodeId || '';
+                res = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'opcNodeId') {
+                const nodeA = a.opcNodeId || '';
+                const nodeB = b.opcNodeId || '';
+                res = nodeA.localeCompare(nodeB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'type') {
+                const typeA = Array.isArray(a.value) ? 'Array' : 'Single';
+                const typeB = Array.isArray(b.value) ? 'Array' : 'Single';
+                res = typeA.localeCompare(typeB);
+            } else if (field === 'value') {
+                const isArrayA = Array.isArray(a.value);
+                const isArrayB = Array.isArray(b.value);
+                if (isArrayA && isArrayB) {
+                    res = a.value.length - b.value.length;
+                } else if (isArrayA) {
+                    res = 1;
+                } else if (isArrayB) {
+                    res = -1;
+                } else {
+                    const numA = Number(a.value);
+                    const numB = Number(b.value);
+                    if (!isNaN(numA) && !isNaN(numB) && a.value !== null && b.value !== null && a.value !== '' && b.value !== '') {
+                        res = numA - numB;
+                    } else {
+                        res = String(a.value ?? '').localeCompare(String(b.value ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+                    }
+                }
+            } else if (field === 'quality') {
+                const qA = a.quality || t('opcManagement.unknown');
+                const qB = b.quality || t('opcManagement.unknown');
+                res = qA.localeCompare(qB);
+            } else if (field === 'timestamp') {
+                const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+                res = timeA - timeB;
+            }
+            return order === 'asc' ? res : -res;
+        });
+    }
     
     let html = `
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-100 text-xs">
                 <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">
                     <tr>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.variableName')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.opcNodeId')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.type')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.currentValue')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.quality')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.lastUpdated')}</th>
+                        ${headers.map(h => {
+                            const isSorted = window.opcManagementState.realTimeSortField === h.key;
+                            const sortIcon = isSorted 
+                                ? (window.opcManagementState.realTimeSortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600')
+                                : 'ri-arrow-up-down-line text-gray-400';
+                            return `
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="handleRealTimeSort('${h.key}')">
+                                    <div class="flex items-center gap-1">
+                                        <span>${h.label}</span>
+                                        <i class="${sortIcon}"></i>
+                                    </div>
+                                </th>
+                            `;
+                        }).join('')}
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50 bg-white text-gray-700">
@@ -476,7 +557,7 @@ function renderRealTimeData(data) {
     
     const now = new Date();
     
-    data.datapoints.forEach(dp => {
+    datapoints.forEach(dp => {
         const isArray = Array.isArray(dp.value);
         const displayValue = isArray ? `[${dp.value.length} ${t('common.items')}]` : dp.value;
         const dpDataStr = JSON.stringify(dp).replace(/"/g, '&quot;');
@@ -566,6 +647,19 @@ function renderRealTimeData(data) {
     
     container.innerHTML = html;
 }
+
+window.handleRealTimeSort = function(field) {
+    if (!window.opcManagementState) return;
+    if (window.opcManagementState.realTimeSortField === field) {
+        window.opcManagementState.realTimeSortOrder = window.opcManagementState.realTimeSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.opcManagementState.realTimeSortField = field;
+        window.opcManagementState.realTimeSortOrder = 'asc';
+    }
+    if (window.opcManagementState.rawDataCache) {
+        renderRealTimeData(window.opcManagementState.rawDataCache);
+    }
+};
 
 // Global variable to track last viewed datapoint for modal flow
 let lastViewedDatapoint = null;
@@ -995,6 +1089,9 @@ async function loadVariables() {
         const data = await response.json();
         
         variablesCache = data.conversions || [];
+        if (window.opcManagementState) {
+            window.opcManagementState.variablesCache = variablesCache;
+        }
         
         console.log('📊 Loaded variables count:', variablesCache.length);
         
@@ -1015,18 +1112,32 @@ async function loadVariables() {
 }
 
 // Render variables in right panel
-function renderVariables() {
+function renderVariables(customVars = null) {
     const container = document.getElementById('opc-variables-container');
     if (!container) return;
     
-    let variablesToRender = variablesCache;
-    if (currentRaspberryId) {
-        variablesToRender = variablesCache.filter(variable => {
-            if (variable.raspberryId === currentRaspberryId) return true;
+    // Resolve base variables: prefer customVars if explicitly passed, otherwise variablesCache, then window.opcManagementState.variablesCache
+    let baseVars = [];
+    if (Array.isArray(customVars) && customVars.length > 0) {
+        baseVars = customVars;
+    } else if (Array.isArray(variablesCache) && variablesCache.length > 0) {
+        baseVars = variablesCache;
+    } else if (window.opcManagementState && Array.isArray(window.opcManagementState.variablesCache) && window.opcManagementState.variablesCache.length > 0) {
+        baseVars = window.opcManagementState.variablesCache;
+    } else if (Array.isArray(variablesCache)) {
+        baseVars = variablesCache;
+    }
+
+    let variablesToRender = [...baseVars];
+    const activeDeviceId = currentRaspberryId || (window.opcManagementState && window.opcManagementState.currentRaspberryId) || document.getElementById('opc-raspberry-filter')?.value || '';
+    
+    if (activeDeviceId) {
+        variablesToRender = variablesToRender.filter(variable => {
+            if (variable.raspberryId === activeDeviceId) return true;
             if (variable.sourceType === 'combined' && Array.isArray(variable.sourceVariables)) {
                 return variable.sourceVariables.some(sourceVarName => {
-                    const sourceVar = variablesCache.find(v => v.variableName === sourceVarName);
-                    return sourceVar && sourceVar.raspberryId === currentRaspberryId;
+                    const sourceVar = baseVars.find(v => v.variableName === sourceVarName);
+                    return sourceVar && sourceVar.raspberryId === activeDeviceId;
                 });
             }
             return false;
@@ -1043,6 +1154,41 @@ function renderVariables() {
         `;
         return;
     }
+
+    const headers = [
+        { key: 'variableName', label: t('opcManagement.variableName') },
+        { key: 'currentValue', label: t('opcManagement.currentValue') },
+        { key: 'status', label: t('opcManagement.status') }
+    ];
+
+    if (window.opcManagementState && window.opcManagementState.variablesSortField) {
+        const field = window.opcManagementState.variablesSortField;
+        const order = window.opcManagementState.variablesSortOrder;
+        
+        variablesToRender.sort((a, b) => {
+            let res = 0;
+            if (field === 'variableName') {
+                const nameA = a.variableName || '';
+                const nameB = b.variableName || '';
+                res = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (field === 'currentValue') {
+                const valA = a.currentValue !== undefined ? a.currentValue : '';
+                const valB = b.currentValue !== undefined ? b.currentValue : '';
+                const numA = Number(valA);
+                const numB = Number(valB);
+                if (!isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '') {
+                    res = numA - numB;
+                } else {
+                    res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+                }
+            } else if (field === 'status') {
+                const qA = a.quality || t('opcManagement.unknown');
+                const qB = b.quality || t('opcManagement.unknown');
+                res = qA.localeCompare(qB);
+            }
+            return order === 'asc' ? res : -res;
+        });
+    }
     
     const now = new Date();
     
@@ -1051,9 +1197,20 @@ function renderVariables() {
             <table class="min-w-full divide-y divide-gray-100 text-xs">
                 <thead class="bg-gray-50 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">
                     <tr>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.variableName')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.currentValue')}</th>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap">${t('opcManagement.status')}</th>
+                        ${headers.map(h => {
+                            const isSorted = window.opcManagementState && window.opcManagementState.variablesSortField === h.key;
+                            const sortIcon = isSorted 
+                                ? (window.opcManagementState.variablesSortOrder === 'asc' ? 'ri-sort-asc text-indigo-600' : 'ri-sort-desc text-indigo-600')
+                                : 'ri-arrow-up-down-line text-gray-400';
+                            return `
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 border-b border-gray-100 cursor-pointer hover:bg-gray-100/80 transition select-none whitespace-nowrap" onclick="handleVariablesSort('${h.key}')">
+                                    <div class="flex items-center gap-1">
+                                        <span>${h.label}</span>
+                                        <i class="${sortIcon}"></i>
+                                    </div>
+                                </th>
+                            `;
+                        }).join('')}
                         <th class="px-3 py-2 text-center text-xs font-semibold text-gray-600 border-b border-gray-100 select-none whitespace-nowrap w-24">${t('opcManagement.actions')}</th>
                     </tr>
                 </thead>
@@ -1069,8 +1226,12 @@ function renderVariables() {
         let quality = variable.quality || t('opcManagement.unknown');
         let dataTimestamp = variable.timestamp || null;
         
-        if (variable.raspberryId && allDevicesDataCache[variable.raspberryId]) {
-            const deviceCache = allDevicesDataCache[variable.raspberryId];
+        const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+            ? allDevicesDataCache 
+            : (window.opcManagementState?.allDevicesDataCache || {});
+            
+        if (variable.raspberryId && devicesCache[variable.raspberryId]) {
+            const deviceCache = devicesCache[variable.raspberryId];
             const deviceInfo = deviceCache.device;
             deviceDisplay = deviceInfo ? (deviceInfo.device_name || variable.raspberryId) : variable.raspberryId;
             
@@ -1197,12 +1358,26 @@ function renderVariables() {
     container.innerHTML = html;
 }
 
+window.handleVariablesSort = function(field) {
+    if (!window.opcManagementState) return;
+    if (window.opcManagementState.variablesSortField === field) {
+        window.opcManagementState.variablesSortOrder = window.opcManagementState.variablesSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.opcManagementState.variablesSortField = field;
+        window.opcManagementState.variablesSortOrder = 'asc';
+    }
+    renderVariables();
+};
+
 // Update variable values based on all devices data
 function updateVariableValues() {
     // Pass 1: Compute single/array variable values first
     variablesCache.forEach(variable => {
         if (variable.sourceType !== 'combined') {
-            const deviceData = allDevicesDataCache[variable.raspberryId];
+            const devicesCache = (allDevicesDataCache && typeof allDevicesDataCache === 'object') 
+                ? allDevicesDataCache 
+                : (window.opcManagementState?.allDevicesDataCache || {});
+            const deviceData = devicesCache[variable.raspberryId];
             if (!deviceData || !deviceData.datapoints) {
                 return; // Skip if device data not loaded yet
             }
