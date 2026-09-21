@@ -2976,7 +2976,10 @@ async function sendData() {
       開始時間: startTimeValue,
       終了時間: endTimeInput?.value || '',
       休憩時間: totalBreakHours || 0,
-      trouble_time: totalTroubleMinutes || 0,
+      // trouble_time is stored in decimal HOURS, matching 休憩時間 / 工数.
+      // trouble_details keeps the per-reason breakdown in minutes, so derive the
+      // hours from it to guarantee trouble_time === sum(trouble_details) / 60.
+      trouble_time: parseFloat(((totalTroubleMinutes || 0) / 60).toFixed(2)),
       trouble_details: currentTroubleDetails || {},
       機械トラブル時間: totalTroubleHours || 0,
       備考: document.getElementById('remarks')?.textContent || '',

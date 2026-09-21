@@ -209,7 +209,8 @@ In practice, this means the server is notified when the OPC UA server emits a da
 | `cycle_time` | Minutes per piece |
 | `[defect name]` | Dynamic defect counts (Japanese field names) |
 | `start_time`, `end_time` | Work period |
-| `break_time`, `trouble_time` | Deducted hours |
+| `break_time`, `trouble_time` | Deducted hours (decimal) |
+| `trouble_details` | Per-reason trouble breakdown, in **minutes** (`trouble_time` = its sum / 60) |
 | `submitted_from` | Logged-in tablet name (falls back to `"tablet"` if unavailable) |
 
 ---

@@ -1169,9 +1169,10 @@ function sdbRenderModal(record) {
     ? `<div class="text-2xs text-gray-500 mt-1 font-normal">${Object.entries(record.trouble_details).map(([k, v]) => `${k}: ${v}分`).join('<br>')}</div>`
     : '';
 
+  // trouble_time is stored in decimal hours (like break_time); trouble_details stays in minutes.
   sdbSetModalElementContent('sdbModalTrouble', isEditing
-    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '1', className: textInputClass })
-    : (record.trouble_time != null ? `${record.trouble_time} 分${troubleDetailText}` : '—'), { html: true });
+    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
+    : (record.trouble_time != null ? `${record.trouble_time} h${troubleDetailText}` : '—'), { html: true });
 
   sdbRenderModalDefects(record, isEditing);
 
