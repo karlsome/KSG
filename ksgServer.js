@@ -2160,13 +2160,15 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             : (submissionData.troubleDetails && typeof submissionData.troubleDetails === 'object' ? submissionData.troubleDetails : {});
 
         let troubleMinutes = 0;
-        if (submissionData.trouble_time !== undefined) {
-            troubleMinutes = parseFloat(submissionData.trouble_time) || 0;
-        } else if (Object.keys(troubleDetails).length > 0) {
+        if (Object.keys(troubleDetails).length > 0) {
             troubleMinutes = Object.values(troubleDetails).reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+        } else if (submissionData.trouble_time !== undefined) {
+            troubleMinutes = parseFloat(submissionData.trouble_time) || 0;
         } else if (submissionData['機械トラブル時間'] !== undefined) {
-            troubleMinutes = parseFloat(submissionData['機械トラブル時間']) || 0;
+            troubleMinutes = (parseFloat(submissionData['機械トラブル時間']) || 0) * 60;
         }
+
+        const troubleHours = roundSubmittedDBMetric(troubleMinutes / 60, 2);
 
         // Calculate man_hours from start/end times if not provided or zero
         let manHours = parseFloat(submissionData.工数) || 0;
@@ -2178,8 +2180,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
                 let endMinutes = endH * 60 + endM;
                 if (endMinutes < startMinutes) endMinutes += 24 * 60; // midnight crossover
                 const breakTime = parseFloat(submissionData.休憩時間) || 0;
-                // troubleMinutes is in minutes; convert to decimal hours for man-hour calculation
-                const troubleHours = troubleMinutes / 60;
+                // troubleHours is in decimal hours for man-hour calculation
                 manHours = parseFloat(Math.max(0, (endMinutes - startMinutes) / 60 - breakTime - troubleHours).toFixed(2));
                 console.log(`⏱️ [TABLET] Calculated man_hours: ${manHours}h (${submissionData.開始時間} → ${endTime}, break: ${breakTime}h, trouble: ${troubleHours}h (${troubleMinutes}m))`);
             } catch (e) {
@@ -2246,7 +2247,7 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             start_time: submissionData.開始時間 || '',
             end_time: endTime,
             break_time: parseFloat(submissionData.休憩時間) || 0,
-            trouble_time: troubleMinutes,
+            trouble_time: troubleHours,
             trouble_details: troubleDetails,
             remarks: submissionData.備考 || '',
             excluded_man_hours: submissionData['工数（除外工数）'] || 0,

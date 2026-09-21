@@ -1170,8 +1170,8 @@ function sdbRenderModal(record) {
     : '';
 
   sdbSetModalElementContent('sdbModalTrouble', isEditing
-    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '1', className: textInputClass })
-    : (record.trouble_time != null ? `${record.trouble_time} 分${troubleDetailText}` : '—'), { html: true });
+    ? sdbBuildModalInput('trouble_time', record.trouble_time ?? 0, { type: 'number', min: '0', step: '0.01', className: textInputClass })
+    : (record.trouble_time != null ? `${record.trouble_time} h${troubleDetailText}` : '—'), { html: true });
 
   sdbRenderModalDefects(record, isEditing);
 
