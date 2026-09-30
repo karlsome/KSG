@@ -115,6 +115,7 @@ let currentEquipment = ''; // Will be set from tabletAuth data
 let currentMasterRecordId = ''; // Store MongoDB _id of selected masterDB record
 let currentProductId = ''; // Will be set from URL parameter or selection
 let currentProductName = ''; // Store product name from masterDB
+let currentProductLhRh = ''; // Store LH/RH from masterDB (no longer user-selectable)
 let availableUsers = []; // Store available users
 let kenyokiRHKanbanValue = null; // Store kenyokiRHKanban variable value
 let currentNGGroup = null; // Store currently active NG group for this product
@@ -392,7 +393,7 @@ function buildTabletSessionPayload() {
     kanbanId: currentKanban || '',
     productId: currentProductId || '',
     productName: currentProductName || productNameDisplay?.textContent || '',
-    lhRh: document.getElementById('lhRh')?.value || '',
+    lhRh: currentProductLhRh || '',
     hakoIresu: hakoIresuValue || 0,
     remarks: document.getElementById('remarks')?.textContent || '',
     otherDetails: document.getElementById('otherDetails')?.textContent || ''
@@ -600,14 +601,8 @@ function applyProductContext(product, options = {}) {
 
   // Remarks are user-only; do not auto-fill from product data.
 
-  if (product['LH/RH']) {
-    const lhRhDropdown = document.getElementById('lhRh');
-    if (lhRhDropdown) {
-      lhRhDropdown.value = product['LH/RH'];
-      saveFieldToLocalStorage('lhRh', product['LH/RH']);
-      console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
-    }
-  }
+  currentProductLhRh = product['LH/RH'] || '';
+  saveFieldToLocalStorage('lhRh', currentProductLhRh);
 
   const kensaMembers = product.kensaMembers || 2;
   console.log(`👥 KensaMembers: ${kensaMembers}`);
@@ -636,11 +631,38 @@ function setHakoIresuValue(value) {
   console.log(`📦 収容数 (hakoIresu) set to:`, hakoIresuValue);
 }
 
+// Look up 収容数 for the current product in masterDB (used when no value is saved locally)
+async function refreshHakoIresuFromMasterDB() {
+  const lookupId = currentMasterRecordId || currentProductId;
+  if (!lookupId) {
+    setHakoIresuValue(null);
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`);
+    const data = await response.json();
+    // Ignore the result if the product changed while the request was in flight
+    if ((currentMasterRecordId || currentProductId) !== lookupId) {
+      return;
+    }
+    if (data.success && data.product) {
+      setHakoIresuValue(data.product['収容数']);
+    } else {
+      console.warn(`⚠️ Could not load 収容数 for "${lookupId}":`, data.error);
+    }
+  } catch (error) {
+    console.error(`❌ Failed to load 収容数 for "${lookupId}":`, error);
+  }
+}
+
 function clearCurrentProductContext() {
   currentMasterRecordId = '';
   currentProductId = '';
   currentProductName = '';
+  currentProductLhRh = '';
   kenyokiRHKanbanValue = null;
+  localStorage.removeItem('tablet_lhRh');
   localStorage.removeItem('tablet_currentMasterRecordId');
   localStorage.removeItem('tablet_currentProductName');
   localStorage.removeItem('tablet_currentProductId');
@@ -1365,7 +1387,9 @@ function restoreAllFields() {
     });
     
     // Dropdowns
-    const dropdownFields = ['lhRh', 'poster1', 'poster2', 'poster3'];
+    currentProductLhRh = localStorage.getItem('tablet_lhRh') || '';
+
+    const dropdownFields = ['poster1', 'poster2', 'poster3'];
     dropdownFields.forEach(fieldId => {
       const saved = localStorage.getItem(`tablet_${fieldId}`);
       if (saved !== null) {
@@ -1440,8 +1464,13 @@ function restoreAllFields() {
       console.log(`📦 Restored kensaMembers:`, kensaMembers);
     }
 
-    // Restore box quantity (収容数) for 合格数追加
-    setHakoIresuValue(localStorage.getItem('tablet_hakoIresu'));
+    // Restore box quantity (収容数) for 合格数追加; fetch from masterDB if not saved yet
+    const savedHakoIresu = localStorage.getItem('tablet_hakoIresu');
+    if (savedHakoIresu !== null) {
+      setHakoIresuValue(savedHakoIresu);
+    } else {
+      void refreshHakoIresuFromMasterDB();
+    }
     
     // Update calculated fields
     updateDefectSum();
@@ -1853,7 +1882,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   startTokenValidation();
   
   // Add change listeners for all dropdowns
-  const dropdowns = ['lhRh', 'poster1', 'poster2', 'poster3'];
+  const dropdowns = ['poster1', 'poster2', 'poster3'];
   dropdowns.forEach(fieldId => {
     const field = document.getElementById(fieldId);
     if (field) {
@@ -2312,15 +2341,6 @@ async function loadProductInfoOld() {
         }
       }
       
-      // Set LH/RH dropdown based on product data
-      if (product['LH/RH']) {
-        const lhRhDropdown = document.getElementById('lhRh');
-        if (lhRhDropdown) {
-          lhRhDropdown.value = product['LH/RH'];
-          console.log(`✅ Set LH/RH to: ${product['LH/RH']}`);
-        }
-      }
-      
       // Set kensaMembers (default to 2 if not specified)
       const kensaMembers = product.kensaMembers || 2;
       console.log(`👥 KensaMembers: ${kensaMembers}`);
@@ -2381,13 +2401,6 @@ function updateInlineInfo() {
   const inlineProductName = document.getElementById('inlineProductName');
   if (inlineProductName) {
     inlineProductName.textContent = currentProductName || 'なし';
-  }
-  
-  // Update LH/RH
-  const inlineLhRh = document.getElementById('inlineLhRh');
-  const lhRhSelect = document.getElementById('lhRh');
-  if (inlineLhRh && lhRhSelect) {
-    inlineLhRh.textContent = lhRhSelect.value || '-';
   }
   
   // Update Kanban ID
@@ -2670,7 +2683,6 @@ function updateUIWithVariables(variables) {
 function resetBasicSettings() {
   if (confirm('基本設定をリセットしますか？')) {
     resetKanbanConflictState();
-    document.getElementById('lhRh').value = 'LH';
     
     // Reset all user dropdowns to first option (placeholder)
     const dropdownIds = ['poster1', 'poster2', 'poster3'];
@@ -3052,7 +3064,7 @@ async function sendData() {
       masterRecordId: resolvedMasterRecordId,
       ngGroupId: resolvedProduct?.ngGroupId || '',
       hakoIresu: hakoIresuValue || 0,
-      'LH/RH': document.getElementById('lhRh')?.value || '',
+      'LH/RH': resolvedProduct?.['LH/RH'] ?? currentProductLhRh ?? '',
       '技能員①': poster1Value,
       '技能員②': document.getElementById('poster2')?.value || '',
       良品数: parseInt(document.getElementById('passCount')?.value) || 0,
