@@ -123,7 +123,7 @@ let currentSeisanSuValue = null; // Current seisanSu value
 let accumulatedWorkCountBeforeReset = 0; // Accumulated work count preserved across OPC resets
 let pendingOpcReset = null; // Unconfirmed counter drop: { firstValue, firstSeenAt, readingKeys }
 let hasConfiguredProductionCounter = false; // Equipment config explicitly sets productionCountVariable
-let hakoIresuValue = null; // Store hakoIresu variable value
+let hakoIresuValue = null; // Box quantity (収容数) from masterDB, shown in 合格数追加
 let workTimerInterval = null; // Interval for updating work time
 let workStartTime = null; // Timestamp when work started
 let breakTimerInterval = null; // Interval for break timer
@@ -613,8 +613,27 @@ function applyProductContext(product, options = {}) {
   console.log(`👥 KensaMembers: ${kensaMembers}`);
   localStorage.setItem('tablet_kensaMembers', kensaMembers.toString());
   updateKensaMembersDisplay(kensaMembers);
+  setHakoIresuValue(product['収容数']);
   renderNGButtons(product.ngGroup || null);
   updateInlineInfo();
+}
+
+// Set box quantity (収容数 from masterDB) and update the 合格数追加 display
+function setHakoIresuValue(value) {
+  const parsed = parseFloat(value);
+  hakoIresuValue = Number.isFinite(parsed) ? parsed : null;
+
+  if (hakoIresuValue !== null) {
+    localStorage.setItem('tablet_hakoIresu', hakoIresuValue.toString());
+  } else {
+    localStorage.removeItem('tablet_hakoIresu');
+  }
+
+  const inspectionAddInput = document.getElementById('inspectionAddValue');
+  if (inspectionAddInput) {
+    inspectionAddInput.value = hakoIresuValue !== null ? hakoIresuValue : '';
+  }
+  console.log(`📦 収容数 (hakoIresu) set to:`, hakoIresuValue);
 }
 
 function clearCurrentProductContext() {
@@ -640,6 +659,7 @@ function clearCurrentProductContext() {
   }
 
   updateKensaMembersDisplay(2);
+  setHakoIresuValue(null);
   renderNGButtons(null);
   updateInlineInfo();
 }
@@ -1419,6 +1439,9 @@ function restoreAllFields() {
       updateKensaMembersDisplay(kensaMembers);
       console.log(`📦 Restored kensaMembers:`, kensaMembers);
     }
+
+    // Restore box quantity (収容数) for 合格数追加
+    setHakoIresuValue(localStorage.getItem('tablet_hakoIresu'));
     
     // Update calculated fields
     updateDefectSum();
@@ -2609,7 +2632,6 @@ function updateUIWithVariables(variables) {
   // 🆕 Use dynamic variable names from equipment config
   const kanbanVarName = variableMappings.kanban;
   const productionVarName = variableMappings.productionCount;
-  const boxQtyVarName = variableMappings.boxQuantity;
   
   // Check kanban variable for start button validation AND product loading (if configured)
   if (kanbanVarName) {
@@ -2638,22 +2660,8 @@ function updateUIWithVariables(variables) {
     console.warn(`⚠️ ${productionVarName} variable not found in update, keeping last value`);
   }
   
-  // Track box quantity variable for 合格数追加 display
-  if (variables[boxQtyVarName] !== undefined) {
-    const value = variables[boxQtyVarName].value;
-    hakoIresuValue = (value !== null && value !== undefined) ? parseFloat(value) : null;
-    console.log(`📊 ${boxQtyVarName} value updated:`, hakoIresuValue);
-    
-    // Update the display field
-    const inspectionAddInput = document.getElementById('inspectionAddValue');
-    if (inspectionAddInput) {
-      inspectionAddInput.value = hakoIresuValue !== null ? hakoIresuValue : '';
-    }
-  } else {
-    hakoIresuValue = null;
-    console.warn(`⚠️ ${boxQtyVarName} variable not found`);
-  }
-  
+  // 合格数追加 (box quantity) now comes from masterDB 収容数, not OPC — see setHakoIresuValue()
+
   // You can add more variable mappings here
   // Example: if (variables.otherVar) { document.getElementById('someField').value = variables.otherVar.value; }
 }
