@@ -5060,7 +5060,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
         const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
 
         // Data structure for aggregation:
-        // map: source -> Map(operator -> Map(day -> { pieces, hours, cycleTimes: [], kanbans: Set, remarks: [] }))
+        // map: source -> Map(cardKey -> cardData)
+        // cardKey = `${op}:::${productName}` to ensure products are completely separated!
         const sourceMap = new Map();
 
         records.forEach(record => {
@@ -5081,7 +5082,7 @@ async function handleAnalyticsProductivityRequest(req, res) {
             const manHours = Math.max(0, Number(record.man_hours ?? 0) || 0);
             const cycleTime = Math.max(0, Number(record.cycle_time ?? 0) || 0);
             const kanbanId = String(record.kanban_id ?? '').trim();
-            const productName = String(record.product_name ?? '').trim();
+            const productName = String(record.product_name ?? '').trim() || String(record.hinban ?? '').trim() || '(製品未指定)';
             const hinban = String(record.hinban ?? '').trim();
             const remarks = String(record.remarks ?? '').trim();
 
@@ -5095,27 +5096,79 @@ async function handleAnalyticsProductivityRequest(req, res) {
 
             const attributedPieces = totalPieces / operatorCount;
             const attributedHours = manHours / operatorCount;
+            const isSingle = (operatorCount === 1);
+            const isMulti = (operatorCount >= 2);
 
             if (!sourceMap.has(source)) {
                 sourceMap.set(source, new Map());
             }
-            const opMap = sourceMap.get(source);
+            const cardMap = sourceMap.get(source);
 
             matchingOperators.forEach(op => {
-                if (!opMap.has(op)) {
-                    opMap.set(op, new Map());
+                const cardKey = `${op}:::${productName}`;
+                if (!cardMap.has(cardKey)) {
+                    cardMap.set(cardKey, {
+                        operatorName: op,
+                        productName: productName,
+                        source: source,
+                        hinbans: new Set(),
+                        hasSinglePersonData: false,
+                        hasMultiPersonData: false,
+                        totalPieces: 0,
+                        totalHours: 0,
+                        singlePieces: 0,
+                        singleHours: 0,
+                        multiPieces: 0,
+                        multiHours: 0,
+                        dayMap: new Map()
+                    });
                 }
-                const dayMap = opMap.get(op);
+                const cardEntry = cardMap.get(cardKey);
+                cardEntry.totalPieces += attributedPieces;
+                cardEntry.totalHours += attributedHours;
+                if (hinban) cardEntry.hinbans.add(hinban);
+
+                if (isSingle) {
+                    cardEntry.hasSinglePersonData = true;
+                    cardEntry.singlePieces += attributedPieces;
+                    cardEntry.singleHours += attributedHours;
+                }
+                if (isMulti) {
+                    cardEntry.hasMultiPersonData = true;
+                    cardEntry.multiPieces += attributedPieces;
+                    cardEntry.multiHours += attributedHours;
+                }
+
+                const dayMap = cardEntry.dayMap;
                 if (!dayMap.has(day)) {
                     dayMap.set(day, {
-                        pieces: 0,
-                        hours: 0,
-                        cycleTimes: [],
+                        day,
                         kanbans: new Set(),
                         productNames: new Set(),
                         hinbans: new Set(),
                         remarks: [],
-                        recordIds: []
+                        recordIds: [],
+                        pieces: 0,
+                        hours: 0,
+                        cycleTimes: [],
+                        single: {
+                            pieces: 0,
+                            hours: 0,
+                            cycleTimes: [],
+                            kanbans: new Set(),
+                            remarks: [],
+                            recordIds: []
+                        },
+                        multi: {
+                            pieces: 0,
+                            hours: 0,
+                            cycleTimes: [],
+                            kanbans: new Set(),
+                            remarks: [],
+                            recordIds: [],
+                            operatorCounts: [],
+                            coOperators: new Set()
+                        }
                     });
                 }
                 const dayEntry = dayMap.get(day);
@@ -5131,6 +5184,36 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 if (record._id && !dayEntry.recordIds.includes(String(record._id))) {
                     dayEntry.recordIds.push(String(record._id));
                 }
+
+                if (isSingle) {
+                    dayEntry.single.pieces += attributedPieces;
+                    dayEntry.single.hours += attributedHours;
+                    if (cycleTime > 0) dayEntry.single.cycleTimes.push(cycleTime);
+                    if (kanbanId) dayEntry.single.kanbans.add(kanbanId);
+                    if (remarks && !dayEntry.single.remarks.includes(remarks)) {
+                        dayEntry.single.remarks.push(remarks);
+                    }
+                    if (record._id && !dayEntry.single.recordIds.includes(String(record._id))) {
+                        dayEntry.single.recordIds.push(String(record._id));
+                    }
+                } else if (isMulti) {
+                    dayEntry.multi.pieces += attributedPieces;
+                    dayEntry.multi.hours += attributedHours;
+                    if (cycleTime > 0) dayEntry.multi.cycleTimes.push(cycleTime);
+                    if (kanbanId) dayEntry.multi.kanbans.add(kanbanId);
+                    if (remarks && !dayEntry.multi.remarks.includes(remarks)) {
+                        dayEntry.multi.remarks.push(remarks);
+                    }
+                    if (record._id && !dayEntry.multi.recordIds.includes(String(record._id))) {
+                        dayEntry.multi.recordIds.push(String(record._id));
+                    }
+                    dayEntry.multi.operatorCounts.push(operatorCount);
+                    operators.forEach(other => {
+                        if (other && other !== op) {
+                            dayEntry.multi.coOperators.add(other);
+                        }
+                    });
+                }
             });
         });
 
@@ -5141,31 +5224,20 @@ async function handleAnalyticsProductivityRequest(req, res) {
         let grandAchievedCount = 0;
         let totalWorkerCards = 0;
 
-        for (const [source, opMap] of sourceMap.entries()) {
+        for (const [source, cardMap] of sourceMap.entries()) {
             let machinePieces = 0;
             let machineHours = 0;
             const operatorsList = [];
 
-            for (const [operatorName, dayMap] of opMap.entries()) {
-                let opPieces = 0;
-                let opHours = 0;
-                const dailyData = [];
-
-                // Collect working days & product names
+            for (const cardEntry of cardMap.values()) {
+                const operatorName = cardEntry.operatorName;
+                const productName = cardEntry.productName;
+                const dayMap = cardEntry.dayMap;
                 const sortedDays = Array.from(dayMap.keys()).sort((a, b) => a - b);
-                const opProductNames = new Set();
-                const opHinbans = new Set();
+                const dailyData = [];
 
                 sortedDays.forEach(day => {
                     const d = dayMap.get(day);
-                    opPieces += d.pieces;
-                    opHours += d.hours;
-                    if (d.productNames) {
-                        d.productNames.forEach(p => opProductNames.add(p));
-                    }
-                    if (d.hinbans) {
-                        d.hinbans.forEach(h => opHinbans.add(h));
-                    }
 
                     let oneHrPc = null;
                     if (d.hours > 0 && d.pieces > 0) {
@@ -5173,6 +5245,22 @@ async function handleAnalyticsProductivityRequest(req, res) {
                     } else if (d.cycleTimes.length > 0) {
                         const avgCt = d.cycleTimes.reduce((a, b) => a + b, 0) / d.cycleTimes.length;
                         if (avgCt > 0) oneHrPc = Math.round((60 / avgCt) * 100) / 100;
+                    }
+
+                    let singleOneHrPc = null;
+                    if (d.single.hours > 0 && d.single.pieces > 0) {
+                        singleOneHrPc = Math.round((d.single.pieces / d.single.hours) * 100) / 100;
+                    } else if (d.single.cycleTimes.length > 0) {
+                        const avgCt = d.single.cycleTimes.reduce((a, b) => a + b, 0) / d.single.cycleTimes.length;
+                        if (avgCt > 0) singleOneHrPc = Math.round((60 / avgCt) * 100) / 100;
+                    }
+
+                    let multiOneHrPc = null;
+                    if (d.multi.hours > 0 && d.multi.pieces > 0) {
+                        multiOneHrPc = Math.round((d.multi.pieces / d.multi.hours) * 100) / 100;
+                    } else if (d.multi.cycleTimes.length > 0) {
+                        const avgCt = d.multi.cycleTimes.reduce((a, b) => a + b, 0) / d.multi.cycleTimes.length;
+                        if (avgCt > 0) multiOneHrPc = Math.round((60 / avgCt) * 100) / 100;
                     }
 
                     dailyData.push({
@@ -5183,47 +5271,71 @@ async function handleAnalyticsProductivityRequest(req, res) {
                         hours: Math.round(d.hours * 100) / 100,
                         oneHrPc,
                         remarks: d.remarks.join('; '),
-                        recordIds: d.recordIds || []
+                        recordIds: d.recordIds || [],
+                        single: {
+                            pieces: Math.round(d.single.pieces * 10) / 10,
+                            hours: Math.round(d.single.hours * 100) / 100,
+                            oneHrPc: singleOneHrPc,
+                            kanban: Array.from(d.single.kanbans).join(' ') || '-',
+                            remarks: d.single.remarks.join('; '),
+                            recordIds: d.single.recordIds || []
+                        },
+                        multi: {
+                            pieces: Math.round(d.multi.pieces * 10) / 10,
+                            hours: Math.round(d.multi.hours * 100) / 100,
+                            oneHrPc: multiOneHrPc,
+                            kanban: Array.from(d.multi.kanbans).join(' ') || '-',
+                            remarks: d.multi.remarks.join('; '),
+                            recordIds: d.multi.recordIds || [],
+                            coOperators: Array.from(d.multi.coOperators),
+                            avgOperatorCount: d.multi.operatorCounts.length > 0
+                                ? Math.round((d.multi.operatorCounts.reduce((a, b) => a + b, 0) / d.multi.operatorCounts.length) * 10) / 10
+                                : 2
+                        }
                     });
                 });
 
-                // Determine per-product / per-machine target and warning from masterDB
+                // Target and warning matching for this exact product
                 let cardTarget = null;
                 let cardWarning = null;
 
-                // 1. Match by product names
-                for (const p of opProductNames) {
-                    const m = masterByProduct.get(p.toLowerCase());
-                    if (m) {
-                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
-                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
-                    }
+                const mProduct = masterByProduct.get(productName.toLowerCase());
+                if (mProduct) {
+                    if (cardTarget == null && mProduct.target != null && mProduct.target > 0) cardTarget = mProduct.target;
+                    if (cardWarning == null && mProduct.warning != null && mProduct.warning > 0) cardWarning = mProduct.warning;
                 }
-                // 2. Match by hinbans
+
                 if (cardTarget == null || cardWarning == null) {
-                    for (const h of opHinbans) {
-                        const m = masterByHinban.get(h.toLowerCase());
-                        if (m) {
-                            if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
-                            if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    for (const h of cardEntry.hinbans) {
+                        const mHinban = masterByHinban.get(h.toLowerCase());
+                        if (mHinban) {
+                            if (cardTarget == null && mHinban.target != null && mHinban.target > 0) cardTarget = mHinban.target;
+                            if (cardWarning == null && mHinban.warning != null && mHinban.warning > 0) cardWarning = mHinban.warning;
                         }
                     }
                 }
-                // 3. Match by equipment / source
+
                 if (cardTarget == null || cardWarning == null) {
-                    const m = masterByEquipment.get(source.toLowerCase());
-                    if (m) {
-                        if (cardTarget == null && m.target != null && m.target > 0) cardTarget = m.target;
-                        if (cardWarning == null && m.warning != null && m.warning > 0) cardWarning = m.warning;
+                    const mEquip = masterByEquipment.get(source.toLowerCase());
+                    if (mEquip) {
+                        if (cardTarget == null && mEquip.target != null && mEquip.target > 0) cardTarget = mEquip.target;
+                        if (cardWarning == null && mEquip.warning != null && mEquip.warning > 0) cardWarning = mEquip.warning;
                     }
                 }
 
                 if (cardTarget == null) cardTarget = defaultTarget;
                 if (cardWarning == null) cardWarning = defaultWarning;
 
-                const monthlyAvg1hPc = opHours > 0
-                    ? Math.round((opPieces / opHours) * 100) / 100
+                const monthlyAvg1hPc = cardEntry.totalHours > 0
+                    ? Math.round((cardEntry.totalPieces / cardEntry.totalHours) * 100) / 100
                     : null;
+                const singleMonthlyAvg1hPc = cardEntry.singleHours > 0
+                    ? Math.round((cardEntry.singlePieces / cardEntry.singleHours) * 100) / 100
+                    : null;
+                const multiMonthlyAvg1hPc = cardEntry.multiHours > 0
+                    ? Math.round((cardEntry.multiPieces / cardEntry.multiHours) * 100) / 100
+                    : null;
+
                 const achievementRate = (monthlyAvg1hPc && cardTarget > 0)
                     ? Math.round((monthlyAvg1hPc / cardTarget) * 1000) / 10
                     : 0;
@@ -5233,16 +5345,25 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 }
                 totalWorkerCards += 1;
 
-                machinePieces += opPieces;
-                machineHours += opHours;
+                machinePieces += cardEntry.totalPieces;
+                machineHours += cardEntry.totalHours;
 
                 operatorsList.push({
                     operatorName,
                     source,
-                    productName: Array.from(opProductNames).join(', '),
-                    monthlyPieces: Math.round(opPieces * 10) / 10,
-                    monthlyHours: Math.round(opHours * 100) / 100,
+                    productName,
+                    hinban: Array.from(cardEntry.hinbans).join(', '),
+                    monthlyPieces: Math.round(cardEntry.totalPieces * 10) / 10,
+                    monthlyHours: Math.round(cardEntry.totalHours * 100) / 100,
                     monthlyAvg1hPc,
+                    singleMonthlyPieces: Math.round(cardEntry.singlePieces * 10) / 10,
+                    singleMonthlyHours: Math.round(cardEntry.singleHours * 100) / 100,
+                    singleMonthlyAvg1hPc,
+                    multiMonthlyPieces: Math.round(cardEntry.multiPieces * 10) / 10,
+                    multiMonthlyHours: Math.round(cardEntry.multiHours * 100) / 100,
+                    multiMonthlyAvg1hPc,
+                    hasSinglePersonData: cardEntry.hasSinglePersonData,
+                    hasMultiPersonData: cardEntry.hasMultiPersonData,
                     target: cardTarget,
                     warning: cardWarning,
                     achievementRate,
@@ -5250,8 +5371,12 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 });
             }
 
-            // Sort operators alphabetically
-            operatorsList.sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'ja'));
+            // Sort: operatorName first, then productName
+            operatorsList.sort((a, b) => {
+                const opComp = a.operatorName.localeCompare(b.operatorName, 'ja');
+                if (opComp !== 0) return opComp;
+                return a.productName.localeCompare(b.productName, 'ja');
+            });
 
             const machineAvg1hPc = machineHours > 0
                 ? Math.round((machinePieces / machineHours) * 100) / 100
@@ -5264,6 +5389,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
             const machineTarget = (machineMaster && machineMaster.target != null && machineMaster.target > 0) ? machineMaster.target : defaultTarget;
             const machineWarning = (machineMaster && machineMaster.warning != null && machineMaster.warning > 0) ? machineMaster.warning : defaultWarning;
 
+            const uniqueOperatorCount = new Set(operatorsList.map(o => o.operatorName)).size;
+
             machines.push({
                 machineName: source,
                 target: machineTarget,
@@ -5271,7 +5398,8 @@ async function handleAnalyticsProductivityRequest(req, res) {
                 monthlyPieces: Math.round(machinePieces * 10) / 10,
                 monthlyHours: Math.round(machineHours * 100) / 100,
                 monthlyAvg1hPc: machineAvg1hPc,
-                operatorCount: operatorsList.length,
+                operatorCount: uniqueOperatorCount,
+                cardCount: operatorsList.length,
                 operators: operatorsList
             });
         }

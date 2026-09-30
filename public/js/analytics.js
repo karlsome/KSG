@@ -1086,7 +1086,7 @@ function renderAnalyticsProductivityTab(data) {
 
       const opAvgStr = op.monthlyAvg1hPc != null ? op.monthlyAvg1hPc.toFixed(1) : '-';
 
-      // Build 5-Row Data Table (日付, ライン, 良品数, 時間, 出来高/1人h, 理由)
+      // Build 5 or 6-Row Data Table (日付, ライン, 良品数, 時間, 出来高(1人), 出来高(2人以上), 理由)
       const dailyDataMap = new Map();
       (op.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
 
@@ -1100,7 +1100,9 @@ function renderAnalyticsProductivityTab(data) {
         const rowLines = [];
         const rowPieces = [];
         const rowHours = [];
-        const rowRate = [];
+        const rowRateSingle = [];
+        const rowRateMulti = [];
+        const rowRateCombined = [];
         const rowRemarks = [];
         let hasAnyRemark = false;
 
@@ -1110,29 +1112,14 @@ function renderAnalyticsProductivityTab(data) {
           const kanban = item?.kanban || '-';
           const pieces = item ? analyticsFormatNumber(item.pieces) : '-';
           const hours = item ? item.hours.toFixed(2) : '-';
-          const rateVal = item?.oneHrPc;
-          let rateCellClass = 'text-gray-700';
-          let rateBgClass = '';
-
-          if (rateVal != null) {
-            if (rateVal >= opTarget) {
-              rateCellClass = 'text-emerald-700 font-semibold';
-              rateBgClass = 'bg-emerald-50/70';
-            } else if (rateVal >= opWarning) {
-              rateCellClass = 'text-amber-700 font-semibold';
-              rateBgClass = 'bg-amber-50/70';
-            } else {
-              rateCellClass = 'text-rose-700 font-semibold';
-              rateBgClass = 'bg-rose-50/70';
-            }
-          }
-
-          const rateStr = rateVal != null ? Math.round(rateVal) : '-';
           const remark = item?.remarks || '';
           if (remark) hasAnyRemark = true;
 
-          const clickKey = `prod_${chartCounter}_${day}`;
-          window._analyticsProdClickMap.set(clickKey, {
+          const cellTitle = analyticsEscapeHtml(typeof t === 'function' ? t('analytics.productivity.clickToViewSubmitted') : 'クリックして実績詳細(submittedDB)を表示');
+          const cellCommonClass = 'cursor-pointer transition-colors hover:bg-indigo-100/75 hover:text-indigo-950 active:bg-indigo-200/80';
+
+          const clickKeyAll = `prod_${chartCounter}_${day}_all`;
+          window._analyticsProdClickMap.set(clickKeyAll, {
             item,
             context: {
               operatorName: op.operatorName,
@@ -1143,18 +1130,82 @@ function renderAnalyticsProductivityTab(data) {
             }
           });
 
-          const cellTitle = analyticsEscapeHtml(typeof t === 'function' ? t('analytics.productivity.clickToViewSubmitted') : 'クリックして実績詳細(submittedDB)を表示');
-          const cellCommonClass = 'cursor-pointer transition-colors hover:bg-indigo-100/75 hover:text-indigo-950 active:bg-indigo-200/80';
+          rowDates.push(`<th class="px-2.5 py-1.5 text-center text-xs font-semibold text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass} group" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}"><div class="inline-flex items-center gap-1"><span>${dateStr}</span><i class="ri-external-link-line text-3xs text-gray-400 group-hover:text-indigo-600 transition-colors"></i></div></th>`);
+          rowLines.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}">${analyticsEscapeHtml(kanban)}</td>`);
+          rowPieces.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-900 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}">${pieces}</td>`);
+          rowHours.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-500 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}">${hours}</td>`);
 
-          rowDates.push(`<th class="px-2.5 py-1.5 text-center text-xs font-semibold text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass} group" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}"><div class="inline-flex items-center gap-1"><span>${dateStr}</span><i class="ri-external-link-line text-3xs text-gray-400 group-hover:text-indigo-600 transition-colors"></i></div></th>`);
-          rowLines.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-gray-600 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${analyticsEscapeHtml(kanban)}</td>`);
-          rowPieces.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-900 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${pieces}</td>`);
-          rowHours.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-medium text-gray-500 border-r border-gray-100 whitespace-nowrap ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${hours}</td>`);
-          rowRate.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${rateCellClass} ${rateBgClass} border-r border-gray-100 whitespace-nowrap cursor-pointer transition-colors hover:brightness-95 active:brightness-90" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">${rateStr}</td>`);
-          if (remark) {
-            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-rose-600 border-r border-gray-100 max-w-[140px] truncate cursor-pointer transition-colors hover:bg-rose-100/80" onclick="handleProductivityCellClick('${clickKey}')" title="${analyticsEscapeHtml(remark)} · ${cellTitle}">${analyticsEscapeHtml(remark)}</td>`);
+          if (op.hasMultiPersonData) {
+            // 1人作業 Rate Cell
+            const sVal = item?.single?.oneHrPc;
+            const clickKeySingle = `prod_${chartCounter}_${day}_single`;
+            window._analyticsProdClickMap.set(clickKeySingle, {
+              item: { ...item, recordIds: item?.single?.recordIds || item?.recordIds },
+              context: {
+                operatorName: op.operatorName,
+                machineName,
+                productName: op.productName,
+                target: opTarget,
+                warning: opWarning,
+                workType: '1人作業'
+              }
+            });
+
+            if (sVal != null) {
+              const sRateClass = sVal >= opTarget ? 'text-emerald-700 bg-emerald-50/70' : (sVal >= opWarning ? 'text-amber-700 bg-amber-50/70' : 'text-rose-700 bg-rose-50/70');
+              rowRateSingle.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${sRateClass} border-r border-gray-100 whitespace-nowrap cursor-pointer transition-colors hover:brightness-95 active:brightness-90" onclick="handleProductivityCellClick('${clickKeySingle}')" title="1人作業: ${sVal} ヶ/1人h (${item?.single?.pieces}個 / ${item?.single?.hours}h) · ${cellTitle}">${Math.round(sVal)}</td>`);
+            } else {
+              rowRateSingle.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100 whitespace-nowrap" title="1人作業の実績なし">-</td>`);
+            }
+
+            // 2人以上作業 Rate Cell
+            const mVal = item?.multi?.oneHrPc;
+            const clickKeyMulti = `prod_${chartCounter}_${day}_multi`;
+            window._analyticsProdClickMap.set(clickKeyMulti, {
+              item: { ...item, recordIds: item?.multi?.recordIds || item?.recordIds },
+              context: {
+                operatorName: op.operatorName,
+                machineName,
+                productName: op.productName,
+                target: opTarget,
+                warning: opWarning,
+                workType: '2人以上作業',
+                coOperators: item?.multi?.coOperators || []
+              }
+            });
+
+            if (mVal != null) {
+              const mRateClass = mVal >= opTarget ? 'text-teal-800 bg-teal-50/80 font-bold' : (mVal >= opWarning ? 'text-amber-800 bg-amber-50/80 font-bold' : 'text-rose-800 bg-rose-50/80 font-bold');
+              const partner = (item?.multi?.coOperators && item.multi.coOperators.length > 0) ? ` (共同: ${item.multi.coOperators.join(', ')})` : '';
+              rowRateMulti.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${mRateClass} border-r border-gray-100 whitespace-nowrap cursor-pointer transition-colors hover:brightness-95 active:brightness-90" onclick="handleProductivityCellClick('${clickKeyMulti}')" title="2人以上作業: ${mVal} ヶ/1人h${partner} · ${cellTitle}"><span class="inline-flex items-center gap-1">${Math.round(mVal)}<span class="text-3xs text-teal-600 font-normal">◆</span></span></td>`);
+            } else {
+              rowRateMulti.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100 whitespace-nowrap" title="2人以上作業の実績なし">-</td>`);
+            }
           } else {
-            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100 ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKey}')" title="${cellTitle}">-</td>`);
+            // Standard single row
+            const rateVal = item?.oneHrPc;
+            let rateCellClass = 'text-gray-700';
+            let rateBgClass = '';
+            if (rateVal != null) {
+              if (rateVal >= opTarget) {
+                rateCellClass = 'text-emerald-700 font-semibold';
+                rateBgClass = 'bg-emerald-50/70';
+              } else if (rateVal >= opWarning) {
+                rateCellClass = 'text-amber-700 font-semibold';
+                rateBgClass = 'bg-amber-50/70';
+              } else {
+                rateCellClass = 'text-rose-700 font-semibold';
+                rateBgClass = 'bg-rose-50/70';
+              }
+            }
+            const rateStr = rateVal != null ? Math.round(rateVal) : '-';
+            rowRateCombined.push(`<td class="px-2.5 py-1 text-center text-xs tabular-nums font-semibold ${rateCellClass} ${rateBgClass} border-r border-gray-100 whitespace-nowrap cursor-pointer transition-colors hover:brightness-95 active:brightness-90" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}">${rateStr}</td>`);
+          }
+
+          if (remark) {
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs font-medium text-rose-600 border-r border-gray-100 max-w-[140px] truncate cursor-pointer transition-colors hover:bg-rose-100/80" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${analyticsEscapeHtml(remark)} · ${cellTitle}">${analyticsEscapeHtml(remark)}</td>`);
+          } else {
+            rowRemarks.push(`<td class="px-2.5 py-1 text-center text-xs text-gray-300 border-r border-gray-100 ${cellCommonClass}" onclick="handleProductivityCellClick('${clickKeyAll}')" title="${cellTitle}">-</td>`);
           }
         });
 
@@ -1163,7 +1214,7 @@ function renderAnalyticsProductivityTab(data) {
             <table class="w-full text-xs text-left border-collapse">
               <tbody>
                 <tr class="bg-gray-50 border-b border-gray-100">
-                  <th class="px-3 py-1.5 text-left font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-gray-50 shadow-[1px_0_0_0_#f3f4f6] z-10 w-28">日付</th>
+                  <th class="px-3 py-1.5 text-left font-semibold text-gray-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-gray-50 shadow-[1px_0_0_0_#f3f4f6] z-10 w-32">日付</th>
                   ${rowDates.join('')}
                 </tr>
                 <tr class="border-b border-gray-100 hover:bg-gray-50/50">
@@ -1178,10 +1229,25 @@ function renderAnalyticsProductivityTab(data) {
                   <th class="px-3 py-1 text-left font-semibold text-gray-500 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">時間</th>
                   ${rowHours.join('')}
                 </tr>
+                ${op.hasMultiPersonData ? `
+                <tr class="border-b border-gray-100 bg-indigo-50/30">
+                  <th class="px-3 py-1.5 text-left font-semibold text-indigo-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-indigo-50/80 shadow-[1px_0_0_0_#f3f4f6] z-10">
+                    <div class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-indigo-600 inline-block"></span><span>出来高 (1人)</span></div>
+                  </th>
+                  ${rowRateSingle.join('')}
+                </tr>
+                <tr class="border-b border-gray-100 bg-teal-50/30">
+                  <th class="px-3 py-1.5 text-left font-semibold text-teal-800 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-teal-50/80 shadow-[1px_0_0_0_#f3f4f6] z-10">
+                    <div class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rotate-45 bg-teal-600 inline-block"></span><span>出来高 (2人+)</span></div>
+                  </th>
+                  ${rowRateMulti.join('')}
+                </tr>
+                ` : `
                 <tr class="border-b border-gray-100 bg-indigo-50/30">
                   <th class="px-3 py-1.5 text-left font-semibold text-indigo-700 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-indigo-50/50 shadow-[1px_0_0_0_#f3f4f6] z-10">出来高/1人h</th>
-                  ${rowRate.join('')}
+                  ${rowRateCombined.join('')}
                 </tr>
+                `}
                 ${hasAnyRemark ? `
                 <tr class="bg-rose-50/30">
                   <th class="px-3 py-1 text-left text-xs font-semibold text-rose-600 border-r border-gray-100 whitespace-nowrap sticky left-0 bg-rose-50 shadow-[1px_0_0_0_#f3f4f6] z-10">理由</th>
@@ -1194,10 +1260,6 @@ function renderAnalyticsProductivityTab(data) {
         `;
       }
 
-      const displayProduct = (op.productName && op.productName !== machineName && !machineName.includes(op.productName))
-        ? `${machineName} (${op.productName})`
-        : machineName;
-
       html += `
         <div class="productivity-worker-card w-full rounded-2xl border border-gray-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col space-y-4">
           <div>
@@ -1205,11 +1267,17 @@ function renderAnalyticsProductivityTab(data) {
             <div class="border-b border-gray-100 pb-3.5 space-y-3">
               <!-- Top Row: Large Eye-Catching Title & Achievement Badge -->
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <h3 class="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
-                  <span class="text-gray-900">${analyticsEscapeHtml(op.operatorName)}</span>
-                  <span class="text-gray-300 font-normal mx-2">-</span>
-                  <span class="text-indigo-700">${analyticsEscapeHtml(displayProduct)}</span>
-                </h3>
+                <div class="flex flex-wrap items-center gap-3">
+                  <h3 class="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span class="text-gray-900">${analyticsEscapeHtml(op.operatorName)}</span>
+                    <span class="text-gray-300 font-normal">-</span>
+                    <span class="text-indigo-700">${analyticsEscapeHtml(op.productName || '製品未指定')}</span>
+                    ${op.hinban ? `<span class="text-xs font-mono font-normal text-gray-400">(${analyticsEscapeHtml(op.hinban)})</span>` : ''}
+                  </h3>
+                  <span class="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                    <i class="ri-cpu-line text-indigo-500"></i> ${analyticsEscapeHtml(machineName)}
+                  </span>
+                </div>
 
                 <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-2xs ${badgeBg}">
                   ${op.achievementRate}% 達成
@@ -1222,6 +1290,21 @@ function renderAnalyticsProductivityTab(data) {
                   <div class="text-sm font-semibold text-gray-700">
                     出来高（生産性） 当月平均: <span class="text-base tabular-nums font-bold ${isAchieved ? 'text-emerald-600' : (isBelowWarning ? 'text-rose-600' : 'text-amber-600')}">${opAvgStr} ヶ/1人h</span>
                   </div>
+                  ${op.hasMultiPersonData ? `
+                    <div class="hidden sm:block text-gray-200">|</div>
+                    <div class="flex items-center gap-2">
+                      ${op.singleMonthlyAvg1hPc != null ? `
+                        <span class="inline-flex items-center gap-1 rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-2xs font-semibold text-indigo-700">
+                          <span class="h-2 w-2 rounded-full bg-indigo-600 inline-block"></span> 1人平均: <strong class="tabular-nums">${op.singleMonthlyAvg1hPc.toFixed(1)}</strong>
+                        </span>
+                      ` : ''}
+                      ${op.multiMonthlyAvg1hPc != null ? `
+                        <span class="inline-flex items-center gap-1 rounded-md bg-teal-50 border border-teal-200 px-2 py-0.5 text-2xs font-semibold text-teal-800">
+                          <span class="h-2 w-2 rotate-45 bg-teal-600 inline-block"></span> 2人以上平均: <strong class="tabular-nums">${op.multiMonthlyAvg1hPc.toFixed(1)}</strong>
+                        </span>
+                      ` : ''}
+                    </div>
+                  ` : ''}
                   <div class="hidden sm:block text-gray-200">|</div>
                   <div class="flex items-center gap-2">
                     <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
@@ -1236,13 +1319,33 @@ function renderAnalyticsProductivityTab(data) {
                   ※ ${opWarning}/1人h以下の場合は理由を確認
                 </div>
               </div>
+
+              <!-- Interactive Legend Quick-Toggles (if multi-person data is present) -->
+              ${op.hasMultiPersonData ? `
+              <div class="productivity-toggle-controls flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-gray-500">グラフ線切替:</span>
+                  <button type="button" id="btnToggleSingle_${chartDomId}" onclick="toggleProductivitySeries('${chartDomId}', '1人作業')"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-2xs hover:bg-indigo-100 transition cursor-pointer" title="1人作業のグラフ線を表示/非表示">
+                    <span class="h-2 w-2 rounded-full bg-indigo-600 inline-block"></span> 1人作業
+                  </button>
+                  <button type="button" id="btnToggleMulti_${chartDomId}" onclick="toggleProductivitySeries('${chartDomId}', '2人以上作業')"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50/80 px-2.5 py-1 text-xs font-semibold text-teal-800 shadow-2xs hover:bg-teal-100 transition cursor-pointer" title="2人以上作業のグラフ線を表示/非表示">
+                    <span class="h-2 w-2 rotate-45 bg-teal-600 inline-block"></span> 2人以上作業
+                  </button>
+                </div>
+                <div class="text-2xs text-gray-400">
+                  ※グラフ右上の凡例またはボタンをクリックして表示/非表示を切り替えられます
+                </div>
+              </div>
+              ` : ''}
             </div>
 
             <!-- ECharts Line Graph Container (Full Width, Spacious) -->
             <div id="${chartDomId}" class="h-80 w-full my-3"></div>
           </div>
 
-          <!-- 5-Row Data Table Container (All Month, Zero Scroll on desktop) -->
+          <!-- Data Table Container (All Month, Zero Scroll on desktop) -->
           <div class="w-full mt-2">
             ${tableHtml}
           </div>
@@ -1284,32 +1387,217 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
   (operator.dailyData || []).forEach(d => dailyDataMap.set(d.day, d));
 
   const xCategories = [];
-  const seriesData = [];
+  const singleSeriesData = [];
+  const multiSeriesData = [];
+  const hasMulti = !!operator.hasMultiPersonData;
 
   for (let day = 1; day <= daysInMonth; day++) {
     xCategories.push(String(day));
     const d = dailyDataMap.get(day);
-    if (d && d.oneHrPc != null) {
-      seriesData.push({
-        value: d.oneHrPc,
-        dateLabel: d.dateLabel,
-        kanban: d.kanban,
-        pieces: d.pieces,
-        hours: d.hours,
-        remarks: d.remarks,
-        recordIds: d.recordIds || [],
-        dayData: d,
-        context: {
-          operatorName: operator.operatorName,
-          machineName: machine ? (machine.machineName || operator.productName) : operator.productName,
-          productName: operator.productName,
-          target,
-          warning
-        }
-      });
+
+    if (hasMulti) {
+      // 1人作業 data point
+      if (d && d.single && d.single.oneHrPc != null) {
+        singleSeriesData.push({
+          value: d.single.oneHrPc,
+          dateLabel: d.dateLabel,
+          kanban: d.single.kanban || d.kanban,
+          pieces: d.single.pieces,
+          hours: d.single.hours,
+          remarks: d.single.remarks || d.remarks,
+          recordIds: d.single.recordIds || [],
+          seriesType: '1人作業',
+          dayData: { ...d, recordIds: d.single.recordIds || d.recordIds },
+          context: {
+            operatorName: operator.operatorName,
+            machineName: machine ? (machine.machineName || operator.productName) : operator.productName,
+            productName: operator.productName,
+            target,
+            warning,
+            workType: '1人作業'
+          }
+        });
+      } else {
+        singleSeriesData.push(null);
+      }
+
+      // 2人以上作業 data point
+      if (d && d.multi && d.multi.oneHrPc != null) {
+        multiSeriesData.push({
+          value: d.multi.oneHrPc,
+          dateLabel: d.dateLabel,
+          kanban: d.multi.kanban || d.kanban,
+          pieces: d.multi.pieces,
+          hours: d.multi.hours,
+          remarks: d.multi.remarks || d.remarks,
+          recordIds: d.multi.recordIds || [],
+          coOperators: d.multi.coOperators || [],
+          avgOperatorCount: d.multi.avgOperatorCount || 2,
+          seriesType: '2人以上作業',
+          dayData: { ...d, recordIds: d.multi.recordIds || d.recordIds },
+          context: {
+            operatorName: operator.operatorName,
+            machineName: machine ? (machine.machineName || operator.productName) : operator.productName,
+            productName: operator.productName,
+            target,
+            warning,
+            workType: '2人以上作業',
+            coOperators: d.multi.coOperators || []
+          }
+        });
+      } else {
+        multiSeriesData.push(null);
+      }
     } else {
-      seriesData.push(null);
+      // Standard single-person only
+      if (d && d.oneHrPc != null) {
+        singleSeriesData.push({
+          value: d.oneHrPc,
+          dateLabel: d.dateLabel,
+          kanban: d.kanban,
+          pieces: d.pieces,
+          hours: d.hours,
+          remarks: d.remarks,
+          recordIds: d.recordIds || [],
+          seriesType: '出来高/1人h',
+          dayData: d,
+          context: {
+            operatorName: operator.operatorName,
+            machineName: machine ? (machine.machineName || operator.productName) : operator.productName,
+            productName: operator.productName,
+            target,
+            warning,
+            workType: '1人作業'
+          }
+        });
+      } else {
+        singleSeriesData.push(null);
+      }
     }
+  }
+
+  const markLineData = [
+    {
+      yAxis: target,
+      name: '目標',
+      lineStyle: {
+        color: '#dc2626',
+        width: 1.8,
+        type: 'solid'
+      },
+      label: {
+        show: true,
+        position: 'end',
+        formatter: `目標 ${target}`,
+        color: '#dc2626',
+        fontSize: 10,
+        fontWeight: '500'
+      }
+    },
+    {
+      yAxis: warning,
+      name: '警戒',
+      lineStyle: {
+        color: '#f97316',
+        width: 1.2,
+        type: 'dashed'
+      },
+      label: {
+        show: true,
+        position: 'end',
+        formatter: `警戒 ${warning}`,
+        color: '#ea580c',
+        fontSize: 9,
+        fontWeight: '500'
+      }
+    }
+  ];
+
+  const series = [];
+
+  if (hasMulti) {
+    // Line 1: 1人作業
+    series.push({
+      name: '1人作業',
+      type: 'line',
+      connectNulls: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      cursor: 'pointer',
+      lineStyle: {
+        width: 2.5,
+        color: '#4f46e5'
+      },
+      itemStyle: {
+        color: function(params) {
+          if (!params || params.data == null) return '#4f46e5';
+          const val = typeof params.data === 'object' ? params.data.value : params.data;
+          if (val >= target) return '#10b981'; // Green
+          if (val >= warning) return '#f59e0b'; // Amber
+          return '#ef4444'; // Red
+        }
+      },
+      data: singleSeriesData,
+      markLine: {
+        symbol: ['none', 'none'],
+        silent: false,
+        data: markLineData
+      }
+    });
+
+    // Line 2: 2人以上作業
+    series.push({
+      name: '2人以上作業',
+      type: 'line',
+      connectNulls: true,
+      symbol: 'diamond',
+      symbolSize: 10,
+      cursor: 'pointer',
+      lineStyle: {
+        width: 2.5,
+        color: '#0d9488',
+        type: 'dashed'
+      },
+      itemStyle: {
+        color: function(params) {
+          if (!params || params.data == null) return '#0d9488';
+          const val = typeof params.data === 'object' ? params.data.value : params.data;
+          if (val >= target) return '#10b981'; // Green
+          if (val >= warning) return '#f59e0b'; // Amber
+          return '#ef4444'; // Red
+        }
+      },
+      data: multiSeriesData
+    });
+  } else {
+    // Single line
+    series.push({
+      name: '出来高/1人h',
+      type: 'line',
+      connectNulls: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      cursor: 'pointer',
+      lineStyle: {
+        width: 2.5,
+        color: '#4f46e5'
+      },
+      itemStyle: {
+        color: function(params) {
+          if (!params || params.data == null) return '#4f46e5';
+          const val = typeof params.data === 'object' ? params.data.value : params.data;
+          if (val >= target) return '#10b981'; // Green
+          if (val >= warning) return '#f59e0b'; // Amber
+          return '#ef4444'; // Red
+        }
+      },
+      data: singleSeriesData,
+      markLine: {
+        symbol: ['none', 'none'],
+        silent: false,
+        data: markLineData
+      }
+    });
   }
 
   const option = {
@@ -1327,11 +1615,17 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
         const hours = d.hours != null ? d.hours.toFixed(2) : '-';
         const kanban = d.kanban || '-';
         const remarks = d.remarks || '';
+        const seriesName = params.seriesName || (d.seriesType || '出来高/1人h');
+        const isMulti = seriesName === '2人以上作業';
+        const coOps = Array.isArray(d.coOperators) && d.coOperators.length > 0 ? d.coOperators.join(', ') : '';
 
         return `
           <div class="font-sans text-xs">
-            <div class="font-semibold text-gray-900 border-b border-gray-100 pb-1 mb-1">
-              ${d.dateLabel || ('Day ' + params.name)} (${operator.operatorName})
+            <div class="font-semibold text-gray-900 border-b border-gray-100 pb-1 mb-1 flex items-center justify-between gap-3">
+              <span>${d.dateLabel || ('Day ' + params.name)} (${operator.operatorName})</span>
+              <span class="inline-flex items-center px-1.5 py-0.2 rounded text-3xs font-semibold ${isMulti ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'}">
+                ${isMulti ? '2人以上作業' : '1人作業'}
+              </span>
             </div>
             <div class="flex justify-between gap-4 text-xs py-0.5">
               <span class="text-gray-500">出来高/1人h:</span>
@@ -1349,6 +1643,11 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
               <span class="text-gray-500">ライン/看板:</span>
               <span class="font-medium text-indigo-700">${analyticsEscapeHtml(kanban)}</span>
             </div>
+            ${isMulti && coOps ? `
+              <div class="mt-1 pt-1 border-t border-teal-100 text-xs text-teal-800">
+                <span class="font-semibold">共同作業者:</span> ${analyticsEscapeHtml(coOps)}
+              </div>
+            ` : ''}
             ${remarks ? `
               <div class="mt-1 pt-1 border-t border-rose-100 text-xs text-rose-600">
                 <span class="font-semibold">理由:</span> ${analyticsEscapeHtml(remarks)}
@@ -1361,8 +1660,27 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
         `;
       }
     },
+    legend: hasMulti ? {
+      show: true,
+      top: 4,
+      right: 70,
+      itemGap: 16,
+      data: [
+        { name: '1人作業', icon: 'circle' },
+        { name: '2人以上作業', icon: 'diamond' }
+      ],
+      selected: {
+        '1人作業': true,
+        '2人以上作業': true
+      },
+      textStyle: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#374151'
+      }
+    } : undefined,
     grid: {
-      top: 35,
+      top: hasMulti ? 42 : 35,
       left: 45,
       right: 60,
       bottom: 25,
@@ -1401,73 +1719,35 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
         color: '#6b7280'
       }
     },
-    series: [
-      {
-        name: '出来高/1人h',
-        type: 'line',
-        connectNulls: true,
-        symbol: 'circle',
-        symbolSize: 8,
-        cursor: 'pointer',
-        lineStyle: {
-          width: 2.5,
-          color: '#4f46e5'
-        },
-        itemStyle: {
-          color: function(params) {
-            if (!params || params.data == null) return '#4f46e5';
-            const val = typeof params.data === 'object' ? params.data.value : params.data;
-            if (val >= target) return '#10b981'; // Green
-            if (val >= warning) return '#f59e0b'; // Amber
-            return '#ef4444'; // Red
-          }
-        },
-        data: seriesData,
-        markLine: {
-          symbol: ['none', 'none'],
-          silent: false,
-          data: [
-            {
-              yAxis: target,
-              name: '目標',
-              lineStyle: {
-                color: '#dc2626',
-                width: 1.8,
-                type: 'solid'
-              },
-              label: {
-                show: true,
-                position: 'end',
-                formatter: `目標 ${target}`,
-                color: '#dc2626',
-                fontSize: 10,
-                fontWeight: '500'
-              }
-            },
-            {
-              yAxis: warning,
-              name: '警戒',
-              lineStyle: {
-                color: '#f97316',
-                width: 1.2,
-                type: 'dashed'
-              },
-              label: {
-                show: true,
-                position: 'end',
-                formatter: `警戒 ${warning}`,
-                color: '#ea580c',
-                fontSize: 9,
-                fontWeight: '500'
-              }
-            }
-          ]
-        }
-      }
-    ]
+    series: series
   };
 
   chart.setOption(option);
+
+  // Sync legend selection with header buttons
+  if (hasMulti) {
+    chart.on('legendselectchanged', function(params) {
+      if (!params || !params.selected) return;
+      const isSingleSelected = params.selected['1人作業'] !== false;
+      const isMultiSelected = params.selected['2人以上作業'] !== false;
+      const btnSingle = document.getElementById(`btnToggleSingle_${domId}`);
+      const btnMulti = document.getElementById(`btnToggleMulti_${domId}`);
+      if (btnSingle) {
+        if (isSingleSelected) {
+          btnSingle.classList.remove('opacity-40', 'line-through', 'grayscale');
+        } else {
+          btnSingle.classList.add('opacity-40', 'line-through', 'grayscale');
+        }
+      }
+      if (btnMulti) {
+        if (isMultiSelected) {
+          btnMulti.classList.remove('opacity-40', 'line-through', 'grayscale');
+        } else {
+          btnMulti.classList.add('opacity-40', 'line-through', 'grayscale');
+        }
+      }
+    });
+  }
 
   chart.on('click', function(params) {
     if (params && params.data && params.data.dayData) {
@@ -1475,6 +1755,15 @@ function initWorkerProductivityChart({ domId, operator, machine, daysInMonth, ta
     }
   });
 }
+
+window.toggleProductivitySeries = function(domId, seriesName) {
+  const chart = analyticsProductivityCharts.get(domId);
+  if (!chart) return;
+  chart.dispatchAction({
+    type: 'legendToggleSelect',
+    name: seriesName
+  });
+};
 
 function printAnalyticsProductivityWhiteboard() {
   const originalTitle = document.title;
