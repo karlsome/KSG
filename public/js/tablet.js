@@ -121,6 +121,8 @@ let currentNGGroup = null; // Store currently active NG group for this product
 let seisanSuStartValue = null; // Starting value of seisanSu when work started
 let currentSeisanSuValue = null; // Current seisanSu value
 let accumulatedWorkCountBeforeReset = 0; // Accumulated work count preserved across OPC resets
+let pendingOpcReset = null; // Unconfirmed counter drop: { firstValue, firstSeenAt, readingKeys }
+let hasConfiguredProductionCounter = false; // Equipment config explicitly sets productionCountVariable
 let hakoIresuValue = null; // Store hakoIresu variable value
 let workTimerInterval = null; // Interval for updating work time
 let workStartTime = null; // Timestamp when work started
@@ -1990,7 +1992,9 @@ async function loadEquipmentConfig() {
           boxQuantity: equipment.opcVariables.boxQuantityVariable || 'hakoIresu'
         };
         isManualProductSelectionMode = !kanbanVar;
-        
+        // Read the raw config — variableMappings falls back to 'seisanSu' even when unset
+        hasConfiguredProductionCounter = Boolean(String(equipment.opcVariables.productionCountVariable ?? '').trim());
+
         console.log('');
         console.log('📋 OPC VARIABLE MAPPINGS FOR THIS TABLET');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -2488,6 +2492,100 @@ function updateWorkCount() {
   updatePassCount();
 }
 
+// A drop below seisanSuStartValue is only treated as a real counter reset (e.g. after
+// a die/mold changeover) once it has held for several distinct readings and some time.
+// A single 0 / glitch reading would otherwise re-baseline to 0 and inflate the count.
+const OPC_RESET_CONFIRM_READINGS = 3;
+const OPC_RESET_CONFIRM_MS = 20000;
+
+function clearPendingOpcReset() {
+  pendingOpcReset = null;
+}
+
+// Apply one production-count reading from OPC.
+// - Bad quality: ignored.
+// - Stale / non-Good: may set the baseline or move the count forward, never down or reset.
+// - Good & fresh below the start value: pending reset, committed only after confirmation.
+function handleProductionCountReading(varName, reading) {
+  const rawValue = reading?.value;
+  if (rawValue === null || rawValue === undefined) return;
+
+  const value = parseFloat(rawValue);
+  if (!Number.isFinite(value)) return;
+
+  if (reading.quality === 'Bad') {
+    console.warn(`⚠️ ${varName} reading ignored (quality Bad):`, value);
+    return;
+  }
+
+  const isTrusted = reading.quality === 'Good' && !reading.isStale;
+  const isBelowStart = seisanSuStartValue !== null && value < seisanSuStartValue;
+
+  if (!isBelowStart) {
+    if (pendingOpcReset) {
+      console.log(`✅ ${varName} recovered to ${value} — pending counter reset cancelled`);
+      clearPendingOpcReset();
+    }
+    currentSeisanSuValue = value;
+    console.log(`📊 ${varName} value updated:`, currentSeisanSuValue);
+    updateWorkCount();
+    return;
+  }
+
+  if (!isTrusted) {
+    console.warn(`⚠️ ${varName} reading ${value} below start ${seisanSuStartValue} ignored (quality ${reading.quality}, stale ${reading.isStale})`);
+    return;
+  }
+
+  // Trusted reading below the start value: hold the count at the last good value
+  // until the drop is confirmed.
+  const readingKey = `${reading.timestamp ?? ''}|${value}`;
+  if (!pendingOpcReset) {
+    pendingOpcReset = {
+      firstValue: value,
+      firstSeenAt: Date.now(),
+      readingKeys: new Set([readingKey])
+    };
+    console.warn(`⚠️ ${varName} dropped below start (${value} < ${seisanSuStartValue}) — waiting to confirm counter reset`);
+    return;
+  }
+
+  pendingOpcReset.readingKeys.add(readingKey);
+  const heldMs = Date.now() - pendingOpcReset.firstSeenAt;
+  if (pendingOpcReset.readingKeys.size < OPC_RESET_CONFIRM_READINGS || heldMs < OPC_RESET_CONFIRM_MS) {
+    return;
+  }
+
+  // Confirmed counter reset
+  const resetStartValue = pendingOpcReset.firstValue;
+  clearPendingOpcReset();
+  console.warn(`⚠️ ${varName} counter reset confirmed (${value} < ${seisanSuStartValue}, reset began at ${resetStartValue})`);
+
+  if (hasUnsubmittedTabletData()) {
+    // Work count we had BEFORE the reset, from the last good value
+    const previousDelta = currentSeisanSuValue !== null
+      ? Math.max(0, currentSeisanSuValue - seisanSuStartValue)
+      : 0;
+    accumulatedWorkCountBeforeReset += previousDelta;
+    localStorage.setItem('accumulatedWorkCountBeforeReset', accumulatedWorkCountBeforeReset);
+    console.log(`📦 Preserved accumulated work count: ${accumulatedWorkCountBeforeReset} (added ${previousDelta})`);
+
+    // Re-baseline to where the counter restarted, so pieces made since then are kept
+    seisanSuStartValue = resetStartValue;
+    localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+    currentSeisanSuValue = value;
+    updateWorkCount();
+
+    showOpcResetModal(accumulatedWorkCountBeforeReset);
+  } else {
+    // No active session — safe to silently re-baseline
+    seisanSuStartValue = resetStartValue;
+    localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
+    currentSeisanSuValue = value;
+    updateWorkCount();
+  }
+}
+
 // Listen for real-time variable updates (pushed from server when data changes)
 socket.on('opcua_variables_update', (data) => {
   console.log('📊 Received real-time variable updates:', data);
@@ -2530,39 +2628,11 @@ function updateUIWithVariables(variables) {
   // Only update when a valid value is present — keep the last known value otherwise
   // so a temporary OPC gap doesn't zero-out the work counter.
   if (variables[productionVarName] !== undefined) {
-    const value = variables[productionVarName].value;
-    if (value !== null && value !== undefined) {
-      const previousSeisanSuBeforeThisUpdate = currentSeisanSuValue;
-      currentSeisanSuValue = parseFloat(value);
-      console.log(`📊 ${productionVarName} value updated:`, currentSeisanSuValue);
-
-      // If the machine's counter reset (e.g. after a die/mold changeover) the new
-      // value can drop below the captured start value. We preserve the accumulated
-      // work count and show a warning modal if the user has unsubmitted data.
-      if (seisanSuStartValue !== null && currentSeisanSuValue < seisanSuStartValue) {
-        console.warn(`⚠️ ${productionVarName} counter reset detected (${currentSeisanSuValue} < ${seisanSuStartValue})`);
-
-        if (hasUnsubmittedTabletData()) {
-          // Calculate the work count we had BEFORE the reset
-          const previousDelta = Math.max(0, previousSeisanSuBeforeThisUpdate - seisanSuStartValue);
-          accumulatedWorkCountBeforeReset += previousDelta;
-          localStorage.setItem('accumulatedWorkCountBeforeReset', accumulatedWorkCountBeforeReset);
-          console.log(`📦 Preserved accumulated work count: ${accumulatedWorkCountBeforeReset} (added ${previousDelta})`);
-
-          // Re-baseline to the new (reset) value
-          seisanSuStartValue = currentSeisanSuValue;
-          localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
-
-          // Show the warning modal
-          showOpcResetModal(accumulatedWorkCountBeforeReset);
-        } else {
-          // No active session — safe to silently re-baseline
-          seisanSuStartValue = currentSeisanSuValue;
-          localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
-        }
-      }
-
-      updateWorkCount();
+    const hadSeisanSuValue = currentSeisanSuValue !== null;
+    handleProductionCountReading(productionVarName, variables[productionVarName]);
+    // First counter value unlocks 開始 on manual-product tablets
+    if (!hadSeisanSuValue && currentSeisanSuValue !== null) {
+      checkStartButtonState();
     }
   } else {
     console.warn(`⚠️ ${productionVarName} variable not found in update, keeping last value`);
@@ -2623,6 +2693,7 @@ function resetBasicSettings() {
     seisanSuStartValue = null;
     localStorage.removeItem('seisanSuStartValue');
     accumulatedWorkCountBeforeReset = 0;
+    clearPendingOpcReset();
     localStorage.removeItem('accumulatedWorkCountBeforeReset');
     console.log('🔄 Reset seisanSu starting value and accumulated count');
     updateWorkCount(); // Update to show 0
@@ -2719,6 +2790,11 @@ function checkStartButtonState() {
   const hasValidProduct = isManualProductSelectionMode
     ? Boolean(currentProductId)
     : isUsableKanbanValue(kenyokiRHKanbanValue);
+  // Manual-product tablets can otherwise press 開始 before the first OPC counter value
+  // arrives, leaving no start value to count from. Kanban tablets already wait for OPC.
+  const waitingForProductionCounter = isManualProductSelectionMode
+    && hasConfiguredProductionCounter
+    && currentSeisanSuValue === null;
   const hasPoster1 = poster1Select.value !== '';
   const startTimeEmpty = startTimeInput.value === '';
   
@@ -2728,11 +2804,12 @@ function checkStartButtonState() {
     currentProductId,
     hasPoster1,
     startTimeEmpty,
+    waitingForProductionCounter,
     kanbanValue: kenyokiRHKanbanValue,
     poster1Value: poster1Select.value
   });
-  
-  if (hasValidProduct && hasPoster1 && startTimeEmpty) {
+
+  if (hasValidProduct && !waitingForProductionCounter && hasPoster1 && startTimeEmpty) {
     // Enable button
     startButton.classList.remove('disabled');
     startButton.classList.add('start-ready');
@@ -2792,6 +2869,7 @@ function startWork() {
   // Capture current seisanSu value as starting point
   if (currentSeisanSuValue !== null) {
     seisanSuStartValue = currentSeisanSuValue;
+    clearPendingOpcReset();
     localStorage.setItem('seisanSuStartValue', seisanSuStartValue);
     console.log('📍 Starting seisanSu value captured:', seisanSuStartValue);
     updateWorkCount(); // Initial update to show 0
@@ -3080,6 +3158,7 @@ function clearAllFields() {
     seisanSuStartValue = null;
     localStorage.removeItem('seisanSuStartValue');
     accumulatedWorkCountBeforeReset = 0;
+    clearPendingOpcReset();
     localStorage.removeItem('accumulatedWorkCountBeforeReset');
     console.log('🔄 Reset seisanSu starting value and accumulated count');
     updateWorkCount(); // Update to show 0

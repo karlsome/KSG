@@ -2007,12 +2007,6 @@ app.get('/api/tablet/product-by-kanban/:kanbanId', async (req, res) => {
     }
 });
 
-// Get equipment configuration for tablet (including OPC variable mappings)
-app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
-    const tabletName = decodeURIComponent(req.params.tabletName);
-    
-    try {
-
 app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
     try {
         const payload = req.body || {};
@@ -2069,6 +2063,12 @@ app.post('/api/tablet/session', authenticateTablet, async (req, res) => {
         });
     }
 });
+
+// Get equipment configuration for tablet (including OPC variable mappings)
+app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
+    const tabletName = decodeURIComponent(req.params.tabletName);
+    
+    try {
         if (!mongoClient) {
             return res.status(503).json({ 
                 success: false, 
