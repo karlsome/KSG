@@ -22,6 +22,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import socket
 import socketio
 import threading
+import os
 
 # ==========================================
 # CONFIGURATION - EDIT THIS
@@ -121,6 +122,78 @@ last_event_flush = 0
 opcua_connection_status = 'Unknown'  # Unknown, Connected, Disconnected
 last_connection_check = 0
 CONNECTION_CHECK_INTERVAL = 30  # Check connection health every 30 seconds
+HEALTH_FAILS_BEFORE_RECONNECT = 2  # Consecutive failed health checks before forcing a reconnect
+health_fail_count = 0
+
+# Watchdog configuration
+# If the process is stuck, exit so systemd (Restart=always) starts a fresh one.
+LOOP_STALL_TIMEOUT = 600        # Main loop made no progress for 10 min -> exit
+DISCONNECT_RESTART_AFTER = 1800 # OPC UA not connected for 30 min -> exit (clean restart)
+WATCHDOG_CHECK_INTERVAL = 15    # Watchdog thread tick (also pings systemd)
+last_loop_progress = time.time()
+disconnected_since = None
+
+# ==========================================
+# WATCHDOG
+# ==========================================
+
+def sd_notify(message):
+    """Send a notification to systemd (no-op when not running under systemd)."""
+    addr = os.environ.get('NOTIFY_SOCKET')
+    if not addr:
+        return
+    try:
+        if addr.startswith('@'):
+            addr = '\0' + addr[1:]
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            sock.connect(addr)
+            sock.sendall(message.encode())
+        finally:
+            sock.close()
+    except Exception as e:
+        logger.debug(f"sd_notify failed: {e}")
+
+def mark_progress():
+    """Called by the main loop to show it is alive."""
+    global last_loop_progress
+    last_loop_progress = time.time()
+
+def watchdog_thread_fn():
+    """
+    Independent thread that kills the process if the main loop is stuck or the
+    OPC UA connection has been down too long. systemd then restarts the service.
+    Only pings the systemd watchdog while healthy, so systemd also restarts us
+    if this thread or the whole interpreter hangs.
+    """
+    global disconnected_since
+    while True:
+        time.sleep(WATCHDOG_CHECK_INTERVAL)
+        now = time.time()
+
+        stalled_for = now - last_loop_progress
+        if stalled_for > LOOP_STALL_TIMEOUT:
+            logger.critical(f"🐕 Watchdog: main loop stalled for {int(stalled_for)}s - exiting for restart")
+            logging.shutdown()
+            os._exit(1)
+
+        if opcua_connection_status == 'Connected':
+            disconnected_since = None
+        else:
+            if disconnected_since is None:
+                disconnected_since = now
+            elif now - disconnected_since > DISCONNECT_RESTART_AFTER:
+                logger.critical(f"🐕 Watchdog: OPC UA not connected for {int(now - disconnected_since)}s - exiting for restart")
+                logging.shutdown()
+                os._exit(1)
+
+        sd_notify('WATCHDOG=1')
+
+def start_watchdog():
+    mark_progress()
+    threading.Thread(target=watchdog_thread_fn, daemon=True, name='watchdog').start()
+    sd_notify('READY=1')
+    logger.info(f"🐕 Watchdog started (stall timeout {LOOP_STALL_TIMEOUT}s, disconnect restart {DISCONNECT_RESTART_AFTER}s)")
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -703,6 +776,14 @@ def setup_subscriptions():
         # stale until the PLC value changed again.
         last_values.clear()
 
+        # Drop any previous subscription so it can't leak
+        if subscription:
+            try:
+                subscription.delete()
+            except Exception:
+                pass
+            subscription = None
+
         # Create subscription with handler
         handler = DataChangeHandler()
         subscription = opcua_client.create_subscription(SUBSCRIPTION_INTERVAL, handler)
@@ -1138,15 +1219,23 @@ def main_loop():
     
     # Setup daily node discovery scheduler
     scheduler = BackgroundScheduler()
-    scheduler.add_job(save_discovered_nodes, 'cron', hour=7, minute=0)  # Daily at 7am
+    def request_daily_scan():
+        # Don't reconnect from the scheduler thread (races with the main loop);
+        # let the main loop perform the scan via the manual-scan path.
+        global manual_scan_requested
+        manual_scan_requested = True
+    scheduler.add_job(request_daily_scan, 'cron', hour=7, minute=0)  # Daily at 7am
     scheduler.start()
     logger.info(f"⏰ Scheduled daily node discovery at {NODE_DISCOVERY_TIME}")
     
     # Track if initial discovery has been done
     initial_discovery_done = False
     
+    start_watchdog()
+    
     while True:
         try:
+            mark_progress()
             current_time = time.time()
             
             # Fetch or refresh config
@@ -1239,7 +1328,15 @@ def main_loop():
             # Periodic connection health check
             global last_connection_check
             if (current_time - last_connection_check) >= CONNECTION_CHECK_INTERVAL:
-                check_connection_health()
+                global health_fail_count
+                if check_connection_health():
+                    health_fail_count = 0
+                else:
+                    health_fail_count += 1
+                    if health_fail_count >= HEALTH_FAILS_BEFORE_RECONNECT:
+                        logger.warning("🔄 OPC UA connection dead - tearing down client to force reconnect + resubscribe")
+                        disconnect_opcua()  # main loop reconnects and resubscribes next iteration
+                        health_fail_count = 0
                 last_connection_check = current_time
             
             # Periodic event buffer flush

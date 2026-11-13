@@ -1,0 +1,24 @@
+# Install on the Pi:
+#   sudo cp opcua-client.service /etc/systemd/system/opcua-client.service
+#   (edit User / WorkingDirectory / ExecStart paths to match the Pi)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now opcua-client
+# Logs: sudo journalctl -u opcua-client -f
+
+[Unit]
+Description=OPC UA Monitoring Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=pi
+WorkingDirectory=/home/pi
+ExecStart=/usr/bin/python3 -u /home/pi/opcua_client.py
+Restart=always
+RestartSec=10
+# The script pings systemd every ~15s while healthy; no ping for 120s -> systemd kills and restarts it
+WatchdogSec=120
+
+[Install]
+WantedBy=multi-user.target
