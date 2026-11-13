@@ -105,6 +105,10 @@ websocket_connected = False
 # Pending operations for retry
 pending_discovered_nodes = None
 pending_data_queue = []
+PENDING_QUEUE_MAX = 100          # Max failed batches kept for retry
+PENDING_RETRY_INTERVAL = 30      # Seconds between HTTP retries of the pending queue
+last_pending_retry = 0
+CHANGED_BUFFER_MAX = 5000        # Cap for subscription change buffer (drop oldest)
 device_info_uploaded = False  # Track if device info has been uploaded
 manual_scan_requested = False
 
@@ -198,6 +202,13 @@ def start_watchdog():
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
+
+def buffer_change(item):
+    """Append a changed value to the upload buffer, dropping the oldest if it is too large."""
+    changed_data_buffer.append(item)
+    overflow = len(changed_data_buffer) - CHANGED_BUFFER_MAX
+    if overflow > 0:
+        del changed_data_buffer[:overflow]
 
 def log_event(event_type, opc_node_id=None, variable_name=None, old_value=None, new_value=None, quality='Good', message='', metadata=None):
     """
@@ -364,7 +375,9 @@ def retry_with_backoff(func, *args, **kwargs):
                 delay = RETRY_DELAYS[attempt]
                 logger.warning(f"⚠️  Attempt {attempt + 1} failed: {e}")
                 logger.info(f"🔄 Retrying in {delay} seconds...")
+                mark_progress()  # bounded retry, not a stall
                 time.sleep(delay)
+                mark_progress()
             else:
                 logger.error(f"❌ All {MAX_RETRY_ATTEMPTS} attempts failed: {e}")
                 return False, None
@@ -573,7 +586,7 @@ class DataChangeHandler:
                 }
                 
                 # Add to buffer for batch upload
-                changed_data_buffer.append(changed_data)
+                buffer_change(changed_data)
                 
                 # Only log event if value actually changed (or if it's the first value)
                 if old_value is None or old_value != val:
@@ -625,7 +638,7 @@ class DataChangeHandler:
                     }
                     
                     # Add to buffer for batch upload
-                    changed_data_buffer.append(discovered_node_update)
+                    buffer_change(discovered_node_update)
                     
                     logger.info(f"🔍 Discovered node changed: {node_id} = {val} (quality: {quality})")
             
@@ -938,54 +951,53 @@ def push_data_websocket(data):
         return False
 
 def push_data(data):
-    """Push data to cloud (WebSocket first, HTTP fallback)"""
-    global pending_data_queue
-    
-    # Try to upload pending data first via HTTP
-    if pending_data_queue:
+    """
+    Push data to cloud (WebSocket first, HTTP fallback).
+    Never sleeps/backs off: a single HTTP attempt (10s timeout) at most, so the
+    main loop can't be blocked for minutes. Failed batches are queued and
+    retried at most every PENDING_RETRY_INTERVAL seconds.
+    """
+    global pending_data_queue, last_pending_retry
+
+    # Retry pending batches (HTTP), throttled, one attempt each, stop on first failure
+    if pending_data_queue and (time.time() - last_pending_retry) >= PENDING_RETRY_INTERVAL:
+        last_pending_retry = time.time()
         logger.info(f"🔄 Attempting to upload {len(pending_data_queue)} pending data batches...")
         uploaded_count = 0
-        failed_batches = []
-        
-        for batch in pending_data_queue:
-            success, _ = retry_with_backoff(_upload_data, batch)
-            if success:
+        while pending_data_queue:
+            try:
+                _upload_data(pending_data_queue[0])
+                pending_data_queue.pop(0)
                 uploaded_count += 1
-            else:
-                failed_batches.append(batch)
-        
+            except Exception as e:
+                logger.warning(f"⚠️  Pending upload failed, will retry in {PENDING_RETRY_INTERVAL}s: {e}")
+                break
         if uploaded_count > 0:
             logger.info(f"✅ Successfully uploaded {uploaded_count} pending batches")
-        
-        pending_data_queue = failed_batches
-    
-    # Try to push current data
-    if data:
-        # Try WebSocket first
-        ws_success = push_data_websocket(data)
-        
-        if ws_success:
+
+    if not data:
+        return True
+
+    # Try WebSocket first
+    if push_data_websocket(data):
+        return True
+
+    # Fallback to HTTP POST (single attempt). Skip straight to the queue if a
+    # retry just failed, to avoid stacking 10s timeouts every second.
+    if not pending_data_queue:
+        try:
+            result = _upload_data(data)
+            logger.info(f"📤 Pushed {result.get('received', 0)} datapoints via HTTP")
             return True
-        else:
-            # Fallback to HTTP POST
-            logger.info("⚠️  WebSocket unavailable, falling back to HTTP POST")
-            success, result = retry_with_backoff(_upload_data, data)
-            
-            if success:
-                logger.info(f"📤 Pushed {result.get('received', 0)} datapoints via HTTP")
-                return True
-            else:
-                # Add to pending queue (limit queue size to prevent memory issues)
-                if len(pending_data_queue) < 100:  # Max 100 pending batches
-                    pending_data_queue.append(data)
-                    logger.warning(f"⚠️  Added data to pending queue ({len(pending_data_queue)} batches pending)")
-                else:
-                    logger.error("❌ Pending queue full, dropping oldest data")
-                    pending_data_queue.pop(0)
-                    pending_data_queue.append(data)
-                return False
-    
-    return True
+        except Exception as e:
+            logger.warning(f"⚠️  HTTP push failed: {e}")
+
+    if len(pending_data_queue) >= PENDING_QUEUE_MAX:
+        logger.error("❌ Pending queue full, dropping oldest data")
+        pending_data_queue.pop(0)
+    pending_data_queue.append(data)
+    logger.warning(f"⚠️  Added data to pending queue ({len(pending_data_queue)} batches pending)")
+    return False
 
 def _send_heartbeat_request(status):
     """Internal function to send heartbeat (used by retry mechanism)"""
