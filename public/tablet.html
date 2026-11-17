@@ -586,6 +586,28 @@
       background: #eeeeee;
     }
 
+    /* 備考 編集 / 保存 toggle: blue while locked, green while editing */
+    #editRemarksButton {
+      background: #1d4ed8;
+      color: #fff;
+      border-color: #1d4ed8;
+      font-weight: 700;
+      min-width: 96px;
+    }
+
+    #editRemarksButton:hover {
+      background: #1e40af;
+    }
+
+    #editRemarksButton.saving {
+      background: #16a34a;
+      border-color: #16a34a;
+    }
+
+    #editRemarksButton.saving:hover {
+      background: #15803d;
+    }
+
     /* Break Modal Styles */
     .break-modal-overlay {
       display: none;
@@ -1835,7 +1857,7 @@
           <div class="remarks-display" id="remarks"></div>
         </div>
 
-        <button class="bottom-button" onclick="editRemarks()">編集</button>
+        <button class="bottom-button" id="editRemarksButton" onclick="editRemarks()">編集</button>
       </div>
     </div>
   </div>

@@ -3559,6 +3559,7 @@ function editRemarks() {
   const otherDetails = document.getElementById('otherDetails');
   
   if (!remarksDisplay || !otherDetails) return;
+  const editButton = document.getElementById('editRemarksButton');
   
   // Toggle contentEditable for both fields
   if (remarksDisplay.contentEditable === 'true') {
@@ -3570,6 +3571,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'false';
     otherDetails.style.background = '#f9f9f9';
     otherDetails.style.cursor = 'default';
+
+    if (editButton) {
+      editButton.textContent = '編集';
+      editButton.classList.remove('saving');
+    }
     
     // Save to localStorage
     localStorage.setItem('tablet_remarks', remarksDisplay.textContent);
@@ -3588,6 +3594,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'true';
     otherDetails.style.background = '#fff';
     otherDetails.style.cursor = 'text';
+
+    if (editButton) {
+      editButton.textContent = '保存';
+      editButton.classList.add('saving');
+    }
     
     otherDetails.focus();
     console.log('✏️ Remarks edit mode enabled');
