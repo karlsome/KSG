@@ -61,9 +61,11 @@ Do NOT set `work_count_manual` for every manual record. That flag means "OPC val
 New keys must be added to every fixed-key list (ksgServer `KNOWN_KEYS`, `SUBMITTED_DB_FIXED_FIELDS`,
 `SUBMITTED_DB_NON_EDITABLE_FIELDS`, submittedDB.js, analytics.js, index.html), or they show up as defect columns.
 
-## 4. Out of scope for now
-- Google Sheets for inspection records (user undecided). Note: Sheets targets are keyed by ngGroup,
-  so inspection groups will not match any existing target until one is configured.
+## 4. Google Sheets + defects: same as OPC tablets (decided 2026-11-17)
+Manual 検査台 submissions go to the **same Google Sheets** and use the **same defect list** as the seisanSu (OPC) tablets.
+No special handling: the Sheets target is found from the record's `master_record_id` / `ng_group_id` (the product),
+and defect buttons come from the product's `ngGroupId`. `process` / `input_mode` are fixed fields, so they are
+never written to the sheet.
 
 ## 5. Change points (keep logic here)
 - Server: one `resolveNgGroupForProcess(db, product, process)` helper used by every tablet product endpoint.
@@ -76,7 +78,7 @@ Possible future changes the user flagged: defects per item (product) instead of 
 - Type 3 is always manual, always 検査, never mixed with 巻き込み (a different part of the factory).
 - Product list: all products, searchable.
 - Same UI including 作業中断 / 機械トラブル.
-- Google Sheets: ignore for now.
+- Google Sheets: same sheets as OPC tablets (see section 4).
 
 ## 7. Open questions
 (see the conversation of 2026-11-17; record answers here)
