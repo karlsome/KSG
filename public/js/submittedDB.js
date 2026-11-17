@@ -26,7 +26,7 @@ const SDB_FIXED_KEYS = new Set([
   'other_description', 'start_time', 'end_time', 'break_time',
   'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
   'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
-  'opc_work_count', 'work_count_manual',
+  'opc_work_count', 'work_count_manual', 'process', 'input_mode',
   'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 

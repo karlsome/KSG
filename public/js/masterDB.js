@@ -1010,7 +1010,9 @@ function renderModalDetails(type, data) {
           </div>
           <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
 
-          <div class="border-t border-gray-100 pt-3.5 mt-2">
+          ${buildEquipmentInputModeField('modalEquipmentInputMode', 'modalEquipmentOpcSection', getEquipmentInputMode(data), { disabled: true, withDataField: true })}
+
+          <div id="modalEquipmentOpcSection" class="border-t border-gray-100 pt-3.5 mt-2 ${getEquipmentInputMode(data) === 'manual' ? 'hidden' : ''}">
             <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
               <i class="ri-line-chart-line mr-1.5 text-indigo-600"></i>
               ${t('masterDB.opcVariableMappings')}
@@ -1601,6 +1603,10 @@ async function saveModalChanges() {
         }
       }
     });
+    // 手動 (検査台) equipment has no OPC: clear its variables so nothing is read from OPC
+    if (updateData.inputMode === 'manual') {
+      updateData.opcVariables = { ...EMPTY_EQUIPMENT_OPC_VARIABLES };
+    }
   }
   
   // Handle image upload
@@ -2356,6 +2362,7 @@ function renderEquipmentTable(equipment) {
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.equipmentName')}</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factoriesLabel')}</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">入力モード</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.opcVariables')}</th>
           </tr>
         </thead>
@@ -2378,10 +2385,13 @@ function renderEquipmentTable(equipment) {
                   ${(eq.工場 || []).map(f => `<span class="tag">${escapeHtml(f)}</span>`).join(" ")}
                 </td>
                 <td class="px-3 py-2 text-gray-600">${escapeHtml(eq.description || "")}</td>
-                <td class="px-3 py-2">${opcDisplay}</td>
+                <td class="px-3 py-2 whitespace-nowrap">${getEquipmentInputMode(eq) === 'manual'
+                  ? '<span class="rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">手動 (検査台)</span>'
+                  : '<span class="rounded-lg bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">自動 (OPC)</span>'}</td>
+                <td class="px-3 py-2">${getEquipmentInputMode(eq) === 'manual' ? '<span class="text-gray-400">—</span>' : opcDisplay}</td>
               </tr>
             `;
-          }).join("") : `<tr><td colspan="5" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
+          }).join("") : `<tr><td colspan="6" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2391,6 +2401,39 @@ function renderEquipmentTable(equipment) {
   selectedItems = [];
   updateSelectedCount('equipment');
 }
+
+// ============================================================
+// Equipment 入力モード: 'opc' (自動, default) or 'manual' (手動 検査台, no OPC)
+// ============================================================
+function getEquipmentInputMode(eq) {
+  return eq && eq.inputMode === 'manual' ? 'manual' : 'opc';
+}
+
+function buildEquipmentInputModeField(selectId, sectionId, value = 'opc', { disabled = false, withDataField = false } = {}) {
+  const mode = value === 'manual' ? 'manual' : 'opc';
+  const baseClass = disabled ? 'bg-gray-50' : 'bg-white';
+  return `
+    <div>
+      <label class="block text-xs font-semibold text-gray-700 mb-1">入力モード</label>
+      <select id="${selectId}" ${withDataField ? 'data-field="inputMode"' : ''} ${disabled ? 'disabled' : ''}
+              onchange="toggleEquipmentOpcSection('${selectId}', '${sectionId}')"
+              class="w-full px-3 py-1.5 border border-gray-200 rounded-xl ${baseClass} text-xs focus:border-indigo-500 focus:outline-none shadow-2xs">
+        <option value="opc" ${mode === 'opc' ? 'selected' : ''}>自動 (OPC)</option>
+        <option value="manual" ${mode === 'manual' ? 'selected' : ''}>手動 (検査台・OPCなし)</option>
+      </select>
+      <p class="text-2xs text-gray-400 mt-1">手動: 品番スキャン・収容数で作業数をカウントします (検査工程)</p>
+    </div>
+  `;
+}
+
+function toggleEquipmentOpcSection(selectId, sectionId) {
+  const select = document.getElementById(selectId);
+  const section = document.getElementById(sectionId);
+  if (!select || !section) return;
+  section.classList.toggle('hidden', select.value === 'manual');
+}
+
+const EMPTY_EQUIPMENT_OPC_VARIABLES = { kanbanVariable: '', productionCountVariable: '', boxQuantityVariable: '' };
 
 function showCreateEquipmentForm() {
   const container = document.getElementById("equipmentTableContainer");
@@ -2417,7 +2460,10 @@ function showCreateEquipmentForm() {
             ${factoryOptions.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
         </div>
-        <div class="md:col-span-2 border-t border-gray-100 pt-3 mt-1">
+        <div class="md:col-span-2">
+          ${buildEquipmentInputModeField('newEqInputMode', 'newEqOpcSection')}
+        </div>
+        <div id="newEqOpcSection" class="md:col-span-2 border-t border-gray-100 pt-3 mt-1">
           <h4 class="text-xs font-semibold text-gray-900 mb-2.5">${t('masterDB.opcVariableMappings')}</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -2482,11 +2528,13 @@ async function submitNewEquipment() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
 
+  const inputMode = document.getElementById("newEqInputMode")?.value === 'manual' ? 'manual' : 'opc';
   const data = {
     設備名: document.getElementById("newEq設備名").value.trim(),
     工場: selectedFactories,
     description: document.getElementById("newEqDescription").value.trim(),
-    opcVariables: {
+    inputMode,
+    opcVariables: inputMode === 'manual' ? { ...EMPTY_EQUIPMENT_OPC_VARIABLES } : {
       kanbanVariable: document.getElementById("newEqKanbanVar")?.value.trim() || "",
       productionCountVariable: document.getElementById("newEqProductionVar")?.value.trim() || "seisanSu",
       boxQuantityVariable: document.getElementById("newEqBoxQtyVar")?.value.trim() || "hakoIresu"
@@ -3057,8 +3105,12 @@ async function showQuickCreateModal() {
           <textarea id="quickEquipmentDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
 
+        <div class="col-span-2">
+          ${buildEquipmentInputModeField('quickEquipmentInputMode', 'quickEquipmentOpcSection')}
+        </div>
+
         <!-- OPC Variable Mappings Section -->
-        <div class="col-span-2 border-t border-gray-100 pt-3 mt-2">
+        <div id="quickEquipmentOpcSection" class="col-span-2 border-t border-gray-100 pt-3 mt-2">
           <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
             <i class="ri-line-chart-line mr-1.5"></i>
             ${t('masterDB.opcVariableMappings')}
@@ -3281,11 +3333,13 @@ async function submitQuickCreate() {
         break;
         
       case 'equipment':
+        const quickInputMode = document.getElementById("quickEquipmentInputMode")?.value === 'manual' ? 'manual' : 'opc';
         data = {
           設備名: document.getElementById("quickEquipmentName").value.trim(),
           工場: selectedQuickEquipmentFactories,
           description: document.getElementById("quickEquipmentDesc").value.trim(),
-          opcVariables: {
+          inputMode: quickInputMode,
+          opcVariables: quickInputMode === 'manual' ? { ...EMPTY_EQUIPMENT_OPC_VARIABLES } : {
             kanbanVariable: document.getElementById("quickEquipmentKanbanVar")?.value.trim() || "",
             productionCountVariable: document.getElementById("quickEquipmentProductionVar")?.value.trim() || "seisanSu",
             boxQuantityVariable: document.getElementById("quickEquipmentBoxQtyVar")?.value.trim() || "hakoIresu"
