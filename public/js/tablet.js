@@ -2934,10 +2934,8 @@ function startWork() {
 }
 
 // Placeholder functions for buttons
-async function sendData() {
-  console.log('📤 Send data clicked');
-  
-  try {
+// Validates required fields (highlighting missing ones). Returns null if invalid.
+function validateSubmitRequiredFields() {
     // ✅ VALIDATION: Check required fields
     const startTimeInput = document.getElementById('startTime');
     const poster1Select = document.getElementById('poster1');
@@ -2988,18 +2986,223 @@ async function sendData() {
       const message = `以下の項目を入力してください:\n\nPlease fill in the following fields:\n\n${missingFields.map(f => `• ${f}`).join('\n')}`;
       alert(message);
       console.warn('⚠️ Validation failed - missing required fields:', missingFields);
-      return; // Stop submission
+      return null; // Stop submission
     }
 
-    // Check 作業数 (Work Count) — must be > 0
-    const workCountInput = document.getElementById('workCount');
-    const workCountValue = parseInt(workCountInput?.value) || 0;
-    if (workCountValue === 0) {
-      alert('作業数が 0 です。送信できません。\n\nWork count is 0. Cannot submit.\n\n作業開始後、OPC データが反映されてから送信してください。\nPlease wait for OPC data to update after starting work.');
-      console.warn('⚠️ Validation failed - workCount is 0');
-      return;
+    return { startTimeValue, poster1Value };
+}
+
+// 送信 button: validate, then show the confirmation modal (nothing is sent yet).
+// Every submit path (送信 button, kanban conflict, OPC reset modal) goes through here.
+async function sendData() {
+  console.log('📤 Send data clicked');
+  if (!validateSubmitRequiredFields()) return;
+  openSubmitConfirmModal();
+}
+
+// ============================================================
+// ✅ SUBMIT CONFIRMATION MODAL
+// ============================================================
+// OPC can fail and stop counting, so before every submit the operator confirms
+// 作業数 against the machine and can correct it. The edit only lives in this modal;
+// 合格数 is recalculated from it. The original OPC value is sent for admin audit.
+
+let submitConfirmState = null; // { opcWorkCount, workCount, editing }
+
+// Sum of defects that count against 合格数 (same rule as updateDefectSum)
+function getSubmitCountUpDefectTotal() {
+  let total = 0;
+  document.querySelectorAll('.counter-item').forEach(item => {
+    const button = item.querySelector('.counter-button');
+    const counterNumber = item.querySelector('.counter-number');
+    if (!counterNumber) return;
+    if (!button || button.getAttribute('data-count-up') !== 'false') {
+      total += parseInt(counterNumber.textContent) || 0;
     }
-    
+  });
+  return total;
+}
+
+function getSubmitDefectBreakdown() {
+  const list = [];
+  document.querySelectorAll('.counter-item').forEach(item => {
+    const button = item.querySelector('.counter-button');
+    const counterNumber = item.querySelector('.counter-number');
+    if (!button || !counterNumber) return;
+    const count = parseInt(counterNumber.textContent) || 0;
+    if (count > 0) {
+      list.push({
+        name: button.getAttribute('data-defect') || '',
+        count,
+        countUp: button.getAttribute('data-count-up') !== 'false'
+      });
+    }
+  });
+  return list;
+}
+
+function formatSubmitHours(hours) {
+  const value = Number(hours) || 0;
+  return `${value.toFixed(2)} h`;
+}
+
+function renderSubmitConfirmDetails() {
+  const details = document.getElementById('submitConfirmDetails');
+  if (!details) return;
+
+  updateWorkDuration();
+  const now = new Date();
+  const endPreview = document.getElementById('endTime')?.value
+    || `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const operators = ['poster1', 'poster2']
+    .map(id => document.getElementById(id)?.value || '')
+    .filter(Boolean)
+    .join(' / ');
+  const defects = getSubmitDefectBreakdown();
+  const defectHtml = defects.length > 0
+    ? `<div class="submit-confirm-defects">${defects.map(d =>
+        `<span class="submit-confirm-defect-chip${d.countUp ? '' : ' no-count'}">${escapeHtml(d.name)}: ${d.count}</span>`
+      ).join('')}</div>`
+    : '—';
+
+  const rows = [
+    ['品番', currentProductId],
+    ['製品名', currentProductName],
+    ['看板', isManualProductSelectionMode ? (localStorage.getItem('tablet_manualKanbanId') || '') : (getCurrentRecordKanban() || '')],
+    ['技能員', operators],
+    ['開始 → 終了', `${document.getElementById('startTime')?.value || '—'} → ${endPreview}`],
+    ['休憩 / トラブル', `${formatSubmitHours(totalBreakHours)} / ${formatSubmitHours(totalTroubleHours)}`],
+    ['工数', formatSubmitHours(document.getElementById('manHours')?.value)],
+    ['収容数', hakoIresuValue || '—']
+  ].map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(String(value || '—'))}</dd>`);
+
+  rows.push(`<dt>不良内訳</dt><dd>${defectHtml}</dd>`);
+
+  const otherDetails = document.getElementById('otherDetails')?.textContent?.trim();
+  const remarks = document.getElementById('remarks')?.textContent?.trim();
+  if (otherDetails) rows.push(`<dt>その他詳細</dt><dd>${escapeHtml(otherDetails)}</dd>`);
+  if (remarks) rows.push(`<dt>備考</dt><dd>${escapeHtml(remarks)}</dd>`);
+
+  details.innerHTML = rows.join('');
+}
+
+// Recalculate 不良 / 合格数 from the confirmed 作業数 and refresh the count boxes
+function renderSubmitConfirmCounts() {
+  if (!submitConfirmState) return;
+  const { opcWorkCount, workCount, editing } = submitConfirmState;
+  const defectTotal = getSubmitCountUpDefectTotal();
+  const passCount = Math.max(0, workCount - defectTotal);
+  const isEdited = workCount !== opcWorkCount;
+
+  document.getElementById('submitConfirmWorkValue').textContent = workCount.toLocaleString();
+  document.getElementById('submitConfirmDefectValue').textContent = defectTotal.toLocaleString();
+  document.getElementById('submitConfirmPassValue').textContent = passCount.toLocaleString();
+
+  document.getElementById('submitConfirmWorkValue').style.display = editing ? 'none' : '';
+  document.getElementById('submitConfirmWorkInput').style.display = editing ? '' : 'none';
+  document.getElementById('submitConfirmWorkBox').classList.toggle('edited', isEdited || editing);
+
+  const editBtn = document.getElementById('submitConfirmEditBtn');
+  if (editing) {
+    editBtn.textContent = '保存';
+    editBtn.classList.remove('revert');
+  } else if (isEdited) {
+    editBtn.textContent = '元に戻す';
+    editBtn.classList.add('revert');
+  } else {
+    editBtn.textContent = '編集';
+    editBtn.classList.remove('revert');
+  }
+
+  document.getElementById('submitConfirmOpcNote').textContent = (isEdited || editing)
+    ? `機械 (OPC) の値: ${opcWorkCount.toLocaleString()}`
+    : '';
+
+  const errorEl = document.getElementById('submitConfirmError');
+  const invalid = !(workCount > 0);
+  errorEl.textContent = invalid ? '作業数は 1 以上にしてください' : '';
+  document.getElementById('submitConfirmSendBtn').disabled = invalid || editing;
+}
+
+function openSubmitConfirmModal() {
+  const opcWorkCount = Math.max(0, parseInt(document.getElementById('workCount')?.value, 10) || 0);
+  submitConfirmState = { opcWorkCount, workCount: opcWorkCount, editing: opcWorkCount === 0 };
+
+  const input = document.getElementById('submitConfirmWorkInput');
+  input.value = opcWorkCount > 0 ? String(opcWorkCount) : '';
+  input.oninput = () => {
+    submitConfirmState.workCount = Math.max(0, parseInt(input.value, 10) || 0);
+    renderSubmitConfirmCounts();
+  };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') toggleSubmitConfirmEdit();
+  };
+
+  renderSubmitConfirmDetails();
+  renderSubmitConfirmCounts();
+  document.getElementById('submitConfirmModalOverlay').classList.add('active');
+  if (submitConfirmState.editing) setTimeout(() => input.focus(), 50);
+  console.log('🧾 Submit confirmation opened — OPC 作業数:', opcWorkCount);
+}
+
+function closeSubmitConfirmModal() {
+  document.getElementById('submitConfirmModalOverlay')?.classList.remove('active');
+  submitConfirmState = null;
+}
+
+// 編集 → open input / OK → apply / 元に戻す → back to the OPC value
+function toggleSubmitConfirmEdit() {
+  if (!submitConfirmState) return;
+  const input = document.getElementById('submitConfirmWorkInput');
+
+  if (submitConfirmState.editing) {
+    submitConfirmState.workCount = Math.max(0, parseInt(input.value, 10) || 0);
+    if (!(submitConfirmState.workCount > 0)) {
+      renderSubmitConfirmCounts();
+      input.focus();
+      return; // stay in edit mode until > 0
+    }
+    submitConfirmState.editing = false;
+  } else if (submitConfirmState.workCount !== submitConfirmState.opcWorkCount) {
+    submitConfirmState.workCount = submitConfirmState.opcWorkCount;
+    input.value = String(submitConfirmState.opcWorkCount);
+  } else {
+    submitConfirmState.editing = true;
+    input.value = submitConfirmState.workCount > 0 ? String(submitConfirmState.workCount) : '';
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+  }
+  renderSubmitConfirmCounts();
+}
+
+async function confirmAndSendData() {
+  if (!submitConfirmState || submitConfirmState.editing) return;
+  const { opcWorkCount, workCount } = submitConfirmState;
+  if (!(workCount > 0)) {
+    renderSubmitConfirmCounts();
+    return;
+  }
+
+  const confirmedCounts = {
+    workCount,
+    passCount: Math.max(0, workCount - getSubmitCountUpDefectTotal()),
+    opcWorkCount,
+    workCountManual: workCount !== opcWorkCount
+  };
+  closeSubmitConfirmModal();
+  await submitTabletData(confirmedCounts);
+}
+
+// Actually send to the server, using the counts confirmed in the modal.
+async function submitTabletData(confirmedCounts) {
+  try {
+    const validated = validateSubmitRequiredFields();
+    if (!validated) return;
+    const { startTimeValue, poster1Value } = validated;
+    const workCountValue = confirmedCounts.workCount;
+    if (confirmedCounts.workCountManual) {
+      console.warn(`✏️ 作業数 manually edited at submit: OPC ${confirmedCounts.opcWorkCount} → ${workCountValue}`);
+    }
+
     // Auto-set end time to current time
     const endTimeInput = document.getElementById('endTime');
     if (endTimeInput && !endTimeInput.value) {
@@ -3067,7 +3270,7 @@ async function sendData() {
       'LH/RH': resolvedProduct?.['LH/RH'] ?? currentProductLhRh ?? '',
       '技能員①': poster1Value,
       '技能員②': document.getElementById('poster2')?.value || '',
-      良品数: parseInt(document.getElementById('passCount')?.value) || 0,
+      良品数: confirmedCounts.passCount,
       工数: parseFloat(document.getElementById('manHours')?.value) || 0,
       ...defectData,
       その他詳細: document.getElementById('otherDetails')?.textContent || '',
@@ -3078,7 +3281,10 @@ async function sendData() {
       trouble_details: currentTroubleDetails || {},
       機械トラブル時間: totalTroubleHours || 0,
       備考: document.getElementById('remarks')?.textContent || '',
-      '工数（除外工数）': 0
+      '工数（除外工数）': 0,
+      // Audit only — server stores these for the admin page, not Google Sheets
+      opcWorkCount: confirmedCounts.opcWorkCount,
+      workCountManual: confirmedCounts.workCountManual
     };
     
     console.log('📊 Submitting data:', submissionData);
@@ -3353,6 +3559,7 @@ function editRemarks() {
   const otherDetails = document.getElementById('otherDetails');
   
   if (!remarksDisplay || !otherDetails) return;
+  const editButton = document.getElementById('editRemarksButton');
   
   // Toggle contentEditable for both fields
   if (remarksDisplay.contentEditable === 'true') {
@@ -3364,6 +3571,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'false';
     otherDetails.style.background = '#f9f9f9';
     otherDetails.style.cursor = 'default';
+
+    if (editButton) {
+      editButton.textContent = '編集';
+      editButton.classList.remove('saving');
+    }
     
     // Save to localStorage
     localStorage.setItem('tablet_remarks', remarksDisplay.textContent);
@@ -3382,6 +3594,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'true';
     otherDetails.style.background = '#fff';
     otherDetails.style.cursor = 'text';
+
+    if (editButton) {
+      editButton.textContent = '保存';
+      editButton.classList.add('saving');
+    }
     
     otherDetails.focus();
     console.log('✏️ Remarks edit mode enabled');
