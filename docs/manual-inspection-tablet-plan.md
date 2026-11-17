@@ -21,40 +21,28 @@ Branches (KSG repo):
 
 Tablet → equipment link is unchanged (`tabletDB.設備名` → `equipment.設備名`). The mode lives on the equipment.
 
-## 2. Defect groups per process (工程)
+## 2. Defect groups per process: DEFERRED (2026-11-17)
 
-Today: one `ngGroups` list, one `product.ngGroupId` per product.
+User decision: **skip per-process defect groups for now.** Type 3 tablets use the same defect group as
+every other tablet: `product.ngGroupId` of the selected 品番. Keep the NG-group lookup in one place so the
+per-process idea below can be added later.
 
-New: the 不良グループ tab gets **sub-tabs per process**:
-- **巻き込み工程**: the current groups. Existing groups and `product.ngGroupId` belong here.
-- **検査工程**: new groups for inspection tables.
-
-Rules (user decisions):
-- A process **must not reuse another process's groups**. Each group belongs to exactly one process.
-  Use 複製 to start an inspection group from a 巻き込み group.
-- Each process has **one default group** (fallback).
-- Resolution for a tablet of process P and product X:
-  1. X's group assigned for P
-  2. else P's default group
-  3. else no defect buttons
-
-Proposed data (not final):
-- `ngGroups.process`: `'巻き込み' | '検査'`. A missing value means `'巻き込み'` (no migration needed).
-- `ngGroups.isDefault`: boolean; at most one per process.
-- Product assignment per process: keep `product.ngGroupId` as 巻き込み; add `product.ngGroupIds = { 検査: <id> }`
-  (or move everything into `ngGroupIds` later).
-- `equipment.process`: which process the tablet's equipment belongs to (OPC machines = 巻き込み, 検査台 = 検査).
-- The process list should be defined in ONE place (constant now, maybe a DB collection later) so adding a 3rd process is just data.
+Earlier idea (parked, may come back):
+- 不良グループ tab gets sub-tabs per process (巻き込み工程 / 検査工程); each group belongs to one process
+  (missing value = 巻き込み); one default group per process as fallback.
+- Resolution: product's group for the process → process default → none, in one server helper.
 
 ## 3. Type 3 tablet flow
 
 1. Login → choose 技能員 (same UI as now).
 2. Select product: dropdown/search over all products, **or** scan a 品番 QR.
-   - **Start time = the moment a 品番 is selected** (no separate 作業開始 press needed).
+   - If several masterDB products share the scanned 品番, **the user picks which one** (picker modal).
+   - **Once a product is locked it cannot be changed.** The user must submit or 全リセット first.
+   - **Start time = pressing 作業開始** (same as the other types; corrected 2026-11-17).
 3. Counting (作業数):
    - Each **subsequent scan of the same 品番 QR** adds 収容数 (e.g. +150).
    - A button adds 収容数 manually too.
-   - **Manual extra**: user can add any amount (e.g. 150 + 5 = 155).
+   - **Manual extra**: user can add or **subtract** any amount (e.g. 150 + 5 = 155, or −5).
    - **Wrong 品番 QR** while a product is locked → error/warning "wrong kanban", nothing changes.
 4. Defects: NG buttons from the resolved 検査工程 group (section 2).
 5. Same UI as other types, **including 作業中断 and 機械トラブル**.
@@ -62,10 +50,13 @@ Proposed data (not final):
 7. Submit or 全リセット clears the locked 品番, so a new 品番 can be scanned.
 
 QR content = plain 品番 string (there are no kanban cards at tables).
+Scanner = **USB barcode scanner acting as a keyboard**, sending Enter after each scan. The tablet listens for
+fast keystrokes ending in Enter, globally (no input box needs focus).
 
 OPC-only things disabled in this mode: socket variable subscriptions, OPC reset modal, kanban-conflict modal, OPC status dot.
 
-Submitted record: same `submittedDB` shape plus `process` and `input_mode: 'manual'`.
+Submitted record: same `submittedDB` shape plus a **`process` field** (user confirmed) to tell 検査 records from
+巻き込み ones, and `input_mode: 'manual'`.
 Do NOT set `work_count_manual` for every manual record. That flag means "OPC value was corrected" and drives the 手動 badge.
 New keys must be added to every fixed-key list (ksgServer `KNOWN_KEYS`, `SUBMITTED_DB_FIXED_FIELDS`,
 `SUBMITTED_DB_NON_EDITABLE_FIELDS`, submittedDB.js, analytics.js, index.html), or they show up as defect columns.
@@ -81,5 +72,11 @@ New keys must be added to every fixed-key list (ksgServer `KNOWN_KEYS`, `SUBMITT
 
 Possible future changes the user flagged: defects per item (product) instead of per process, etc.
 
-## 6. Open questions
+## 6. Answers so far (2026-11-17)
+- Type 3 is always manual, always 検査, never mixed with 巻き込み (a different part of the factory).
+- Product list: all products, searchable.
+- Same UI including 作業中断 / 機械トラブル.
+- Google Sheets: ignore for now.
+
+## 7. Open questions
 (see the conversation of 2026-11-17; record answers here)
