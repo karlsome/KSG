@@ -3104,13 +3104,13 @@ function renderSubmitConfirmCounts() {
 
   const editBtn = document.getElementById('submitConfirmEditBtn');
   if (editing) {
-    editBtn.textContent = '✔ OK';
+    editBtn.textContent = '保存';
     editBtn.classList.remove('revert');
   } else if (isEdited) {
-    editBtn.textContent = '↩ 元に戻す';
+    editBtn.textContent = '元に戻す';
     editBtn.classList.add('revert');
   } else {
-    editBtn.textContent = '✏️ 編集';
+    editBtn.textContent = '編集';
     editBtn.classList.remove('revert');
   }
 
@@ -3120,7 +3120,7 @@ function renderSubmitConfirmCounts() {
 
   const errorEl = document.getElementById('submitConfirmError');
   const invalid = !(workCount > 0);
-  errorEl.textContent = invalid ? '作業数は 1 以上にしてください / Must be more than 0' : '';
+  errorEl.textContent = invalid ? '作業数は 1 以上にしてください' : '';
   document.getElementById('submitConfirmSendBtn').disabled = invalid || editing;
 }
 
