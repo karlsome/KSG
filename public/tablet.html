@@ -1492,6 +1492,211 @@
       .submit-confirm-counts { grid-template-columns: 1fr; }
     }
 
+    /* ===== Manual input mode (検査台, no OPC) ===== */
+    .manual-mode-badge {
+      display: none;
+      background: #fef3c7;
+      color: #92400e;
+      border: 1.5px solid #fcd34d;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    body.manual-input-mode .manual-mode-badge { display: inline-block; }
+    body.manual-input-mode #inspectionAddValue { display: none; }
+
+    .manual-count-controls {
+      display: none;
+      gap: 6px;
+      width: 100%;
+    }
+
+    body.manual-input-mode .manual-count-controls { display: flex; }
+
+    .manual-count-btn {
+      flex: 1;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 6px;
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .manual-count-btn.adjust {
+      flex: 0 0 56px;
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .manual-count-btn:active { opacity: 0.8; }
+    .manual-count-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    #changeProductBtn.locked {
+      background: #f1f5f9 !important;
+      color: #64748b !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    .manual-adjust-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 1450;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .manual-adjust-modal-overlay.active { display: flex; }
+
+    .manual-adjust-modal {
+      width: min(440px, 100%);
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+      text-align: center;
+    }
+
+    .manual-adjust-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 6px;
+    }
+
+    .manual-adjust-current {
+      font-size: 14px;
+      color: #64748b;
+      margin-bottom: 14px;
+    }
+
+    .manual-adjust-input {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 32px;
+      font-weight: 800;
+      text-align: center;
+      padding: 10px;
+      border: 2px solid #93c5fd;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+
+    .manual-adjust-error {
+      min-height: 18px;
+      font-size: 13px;
+      color: #dc2626;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .manual-adjust-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .manual-adjust-btn {
+      border: none;
+      border-radius: 10px;
+      padding: 16px 10px;
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .manual-adjust-btn.add { background: #16a34a; color: #fff; }
+    .manual-adjust-btn.subtract { background: #dc2626; color: #fff; }
+    .manual-adjust-btn.cancel { grid-column: 1 / -1; background: #f1f5f9; color: #334155; font-size: 16px; }
+
+    .scan-alert-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.55);
+    }
+
+    .scan-alert-overlay.active { display: flex; }
+
+    .scan-alert {
+      width: min(560px, 100%);
+      border-radius: 18px;
+      padding: 32px 28px;
+      text-align: center;
+      color: #fff;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+    }
+
+    .scan-alert.error { background: #dc2626; }
+    .scan-alert.warn { background: #ea580c; }
+
+    .scan-alert-title {
+      font-size: 30px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    .scan-alert-detail {
+      font-size: 18px;
+      line-height: 1.6;
+      margin-bottom: 22px;
+      white-space: pre-line;
+    }
+
+    .scan-alert-close {
+      border: none;
+      background: #fff;
+      color: #1e293b;
+      border-radius: 10px;
+      padding: 14px 40px;
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .scan-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 32px;
+      transform: translateX(-50%);
+      z-index: 2100;
+      background: #16a34a;
+      color: #fff;
+      border-radius: 12px;
+      padding: 14px 28px;
+      font-size: 22px;
+      font-weight: 800;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    .scan-toast.show { opacity: 1; }
+
+    .product-select-search-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 16px;
+      margin-bottom: 8px;
+      outline: none;
+    }
+
     /* Product Selection Modal Styles */
     .product-select-modal-overlay {
       position: fixed;
@@ -1694,6 +1899,7 @@
     <div class="header">
       <div class="title" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <span>検査カウンター（<span id="productNameDisplay">なし</span><span id="kanbanIdDisplay"></span>）</span>
+        <span class="manual-mode-badge" id="manualModeBadge">手動入力 (検査台)</span>
         <button id="changeProductBtn" type="button" onclick="openProductSelectModal()" style="display: none; background: #eff6ff; color: #1d4ed8; border: 1.5px solid #bfdbfe; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; vertical-align: middle; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: all 0.2s;">
           📦 製品選択 / 変更
         </button>
@@ -1805,7 +2011,7 @@
           <div class="button-header">作業スタート</div>
           <div class="button-header">作業停止時間</div>
           <div class="button-header">作業停止時間</div>
-          <div class="button-header">合格数追加</div>
+          <div class="button-header" id="inspectionAddHeader">合格数追加</div>
           <div class="button-header">データ送信</div>
         </div>
         <div class="button-action-row">
@@ -1820,6 +2026,10 @@
           </div>
           <div class="button-cell">
             <input type="text" class="field-input" id="inspectionAddValue" value="" readonly>
+            <div class="manual-count-controls" id="manualCountControls">
+              <button type="button" class="manual-count-btn" id="manualAddBoxBtn" onclick="addManualBoxCount()">+収容数</button>
+              <button type="button" class="manual-count-btn adjust" onclick="openManualAdjustModal()">±</button>
+            </div>
           </div>
           <div class="button-cell">
             <div class="action-button" id="sendDataButton" onclick="sendData()">データ送信</div>
@@ -1970,7 +2180,7 @@
   <div class="submit-confirm-modal-overlay" id="submitConfirmModalOverlay">
     <div class="submit-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="submitConfirmModalTitle">
       <div class="submit-confirm-title" id="submitConfirmModalTitle">送信内容の確認</div>
-      <div class="submit-confirm-subtitle">
+      <div class="submit-confirm-subtitle" id="submitConfirmSubtitle">
         作業数が機械の数値と一致しているか確認してください。違う場合は「編集」で修正できます。
       </div>
 
@@ -2004,6 +2214,31 @@
     </div>
   </div>
 
+  <!-- Manual mode: ± count adjust -->
+  <div class="manual-adjust-modal-overlay" id="manualAdjustModalOverlay">
+    <div class="manual-adjust-modal" role="dialog" aria-modal="true" aria-labelledby="manualAdjustTitle">
+      <div class="manual-adjust-title" id="manualAdjustTitle">作業数の調整</div>
+      <div class="manual-adjust-current">現在の作業数: <strong id="manualAdjustCurrent">0</strong></div>
+      <input type="number" inputmode="numeric" min="1" step="1" class="manual-adjust-input" id="manualAdjustInput" placeholder="数量">
+      <div class="manual-adjust-error" id="manualAdjustError"></div>
+      <div class="manual-adjust-actions">
+        <button type="button" class="manual-adjust-btn subtract" onclick="applyManualAdjust(-1)">− 減らす</button>
+        <button type="button" class="manual-adjust-btn add" onclick="applyManualAdjust(1)">＋ 追加</button>
+        <button type="button" class="manual-adjust-btn cancel" onclick="closeManualAdjustModal()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual mode: scan error / warning -->
+  <div class="scan-alert-overlay" id="scanAlertOverlay">
+    <div class="scan-alert error" id="scanAlertBox" role="alertdialog" aria-modal="true" aria-labelledby="scanAlertTitle">
+      <div class="scan-alert-title" id="scanAlertTitle"></div>
+      <div class="scan-alert-detail" id="scanAlertDetail"></div>
+      <button type="button" class="scan-alert-close" onclick="closeScanAlert()">閉じる</button>
+    </div>
+  </div>
+  <div class="scan-toast" id="scanToast"></div>
+
   <!-- Product Selection Modal (For Equipments without Kanban Variable) -->
   <div class="product-select-modal-overlay" id="productSelectModalOverlay">
     <div class="product-select-modal" role="dialog" aria-modal="true" aria-labelledby="productSelectModalTitle">
@@ -2016,6 +2251,7 @@
       </div>
 
       <div class="product-select-search-box">
+        <input type="search" id="productSelectSearchInput" class="product-select-search-input" placeholder="🔍 品番・製品名で検索" oninput="applyProductSelectFilters()" autocomplete="off">
         <select id="productSelectFilterDropdown" class="product-select-dropdown" onchange="filterProductSelectByDropdown(this.value)">
           <option value="">📦 すべての製品名を表示 / Show All</option>
         </select>

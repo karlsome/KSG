@@ -1,6 +1,6 @@
 # 検査台タブレット (Type 3: manual, no OPC) + 工程別不良グループ — Plan
 
-Status: **planning** (2026-11-17). Nothing below is built yet except the defect-group 複製 button.
+Status: **built, untested on a real device** (2026-11-17). See section 8 for what was built and what is still open.
 Every rule here is a **current guess by the user** and is expected to change. Keep the logic in
 the few places listed under "Change points" so a rule change is a small edit, not a rewrite.
 
@@ -80,3 +80,27 @@ Possible future changes the user flagged: defects per item (product) instead of 
 
 ## 7. Open questions
 (see the conversation of 2026-11-17; record answers here)
+
+## 8. Build status (2026-11-17)
+
+Built on `feature/manual-inspection-tablet`:
+- Equipment `inputMode` ('opc' default / 'manual'). Admin create/quick/edit forms have 入力モード; 手動 hides and clears
+  the OPC variables; the equipment list shows a 手動/自動 badge. Chosen explicitly instead of guessing from empty
+  variables, because the server and admin forms fill in `seisanSu` when the field is blank.
+- Server: equipment-config returns `inputMode`/`process`; `products-by-equipment?scope=factory`; submit stores
+  `process` + `input_mode`, decided from the tablet's equipment on the server (client value only as fallback).
+  Constants `TABLET_INPUT_MODES` / `TABLET_PROCESS_BY_INPUT_MODE` + `resolveTabletInputMode()` in ksgServer.js.
+- Tablet (`tablet.js`, section "MANUAL INPUT MODE"): `setupManualInputMode()`; reuses `isManualProductSelectionMode`
+  for restore/submit lookup. `updateUIWithVariables` ignores OPC in manual mode; `updateWorkCount` uses
+  `manualWorkCount` (localStorage `tablet_manualWorkCount`). Lock: `isManualProductLocked()`; unlocked by
+  `resetManualInputState()` from 全リセット / submit. Scanner: page-wide keydown listener (fast keys + Enter,
+  ignores real text fields, contenteditable, and scans while any dialog is open).
+- UI: 手動入力 badge; 合格数追加 cell becomes 作業数追加 with `+<収容数>` and `±` buttons; ± dialog (add/subtract,
+  can't go below 0); full-screen red/orange alerts with a beep for errors; green toast for counts;
+  search box in the product picker (all modes); duplicate 品番 → picker limited to the matches.
+- Submit modal: says "カウント値" instead of OPC; manual records never set `work_count_manual`.
+
+Tested in jsdom only (scan flows, lock, ±, submit payload, reset, OPC regression).
+Still open: a real tablet with the USB scanner (key timing `SCAN_MAX_KEY_GAP_MS = 80`), a real server
+submit against a non-prod DB, and the admin 入力モード forms in a browser.
+Socket connection is kept in manual mode (auth/logout events still use it); OPC variables are just ignored.
