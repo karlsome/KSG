@@ -93,7 +93,7 @@ Built on `feature/manual-inspection-tablet`:
 - Tablet (`tablet.js`, section "MANUAL INPUT MODE"): `setupManualInputMode()`; reuses `isManualProductSelectionMode`
   for restore/submit lookup. `updateUIWithVariables` ignores OPC in manual mode; `updateWorkCount` uses
   `manualWorkCount` (localStorage `tablet_manualWorkCount`). Lock: `isManualProductLocked()`; unlocked by
-  `resetManualInputState()` from 全リセット / submit. Scanner: page-wide keydown listener (fast keys + Enter,
+  `resetManualInputState()` from 全リセット / submit. Scanner: page-wide keydown listener (keys + Enter, no speed check,
   ignores real text fields, contenteditable, and scans while any dialog is open).
 - UI: 手動入力 badge; 合格数追加 cell becomes 作業数追加 with `+<収容数>` and `±` buttons; ± dialog (add/subtract,
   can't go below 0); full-screen red/orange alerts with a beep for errors; green toast for counts;
@@ -101,6 +101,6 @@ Built on `feature/manual-inspection-tablet`:
 - Submit modal: says "カウント値" instead of OPC; manual records never set `work_count_manual`.
 
 Tested in jsdom only (scan flows, lock, ±, submit payload, reset, OPC regression).
-Still open: a real tablet with the USB scanner (key timing `SCAN_MAX_KEY_GAP_MS = 80`), a real server
+Still open: a real tablet with the USB scanner (no speed check; buffer resets after `SCAN_RESET_AFTER_MS` = 1s; IME falls back to e.code; console logs each key), a real server
 submit against a non-prod DB, and the admin 入力モード forms in a browser.
 Socket connection is kept in manual mode (auth/logout events still use it); OPC variables are just ignored.
