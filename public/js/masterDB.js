@@ -5219,6 +5219,9 @@ function renderNGGroupsTable(groups) {
               <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(g.createdBy || '-')}</td>
               <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
               <td class="px-3 py-2 text-right whitespace-nowrap">
+                <button onclick="duplicateNGGroup('${g._id}')" class="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2.5 py-1.5 rounded-xl border border-gray-200 transition cursor-pointer mr-1">
+                  <i class="ri-file-copy-line"></i>複製
+                </button>
                 <button onclick="showNGGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
                   <i class="ri-edit-line"></i>編集
                 </button>
@@ -5323,6 +5326,27 @@ function showNGGroupModal(group = null) {
   }
 
   modal.classList.remove('hidden');
+}
+
+// 複製: open the editor pre-filled with a copy of the group (no _id → saving creates a new group)
+function duplicateNGGroup(groupId) {
+  const source = allNGGroups.find(g => String(g._id) === String(groupId));
+  if (!source) return;
+
+  const existingNames = new Set(allNGGroups.map(g => String(g.groupName || '')));
+  let copyName = `${source.groupName || ''} のコピー`;
+  for (let n = 2; existingNames.has(copyName); n++) {
+    copyName = `${source.groupName || ''} のコピー (${n})`;
+  }
+
+  showNGGroupModal({
+    groupName: copyName,
+    items: (source.items || []).map(item => ({ name: item.name, color: item.color, countUp: item.countUp !== false }))
+  });
+  document.getElementById('ngGroupModalTitle').textContent = `不良グループ複製: ${source.groupName || ''}`;
+  const nameInput = document.getElementById('ngGroupName');
+  nameInput.focus();
+  nameInput.select();
 }
 
 function closeNGGroupModal() {
