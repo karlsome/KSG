@@ -1258,6 +1258,218 @@
       color: white;
     }
 
+    /* Submit Confirmation Modal */
+    .submit-confirm-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 1400;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .submit-confirm-modal-overlay.active {
+      display: flex;
+    }
+
+    .submit-confirm-modal {
+      width: min(720px, 100%);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+      padding: 24px 28px;
+    }
+
+    .submit-confirm-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 4px;
+    }
+
+    .submit-confirm-subtitle {
+      font-size: 14px;
+      color: #64748b;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .submit-confirm-counts {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .submit-confirm-count-box {
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+      background: #f8fafc;
+      border: 2px solid #e2e8f0;
+    }
+
+    .submit-confirm-count-box.work {
+      background: #eff6ff;
+      border-color: #93c5fd;
+    }
+
+    .submit-confirm-count-box.work.edited {
+      background: #fff7ed;
+      border-color: #fb923c;
+    }
+
+    .submit-confirm-count-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+
+    .submit-confirm-count-value {
+      font-size: 34px;
+      font-weight: 800;
+      color: #1e293b;
+      line-height: 1.1;
+    }
+
+    .submit-confirm-count-box.defect .submit-confirm-count-value { color: #dc2626; }
+    .submit-confirm-count-box.pass .submit-confirm-count-value { color: #16a34a; }
+
+    .submit-confirm-work-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .submit-confirm-work-input {
+      width: 100%;
+      max-width: 170px;
+      font-size: 30px;
+      font-weight: 800;
+      text-align: center;
+      padding: 4px 8px;
+      border: 2px solid #fb923c;
+      border-radius: 8px;
+      color: #1e293b;
+    }
+
+    .submit-confirm-edit-btn {
+      background: #1d4ed8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .submit-confirm-edit-btn.revert {
+      background: #e2e8f0;
+      color: #334155;
+    }
+
+    .submit-confirm-opc-note {
+      font-size: 12px;
+      color: #c2410c;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    .submit-confirm-error {
+      font-size: 13px;
+      color: #dc2626;
+      font-weight: 600;
+      margin-top: 4px;
+      min-height: 16px;
+    }
+
+    .submit-confirm-details {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 16px;
+      font-size: 14px;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+    }
+
+    .submit-confirm-details dt {
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .submit-confirm-details dd {
+      margin: 0;
+      color: #1e293b;
+      word-break: break-word;
+    }
+
+    .submit-confirm-defects {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .submit-confirm-defect-chip {
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .submit-confirm-defect-chip.no-count {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .submit-confirm-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .submit-confirm-button {
+      flex: 1;
+      padding: 16px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .submit-confirm-button:active { opacity: 0.8; }
+
+    .submit-confirm-button.secondary {
+      background: #f1f5f9;
+      color: #334155;
+    }
+
+    .submit-confirm-button.primary {
+      background: #16a34a;
+      color: white;
+    }
+
+    .submit-confirm-button.primary:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    @media (max-width: 600px) {
+      .submit-confirm-counts { grid-template-columns: 1fr; }
+    }
+
     /* Product Selection Modal Styles */
     .product-select-modal-overlay {
       position: fixed;
@@ -1728,6 +1940,45 @@
       <div class="opc-reset-actions">
         <button class="opc-reset-button secondary" type="button" onclick="opcResetContinueWorking()">継続する / Continue</button>
         <button class="opc-reset-button primary" type="button" onclick="opcResetSubmitData()">データを送信 / Submit data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit Confirmation Modal -->
+  <div class="submit-confirm-modal-overlay" id="submitConfirmModalOverlay">
+    <div class="submit-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="submitConfirmModalTitle">
+      <div class="submit-confirm-title" id="submitConfirmModalTitle">送信内容の確認 / Confirm submission</div>
+      <div class="submit-confirm-subtitle">
+        作業数が機械の数値と一致しているか確認してください。違う場合は「編集」で修正できます。<br>
+        Check that 作業数 matches the machine. Tap 編集 to correct it.
+      </div>
+
+      <div class="submit-confirm-counts">
+        <div class="submit-confirm-count-box work" id="submitConfirmWorkBox">
+          <div class="submit-confirm-count-label">作業数 / Work count</div>
+          <div class="submit-confirm-work-row">
+            <div class="submit-confirm-count-value" id="submitConfirmWorkValue">0</div>
+            <input type="number" inputmode="numeric" min="1" step="1" class="submit-confirm-work-input" id="submitConfirmWorkInput" style="display: none;">
+            <button type="button" class="submit-confirm-edit-btn" id="submitConfirmEditBtn" onclick="toggleSubmitConfirmEdit()">✏️ 編集</button>
+          </div>
+          <div class="submit-confirm-opc-note" id="submitConfirmOpcNote"></div>
+          <div class="submit-confirm-error" id="submitConfirmError"></div>
+        </div>
+        <div class="submit-confirm-count-box defect">
+          <div class="submit-confirm-count-label">不良数 / Defects</div>
+          <div class="submit-confirm-count-value" id="submitConfirmDefectValue">0</div>
+        </div>
+        <div class="submit-confirm-count-box pass">
+          <div class="submit-confirm-count-label">合格数 / Good</div>
+          <div class="submit-confirm-count-value" id="submitConfirmPassValue">0</div>
+        </div>
+      </div>
+
+      <dl class="submit-confirm-details" id="submitConfirmDetails"></dl>
+
+      <div class="submit-confirm-actions">
+        <button type="button" class="submit-confirm-button secondary" onclick="closeSubmitConfirmModal()">戻る / Back</button>
+        <button type="button" class="submit-confirm-button primary" id="submitConfirmSendBtn" onclick="confirmAndSendData()">確定して送信 / Confirm &amp; send</button>
       </div>
     </div>
   </div>

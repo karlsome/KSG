@@ -2206,7 +2206,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             '技能員①', '技能員②', '良品数', '工数',
             'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
             'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys',
-            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime'
+            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime',
+            'opcWorkCount', 'workCountManual'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -2257,7 +2258,11 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             submitted_from: submittedFrom,
             master_record_id: normalizeGoogleSheetObjectIdString(submissionData.masterRecordId || masterRecord?._id),
             ng_group_id: resolvedNgGroupId,
-            non_countup_defect_keys: nonCountUpDefectKeys
+            non_countup_defect_keys: nonCountUpDefectKeys,
+            // Audit only (admin page): the OPC 作業数 before any manual edit at submit.
+            // Kept out of Google Sheets via SUBMITTED_DB_FIXED_FIELDS.
+            opc_work_count: Math.max(0, parseInt(submissionData.opcWorkCount, 10) || 0),
+            work_count_manual: submissionData.workCountManual === true
         };
         
         let mongoResult = null;
@@ -2360,11 +2365,13 @@ const SUBMITTED_DB_FIXED_FIELDS = new Set([
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'trouble_details', 'remarks', 'excluded_man_hours', 'submitted_from',
     'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'opc_work_count', 'work_count_manual',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     'submitted_from', 'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'opc_work_count', 'work_count_manual',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
