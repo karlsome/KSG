@@ -1,0 +1,13 @@
+{
+  "name": "ksg-tablet-guide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Builds KSG_Tablet_Registration_Guide.docx",
+  "scripts": {
+    "diagrams": "python3 diagrams.py shots",
+    "build": "node build.js \"../../KSG_Tablet_Registration_Guide 20261117.docx\""
+  },
+  "dependencies": {
+    "docx": "^9.15.4"
+  }
+}
