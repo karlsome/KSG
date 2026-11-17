@@ -4163,12 +4163,34 @@ function handleManualScan(rawCode) {
   addManualBoxCount();
 }
 
-// USB barcode scanner = fast keystrokes ending with Enter. Listen page-wide so no field
-// needs focus; leave real text fields (inputs, 備考) alone so typing still works.
-const SCAN_MAX_KEY_GAP_MS = 80;
-const SCAN_MIN_LENGTH = 3;
+// USB barcode scanner = keystrokes ending with Enter. Listen page-wide so no field needs
+// focus; leave real text fields (inputs, 備考) alone so typing still works.
+// No speed requirement (scanners on tablets can be slow); the buffer only resets after a pause.
+// With Japanese IME on, e.key is 'Process', so fall back to the physical key (e.code).
+const SCAN_RESET_AFTER_MS = 1000;
+const SCAN_MIN_LENGTH = 2;
 let scanBuffer = '';
 let scanLastKeyAt = 0;
+
+const SCAN_CODE_CHARS = {
+  Minus: ['-', '_'], Equal: ['=', '+'], Period: ['.', '>'], Comma: [',', '<'], Slash: ['/', '?'],
+  Semicolon: [';', ':'], Quote: ["'", '"'], BracketLeft: ['[', '{'], BracketRight: [']', '}'],
+  Backslash: ['\\', '|'], IntlYen: ['¥', '|'], IntlRo: ['\\', '_'], Space: [' ', ' '],
+  NumpadSubtract: ['-', '-'], NumpadAdd: ['+', '+'], NumpadDecimal: ['.', '.'], NumpadDivide: ['/', '/'], NumpadMultiply: ['*', '*']
+};
+
+function getScanCharFromKeyEvent(e) {
+  if (e.key && e.key.length === 1) return e.key;
+  const code = e.code || '';
+  if (/^Key[A-Z]$/.test(code)) {
+    const letter = code.slice(3);
+    return e.shiftKey ? letter : letter.toLowerCase();
+  }
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  if (SCAN_CODE_CHARS[code]) return SCAN_CODE_CHARS[code][e.shiftKey ? 1 : 0];
+  return '';
+}
 
 document.addEventListener('keydown', (e) => {
   if (!isManualInputMode) return;
@@ -4179,22 +4201,29 @@ document.addEventListener('keydown', (e) => {
     || target.tagName === 'TEXTAREA'
     || (target.tagName === 'INPUT' && !target.readOnly && !['checkbox', 'radio', 'button', 'submit'].includes(target.type))
   );
-  if (isTextEntry || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTextEntry) {
+    console.log(`📷 key "${e.key}" ignored — typing in a text field (${target.id || target.tagName})`);
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   const now = Date.now();
-  if (e.key === 'Enter') {
-    const isFreshScan = scanBuffer.length >= SCAN_MIN_LENGTH && (now - scanLastKeyAt) <= SCAN_MAX_KEY_GAP_MS * 3;
+  if (now - scanLastKeyAt > SCAN_RESET_AFTER_MS) scanBuffer = '';
+
+  if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' || e.keyCode === 13) {
     const code = scanBuffer;
     scanBuffer = '';
-    if (isFreshScan) {
+    console.log(`📷 Enter — buffer "${code}"`);
+    if (code.length >= SCAN_MIN_LENGTH) {
       e.preventDefault(); // don't "press" whatever button has focus
       handleManualScan(code);
     }
     return;
   }
-  if (e.key.length !== 1) return;
-  if (now - scanLastKeyAt > SCAN_MAX_KEY_GAP_MS) scanBuffer = '';
-  scanBuffer += e.key;
+
+  const ch = getScanCharFromKeyEvent(e);
+  if (!ch) return;
+  scanBuffer += ch;
   scanLastKeyAt = now;
-  e.preventDefault(); // keep scanner keystrokes out of focused selects / buttons
+  e.preventDefault(); // keep scanner keystrokes out of focused selects / buttons / IME
 }, true);
