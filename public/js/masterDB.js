@@ -923,7 +923,7 @@ function renderModalDetails(type, data) {
           <div class="mb-4 relative">
             <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block">
-              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover cursor-zoom-in" onclick="openImagePreview(this.src)" title="クリックで拡大" />
               <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
                 <i class="ri-delete-bin-line text-xs"></i>
               </button>
@@ -936,7 +936,7 @@ function renderModalDetails(type, data) {
           <div class="mb-4">
             <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block w-full">
-              <img id="modalImage" src="" alt="Product" class="hidden max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <img id="modalImage" src="" alt="Product" class="hidden max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover cursor-zoom-in" onclick="openImagePreview(this.src)" title="クリックで拡大" />
               <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
                 <i class="ri-delete-bin-line text-xs"></i>
               </button>
@@ -1655,6 +1655,45 @@ async function saveModalChanges() {
   } catch (err) {
     alert(t('common.updateFailed') + ": " + err.message);
   }
+}
+
+// ============================================================
+// Image preview (lightbox) — shared by any admin image: openImagePreview(src)
+// ============================================================
+function openImagePreview(src, alt = '') {
+  if (!src) return;
+  let overlay = document.getElementById('imagePreviewOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'imagePreviewOverlay';
+    overlay.className = 'fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 p-4 cursor-zoom-out';
+    overlay.innerHTML = `
+      <button type="button" aria-label="閉じる"
+              class="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-gray-800 shadow-md hover:bg-white cursor-pointer">
+        <i class="ri-close-line text-xl"></i>
+      </button>
+      <img id="imagePreviewImg" src="" alt="" class="max-h-[90vh] max-w-[95vw] rounded-xl bg-white object-contain shadow-2xl cursor-default" />
+    `;
+    // Close on backdrop / × click; clicks on the image itself keep it open
+    overlay.addEventListener('click', (e) => {
+      if (e.target.id !== 'imagePreviewImg') closeImagePreview();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+        e.stopPropagation();
+        closeImagePreview();
+      }
+    }, true);
+    document.body.appendChild(overlay);
+  }
+  const img = document.getElementById('imagePreviewImg');
+  img.src = src;
+  img.alt = alt;
+  overlay.classList.remove('hidden');
+}
+
+function closeImagePreview() {
+  document.getElementById('imagePreviewOverlay')?.classList.add('hidden');
 }
 
 function previewImage() {
@@ -3545,6 +3584,8 @@ if (typeof window !== 'undefined') {
   window.cancelEditMode = cancelEditMode;
   window.saveModalChanges = saveModalChanges;
   window.previewImage = previewImage;
+  window.openImagePreview = openImagePreview;
+  window.closeImagePreview = closeImagePreview;
   window.showDeleteConfirmation = showDeleteConfirmation;
   window.closeDeleteConfirmModal = closeDeleteConfirmModal;
   window.confirmDelete = confirmDelete;
