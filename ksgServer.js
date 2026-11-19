@@ -148,11 +148,19 @@ app.use((req, res, next) => {
 // Only the routes matched by isAdminProtectedRoute() are checked. Tablet routes,
 // Raspberry Pi / device routes, login routes, monitor/display pages and static files
 // are deliberately NOT in the list and behave exactly as before in every mode.
-const ADMIN_AUTH_MODE = ['off', 'report', 'enforce'].includes(String(process.env.ADMIN_AUTH_MODE || '').toLowerCase())
-    ? String(process.env.ADMIN_AUTH_MODE).toLowerCase()
-    : 'report';
+function parseAuthMode(value) {
+    const v = String(value || '').toLowerCase();
+    return ['off', 'report', 'enforce'].includes(v) ? v : 'report';
+}
+const ADMIN_AUTH_MODE = parseAuthMode(process.env.ADMIN_AUTH_MODE);
+// TABLET_AUTH_MODE: same three modes for the tablet's read requests and the tablet's
+// live-data subscription. Separate switch so tablets can be rolled back on their own.
+const TABLET_AUTH_MODE = parseAuthMode(process.env.TABLET_AUTH_MODE);
 const ADMIN_TOKEN_TTL = '24h';
+const TABLET_TOKEN_TTL = '1y'; // same as /tabletLogin
+const TABLET_TOKEN_RENEW_DAYS = 30; // tablet.js renews when fewer days than this are left
 console.log(`🔐 Admin API auth mode: ${ADMIN_AUTH_MODE}`);
+console.log(`🔐 Tablet API auth mode: ${TABLET_AUTH_MODE}`);
 
 const ADMIN_PROTECTED_POST_PATHS = new Set([
     // User Management
@@ -172,8 +180,9 @@ const ADMIN_PROTECTED_POST_PATHS = new Set([
     '/getSections', '/createSection', '/deleteSection',
     '/createTablet', '/updateTablet', '/deleteTablet', '/deleteMultipleTablets',
     '/getActivityLogs', '/createActivityLog',
-    // NOT here on purpose: /getTablets (tablet login page), /tabletLogin, /getTabletTroubleOptions (tablet),
-    // /loginCustomer, /validateToken
+    '/getTablets', // tablet login page now uses POST /api/tablet/login-info
+    // NOT here on purpose: /tabletLogin, /loginCustomer, /validateToken (logins),
+    // /getTabletTroubleOptions (tablet route, see isTabletProtectedRoute)
 ]);
 
 // Routes where the handler authorises with a role sent in the request body.
@@ -195,23 +204,49 @@ function isAdminProtectedRoute(method, path) {
     if (path === '/api/factories') return true;
     if (method === 'POST' && path.startsWith('/api/opcua/trigger-scan/')) return true;
     if (method === 'GET' && path.startsWith('/api/opcua/discovered-nodes/')) return true; // POST /api/opcua/discovered-nodes is the Pi - not matched
+    // Monitor / display data (opcua-monitor, layout-renderer, array-viewer pages)
+    if (method === 'GET' && (
+        path === '/api/opcua/monitor/dashboard' || path.startsWith('/api/layout/') ||
+        path === '/api/opcua/variables/values' || path.startsWith('/api/opcua/realtime-data/') ||
+        path === '/api/opcua/raspberries' || path === '/api/opcua/discovered-arrays' ||
+        path === '/api/opcua/data/latest')) return true;
+    return false;
+}
+
+// Tablet read routes: need the tablet's login token (an admin token is accepted too).
+// /api/tablet/session and /api/tablet/submit already use authenticateTablet.
+function isTabletProtectedRoute(method, path) {
+    if (method === 'GET' && (
+        path === '/api/tablet/users' || path.startsWith('/api/tablet/product/') ||
+        path.startsWith('/api/tablet/products-by-equipment/') || path.startsWith('/api/tablet/product-by-kanban/') ||
+        path.startsWith('/api/tablet/equipment-config/'))) return true;
+    if (method === 'POST' && path === '/getTabletTroubleOptions') return true;
     return false;
 }
 
 // Verifies the Bearer token. Returns { user } or { reason }.
-function verifyAdminRequestToken(req) {
-    const authHeader = String(req.headers.authorization || '');
-    if (!authHeader.startsWith('Bearer ')) return { reason: 'missing-token' };
-    const token = authHeader.slice(7).trim();
+// Verifies a JWT string. allowTablet=false rejects tablet tokens (admin-only use).
+function verifyTokenString(token, { allowTablet = false } = {}) {
+    token = String(token || '').trim();
     if (!token) return { reason: 'missing-token' };
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (decoded.tabletId || decoded.tabletName) return { reason: 'tablet-token' };
+        const isTablet = Boolean(decoded.tabletId || decoded.tabletName);
+        if (isTablet && !allowTablet) return { reason: 'tablet-token' };
         if (!decoded.username || !decoded.dbName) return { reason: 'incomplete-token' };
-        return { user: decoded };
+        return { user: decoded, isTablet };
     } catch (err) {
         return { reason: err.name === 'TokenExpiredError' ? 'expired-token' : 'invalid-token' };
     }
+}
+
+function bearerToken(req) {
+    const authHeader = String(req.headers.authorization || '');
+    return authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+}
+
+function verifyAdminRequestToken(req) {
+    return verifyTokenString(bearerToken(req));
 }
 
 function requestedDbNames(req) {
@@ -238,10 +273,11 @@ const adminAuthReportSeen = new Set();
 let adminAuthReportIndexesReady = false;
 let adminAuthReportFlushing = null;
 
-function recordAdminAuthIssue(req, reason, who) {
+// area: 'admin' | 'tablet'. mode: the mode that applied to this request.
+function recordAdminAuthIssue(req, reason, who, area = 'admin', mode = ADMIN_AUTH_MODE) {
     try {
         const whoValue = who || req.ip || '';
-        const key = `${reason} | ${req.method} ${req.path} | ${whoValue}`;
+        const key = `${area} | ${reason} | ${req.method} ${req.path} | ${whoValue}`;
         const now = new Date();
         const pending = adminAuthReportPending.get(key);
         if (pending) {
@@ -249,21 +285,32 @@ function recordAdminAuthIssue(req, reason, who) {
             pending.lastSeen = now;
             pending.lastIp = req.ip || '';
             pending.lastUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
+            pending.mode = mode;
         } else if (adminAuthReportPending.size < ADMIN_AUTH_REPORT_MAX_PENDING) {
             adminAuthReportPending.set(key, {
-                key, reason, method: req.method, path: req.path, who: whoValue, count: 1,
+                key, area, mode, reason, method: req.method, path: req.path, who: whoValue, count: 1,
                 firstSeen: now, lastSeen: now, lastIp: req.ip || '',
                 lastUserAgent: String(req.headers['user-agent'] || '').slice(0, 300),
             });
         }
         if (!adminAuthReportSeen.has(key)) {
             adminAuthReportSeen.add(key);
-            const verb = ADMIN_AUTH_MODE === 'enforce' ? 'blocked' : 'would block';
-            console.warn(`🔐 [ADMIN AUTH ${ADMIN_AUTH_MODE}] ${verb}: ${key}`);
+            const verb = mode === 'enforce' ? 'blocked' : 'would block';
+            console.warn(`🔐 [AUTH ${area} ${mode}] ${verb}: ${key}`);
         }
     } catch (err) {
         // never let logging affect the request
     }
+}
+
+// Same log for Socket.IO events (method 'SOCKET', path = event name).
+function recordSocketAuthIssue(socket, event, reason, who, area, mode) {
+    const fakeReq = {
+        method: 'SOCKET', path: event,
+        ip: socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0].trim() || socket.handshake?.address || '',
+        headers: { 'user-agent': socket.handshake?.headers?.['user-agent'] || '' },
+    };
+    recordAdminAuthIssue(fakeReq, reason, who, area, mode);
 }
 
 async function flushAdminAuthReport() {
@@ -283,10 +330,10 @@ async function flushAdminAuthReport() {
                 updateOne: {
                     filter: { key: e.key },
                     update: {
-                        $setOnInsert: { key: e.key, reason: e.reason, method: e.method, path: e.path, who: e.who, firstSeen: e.firstSeen },
-                        $inc: { count: e.count, [ADMIN_AUTH_MODE === 'enforce' ? 'blockedCount' : 'wouldBlockCount']: e.count },
+                        $setOnInsert: { key: e.key, area: e.area, reason: e.reason, method: e.method, path: e.path, who: e.who, firstSeen: e.firstSeen },
+                        $inc: { count: e.count, [e.mode === 'enforce' ? 'blockedCount' : 'wouldBlockCount']: e.count },
                         $max: { lastSeen: e.lastSeen },
-                        $set: { lastMode: ADMIN_AUTH_MODE, lastIp: e.lastIp, lastUserAgent: e.lastUserAgent },
+                        $set: { lastMode: e.mode, lastIp: e.lastIp, lastUserAgent: e.lastUserAgent },
                     },
                     upsert: true,
                 },
@@ -308,7 +355,41 @@ async function flushAdminAuthReport() {
 setInterval(() => { flushAdminAuthReport(); }, ADMIN_AUTH_REPORT_FLUSH_MS).unref();
 process.once('SIGTERM', () => { flushAdminAuthReport().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
 
+function tabletNameFromRequest(req) {
+    try {
+        const header = decodeURIComponent(String(req.headers['x-tablet-name'] || '').trim());
+        if (header) return header;
+        const m = req.path.match(/^\/api\/tablet\/equipment-config\/(.+)$/);
+        if (m) return decodeURIComponent(m[1]);
+        return String(req.body?.tabletName || '').trim();
+    } catch (e) { return ''; }
+}
+
+// Tablet read routes (TABLET_AUTH_MODE). Accepts the tablet token or an admin token.
+function checkTabletRoute(req, res, next) {
+    if (TABLET_AUTH_MODE === 'off') return next();
+    const enforce = TABLET_AUTH_MODE === 'enforce';
+    const { user, reason } = verifyTokenString(bearerToken(req), { allowTablet: true });
+    const tabletName = tabletNameFromRequest(req);
+    const who = user ? `${user.username}${user.tabletName ? '@' + user.tabletName : ''}` : (tabletName ? `tablet:${tabletName}` : '');
+    if (!user) {
+        recordAdminAuthIssue(req, reason, who, 'tablet', TABLET_AUTH_MODE);
+        if (!enforce) return next();
+        res.set('X-Auth-Error', reason);
+        return res.status(401).json({ error: 'Tablet login required', reason });
+    }
+    const tokenDb = String(user.dbName).trim().toLowerCase();
+    const otherDb = requestedDbNames(req).find((n) => n.toLowerCase() !== tokenDb);
+    if (otherDb) {
+        recordAdminAuthIssue(req, `db-mismatch(token=${user.dbName},request=${otherDb})`, who, 'tablet', TABLET_AUTH_MODE);
+        if (enforce) return res.status(403).json({ error: 'This account cannot access that company data.', reason: 'db-mismatch' });
+    }
+    req.authUser = { username: user.username, role: user.role, dbName: user.dbName, tabletName: user.tabletName || '' };
+    next();
+}
+
 app.use((req, res, next) => {
+    if (isTabletProtectedRoute(req.method, req.path)) return checkTabletRoute(req, res, next);
     if (ADMIN_AUTH_MODE === 'off' || !isAdminProtectedRoute(req.method, req.path)) return next();
 
     const enforce = ADMIN_AUTH_MODE === 'enforce';
@@ -378,6 +459,42 @@ app.post('/api/auth/refresh', async (req, res) => {
         res.json({ token });
     } catch (error) {
         console.error('❌ Admin token refresh error:', error);
+        res.status(500).json({ error: 'Refresh failed' });
+    }
+});
+
+// Tablet login page: info for ONE tablet (replaces fetching every tablet via /getTablets).
+// Open on purpose - it runs before login. Returns only what the login page shows.
+app.post('/api/tablet/login-info', async (req, res) => {
+    try {
+        const dbName = String(req.body?.dbName || 'KSG').trim() || 'KSG';
+        const tabletName = String(req.body?.tabletName || '').trim();
+        if (!tabletName) return res.status(400).json({ error: 'tabletName is required' });
+        if (!mongoClient) return res.status(503).json({ error: 'Database not connected' });
+        const masterUser = await mongoClient.db(DB_NAME).collection(COLLECTION_NAME).findOne({ dbName }, { projection: { _id: 1 } });
+        if (!masterUser) return res.status(404).json({ error: 'Tablet not found' });
+        const tablet = await mongoClient.db(dbName).collection('tabletDB').findOne(
+            { tabletName }, { projection: { tabletName: 1, factoryLocation: 1, 設備名: 1 } });
+        if (!tablet) return res.status(404).json({ error: 'Tablet not found' });
+        res.json({ _id: tablet._id, tabletName: tablet.tabletName, factoryLocation: tablet.factoryLocation || '', 設備名: tablet.設備名 || '' });
+    } catch (error) {
+        console.error('❌ Tablet login-info error:', error);
+        res.status(500).json({ error: 'Failed to load tablet info' });
+    }
+});
+
+// Tablet token renewal: a logged-in tablet swaps its token for a new 1-year one, so a tablet
+// that is used regularly never has to log in again. authenticateTablet still checks that the
+// user is enabled and allowed on this tablet, so a disabled user cannot renew.
+app.post('/api/tablet/refresh-token', authenticateTablet, (req, res) => {
+    try {
+        const { user } = verifyTokenString(bearerToken(req), { allowTablet: true });
+        if (!user) return res.status(401).json({ error: 'Invalid or expired token' });
+        const { iat, exp, nbf, ...claims } = user;
+        const token = jwt.sign(claims, process.env.JWT_SECRET, { expiresIn: TABLET_TOKEN_TTL });
+        res.json({ token, renewDays: TABLET_TOKEN_RENEW_DAYS });
+    } catch (error) {
+        console.error('❌ Tablet token refresh error:', error);
         res.status(500).json({ error: 'Refresh failed' });
     }
 });
@@ -7850,11 +7967,27 @@ io.on('connection', (socket) => {
                         return;
                     }
                     
+                    if (TABLET_AUTH_MODE !== 'off' && decoded.dbName && String(decoded.dbName).toLowerCase() !== String(company).toLowerCase()) {
+                        recordSocketAuthIssue(socket, 'subscribe_variables', `db-mismatch(token=${decoded.dbName},request=${company})`, decoded.username, 'tablet', TABLET_AUTH_MODE);
+                        if (TABLET_AUTH_MODE === 'enforce') {
+                            socket.emit('subscribe_error', { error: 'This account cannot access that company data.' });
+                            return;
+                        }
+                    }
+
                     socket.authenticatedUser = decoded.username;
                     console.log(`✅ Tablet ${socket.id} authenticated as ${decoded.username}`);
                 } catch (err) {
                     console.log(`❌ Tablet ${socket.id} token validation failed:`, err.message);
                     socket.emit('auth_error', { error: 'Invalid or expired token', forceLogout: true });
+                    return;
+                }
+            } else if (TABLET_AUTH_MODE !== 'off') {
+                // No token: tablets always send one, so this is an old page or someone else.
+                recordSocketAuthIssue(socket, 'subscribe_variables', 'missing-token', '', 'tablet', TABLET_AUTH_MODE);
+                if (TABLET_AUTH_MODE === 'enforce') {
+                    // Not auth_error: that would force-logout a tablet. Just do not subscribe.
+                    socket.emit('subscribe_error', { error: 'Login required' });
                     return;
                 }
             }
@@ -7880,7 +8013,12 @@ io.on('connection', (socket) => {
     // Handle immediate variable data request (triggered by variable config updates)
     socket.on('requestVariables', async (data) => {
         try {
-            const company = data.company || 'KSG';
+            if (TABLET_AUTH_MODE !== 'off' && !socket.tabletCompany) {
+                recordSocketAuthIssue(socket, 'requestVariables', 'not-subscribed', '', 'tablet', TABLET_AUTH_MODE);
+                if (TABLET_AUTH_MODE === 'enforce') return;
+            }
+            // Enforce: only the company this socket subscribed to (with a checked token)
+            const company = (TABLET_AUTH_MODE === 'enforce' ? socket.tabletCompany : null) || (data && data.company) || 'KSG';
             console.log(`🔄 Tablet ${socket.id} requesting fresh variables for ${company}`);
             
             // Send fresh variable data immediately
@@ -8033,6 +8171,18 @@ io.on('connection', (socket) => {
     // Handle generic room join requests
     socket.on('join', (data) => {
         if (data && data.room) {
+            // Admin pages (OPC Management, array viewer) join opcua_<company> for live OPC data.
+            if (ADMIN_AUTH_MODE !== 'off') {
+                const { user, reason } = verifyTokenString(data.token);
+                let problem = user ? '' : reason;
+                if (user && String(data.room).toLowerCase() !== `opcua_${String(user.dbName).toLowerCase()}`) {
+                    problem = `room-mismatch(token=${user.dbName},room=${data.room})`;
+                }
+                if (problem) {
+                    recordSocketAuthIssue(socket, 'join', problem, user?.username || '', 'admin', ADMIN_AUTH_MODE);
+                    if (ADMIN_AUTH_MODE === 'enforce') return;
+                }
+            }
             socket.join(data.room);
             console.log(`🔗 Client ${socket.id} joined room: ${data.room}`);
         }
@@ -8040,6 +8190,16 @@ io.on('connection', (socket) => {
 
     socket.on('admin_dashboard_register', async (data = {}) => {
         try {
+            if (ADMIN_AUTH_MODE !== 'off') {
+                const { user, reason } = verifyTokenString(data && data.token);
+                if (!user) {
+                    recordSocketAuthIssue(socket, 'admin_dashboard_register', reason, String(data?.username || ''), 'admin', ADMIN_AUTH_MODE);
+                    if (ADMIN_AUTH_MODE === 'enforce') {
+                        socket.emit('admin_dashboard_error', { error: 'Login required', reason });
+                        return;
+                    }
+                }
+            }
             const session = extractSubmittedDBSocketContext(data);
             let targetDbName = 'KSG';
             let targetUsername = 'admin';
@@ -8282,8 +8442,10 @@ io.on('connection', (socket) => {
                 }))
             });
             
-            // Also emit to general tablets (backward compatibility)
-            io.emit('opcua_realtime_update', broadcastData);
+            // Also emit to general clients (monitor pages). Enforce: only logged-in monitors/admins
+            // of this company (room opcua_<db>). Tablets do not use this event.
+            if (ADMIN_AUTH_MODE === 'enforce') io.to(`opcua_${dbName}`).emit('opcua_realtime_update', broadcastData);
+            else io.emit('opcua_realtime_update', broadcastData);
             
             // 🔥 IMPORTANT: Broadcast updated variables to all tablets subscribed to this company
             // This ensures tablets get real-time updates when OPC UA data changes
@@ -8299,7 +8461,18 @@ io.on('connection', (socket) => {
     
     // Handle tablet monitor registration
     socket.on('monitor_register', async (data) => {
-        console.log('📱 Monitor tablet registered:', data);
+        data = data || {};
+        if (ADMIN_AUTH_MODE !== 'off') {
+            const { user, reason } = verifyTokenString(data.token);
+            if (!user) {
+                recordSocketAuthIssue(socket, 'monitor_register', reason, '', 'admin', ADMIN_AUTH_MODE);
+                if (ADMIN_AUTH_MODE === 'enforce') return;
+            } else {
+                // opcua_realtime_update goes to this room in enforce mode
+                socket.join(`opcua_${user.dbName}`);
+            }
+        }
+        console.log('📱 Monitor tablet registered:', { ...data, token: data.token ? '[token]' : undefined });
         socket.isMonitor = true;
         socket.clientType = 'monitor';
         socket.monitorRaspberryId = data.raspberryId;

@@ -203,6 +203,17 @@ function getLastKnownKanban() {
   return isUsableKanbanValue(cachedKanban) ? cachedKanban : null;
 }
 
+// Login headers for every request to ksgServer (TABLET_AUTH_MODE). Empty if not logged in.
+function tabletAuthHeaders(extra = {}) {
+  const ctx = getTabletSessionAuthContext();
+  const headers = { ...extra };
+  if (ctx) {
+    headers['Authorization'] = `Bearer ${ctx.token}`;
+    headers['X-Tablet-Name'] = encodeURIComponent(ctx.tabletName);
+  }
+  return headers;
+}
+
 function getTabletSessionAuthContext() {
   try {
     const authData = localStorage.getItem('tabletAuth');
@@ -495,7 +506,7 @@ async function fetchProductByKanbanID(kanbanId) {
     return null;
   }
 
-  const response = await fetch(`${API_URL}/api/tablet/product-by-kanban/${encodeURIComponent(normalizedKanban)}`);
+  const response = await fetch(`${API_URL}/api/tablet/product-by-kanban/${encodeURIComponent(normalizedKanban)}`, { headers: tabletAuthHeaders() });
   const data = await response.json();
 
   if (!response.ok || !data.success || !data.product) {
@@ -640,7 +651,7 @@ async function refreshHakoIresuFromMasterDB() {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`);
+    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`, { headers: tabletAuthHeaders() });
     const data = await response.json();
     // Ignore the result if the product changed while the request was in flight
     if ((currentMasterRecordId || currentProductId) !== lookupId) {
@@ -691,7 +702,7 @@ async function resolveProductContextForSubmit() {
     const lookupId = currentMasterRecordId || currentProductId;
     if (lookupId) {
       try {
-        const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`);
+        const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`, { headers: tabletAuthHeaders() });
         const data = await response.json();
         if (data.success && data.product) {
           return {
@@ -769,7 +780,7 @@ async function resolveProductContextForSubmit() {
   // If no kanban is found/used (e.g. manual product mode fallback), resolve via currentProductId
   if (currentProductId) {
     try {
-      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`, { headers: tabletAuthHeaders() });
       const data = await response.json();
       if (data.success && data.product) {
         return {
@@ -804,7 +815,7 @@ async function hydrateInProgressProductContextFromFallback(options = {}) {
       return false;
     }
     try {
-      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`);
+      const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(lookupId)}`, { headers: tabletAuthHeaders() });
       const data = await response.json();
       if (data.success && data.product) {
         applyProductContext(data.product, {
@@ -1782,6 +1793,95 @@ async function validateToken() {
 }
 
 // ============================================================
+// 🔁 LOGIN RENEWAL (tablet token is valid 1 year)
+// ============================================================
+// When fewer than 30 days are left, the tablet swaps its token for a new 1-year one
+// (POST /api/tablet/refresh-token). A tablet that is used at least once a month never has
+// to log in again. The server still refuses renewal for a disabled user.
+// If renewal keeps failing and 3 days or fewer are left, a small notice asks the operator
+// to log out and in again after work. Renewal problems never log the tablet out.
+const TABLET_RENEW_WHEN_DAYS_LEFT = 30;
+const TABLET_WARN_WHEN_DAYS_LEFT = 3;
+let tabletRenewInFlight = false;
+
+function tabletTokenExpiryMs(token) {
+  try {
+    const payload = JSON.parse(atob(String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.exp ? payload.exp * 1000 : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function updateTabletExpiryWarning() {
+  let daysLeft = null;
+  try {
+    const auth = JSON.parse(localStorage.getItem('tabletAuth') || 'null');
+    const expMs = auth && tabletTokenExpiryMs(auth.token);
+    if (expMs) daysLeft = (expMs - Date.now()) / 86400000;
+  } catch (e) { /* ignore */ }
+
+  let bar = document.getElementById('tabletLoginExpiryWarning');
+  if (daysLeft === null || daysLeft > TABLET_WARN_WHEN_DAYS_LEFT) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!document.body) return;
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'tabletLoginExpiryWarning';
+    bar.setAttribute('role', 'status');
+    // pointer-events:none so it can never block a button on the tablet
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;pointer-events:none;' +
+      'background:#fef3c7;color:#92400e;border-top:2px solid #f59e0b;padding:8px 16px;' +
+      'font-size:14px;font-weight:600;text-align:center';
+    document.body.appendChild(bar);
+  }
+  const d = Math.max(0, Math.ceil(daysLeft));
+  bar.textContent = `ログインの有効期限まであと${d}日です。作業が終わったら、ログアウトしてもう一度ログインしてください。` +
+    ` / Login expires in ${d} day(s). After work, please log out and log in again.`;
+}
+
+async function renewTabletTokenIfNeeded() {
+  if (tabletRenewInFlight) return;
+  try {
+    const auth = JSON.parse(localStorage.getItem('tabletAuth') || 'null');
+    if (!auth || !auth.token) return;
+    const expMs = tabletTokenExpiryMs(auth.token);
+    if (!expMs) return;
+    const daysLeft = (expMs - Date.now()) / 86400000;
+    if (daysLeft <= 0 || daysLeft > TABLET_RENEW_WHEN_DAYS_LEFT) return;
+
+    tabletRenewInFlight = true;
+    const res = await fetch(`${API_URL}/api/tablet/refresh-token`, {
+      method: 'POST',
+      headers: tabletAuthHeaders({ 'Content-Type': 'application/json' })
+    });
+    if (!res.ok) {
+      console.warn('⚠️ Tablet login renewal failed:', res.status);
+      return;
+    }
+    const data = await res.json();
+    const latest = JSON.parse(localStorage.getItem('tabletAuth') || 'null');
+    // Only replace if nobody logged in/out in the meantime
+    if (data.token && latest && latest.token === auth.token) {
+      latest.token = data.token;
+      latest.loginTime = new Date().toISOString(); // keeps the 1-year page check in line with the token
+      localStorage.setItem('tabletAuth', JSON.stringify(latest));
+      console.log('🔁 Tablet login renewed for another year');
+    }
+  } catch (error) {
+    console.warn('⚠️ Tablet login renewal error:', error);
+  } finally {
+    tabletRenewInFlight = false;
+    updateTabletExpiryWarning();
+  }
+}
+
+setTimeout(renewTabletTokenIfNeeded, 5000);
+setInterval(renewTabletTokenIfNeeded, 60 * 60 * 1000);
+
+// ============================================================
 // 🔹 INITIALIZATION - Parse URL Parameters & Load Data
 // ============================================================
 
@@ -1965,7 +2065,7 @@ async function loadUsers() {
   try {
     const params = new URLSearchParams({ factory: currentFactory });
     if (currentEquipment) params.set('equipment', currentEquipment);
-    const response = await fetch(`${API_URL}/api/tablet/users?${params.toString()}`);
+    const response = await fetch(`${API_URL}/api/tablet/users?${params.toString()}`, { headers: tabletAuthHeaders() });
     const data = await response.json();
     
     if (data.success) {
@@ -2028,7 +2128,7 @@ async function loadEquipmentConfig() {
     }
     
     console.log(`📡 Loading equipment config for tablet: ${tabletName}...`);
-    const response = await fetch(`${API_URL}/api/tablet/equipment-config/${encodeURIComponent(tabletName)}`);
+    const response = await fetch(`${API_URL}/api/tablet/equipment-config/${encodeURIComponent(tabletName)}`, { headers: tabletAuthHeaders() });
     const data = await response.json();
     
     if (data.success) {
@@ -2137,7 +2237,7 @@ async function loadProductsForEquipment(equipmentName, factory) {
   try {
     const encodedEq = encodeURIComponent(equipmentName || '');
     const encodedFactory = encodeURIComponent(factory || '');
-    const response = await fetch(`${API_URL}/api/tablet/products-by-equipment/${encodedEq}?factory=${encodedFactory}`);
+    const response = await fetch(`${API_URL}/api/tablet/products-by-equipment/${encodedEq}?factory=${encodedFactory}`, { headers: tabletAuthHeaders() });
     const data = await response.json();
     if (data.success && Array.isArray(data.products)) {
       equipmentProductsList = data.products;
@@ -2282,7 +2382,7 @@ async function loadTabletTroubleOptions() {
     if (tabletName) {
       const res = await fetch(`${API_URL}/getTabletTroubleOptions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: tabletAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ dbName, tabletName })
       });
       if (res.ok) {
@@ -2325,7 +2425,7 @@ async function loadProductInfoOld() {
   }
   
   try {
-    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`);
+    const response = await fetch(`${API_URL}/api/tablet/product/${encodeURIComponent(currentProductId)}`, { headers: tabletAuthHeaders() });
     const data = await response.json();
     
     if (data.success) {

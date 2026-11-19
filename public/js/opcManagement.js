@@ -257,7 +257,7 @@ function initializeWebSocket() {
             updateConnectionStatus(true);
             
             // Join company room
-            window.opcSocket.emit('join', { room: `opcua_${COMPANY}` });
+            window.opcSocket.emit('join', { room: `opcua_${COMPANY}`, token: (localStorage.getItem('ksgToken') || '') });
         });
         
         window.opcSocket.on('disconnect', () => {
@@ -292,7 +292,7 @@ function initializeWebSocket() {
         // Socket already exists and is connected
         updateConnectionStatus(window.opcSocket.connected);
         // Re-join company room
-        window.opcSocket.emit('join', { room: `opcua_${COMPANY}` });
+        window.opcSocket.emit('join', { room: `opcua_${COMPANY}`, token: (localStorage.getItem('ksgToken') || '') });
     }
 }
 

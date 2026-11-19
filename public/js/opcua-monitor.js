@@ -129,7 +129,8 @@ function initializeWebSocket() {
         // Register as monitor tablet
         socket.emit('monitor_register', {
             clientType: 'monitor',
-            company: currentCompany
+            company: currentCompany,
+            token: (localStorage.getItem('ksgToken') || '')
         });
         
         console.log('📱 Registered as monitor tablet');
@@ -157,7 +158,8 @@ function subscribeToUpdates() {
     if (socket && socket.connected && currentCompany) {
         socket.emit('monitor_register', {
             clientType: 'monitor',
-            company: currentCompany
+            company: currentCompany,
+            token: (localStorage.getItem('ksgToken') || '')
         });
         console.log(`📡 Registered for updates: ${currentCompany}`);
     }

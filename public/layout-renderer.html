@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Layout View</title>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/adminAuth.js"></script>
     <style>
         * {
             margin: 0;
@@ -289,9 +290,10 @@
                 // Register as monitor
                 const registrationData = {
                     raspberryId: layout.raspberryId,
-                    layoutId: layout.layoutId
+                    layoutId: layout.layoutId,
+                    token: (localStorage.getItem('ksgToken') || '')
                 };
-                console.log('📱 Registering as monitor:', registrationData);
+                console.log('📱 Registering as monitor:', { ...registrationData, token: registrationData.token ? '[token]' : '' });
                 socket.emit('monitor_register', registrationData);
             });
             

@@ -560,6 +560,7 @@
         </div>
     </div>
 
+    <script src="/js/adminAuth.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
     <script>
         // Configuration
@@ -603,7 +604,7 @@
                 updateConnectionStatus(true);
                 
                 // Join the OPC UA room for this company
-                socket.emit('join', { room: `opcua_${COMPANY}` });
+                socket.emit('join', { room: `opcua_${COMPANY}`, token: (localStorage.getItem('ksgToken') || '') });
                 
                 fetchInitialData();
             });

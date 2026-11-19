@@ -202,16 +202,16 @@
       }
 
       try {
-        const res = await fetch(BASE_URL + 'getTablets', {
+        // Only this tablet's name / factory / equipment (no full tablet list before login)
+        const res = await fetch(BASE_URL + 'api/tablet/login-info', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dbName: DB_NAME })
+          body: JSON.stringify({ dbName: DB_NAME, tabletName })
         });
 
-        if (!res.ok) throw new Error('Failed to fetch tablets');
+        if (!res.ok && res.status !== 404) throw new Error('Failed to fetch tablet info');
 
-        const tablets = await res.json();
-        const tablet = tablets.find(t => t.tabletName === tabletName);
+        const tablet = res.status === 404 ? null : await res.json();
 
         if (tablet) {
           // Store tablet ID for later use

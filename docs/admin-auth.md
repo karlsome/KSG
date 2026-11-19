@@ -1,106 +1,124 @@
-# Admin API authentication (ADMIN_AUTH_MODE)
+# ksgServer authentication (ADMIN_AUTH_MODE / TABLET_AUTH_MODE)
 
 Written 2026-11-19, branch `feature/server-jwt-auth`.
 
+## Rule
+
+| Connection | Needs a login token? |
+|---|---|
+| Admin site → ksgServer (HTTP and live connection) | **Yes**, admin token (`ADMIN_AUTH_MODE`) |
+| Tablet → ksgServer (HTTP and live OPC connection) | **Yes**, tablet token (`TABLET_AUTH_MODE`) |
+| Raspberry Pi → ksgServer | No (the Pi has no secret; it is checked by its registered `uniqueId` as before) |
+| ESP32 devices | Out of scope, unchanged |
+
 ## Why
 
-Before this change the admin pages only checked the login in the browser. The server
-trusted `dbName`, `username` and `role` sent in the request body or `X-Session-*` headers,
-so anyone who knew the URL could read or change master data, users and passwords
-without a login.
+Before this change the server trusted `dbName`, `username` and `role` sent in the request, and
+master data, worker names and live OPC values could be read without any login.
 
 ## What changed
 
 | Part | Change |
 |---|---|
-| `ksgServer.js` | One middleware (after CORS) checks `Authorization: Bearer <jwt>` on **admin routes only** (`isAdminProtectedRoute`, 97 routes). New `POST /api/auth/refresh`, `GET /api/auth/report`. `/loginCustomer` now also returns a token. |
-| `public/js/adminAuth.js` | Loaded only by admin pages. Adds the Bearer token to every request to this server, refreshes it when < 12 h left, shows a "log in again" banner on 401. |
-| `index.html` | Loads `adminAuth.js`; a `?token=` link no longer overwrites a newer stored token, and the token is removed from the address bar. Logout uses the same login URL logic. |
-| `public/login.html` | Local admin login. Talks to `API_URL` from `config.js` and stays on the current host. |
-| `masterDB.html`, `opcManagement.html`, `submittedDB.html`, `opcua-admin.html` | Load `adminAuth.js` when opened directly. |
+| `ksgServer.js` middleware (after CORS) | Admin routes (`isAdminProtectedRoute`): admin token. Tablet read routes (`isTabletProtectedRoute`): tablet token (admin token also accepted). Everything else unchanged. |
+| `ksgServer.js` live connection (Socket.IO) | `subscribe_variables` / `requestVariables` (tablet OPC feed): tablet token. `join`, `monitor_register`, `admin_dashboard_register` (admin pages): admin token. `opcua_realtime_update` goes only to logged-in monitors/admins in enforce mode (before: every connected socket). Pi events (`raspberry_register`, `opcua_data_change`) unchanged. |
+| New routes | `POST /api/auth/refresh` (admin token renewal), `POST /api/tablet/refresh-token` (tablet token renewal), `POST /api/tablet/login-info` (tablet login page: one tablet's name/factory/equipment, replaces the full `/getTablets` list), `GET /api/auth/report`. `/loginCustomer` also returns a token. |
+| `public/js/tablet.js` | Sends `Authorization` + `X-Tablet-Name` on every request. Renews its 1-year token automatically when < 30 days left. If renewal keeps failing and ≤ 3 days are left, shows a bottom notice (never blocks taps, never logs out). |
+| `public/tablet-login.html` | Uses `/api/tablet/login-info`. |
+| `public/js/adminAuth.js` | Admin pages only. Adds the admin token to requests, renews it when < 12 h left, red "log in again" banner on 401. |
+| Admin pages | `index.html`, `masterDB.html`, `opcManagement.html`, `submittedDB.html`, `opcua-admin.html`, `opcua-monitor.html`, `layout-renderer.html`, `array-viewer.html` load `adminAuth.js`; their live-connection events send the token. `index.html`: old `?token=` bookmark can't replace a newer token; token removed from the address bar. |
+| `public/login.html` | Local admin login (stays on the current host, uses `API_URL` from `config.js`). |
 
-**Not changed (on purpose):** every tablet route and the tablet pages, every Raspberry Pi / device
-route (including routes only older Pi scripts used), all Socket.IO handlers, monitor/display pages
-(`opcua-monitor`, `layout-renderer`, `array-viewer`), `/getTablets`, `/tabletLogin`,
-`/getTabletTroubleOptions`, `/validateToken`, static files.
+**Still open on purpose:** Raspberry Pi routes and events, ESP32/device routes, `/tabletLogin`,
+`/loginCustomer`, `/validateToken`, `/api/tablet/login-info`, `/ping`, `/api/status`, static files
+(pages themselves contain no data).
 
-Where the admin token comes from: FreyaAccess login → Kurachi server `/loginCustomer`
-signs a 24 h JWT with the shared `JWT_SECRET` → redirect to `ksg.freyaaccess.com?token=…`.
-ksgServer must have the **same `JWT_SECRET`** as Kurachi (true for the local `.env` files).
+Where the admin token comes from: FreyaAccess login → Kurachi `/loginCustomer` signs a 24 h JWT with
+the shared `JWT_SECRET` → `ksg.freyaaccess.com?token=…`. ksgServer must have the **same `JWT_SECRET`**
+as Kurachi. The tablet token is signed by ksgServer `/tabletLogin` (1 year).
 
-## Modes
+## Modes (each switch separately)
 
-| `ADMIN_AUTH_MODE` | Behaviour |
+| Value | Behaviour |
 |---|---|
 | `off` | Exactly the old behaviour. |
-| `report` (default when unset) | Never blocks. Records every request that would be blocked (see **Report log** below). |
-| `enforce` | Blocks: no/expired/invalid token → 401, tablet token → 401, other company's token → 403. Handlers then see only the verified username/role/dbName (body `role` / `creatorRole` and `X-Session-*` headers are overwritten). |
+| `report` (default when unset) | Never blocks. Records everything that would be blocked (see **Report log**). |
+| `enforce` | Blocks. HTTP: 401 (no/expired/invalid token), 403 (other company). Live connection: no subscription (`subscribe_error`, **not** `auth_error`, so a tablet is never force-logged-out by this). Admin handlers see only the verified identity. |
+
+`TABLET_AUTH_MODE` covers the tablet's HTTP reads and its OPC subscription. `/api/tablet/session` and
+`/api/tablet/submit` already required the tablet token before this change (all modes).
+
+## Tablet login lifetime
+
+- Login gives a 1-year token (unchanged).
+- From 30 days before expiry, the tablet renews it on its own (checked 5 s after the page opens and every
+  hour). A tablet used at least once a month never needs to log in again. Renewal is refused for a
+  disabled user or a user who lost access to that tablet.
+- If renewal fails and ≤ 3 days are left: bottom notice
+  「ログインの有効期限まであとN日です。作業が終わったら、ログアウトしてもう一度ログインしてください。」
+- The live OPC feed always uses the newest token (read from storage on every subscribe / reconnect).
 
 ## Report log (MongoDB `KSG.adminAuthReport`)
 
-One document per combination of reason + method + path + user, kept permanently (survives restarts and deploys):
+One document per area + reason + method + path + who, kept permanently:
 
 | Field | Meaning |
 |---|---|
-| `reason` | `missing-token`, `expired-token`, `invalid-token`, `tablet-token`, `incomplete-token`, `db-mismatch(...)`, `user-mismatch(...)`, `role-mismatch(...)` |
-| `method`, `path`, `who` | The route, and the username (from token, header or body; IP if unknown) |
-| `count` | Total times seen |
-| `wouldBlockCount` / `blockedCount` | Times seen in report mode / actually blocked in enforce mode |
-| `firstSeen`, `lastSeen`, `lastMode` | When, and in which mode it was last seen |
-| `lastIp`, `lastUserAgent` | Last caller's IP and browser, to find who / which device it is |
+| `area` | `admin` or `tablet` |
+| `reason` | `missing-token`, `expired-token`, `invalid-token`, `tablet-token`, `incomplete-token`, `not-subscribed`, `db-mismatch(...)`, `room-mismatch(...)`, `user-mismatch(...)`, `role-mismatch(...)` |
+| `method`, `path` | HTTP method + route, or `SOCKET` + event name |
+| `who` | Username (`user@tablet` for tablets), `tablet:<name>` if known without a token, else IP |
+| `count`, `wouldBlockCount`, `blockedCount` | Totals; in report mode / in enforce mode |
+| `firstSeen`, `lastSeen`, `lastMode`, `lastIp`, `lastUserAgent` | When, which mode, which device |
 
-- Writes are batched in memory and flushed every 30 s (and on shutdown), so nothing writes to the database per request and a database error never affects a request.
-- Nothing is written in `off` mode. In `enforce` mode it keeps recording (as `blockedCount`).
-- The first occurrence per server run is also printed in the server log:
-  `🔐 [ADMIN AUTH report] would block: <reason> | <METHOD path> | <user>`.
-- Ways to read it: MongoDB Atlas → `KSG` → `adminAuthReport` (sort by `lastSeen`), or in the admin site's browser console:
-  `fetch('/api/auth/report?days=7').then(r => r.json()).then(d => console.table(d.entries))`
-  (`days` and `limit` are optional; needs an admin / masterUser login).
-- The collection is small (one row per combination). To start a fresh review period, delete its documents in Atlas.
+Batched and written every 30 s and on shutdown; a database error never affects a request. Nothing is
+written in `off` mode. First occurrence per server run also goes to the server log
+(`🔐 [AUTH tablet report] would block: …`).
 
-## Rollout (production)
+Read it in Atlas (`KSG` → `adminAuthReport`, sort by `lastSeen`) or in the admin site console:
+`fetch('/api/auth/report?days=1').then(r => r.json()).then(d => console.table(d.entries))`.
 
-1. Deploy with `ADMIN_AUTH_MODE` unset (= `report`). Nothing is blocked.
-2. Ask admins to reload the admin site once (so they get `adminAuth.js`). A screen that stays open
-   (dashboard monitor) also needs one reload.
-3. Review `KSG.adminAuthReport` for a few working days. Expected entries:
-   old browser tabs without the new JS (`missing-token`), expired tokens from people who never
-   re-logged in (`expired-token`). Anything else (a route or caller you don't recognise) → look at it
-   before step 4.
-4. Set `ADMIN_AUTH_MODE=enforce` and restart. Rollback = set it to `report` or `off` and restart.
-   No data or client change is needed to roll back.
+## Rollout (production stops at 18:00)
 
-What users notice in enforce mode: an admin whose token is expired sees a red banner
-"ログインの有効期限が切れました" with a login link. While a page is open the token is renewed
-automatically, so only someone away more than ~24 h (laptop asleep, browser closed) has to log in again.
-Tablets and Raspberry Pis notice nothing.
+**Evening 1**
+1. After 18:00, deploy with both modes unset (= `report`).
+2. Reload every tablet (pull down / reload, or close and reopen the home-screen icon) and every open admin
+   page / monitor screen. Tablets stay logged in.
+3. On one tablet: check the product shows, 作業数 moves when the machine runs, NG buttons work.
+
+**Day 2 (production in report mode)** — nothing is blocked.
+
+**Evening 2**
+4. Check `KSG.adminAuthReport` with `?days=1`:
+   - `area: tablet` entries with `lastSeen` during today's shift = a tablet still on the old page → reload it.
+   - `area: admin` `missing-token` = an admin tab not reloaded; `expired-token` = someone who has not logged in for > 24 h.
+   - Anything you don't recognise → check before enforcing.
+5. Set `TABLET_AUTH_MODE=enforce` and `ADMIN_AUTH_MODE=enforce`, restart, repeat the one-tablet check.
+
+Rollback at any time: set the mode back to `report` (or `off`) and restart. No tablet, Pi or data change
+is needed. The two switches are independent, so tablets can be rolled back alone.
 
 ## Local testing
 
-- Run the server locally as usual. With `ADMIN_AUTH_MODE` unset nothing is blocked.
-- To test like production: put `ADMIN_AUTH_MODE=enforce` in `.env`.
-- Log in at **`http://localhost:3000/login.html`** (it posts to `API_URL` in `config.js` and then stays
-  on localhost instead of redirecting to ksg.freyaaccess.com). The banner and the logout button also
-  point to `/login.html` whenever the host is not `*.freyaaccess.com`. To force another login page,
-  define `const KSG_LOGIN_URL = '…'` (e.g. in `config.js`).
-- Automated tests (in-memory MongoDB, never the real DB): see `tests/admin-auth/`.
+- Nothing is blocked with the modes unset. To test like production put `ADMIN_AUTH_MODE=enforce` and
+  `TABLET_AUTH_MODE=enforce` in `.env`.
+- Admin login on localhost: **`http://localhost:3000/login.html`** (stays on localhost). Banner and
+  logout also go to `/login.html` whenever the host is not `*.freyaaccess.com`; override with
+  `const KSG_LOGIN_URL = '…'` (e.g. in `config.js`).
+- Automated tests (in-memory MongoDB, never the real DB) in `tests/admin-auth/`:
   ```bash
   cd tests/admin-auth && npm install
-  npm test                  # server + Pi (HTTP + socket) + tablet + admin, in off/unset/report/enforce
-  npm run serve &           # local enforce-mode server on :3999 with test data
-  npm run browser           # headless Chrome: admin pages + tablet in the same browser
+  npm test        # 427 checks: Pi (HTTP + socket) → tablet live OPC, tablet, admin, sockets, all modes, route sweep
+  npm run serve & # local enforce-mode server on :3999 with test data
+  npm run browser # 43 checks in headless Chrome: admin pages, tablet login, live OPC, renewal, 3-day notice
   ```
-  `npm test` needs the main repo `node_modules` (run `npm install` in the repo root). The browser test
-  needs `config.js` pointed at `http://localhost:3999` while it runs (revert afterwards) and Google Chrome.
+  `npm test` needs the repo `node_modules`. The browser test needs `config.js` pointed at
+  `http://localhost:3999` while it runs (revert afterwards) and Google Chrome.
 
-## Later (not in this change)
+## Not covered
 
-- Tablet read endpoints (`/api/tablet/users`, `/product…`, `/equipment-config`, `/getTabletTroubleOptions`,
-  `/getTablets`) are still open; the tablet sends no token on them. To lock them: first make tablet.js send its
-  token, deploy, wait until every tablet has reloaded, then require it.
-- Device/ESP32 routes without auth (`/api/devices*`, `/api/company-devices/:company`, `/api/device/check/:id`,
-  `/api/functions/update`, `/api/device/register-rpi`) and display endpoints (`/api/opcua/monitor/dashboard`,
-  `/api/layout/:id`, `/api/opcua/variables/values`, `/api/opcua/realtime-data/:id`, `/api/opcua/raspberries`,
-  `/api/opcua/discovered-arrays`, `/api/opcua/data/latest`).
-- Role limits: any enabled user of the company can still use the admin API with their token (as before).
+- Raspberry Pi: anyone who knows a Pi's `uniqueId` can still send data (needs a per-Pi secret = Pi update).
+- ESP32/device routes (out of scope).
+- `raspberry_status_update` (Pi online/offline only) is still broadcast to every socket.
+- Role limits: any enabled user of the company can use the admin API with their token (as before).
 - CORS is still `*`.

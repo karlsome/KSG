@@ -105,6 +105,9 @@ async function open(pg, url) { await pg.goto('about:blank'); await pg.goto(url, 
   check(`F. tablet: ${treqs.length} API calls, none failed`, tBad.length === 0 && treqs.length > 3, tBad.map((r) => `${r.status} ${r.url}`).join(', '));
   const tAdminTok = treqs.filter((r) => r.auth.includes(newerTok));
   check('F. tablet never sends the admin token (no wrapper on tablet page)', tAdminTok.length === 0 && !(await tab.evaluate(() => !!window.__ksgAdminAuthInstalled)));
+  const tNoTok = treqs.filter((r) => !/^\/(tabletLogin|api\/tablet\/login-info|validateToken)/.test(r.url) && !r.auth.startsWith('Bearer '));
+  check('F. every tablet data request carried the tablet token', tNoTok.length === 0, tNoTok.map((r) => r.url).join(', '));
+  check('F. login page used login-info (not the full tablet list)', treqs.some((r) => r.url.startsWith('/api/tablet/login-info')) && !treqs.some((r) => r.url.startsWith('/getTablets')));
   // Pi pushes a counter value → tablet should receive it over the socket
   const got = tab.evaluate(() => new Promise((res) => { socket.on('opcua_variables_update', (d) => { if (d?.variables?.cnt?.value == 789) res(true); }); setTimeout(() => res(false), 8000); }));
   const arr = Array(30).fill(0); arr[27] = 789;
@@ -112,6 +115,45 @@ async function open(pg, url) { await pg.goto('about:blank'); await pg.goto(url, 
     body: JSON.stringify({ raspberryId: 'TESTPI', data: [{ opcNodeId: 'ns=4;s=ARRAY6', value: arr, quality: 'Good', timestamp: new Date().toISOString() }] }) });
   check('F. tablet page receives Pi value (cnt=789) live', await got);
   await tab.screenshot({ path: path.join(SHOTS, 'f_tablet.png') });
+
+  // G. automatic renewal: token with 10 days left is renewed to ~1 year, page keeps working
+  const auth0 = JSON.parse(await tab.evaluate(() => localStorage.getItem('tabletAuth')));
+  const p0 = jwt.decode(auth0.token);
+  const short = jwt.sign({ username: p0.username, role: p0.role, dbName: p0.dbName, tabletId: p0.tabletId, tabletName: p0.tabletName, userId: p0.userId }, SECRET, { expiresIn: '10d' });
+  await tab.evaluate((t) => { const a = JSON.parse(localStorage.getItem('tabletAuth')); a.token = t; localStorage.setItem('tabletAuth', JSON.stringify(a)); }, short);
+  await tab.reload({ waitUntil: 'networkidle2' }); await sleep(7000);
+  const auth1 = JSON.parse(await tab.evaluate(() => localStorage.getItem('tabletAuth')));
+  const left1 = (jwt.decode(auth1.token).exp - Date.now() / 1000) / 86400;
+  check('G. 10-days-left tablet token renewed automatically (~365 days)', auth1.token !== short && left1 > 360, `left=${Math.round(left1)}d`);
+  check('G. still on tablet.html, no warning shown', tab.url().includes('tablet.html') && !(await tab.$('#tabletLoginExpiryWarning')));
+  const got2 = tab.evaluate(() => new Promise((res) => { socket.on('opcua_variables_update', (d) => { if (d?.variables?.cnt?.value == 790) res(true); }); setTimeout(() => res(false), 8000); }));
+  const arr2 = Array(30).fill(0); arr2[27] = 790;
+  await fetch(BASE + '/api/opcua/data', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Raspberry-ID': 'TESTPI' },
+    body: JSON.stringify({ raspberryId: 'TESTPI', data: [{ opcNodeId: 'ns=4;s=ARRAY6', value: arr2, quality: 'Good', timestamp: new Date().toISOString() }] }) });
+  check('G. after renewal + reload, tablet still receives live Pi value (cnt=790)', await got2);
+
+  // H. renewal fails (server unreachable for that call) and 2 days left → warning, NOT logged out
+  const twoDays = jwt.sign({ username: p0.username, role: p0.role, dbName: p0.dbName, tabletId: p0.tabletId, tabletName: p0.tabletName, userId: p0.userId }, SECRET, { expiresIn: '2d' });
+  await tab.evaluate((t) => { const a = JSON.parse(localStorage.getItem('tabletAuth')); a.token = t; localStorage.setItem('tabletAuth', JSON.stringify(a)); }, twoDays);
+  await tab.setRequestInterception(true);
+  tab.on('request', (rq) => (rq.url().includes('/api/tablet/refresh-token') ? rq.abort() : rq.continue()));
+  await tab.reload({ waitUntil: 'networkidle2' }); await sleep(7000);
+  const warn = await tab.$eval('#tabletLoginExpiryWarning', (e) => e.textContent).catch(() => null);
+  check('H. renewal failing + 2 days left → warning bar shown', !!warn && warn.includes('あと2日'), warn || 'none');
+  check('H. tablet NOT logged out', tab.url().includes('tablet.html'), tab.url());
+  const pe = await tab.$eval('#tabletLoginExpiryWarning', (e) => getComputedStyle(e).pointerEvents).catch(() => '');
+  check('H. warning bar cannot block taps', pe === 'none', pe);
+  await tab.screenshot({ path: path.join(SHOTS, 'h_tablet_warning.png') });
+  await tab.setRequestInterception(false);
+
+  // I. OPC monitor page (admin token in this browser) works
+  const mon = await browser.newPage();
+  const mreqs = [];
+  mon.on('response', (res) => { const u = res.url(); if (u.startsWith(BASE) && u.includes('/api/')) mreqs.push({ url: u.replace(BASE, ''), status: res.status() }); });
+  const merrs = []; mon.on('pageerror', (e) => merrs.push(e.message));
+  await mon.goto(BASE + '/opcua-monitor', { waitUntil: 'networkidle2' }); await sleep(2500);
+  const mBad = mreqs.filter((r) => r.status === 401 || r.status === 403);
+  check(`I. opcua-monitor page: ${mreqs.length} API calls, none 401/403`, mBad.length === 0, mBad.map((r) => r.url).join(', '));
   check('F. tablet page had no JS errors', terrors.length === 0, terrors.join(' | ').slice(0, 300));
 
   const real = errors.filter((e) => !/Failed to fetch|NetworkError/.test(e));
