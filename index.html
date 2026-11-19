@@ -29,6 +29,7 @@
 
   <!-- Global Configuration -->
   <script src="/js/config.js"></script>
+  <script src="/js/adminAuth.js"></script>
 </head>
 
 <body class="bg-gray-50 font-sans antialiased text-gray-900">
@@ -140,7 +141,7 @@
 
     // Logout function
     function logout() {
-      window.location.href = 'https://www.freyaaccess.com/';
+      window.location.href = window.ksgAdminAuth ? window.ksgAdminAuth.loginUrl() : 'https://www.freyaaccess.com/';
     }
 
     // Close dropdown when clicking outside
@@ -2971,11 +2972,20 @@
       if (urlToken) {
         try {
           const payload = JSON.parse(atob(urlToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-          localStorage.setItem('authUser', JSON.stringify(payload));
-          localStorage.setItem('ksgToken', urlToken);
+          // Keep a newer stored token (e.g. refreshed) instead of an old bookmarked one
+          if (!window.ksgAdminAuth || window.ksgAdminAuth.acceptUrlToken(urlToken)) {
+            localStorage.setItem('authUser', JSON.stringify(payload));
+            localStorage.setItem('ksgToken', urlToken);
+          }
         } catch(e) {
           console.warn('Failed to parse URL token:', e);
         }
+        // Remove the token from the address bar so it is not bookmarked or kept in history
+        try {
+          urlParams.delete('token');
+          const rest = urlParams.toString();
+          history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+        } catch(e) { /* ignore */ }
       }
 
       initializeAdminDashboardSocket();

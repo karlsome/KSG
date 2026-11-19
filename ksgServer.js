@@ -133,6 +133,194 @@ app.use((req, res, next) => {
     }
 });
 
+// ==========================================
+// 🔐 ADMIN API AUTHENTICATION
+// ==========================================
+// Admin pages get a JWT from FreyaAccess login (signed by the Kurachi server with the
+// same JWT_SECRET, 24h) and keep it in localStorage 'ksgToken'. public/js/adminAuth.js
+// attaches it as "Authorization: Bearer" to every admin request and refreshes it.
+//
+// ADMIN_AUTH_MODE:
+//   off     - no checks at all (old behaviour)
+//   report  - (default) never blocks; logs every request that WOULD be blocked
+//   enforce - blocks admin routes without a valid admin token (401/403)
+//
+// Only the routes matched by isAdminProtectedRoute() are checked. Tablet routes,
+// Raspberry Pi / device routes, login routes, monitor/display pages and static files
+// are deliberately NOT in the list and behave exactly as before in every mode.
+const ADMIN_AUTH_MODE = ['off', 'report', 'enforce'].includes(String(process.env.ADMIN_AUTH_MODE || '').toLowerCase())
+    ? String(process.env.ADMIN_AUTH_MODE).toLowerCase()
+    : 'report';
+const ADMIN_TOKEN_TTL = '24h';
+console.log(`🔐 Admin API auth mode: ${ADMIN_AUTH_MODE}`);
+
+const ADMIN_PROTECTED_POST_PATHS = new Set([
+    // User Management
+    '/customerUserReferenceData', '/customerGetUsers', '/customerCreateUser', '/customerUpdateRecord',
+    '/customerDeleteUser', '/customerResetUserPassword',
+    // Master DB (products, Google Sheets, groups, factories, equipment, roles, org, tablets, logs)
+    '/getMasterDB', '/createMasterRecord', '/updateMasterRecord', '/deleteMasterRecord', '/deleteMultipleMasterRecords',
+    '/getGoogleSheetServiceAccountInfo', '/getGoogleSheetTargets', '/inspectGoogleSheet', '/analyzeGoogleSheetTarget',
+    '/saveGoogleSheetTarget', '/deleteGoogleSheetTarget',
+    '/getNGGroups', '/createNGGroup', '/updateNGGroup', '/deleteNGGroups',
+    '/getTroubleGroups', '/createTroubleGroup', '/updateTroubleGroup', '/deleteTroubleGroups',
+    '/getFactories', '/createFactory', '/updateFactory', '/deleteFactory', '/deleteMultipleFactories',
+    '/addDivision', '/deleteDivision',
+    '/getEquipment', '/createEquipment', '/updateEquipment', '/deleteEquipment', '/deleteMultipleEquipment',
+    '/getRoles', '/createRole', '/deleteRole', '/deleteMultipleRoles',
+    '/getDepartments', '/createDepartment', '/deleteDepartment',
+    '/getSections', '/createSection', '/deleteSection',
+    '/createTablet', '/updateTablet', '/deleteTablet', '/deleteMultipleTablets',
+    '/getActivityLogs', '/createActivityLog',
+    // NOT here on purpose: /getTablets (tablet login page), /tabletLogin, /getTabletTroubleOptions (tablet),
+    // /loginCustomer, /validateToken
+]);
+
+// Routes where the handler authorises with a role sent in the request body.
+// In enforce mode that body field is replaced with the role from the verified token.
+const ADMIN_BODY_ROLE_FIELD = {
+    '/customerGetUsers': 'role',
+    '/customerUpdateRecord': 'role',
+    '/customerDeleteUser': 'role',
+    '/customerResetUserPassword': 'role',
+    '/customerCreateUser': 'creatorRole', // body.role here is the NEW user's role - never touched
+};
+
+function isAdminProtectedRoute(method, path) {
+    if (method === 'POST' && ADMIN_PROTECTED_POST_PATHS.has(path)) return true;
+    if (path.startsWith('/api/admin/')) return true;                 // dashboard, analytics, submitted data
+    if (path.startsWith('/api/opcua/admin/')) return true;           // OPC UA admin (Pi config, layouts)
+    if (path === '/api/opcua/conversions' || path.startsWith('/api/opcua/conversions/')) return true; // OPC variables
+    if (path === '/api/deviceInfo' || path.startsWith('/api/deviceInfo/')) return true;               // Rpi Server tab
+    if (path === '/api/factories') return true;
+    if (method === 'POST' && path.startsWith('/api/opcua/trigger-scan/')) return true;
+    if (method === 'GET' && path.startsWith('/api/opcua/discovered-nodes/')) return true; // POST /api/opcua/discovered-nodes is the Pi - not matched
+    return false;
+}
+
+// Verifies the Bearer token. Returns { user } or { reason }.
+function verifyAdminRequestToken(req) {
+    const authHeader = String(req.headers.authorization || '');
+    if (!authHeader.startsWith('Bearer ')) return { reason: 'missing-token' };
+    const token = authHeader.slice(7).trim();
+    if (!token) return { reason: 'missing-token' };
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.tabletId || decoded.tabletName) return { reason: 'tablet-token' };
+        if (!decoded.username || !decoded.dbName) return { reason: 'incomplete-token' };
+        return { user: decoded };
+    } catch (err) {
+        return { reason: err.name === 'TokenExpiredError' ? 'expired-token' : 'invalid-token' };
+    }
+}
+
+function requestedDbNames(req) {
+    const names = [];
+    const add = (v) => { const s = String(v ?? '').trim(); if (s) names.push(s); };
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) add(req.body.dbName);
+    add(req.query?.dbName);
+    add(req.headers['x-session-db-name']);
+    return names;
+}
+
+// Report-mode log: first occurrence of each (reason, route, who) is logged right away,
+// repeats are only counted. GET /api/auth/report shows the totals.
+const adminAuthReport = new Map();
+function recordAdminAuthIssue(req, reason, who) {
+    const key = `${reason} | ${req.method} ${req.path} | ${who || req.ip}`;
+    const entry = adminAuthReport.get(key);
+    if (entry) {
+        entry.count += 1;
+        entry.last = new Date().toISOString();
+        return;
+    }
+    adminAuthReport.set(key, { reason, method: req.method, path: req.path, who: who || req.ip, count: 1,
+        first: new Date().toISOString(), last: new Date().toISOString() });
+    console.warn(`🔐 [ADMIN AUTH ${ADMIN_AUTH_MODE}] would block: ${key}`);
+}
+
+app.use((req, res, next) => {
+    if (ADMIN_AUTH_MODE === 'off' || !isAdminProtectedRoute(req.method, req.path)) return next();
+
+    const enforce = ADMIN_AUTH_MODE === 'enforce';
+    const { user, reason } = verifyAdminRequestToken(req);
+    const who = user?.username || String(req.headers['x-session-user'] || req.body?.username || '').trim();
+
+    if (!user) {
+        recordAdminAuthIssue(req, reason, who);
+        if (!enforce) return next();
+        res.set('X-Auth-Error', reason);
+        return res.status(401).json({ error: 'Login required. Please log in again from FreyaAccess.', reason });
+    }
+
+    const tokenDb = String(user.dbName).trim().toLowerCase();
+    const otherDb = requestedDbNames(req).find((n) => n.toLowerCase() !== tokenDb);
+    if (otherDb) {
+        recordAdminAuthIssue(req, `db-mismatch(token=${user.dbName},request=${otherDb})`, who);
+        if (enforce) {
+            res.set('X-Auth-Error', 'db-mismatch');
+            return res.status(403).json({ error: 'This account cannot access that company data.', reason: 'db-mismatch' });
+        }
+    }
+
+    const headerUser = String(req.headers['x-session-user'] || '').trim();
+    if (headerUser && headerUser !== user.username) {
+        recordAdminAuthIssue(req, `user-mismatch(token=${user.username},header=${headerUser})`, who);
+    }
+
+    const roleField = ADMIN_BODY_ROLE_FIELD[req.path];
+    if (roleField && req.body && req.body[roleField] !== undefined && req.body[roleField] !== user.role) {
+        recordAdminAuthIssue(req, `role-mismatch(token=${user.role},body=${req.body[roleField]})`, who);
+    }
+
+    req.authUser = { username: user.username, role: user.role, dbName: user.dbName, company: user.company || user.dbName };
+
+    if (enforce) {
+        // From here on the handlers see only the verified identity.
+        req.headers['x-session-user'] = user.username;
+        req.headers['x-session-db-name'] = user.dbName;
+        if (user.role) req.headers['x-session-role'] = user.role;
+        if (roleField && req.body && typeof req.body === 'object') req.body[roleField] = user.role;
+    }
+    next();
+});
+
+// Admin pages call this to swap a still-valid token for a fresh 24h one, so an open
+// admin page or dashboard screen never runs into the 24h expiry.
+app.post('/api/auth/refresh', async (req, res) => {
+    const { user, reason } = verifyAdminRequestToken(req);
+    if (!user) return res.status(401).json({ error: 'Login required', reason });
+    try {
+        if (!mongoClient) return res.status(503).json({ error: 'Database not connected' });
+        const masterUser = await mongoClient.db(DB_NAME).collection(COLLECTION_NAME).findOne({ username: user.username });
+        if (masterUser) {
+            if (masterUser.validUntil && new Date() > new Date(masterUser.validUntil)) {
+                return res.status(403).json({ error: 'Account expired', reason: 'account-expired' });
+            }
+        } else {
+            const subUser = await mongoClient.db(user.dbName).collection('users').findOne({ username: user.username });
+            if (!subUser) return res.status(401).json({ error: 'User not found', reason: 'user-not-found' });
+            if (subUser.enable && subUser.enable !== 'enabled') {
+                return res.status(403).json({ error: 'Account is disabled', reason: 'account-disabled' });
+            }
+        }
+        const { iat, exp, nbf, ...claims } = user;
+        const token = jwt.sign(claims, process.env.JWT_SECRET, { expiresIn: ADMIN_TOKEN_TTL });
+        res.json({ token });
+    } catch (error) {
+        console.error('❌ Admin token refresh error:', error);
+        res.status(500).json({ error: 'Refresh failed' });
+    }
+});
+
+// Report-mode summary: which admin requests would be blocked by enforce mode.
+app.get('/api/auth/report', (req, res) => {
+    const { user, reason } = verifyAdminRequestToken(req);
+    if (!user) return res.status(401).json({ error: 'Login required', reason });
+    if (!['admin', 'masterUser'].includes(user.role)) return res.status(403).json({ error: 'Admin only' });
+    res.json({ mode: ADMIN_AUTH_MODE, entries: [...adminAuthReport.values()].sort((a, b) => b.count - a.count) });
+});
+
 // �️ MONGODB CONFIGURATION
 const MONGODB_URI = process.env.MONGODB_URI;
 const DB_NAME = "Sasaki_Coating_MasterDB";
@@ -1442,10 +1630,19 @@ app.post("/loginCustomer", async (req, res) => {
       const validUntil = new Date(masterUser.validUntil);
       if (today > validUntil) return res.status(403).json({ error: "Account expired. Contact support." });
 
+      // Same token as the FreyaAccess (Kurachi) login, so the local /login.html works too
+      const token = jwt.sign(
+        { username: masterUser.username, role: masterUser.role, company: masterUser.company || masterUser.dbName, dbName: masterUser.dbName },
+        process.env.JWT_SECRET,
+        { expiresIn: ADMIN_TOKEN_TTL }
+      );
+
       return res.status(200).json({
         username: masterUser.username,
         role: masterUser.role,
-        dbName: masterUser.dbName
+        dbName: masterUser.dbName,
+        company: masterUser.company || masterUser.dbName,
+        token
       });
     }
 
@@ -1466,11 +1663,21 @@ app.post("/loginCustomer", async (req, res) => {
         const validUntil = new Date(mu.validUntil);
         if (today > validUntil) return res.status(403).json({ error: "Account expired. Contact support." });
 
+        if (subUser.enable && subUser.enable !== 'enabled') return res.status(403).json({ error: "Account is disabled" });
+
+        const token = jwt.sign(
+          { username: subUser.username, role: subUser.role, company: mu.company || mu.dbName, dbName: mu.dbName, masterUsername: mu.username },
+          process.env.JWT_SECRET,
+          { expiresIn: ADMIN_TOKEN_TTL }
+        );
+
         return res.status(200).json({
           username: subUser.username,
           role: subUser.role,
           dbName: mu.dbName,
-          masterUsername: mu.username
+          company: mu.company || mu.dbName,
+          masterUsername: mu.username,
+          token
         });
       }
     }

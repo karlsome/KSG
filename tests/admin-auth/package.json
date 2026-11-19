@@ -1,0 +1,15 @@
+{
+  "name": "ksg-admin-auth-tests",
+  "private": true,
+  "description": "End-to-end tests for ADMIN_AUTH_MODE (server + Pi + tablet + admin pages). Uses an in-memory MongoDB, never the real database.",
+  "scripts": {
+    "test": "node e2e.js ../..",
+    "serve": "node serve.js ../.. enforce",
+    "browser": "node browser.js"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.0.0",
+    "puppeteer-core": "^23.0.0",
+    "socket.io-client": "^4.0.0"
+  }
+}
