@@ -1092,10 +1092,10 @@ function renderAnalyticsProductivityTab(data) {
 
       const activeDays = (op.dailyData || []).map(d => d.day);
 
-      // Best 出来高 of the month (1人作業 rate when the card splits 1人/2人+, else the combined rate).
+      // Best 1人作業 出来高 of the month (2人以上作業 days are never counted).
       // Compared on the rounded value shown in the table; if several days tie, show the value without a date.
       const bestCandidates = (op.dailyData || [])
-        .map(d => ({ d, val: op.hasMultiPersonData ? d?.single?.oneHrPc : d?.oneHrPc }))
+        .map(d => ({ d, val: d?.single?.oneHrPc }))
         .filter(x => typeof x.val === 'number' && isFinite(x.val))
         .map(x => ({ ...x, rounded: Math.round(x.val) }));
       let bestPillHtml = '';
@@ -1107,7 +1107,7 @@ function renderAnalyticsProductivityTab(data) {
           : '';
         bestPillHtml = `
           <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-medium text-emerald-800" title="${bestDays.length > 1 ? `${bestDays.length}日が同じ最高値` : ''}">
-            <i class="ri-trophy-line text-emerald-600"></i> 最高出来高:
+            最高出来高:
             ${bestDateLabel ? `<span class="font-semibold text-emerald-900">${analyticsEscapeHtml(bestDateLabel)}</span>` : ''}
             <strong class="font-semibold text-emerald-900 tabular-nums">${bestRounded}</strong> ヶ/1人h
           </span>`;
