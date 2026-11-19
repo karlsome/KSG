@@ -33,15 +33,37 @@ ksgServer must have the **same `JWT_SECRET`** as Kurachi (true for the local `.e
 | `ADMIN_AUTH_MODE` | Behaviour |
 |---|---|
 | `off` | Exactly the old behaviour. |
-| `report` (default when unset) | Never blocks. Logs `🔐 [ADMIN AUTH report] would block: <reason> \| <route> \| <user>` once per combination; totals at `GET /api/auth/report` (admin token required). |
+| `report` (default when unset) | Never blocks. Records every request that would be blocked (see **Report log** below). |
 | `enforce` | Blocks: no/expired/invalid token → 401, tablet token → 401, other company's token → 403. Handlers then see only the verified username/role/dbName (body `role` / `creatorRole` and `X-Session-*` headers are overwritten). |
+
+## Report log (MongoDB `KSG.adminAuthReport`)
+
+One document per combination of reason + method + path + user, kept permanently (survives restarts and deploys):
+
+| Field | Meaning |
+|---|---|
+| `reason` | `missing-token`, `expired-token`, `invalid-token`, `tablet-token`, `incomplete-token`, `db-mismatch(...)`, `user-mismatch(...)`, `role-mismatch(...)` |
+| `method`, `path`, `who` | The route, and the username (from token, header or body; IP if unknown) |
+| `count` | Total times seen |
+| `wouldBlockCount` / `blockedCount` | Times seen in report mode / actually blocked in enforce mode |
+| `firstSeen`, `lastSeen`, `lastMode` | When, and in which mode it was last seen |
+| `lastIp`, `lastUserAgent` | Last caller's IP and browser, to find who / which device it is |
+
+- Writes are batched in memory and flushed every 30 s (and on shutdown), so nothing writes to the database per request and a database error never affects a request.
+- Nothing is written in `off` mode. In `enforce` mode it keeps recording (as `blockedCount`).
+- The first occurrence per server run is also printed in the server log:
+  `🔐 [ADMIN AUTH report] would block: <reason> | <METHOD path> | <user>`.
+- Ways to read it: MongoDB Atlas → `KSG` → `adminAuthReport` (sort by `lastSeen`), or in the admin site's browser console:
+  `fetch('/api/auth/report?days=7').then(r => r.json()).then(d => console.table(d.entries))`
+  (`days` and `limit` are optional; needs an admin / masterUser login).
+- The collection is small (one row per combination). To start a fresh review period, delete its documents in Atlas.
 
 ## Rollout (production)
 
 1. Deploy with `ADMIN_AUTH_MODE` unset (= `report`). Nothing is blocked.
 2. Ask admins to reload the admin site once (so they get `adminAuth.js`). A screen that stays open
    (dashboard monitor) also needs one reload.
-3. Watch the server log / `GET /api/auth/report` for a few working days. Expected entries:
+3. Review `KSG.adminAuthReport` for a few working days. Expected entries:
    old browser tabs without the new JS (`missing-token`), expired tokens from people who never
    re-logged in (`expired-token`). Anything else (a route or caller you don't recognise) → look at it
    before step 4.

@@ -259,6 +259,19 @@ async function runMode(uri, mode, productId) {
     check(M, 'report endpoint', ok2(r) && Array.isArray(r.json?.entries), `entries=${r.json?.entries?.length}`);
     if (mode === 'report' || mode === '(unset)') check(M, 'report lists would-block entries', (r.json?.entries || []).some((e) => e.reason === 'missing-token'));
     if (mode === 'off') check(M, 'off mode records nothing', (r.json?.entries || []).length === 0);
+    {
+      const mc = await MongoClient.connect(uri);
+      const docs = await mc.db('KSG').collection('adminAuthReport').find({}).toArray();
+      const idx = (await mc.db('KSG').collection('adminAuthReport').indexes().catch(() => [])).map((i) => Object.keys(i.key).join(','));
+      await mc.close();
+      const mt = docs.find((d) => d.reason === 'missing-token' && d.path === '/getMasterDB' && d.who === 'kasugai');
+      if (mode === 'off') check(M, 'MongoDB KSG.adminAuthReport: nothing written in off mode', docs.length === 0, `docs=${docs.length}`);
+      if (mode === '(unset)' || mode === 'report') check(M, 'MongoDB KSG.adminAuthReport has would-block entry with counts', !!mt && mt.wouldBlockCount >= 1 && mt.count >= mt.wouldBlockCount && mt.firstSeen instanceof Date && mt.lastSeen >= mt.firstSeen && typeof mt.lastUserAgent === 'string', JSON.stringify(mt && { count: mt.count, wouldBlockCount: mt.wouldBlockCount, lastMode: mt.lastMode }));
+      if (mode === 'report') check(M, 'MongoDB entry survived a server restart (count kept growing)', !!mt && mt.wouldBlockCount >= 2, `wouldBlockCount=${mt?.wouldBlockCount}`);
+      if (mode === 'enforce') check(M, 'MongoDB entry has blockedCount in enforce mode', !!mt && mt.blockedCount >= 1 && mt.lastMode === 'enforce', JSON.stringify(mt && { blockedCount: mt.blockedCount, lastMode: mt.lastMode }));
+      if (mode !== 'off') check(M, 'MongoDB indexes key (unique) + lastSeen', idx.includes('key') && idx.includes('lastSeen'), idx.join(' / '));
+      if (mode !== 'off') check(M, '/api/auth/report reads the collection', r.json?.collection === 'KSG.adminAuthReport' && (r.json?.entries || []).length === docs.length, `api=${r.json?.entries?.length} db=${docs.length}`);
+    }
 
     // ---------------- Sweep: every route, no token ----------------
     const src = fs.readFileSync(path.join(KSG, 'ksgServer.js'), 'utf8');

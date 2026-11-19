@@ -223,21 +223,90 @@ function requestedDbNames(req) {
     return names;
 }
 
-// Report-mode log: first occurrence of each (reason, route, who) is logged right away,
-// repeats are only counted. GET /api/auth/report shows the totals.
-const adminAuthReport = new Map();
+// Auth report log, stored in MongoDB KSG.adminAuthReport: one document per
+// (reason, method, path, who) with a running count, first/last seen, last IP and browser.
+// Writes are batched in memory and flushed every 30 s, so a busy admin page never causes
+// a database write per request, and a database problem never affects the request itself.
+// The first occurrence per server process is also printed to the server log.
+// GET /api/auth/report reads the collection.
+const ADMIN_AUTH_REPORT_DB = 'KSG';
+const ADMIN_AUTH_REPORT_COLLECTION = 'adminAuthReport';
+const ADMIN_AUTH_REPORT_FLUSH_MS = 30 * 1000;
+const ADMIN_AUTH_REPORT_MAX_PENDING = 5000;
+const adminAuthReportPending = new Map();
+const adminAuthReportSeen = new Set();
+let adminAuthReportIndexesReady = false;
+let adminAuthReportFlushing = null;
+
 function recordAdminAuthIssue(req, reason, who) {
-    const key = `${reason} | ${req.method} ${req.path} | ${who || req.ip}`;
-    const entry = adminAuthReport.get(key);
-    if (entry) {
-        entry.count += 1;
-        entry.last = new Date().toISOString();
-        return;
+    try {
+        const whoValue = who || req.ip || '';
+        const key = `${reason} | ${req.method} ${req.path} | ${whoValue}`;
+        const now = new Date();
+        const pending = adminAuthReportPending.get(key);
+        if (pending) {
+            pending.count += 1;
+            pending.lastSeen = now;
+            pending.lastIp = req.ip || '';
+            pending.lastUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
+        } else if (adminAuthReportPending.size < ADMIN_AUTH_REPORT_MAX_PENDING) {
+            adminAuthReportPending.set(key, {
+                key, reason, method: req.method, path: req.path, who: whoValue, count: 1,
+                firstSeen: now, lastSeen: now, lastIp: req.ip || '',
+                lastUserAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+            });
+        }
+        if (!adminAuthReportSeen.has(key)) {
+            adminAuthReportSeen.add(key);
+            const verb = ADMIN_AUTH_MODE === 'enforce' ? 'blocked' : 'would block';
+            console.warn(`🔐 [ADMIN AUTH ${ADMIN_AUTH_MODE}] ${verb}: ${key}`);
+        }
+    } catch (err) {
+        // never let logging affect the request
     }
-    adminAuthReport.set(key, { reason, method: req.method, path: req.path, who: who || req.ip, count: 1,
-        first: new Date().toISOString(), last: new Date().toISOString() });
-    console.warn(`🔐 [ADMIN AUTH ${ADMIN_AUTH_MODE}] would block: ${key}`);
 }
+
+async function flushAdminAuthReport() {
+    if (adminAuthReportFlushing) return adminAuthReportFlushing;
+    if (!mongoClient || adminAuthReportPending.size === 0) return;
+    const batch = [...adminAuthReportPending.values()];
+    adminAuthReportPending.clear();
+    adminAuthReportFlushing = (async () => {
+        try {
+            const col = mongoClient.db(ADMIN_AUTH_REPORT_DB).collection(ADMIN_AUTH_REPORT_COLLECTION);
+            if (!adminAuthReportIndexesReady) {
+                await col.createIndex({ key: 1 }, { unique: true });
+                await col.createIndex({ lastSeen: -1 });
+                adminAuthReportIndexesReady = true;
+            }
+            await col.bulkWrite(batch.map((e) => ({
+                updateOne: {
+                    filter: { key: e.key },
+                    update: {
+                        $setOnInsert: { key: e.key, reason: e.reason, method: e.method, path: e.path, who: e.who, firstSeen: e.firstSeen },
+                        $inc: { count: e.count, [ADMIN_AUTH_MODE === 'enforce' ? 'blockedCount' : 'wouldBlockCount']: e.count },
+                        $max: { lastSeen: e.lastSeen },
+                        $set: { lastMode: ADMIN_AUTH_MODE, lastIp: e.lastIp, lastUserAgent: e.lastUserAgent },
+                    },
+                    upsert: true,
+                },
+            })), { ordered: false });
+        } catch (err) {
+            console.error('❌ [ADMIN AUTH] report flush failed:', err.message);
+            // put the counts back so they are written next time
+            for (const e of batch) {
+                const p = adminAuthReportPending.get(e.key);
+                if (p) { p.count += e.count; if (e.firstSeen < p.firstSeen) p.firstSeen = e.firstSeen; }
+                else if (adminAuthReportPending.size < ADMIN_AUTH_REPORT_MAX_PENDING) adminAuthReportPending.set(e.key, e);
+            }
+        } finally {
+            adminAuthReportFlushing = null;
+        }
+    })();
+    return adminAuthReportFlushing;
+}
+setInterval(() => { flushAdminAuthReport(); }, ADMIN_AUTH_REPORT_FLUSH_MS).unref();
+process.once('SIGTERM', () => { flushAdminAuthReport().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
 
 app.use((req, res, next) => {
     if (ADMIN_AUTH_MODE === 'off' || !isAdminProtectedRoute(req.method, req.path)) return next();
@@ -313,12 +382,26 @@ app.post('/api/auth/refresh', async (req, res) => {
     }
 });
 
-// Report-mode summary: which admin requests would be blocked by enforce mode.
-app.get('/api/auth/report', (req, res) => {
+// Auth report (from KSG.adminAuthReport): which admin requests would be / were blocked.
+// Optional ?days=N (only entries seen in the last N days), ?limit= (default 500).
+app.get('/api/auth/report', async (req, res) => {
     const { user, reason } = verifyAdminRequestToken(req);
     if (!user) return res.status(401).json({ error: 'Login required', reason });
     if (!['admin', 'masterUser'].includes(user.role)) return res.status(403).json({ error: 'Admin only' });
-    res.json({ mode: ADMIN_AUTH_MODE, entries: [...adminAuthReport.values()].sort((a, b) => b.count - a.count) });
+    try {
+        if (!mongoClient) return res.status(503).json({ error: 'Database not connected' });
+        await flushAdminAuthReport();
+        const filter = {};
+        const days = parseFloat(req.query.days);
+        if (days > 0) filter.lastSeen = { $gte: new Date(Date.now() - days * 86400000) };
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 5000);
+        const entries = await mongoClient.db(ADMIN_AUTH_REPORT_DB).collection(ADMIN_AUTH_REPORT_COLLECTION)
+            .find(filter, { projection: { _id: 0 } }).sort({ lastSeen: -1 }).limit(limit).toArray();
+        res.json({ mode: ADMIN_AUTH_MODE, collection: `${ADMIN_AUTH_REPORT_DB}.${ADMIN_AUTH_REPORT_COLLECTION}`, entries });
+    } catch (error) {
+        console.error('❌ Auth report read error:', error);
+        res.status(500).json({ error: 'Report failed' });
+    }
 });
 
 // �️ MONGODB CONFIGURATION
@@ -13086,6 +13169,7 @@ async function startServer() {
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down server...');
+    await flushAdminAuthReport().catch(() => {});
     if (mongoClient) {
         await mongoClient.close();
         console.log('🔌 MongoDB connection closed');
