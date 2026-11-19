@@ -4117,7 +4117,21 @@ function isTabletBlockingOverlayOpen() {
   return Boolean(document.querySelector('[class*="modal-overlay"].active, .scan-alert-overlay.active'));
 }
 
-// One scanned 品番 (from the USB scanner)
+// A scan is either the bare 品番 or a longer kanban QR that contains it, e.g. 入庫かんばん
+// "KSK01@H2611K36086716267-37100-00      YH3R601...". Exact match wins; otherwise take the
+// longest known 品番 found inside the scanned text (no word boundary: the QR runs the
+// issue number straight into the 品番).
+function resolveScannedHinban(code, hinbans) {
+  const list = [...new Set((hinbans || []).map(h => String(h || '').trim()).filter(Boolean))];
+  if (list.includes(code)) return code;
+  const contained = list.filter(h => h.length >= 3 && code.includes(h));
+  if (contained.length === 0) return '';
+  const longest = Math.max(...contained.map(h => h.length));
+  const best = contained.filter(h => h.length === longest);
+  return best.length === 1 ? best[0] : '';
+}
+
+// One scanned 品番 or kanban QR (from the USB scanner)
 function handleManualScan(rawCode) {
   if (!isManualInputMode) return;
   const code = String(rawCode || '').trim();
@@ -4131,15 +4145,16 @@ function handleManualScan(rawCode) {
 
   // 1st scan: choose the product
   if (!currentProductId) {
-    const matches = equipmentProductsList.filter(p => String(p.品番 || '').trim() === code);
+    const hinban = resolveScannedHinban(code, equipmentProductsList.map(p => p.品番));
+    const matches = hinban ? equipmentProductsList.filter(p => String(p.品番 || '').trim() === hinban) : [];
     if (matches.length === 0) {
-      showScanAlert('error', '製品が見つかりません', `品番: ${code}`);
+      showScanAlert('error', '製品が見つかりません', `スキャン: ${code}`);
       return;
     }
     if (matches.length > 1) {
       openProductSelectModal({
         products: matches,
-        title: `📦 品番 ${code} の製品が複数あります`,
+        title: `📦 品番 ${hinban} の製品が複数あります`,
         subtitle: '該当する製品を選択してください。'
       });
       return;
@@ -4156,7 +4171,9 @@ function handleManualScan(rawCode) {
   }
 
   // Later scans: same 品番 adds 収容数, a different one is an error
-  if (code !== String(currentProductId).trim()) {
+  const current = String(currentProductId).trim();
+  const scannedHinban = resolveScannedHinban(code, [current, ...equipmentProductsList.map(p => p.品番)]);
+  if (scannedHinban !== current) {
     showScanAlert('error', '品番が違います', `スキャン: ${code}\n現在の品番: ${currentProductId}`);
     return;
   }
