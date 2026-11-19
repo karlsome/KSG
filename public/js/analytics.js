@@ -1092,6 +1092,27 @@ function renderAnalyticsProductivityTab(data) {
 
       const activeDays = (op.dailyData || []).map(d => d.day);
 
+      // Best 出来高 of the month (1人作業 rate when the card splits 1人/2人+, else the combined rate).
+      // Compared on the rounded value shown in the table; if several days tie, show the value without a date.
+      const bestCandidates = (op.dailyData || [])
+        .map(d => ({ d, val: op.hasMultiPersonData ? d?.single?.oneHrPc : d?.oneHrPc }))
+        .filter(x => typeof x.val === 'number' && isFinite(x.val))
+        .map(x => ({ ...x, rounded: Math.round(x.val) }));
+      let bestPillHtml = '';
+      if (bestCandidates.length > 0) {
+        const bestRounded = Math.max(...bestCandidates.map(x => x.rounded));
+        const bestDays = bestCandidates.filter(x => x.rounded === bestRounded);
+        const bestDateLabel = bestDays.length === 1
+          ? (bestDays[0].d.dateLabel || `${monthNumber}/${bestDays[0].d.day}`)
+          : '';
+        bestPillHtml = `
+          <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-medium text-emerald-800" title="${bestDays.length > 1 ? `${bestDays.length}日が同じ最高値` : ''}">
+            <i class="ri-trophy-line text-emerald-600"></i> 最高出来高:
+            ${bestDateLabel ? `<span class="font-semibold text-emerald-900">${analyticsEscapeHtml(bestDateLabel)}</span>` : ''}
+            <strong class="font-semibold text-emerald-900 tabular-nums">${bestRounded}</strong> ヶ/1人h
+          </span>`;
+      }
+
       let tableHtml = '';
       if (activeDays.length === 0) {
         tableHtml = `<div class="p-4 text-center text-xs text-gray-400 font-medium">実績データなし</div>`;
@@ -1306,7 +1327,8 @@ function renderAnalyticsProductivityTab(data) {
                     </div>
                   ` : ''}
                   <div class="hidden sm:block text-gray-200">|</div>
-                  <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    ${bestPillHtml}
                     <span class="inline-flex items-center rounded-full bg-gray-50 border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-600">
                       目標: <strong class="ml-1 font-semibold text-gray-900 tabular-nums">${opTarget}</strong> ヶ/1人h
                     </span>
