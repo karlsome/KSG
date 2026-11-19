@@ -4097,6 +4097,31 @@ function showScanToast(text) {
   scanToastTimer = setTimeout(() => toast.classList.remove('show'), 1500);
 }
 
+// Scan success beep (same sound as nodaSystem's scan beep). Tablets block audio until the
+// page has been touched once, so prime it silently on the first tap.
+const scanSuccessAudio = typeof Audio !== 'undefined' ? new Audio('sounds/scan-success.mp3') : null;
+if (scanSuccessAudio) {
+  scanSuccessAudio.preload = 'auto';
+  const primeScanAudio = () => {
+    scanSuccessAudio.muted = true;
+    scanSuccessAudio.play().then(() => {
+      scanSuccessAudio.pause();
+      scanSuccessAudio.currentTime = 0;
+      scanSuccessAudio.muted = false;
+    }).catch(() => { scanSuccessAudio.muted = false; });
+  };
+  document.addEventListener('pointerdown', primeScanAudio, { once: true, capture: true });
+}
+
+function playScanSuccessSound() {
+  if (!scanSuccessAudio) return;
+  try {
+    scanSuccessAudio.muted = false;
+    scanSuccessAudio.currentTime = 0;
+    scanSuccessAudio.play().catch(() => {});
+  } catch (e) { /* ignore */ }
+}
+
 function playScanErrorBeep() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -4212,6 +4237,7 @@ function handleKanbanQrScan(code, hinban) {
   const loaded = getLoadedQr();
   if (!loaded) {
     setLoadedQr({ code, hinban, at: new Date().toISOString() });
+    playScanSuccessSound();
     showScanInfo('load', `品番 ${hinban} が有効になりました`);
     return;
   }
@@ -4226,6 +4252,7 @@ function handleKanbanQrScan(code, hinban) {
   if (!addManualBoxCount({ silent: true })) return;
   addUsedQr(code);
   setLoadedQr(null);
+  playScanSuccessSound();
   showScanInfo('unload', 'QR完了', `品番: ${hinban}\n+${hakoIresuValue}（作業数 ${manualWorkCount.toLocaleString()}）`);
 }
 
@@ -4264,6 +4291,7 @@ function handleManualScan(rawCode) {
     }
     checkStartButtonState();
     updateManualModeUI();
+    playScanSuccessSound();
     if (code !== hinban) {
       // Kanban QR: selecting the product is also this kanban's 読込
       setLoadedQr({ code, hinban, at: new Date().toISOString() });
@@ -4285,7 +4313,7 @@ function handleManualScan(rawCode) {
     handleKanbanQrScan(code, current);
     return;
   }
-  addManualBoxCount();
+  if (addManualBoxCount()) playScanSuccessSound();
 }
 
 // USB barcode scanner = keystrokes ending with Enter. Listen page-wide so no field needs
