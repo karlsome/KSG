@@ -1869,6 +1869,8 @@ app.get('/api/tablet/product/:productId', async (req, res) => {
 app.get('/api/tablet/products-by-equipment/:equipmentName', async (req, res) => {
     const equipmentName = decodeURIComponent(req.params.equipmentName || '').trim();
     const factory = decodeURIComponent(req.query.factory || '').trim();
+    // scope=factory: manual 検査台 tablets list every product in their factory, not by 設備
+    const factoryScope = String(req.query.scope || '').trim() === 'factory';
 
     try {
         if (!mongoClient) {
@@ -1882,18 +1884,22 @@ app.get('/api/tablet/products-by-equipment/:equipmentName', async (req, res) => 
         const collection = db.collection('masterDB');
 
         let products = [];
-        if (equipmentName) {
+        if (factoryScope) {
+            products = factory
+                ? await collection.find({ 工場: factory }).toArray()
+                : await collection.find({}).toArray();
+        } else if (equipmentName) {
             // Find products assigned to this equipment
             products = await collection.find({ 設備: equipmentName }).toArray();
         }
 
         // If no products match this specific equipment name, fallback to factory
-        if (products.length === 0 && factory) {
+        if (!factoryScope && products.length === 0 && factory) {
             products = await collection.find({ 工場: factory }).toArray();
         }
 
         // If still no products, fetch all products
-        if (products.length === 0) {
+        if (!factoryScope && products.length === 0) {
             products = await collection.find({}).limit(100).toArray();
         }
 
@@ -2114,11 +2120,14 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
         }
         
         // Return equipment config with clean mappings (no forced fallback to kenyokiRHKanban)
-        const opcVariables = {
-            kanbanVariable: equipment.opcVariables?.kanbanVariable ? equipment.opcVariables.kanbanVariable.trim() : '',
-            productionCountVariable: equipment.opcVariables?.productionCountVariable || 'seisanSu',
-            boxQuantityVariable: equipment.opcVariables?.boxQuantityVariable || 'hakoIresu'
-        };
+        const inputMode = normalizeEquipmentInputMode(equipment.inputMode);
+        const opcVariables = inputMode === TABLET_INPUT_MODES.MANUAL
+            ? { kanbanVariable: '', productionCountVariable: '', boxQuantityVariable: '' }
+            : {
+                kanbanVariable: equipment.opcVariables?.kanbanVariable ? equipment.opcVariables.kanbanVariable.trim() : '',
+                productionCountVariable: equipment.opcVariables?.productionCountVariable || 'seisanSu',
+                boxQuantityVariable: equipment.opcVariables?.boxQuantityVariable || 'hakoIresu'
+            };
         
         console.log(`📱 [TABLET] Served equipment config for tablet: ${tabletName} → Equipment: ${equipmentName}`);
         console.log(`   Variables: kanban=${opcVariables.kanbanVariable || '(none - manual product selection)'}, production=${opcVariables.productionCountVariable}, box=${opcVariables.boxQuantityVariable}`);
@@ -2129,6 +2138,8 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
                 設備名: equipment.設備名,
                 工場: equipment.工場,
                 description: equipment.description,
+                inputMode,
+                process: TABLET_PROCESS_BY_INPUT_MODE[inputMode],
                 opcVariables: opcVariables
             }
         });
@@ -2143,6 +2154,31 @@ app.get('/api/tablet/equipment-config/:tabletName', async (req, res) => {
 });
 
 // Submit tablet production data to Google Sheets
+// ============================================================
+// Tablet input mode / process
+// ============================================================
+// equipment.inputMode: 'opc' (default; OPC counter, optional kanban) or 'manual'
+// (検査台: no OPC, 品番 scan + 収容数 counting). The process recorded on each
+// submission follows from it. Keep these rules here so they can change in one place.
+const TABLET_INPUT_MODES = { OPC: 'opc', MANUAL: 'manual' };
+const TABLET_PROCESS_BY_INPUT_MODE = { opc: '巻き込み工程', manual: '検査工程' };
+
+function normalizeEquipmentInputMode(value) {
+    return String(value || '').trim() === TABLET_INPUT_MODES.MANUAL ? TABLET_INPUT_MODES.MANUAL : TABLET_INPUT_MODES.OPC;
+}
+
+async function resolveTabletInputMode(db, equipmentName, fallback = '') {
+    if (db && equipmentName) {
+        try {
+            const equipment = await db.collection('equipment').findOne({ 設備名: equipmentName }, { projection: { inputMode: 1 } });
+            if (equipment) return normalizeEquipmentInputMode(equipment.inputMode);
+        } catch (e) {
+            console.warn('⚠️ [TABLET] Could not resolve equipment input mode:', e.message);
+        }
+    }
+    return normalizeEquipmentInputMode(fallback);
+}
+
 app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
     const submissionData = req.body;
     
@@ -2199,6 +2235,9 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             ? await resolveGoogleSheetNgGroup(db, resolvedNgGroupId)
             : null;
         const nonCountUpDefectKeys = resolveSubmissionNonCountUpDefectKeys(submissionData, ngGroup);
+        // Server decides the mode from the tablet's equipment; the tablet's own value is only a fallback
+        const inputMode = await resolveTabletInputMode(db, req.tablet?.equipmentName, submissionData.inputMode);
+        const isManualInput = inputMode === TABLET_INPUT_MODES.MANUAL;
 
         // Known fixed keys — everything else is a dynamic defect field
         const KNOWN_KEYS = new Set([
@@ -2206,7 +2245,8 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             '技能員①', '技能員②', '良品数', '工数',
             'その他詳細', '開始時間', '終了時間', '休憩時間', '機械トラブル時間', '備考', '工数（除外工数）',
             'masterRecordId', 'ngGroupId', 'nonCountUpDefectKeys',
-            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime'
+            'trouble_details', 'troubleDetails', 'trouble_time', 'troubleTime',
+            'opcWorkCount', 'workCountManual', 'inputMode'
         ]);
 
         // Extract dynamic defect fields with their original Japanese names
@@ -2257,7 +2297,15 @@ app.post('/api/tablet/submit', authenticateTablet, async (req, res) => {
             submitted_from: submittedFrom,
             master_record_id: normalizeGoogleSheetObjectIdString(submissionData.masterRecordId || masterRecord?._id),
             ng_group_id: resolvedNgGroupId,
-            non_countup_defect_keys: nonCountUpDefectKeys
+            non_countup_defect_keys: nonCountUpDefectKeys,
+            // 巻き込み工程 (OPC machines) vs 検査工程 (manual 検査台)
+            process: TABLET_PROCESS_BY_INPUT_MODE[inputMode],
+            input_mode: inputMode,
+            // Audit only (admin page): the OPC 作業数 before any manual edit at submit.
+            // Manual tablets have no OPC value, so these stay unset/false for them.
+            // Kept out of Google Sheets via SUBMITTED_DB_FIXED_FIELDS.
+            ...(isManualInput ? {} : { opc_work_count: Math.max(0, parseInt(submissionData.opcWorkCount, 10) || 0) }),
+            work_count_manual: !isManualInput && submissionData.workCountManual === true
         };
         
         let mongoResult = null;
@@ -2360,11 +2408,13 @@ const SUBMITTED_DB_FIXED_FIELDS = new Set([
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'trouble_details', 'remarks', 'excluded_man_hours', 'submitted_from',
     'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'opc_work_count', 'work_count_manual', 'process', 'input_mode',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_NON_EDITABLE_FIELDS = new Set([
     '_id', 'timestamp', 'date_year', 'date_month', 'date_day',
     'submitted_from', 'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'opc_work_count', 'work_count_manual', 'process', 'input_mode',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 const SUBMITTED_DB_EDITABLE_STRING_FIELDS = new Set([
@@ -2758,6 +2808,7 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
     const kanbanId = String(query.kanbanId ?? '').trim();
     const source = String(query.source ?? '').trim();
     const lhRh = String(query.lhRh ?? '').trim();
+    const factory = String(query.factory ?? '').trim();
 
     if (hinban) {
         filter.hinban = { $regex: escapeSubmittedDBRegex(hinban), $options: 'i' };
@@ -2779,6 +2830,9 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
     }
     if (lhRh && lhRh !== 'all') {
         filter.lh_rh = lhRh;
+    }
+    if (factory && factory !== 'all') {
+        filter.工場 = factory;
     }
 
     return filter;
@@ -3082,6 +3136,9 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
             defectCount: totalDefects,
             breakTime: Number(record.break_time ?? 0) || 0,
             troubleTime: Number(record.trouble_time ?? 0) || 0,
+            troubleDetails: (record.trouble_details && typeof record.trouble_details === 'object' && !Array.isArray(record.trouble_details))
+                ? record.trouble_details
+                : null,
             manHours: Number(record.man_hours ?? 0) || 0,
             operators,
             remarks: String(record.remarks ?? '').trim()
@@ -3295,6 +3352,7 @@ async function computeSubmittedDBFinance(db, query = {}) {
         kanbanId: query.kanbanId,
         source: query.source,
         lhRh: query.lhRh,
+        factory: query.factory,
         startDate: yearStart,
         endDate: today.key
     };
@@ -3830,12 +3888,17 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
             SUBMITTED_DB_OPERATOR_FIELDS.map(field => [`${field}Values`, { $addToSet: `$${field}` }])
         );
 
+        const masterFactoryNames = (await db.collection('factory').find({}, { projection: { _id: 0, name: 1 } }).toArray())
+            .map(f => String(f?.name ?? '').trim())
+            .filter(Boolean);
+
         const [optionsDoc = {}] = await collection.aggregate([
             { $match: activeFilter },
             {
                 $group: {
                     _id: null,
                     sources: { $addToSet: '$submitted_from' },
+                    factories: { $addToSet: '$工場' },
                     lhRh: { $addToSet: '$lh_rh' },
                     hinban: { $addToSet: '$hinban' },
                     productNames: { $addToSet: '$product_name' },
@@ -3849,6 +3912,10 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
             success: true,
             options: {
                 sources: normalizeSubmittedDBOptionList(optionsDoc.sources || []),
+                factories: [...new Set([
+                    ...masterFactoryNames,
+                    ...normalizeSubmittedDBOptionList(optionsDoc.factories || [])
+                ])],
                 lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
                 hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
                 productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
@@ -3871,9 +3938,13 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const filter = buildSubmittedDBAnalyticsFilter(req.query);
+        const requestedFactory = String(req.query.factory ?? '').trim();
+        const machineNamePipeline = (requestedFactory && requestedFactory !== 'all')
+            ? [{ $match: { 工場: requestedFactory } }, { $group: { _id: "$submitted_from" } }]
+            : [{ $group: { _id: "$submitted_from" } }];
         const [records, uniqueAllSourcesDocs] = await Promise.all([
             collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
-            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray()
+            collection.aggregate(machineNamePipeline).toArray()
         ]);
         const allMachineNames = (uniqueAllSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
 
@@ -4462,6 +4533,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                 kanbanId: String(req.query.kanbanId ?? '').trim(),
                 source: String(req.query.source ?? '').trim(),
                 lhRh: String(req.query.lhRh ?? '').trim(),
+                factory: requestedFactory,
                 focusOperator: resolvedFocusOperator
             },
             viewerRole: req.userRole,

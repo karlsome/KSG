@@ -147,6 +147,9 @@ let variableMappings = {
 let isManualProductSelectionMode = false; // Flag indicating equipment has no kanbanVariable
 let equipmentProductsList = []; // Cached list of products for current equipment
 let isEquipmentConfigLoaded = false; // Flag to track if config loaded
+let isManualInputMode = false; // equipment.inputMode === 'manual' (検査台: no OPC, 品番 scan + 収容数 counting)
+let manualWorkCount = 0; // 作業数 counted by hand / scans in manual input mode
+const MANUAL_WORK_COUNT_KEY = 'tablet_manualWorkCount'; // tablet_ prefix → cleared on submit/reset
 const IGNORED_KANBAN_NOISE_VALUES = new Set(['9999']);
 const kanbanProductCache = new Map(); // entries: { product, cachedAt }
 const KANBAN_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -629,6 +632,7 @@ function setHakoIresuValue(value) {
     inspectionAddInput.value = hakoIresuValue !== null ? hakoIresuValue : '';
   }
   console.log(`📦 収容数 (hakoIresu) set to:`, hakoIresuValue);
+  if (isManualInputMode) updateManualModeUI();
 }
 
 // Look up 収容数 for the current product in masterDB (used when no value is saved locally)
@@ -2034,9 +2038,12 @@ async function loadEquipmentConfig() {
     if (data.success) {
       const equipment = data.equipment;
       console.log('✅ Equipment config loaded:', equipment);
+      isManualInputMode = equipment.inputMode === 'manual';
       
       // Update variable mappings with equipment-specific values
-      if (equipment.opcVariables) {
+      if (isManualInputMode) {
+        await setupManualInputMode(equipment);
+      } else if (equipment.opcVariables) {
         const kanbanVar = equipment.opcVariables.kanbanVariable ? equipment.opcVariables.kanbanVariable.trim() : '';
         variableMappings = {
           kanban: kanbanVar,
@@ -2133,11 +2140,12 @@ async function loadEquipmentConfig() {
 }
 
 // Helper function to load products matching equipment
-async function loadProductsForEquipment(equipmentName, factory) {
+async function loadProductsForEquipment(equipmentName, factory, options = {}) {
   try {
     const encodedEq = encodeURIComponent(equipmentName || '');
     const encodedFactory = encodeURIComponent(factory || '');
-    const response = await fetch(`${API_URL}/api/tablet/products-by-equipment/${encodedEq}?factory=${encodedFactory}`);
+    const scopeParam = options.scope ? `&scope=${encodeURIComponent(options.scope)}` : '';
+    const response = await fetch(`${API_URL}/api/tablet/products-by-equipment/${encodedEq}?factory=${encodedFactory}${scopeParam}`);
     const data = await response.json();
     if (data.success && Array.isArray(data.products)) {
       equipmentProductsList = data.products;
@@ -2156,24 +2164,39 @@ function populateProductSelectDropdown() {
   if (!dropdown) return;
 
   // Extract unique sorted 製品名 values
-  const productNames = [...new Set(equipmentProductsList.map(p => p.製品名).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+  const sourceList = getProductSelectSourceList();
+  const productNames = [...new Set(sourceList.map(p => p.製品名).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
 
   dropdown.innerHTML = `
-    <option value="">📦 すべての製品名を表示 / Show All (${equipmentProductsList.length}件)</option>
+    <option value="">📦 すべての製品名を表示 / Show All (${sourceList.length}件)</option>
     ${productNames.map(name => {
-      const count = equipmentProductsList.filter(p => p.製品名 === name).length;
+      const count = sourceList.filter(p => p.製品名 === name).length;
       return `<option value="${escapeHtml(name)}">${escapeHtml(name)} (${count}品番)</option>`;
     }).join('')}
   `;
 }
 
-function filterProductSelectByDropdown(selectedName) {
-  if (!selectedName) {
-    renderProductSelectGrid(equipmentProductsList);
-    return;
-  }
+// Products the picker currently offers (all, or a subset such as duplicate 品番 matches)
+let productSelectSourceList = null;
 
-  const filtered = equipmentProductsList.filter(p => p.製品名 === selectedName);
+function getProductSelectSourceList() {
+  return productSelectSourceList || equipmentProductsList;
+}
+
+function filterProductSelectByDropdown() {
+  applyProductSelectFilters();
+}
+
+// Combine the 製品名 dropdown and the 品番/製品名 search box
+function applyProductSelectFilters() {
+  const selectedName = document.getElementById('productSelectFilterDropdown')?.value || '';
+  const query = (document.getElementById('productSelectSearchInput')?.value || '').trim().toLowerCase();
+  const filtered = getProductSelectSourceList().filter(p => {
+    if (selectedName && p.製品名 !== selectedName) return false;
+    if (!query) return true;
+    return String(p.品番 || '').toLowerCase().includes(query)
+      || String(p.製品名 || '').toLowerCase().includes(query);
+  });
   renderProductSelectGrid(filtered);
 }
 
@@ -2207,12 +2230,29 @@ function renderProductSelectGrid(productsToRender) {
   }).join('');
 }
 
-function openProductSelectModal() {
+// options.products: offer only these (e.g. several products share a scanned 品番)
+function openProductSelectModal(options = {}) {
+  if (isManualProductLocked()) {
+    showScanAlert('warn', '製品は変更できません', '別の製品にするには、データ送信またはリセットしてください。');
+    return;
+  }
+  productSelectSourceList = Array.isArray(options.products) ? options.products : null;
+
   const modal = document.getElementById('productSelectModalOverlay');
   const dropdown = document.getElementById('productSelectFilterDropdown');
+  const searchInput = document.getElementById('productSelectSearchInput');
+  const title = document.getElementById('productSelectModalTitle');
+  const subtitle = document.getElementById('productSelectModalSubtitle');
+  if (title) title.textContent = options.title || '📦 対象製品を選択してください';
+  if (subtitle) {
+    subtitle.textContent = options.subtitle || (isManualInputMode
+      ? '品番をスキャンするか、製品を選択してください。'
+      : 'この設備にはかんばん変数が設定されていないため、製品を手動選択します。');
+  }
   populateProductSelectDropdown();
   if (dropdown) dropdown.value = '';
-  renderProductSelectGrid(equipmentProductsList);
+  if (searchInput) searchInput.value = '';
+  renderProductSelectGrid(getProductSelectSourceList());
   if (modal) {
     modal.classList.add('active');
   }
@@ -2223,12 +2263,18 @@ function closeProductSelectModal() {
   if (modal) {
     modal.classList.remove('active');
   }
+  productSelectSourceList = null;
 }
 
 function selectProductFromModal(encodedCardId) {
   const targetId = decodeURIComponent(encodedCardId);
   const selected = equipmentProductsList.find(p => (p._id && String(p._id) === targetId) || p.品番 === targetId);
   if (!selected) return;
+  if (isManualProductLocked()) {
+    closeProductSelectModal();
+    showScanAlert('warn', '製品は変更できません', '別の製品にするには、データ送信またはリセットしてください。');
+    return;
+  }
 
   console.log('👉 Operator manually selected product:', selected);
   applyProductContext(selected, {
@@ -2242,6 +2288,7 @@ function selectProductFromModal(encodedCardId) {
 
   closeProductSelectModal();
   checkStartButtonState();
+  updateManualModeUI();
 }
 
 function escapeHtml(str) {
@@ -2495,8 +2542,12 @@ function updateWorkCount() {
   const workCountInput = document.getElementById('workCount');
   if (!workCountInput) return;
   
-  // Only calculate if we have a starting value and current value
-  if (seisanSuStartValue !== null && currentSeisanSuValue !== null) {
+  if (isManualInputMode) {
+    // 検査台: 作業数 is whatever was counted by scans / buttons
+    workCountInput.value = Math.max(0, manualWorkCount);
+    saveFieldToLocalStorage('workCount', workCountInput.value);
+  } else if (seisanSuStartValue !== null && currentSeisanSuValue !== null) {
+    // Only calculate if we have a starting value and current value
     const currentDelta = currentSeisanSuValue - seisanSuStartValue;
     const workCount = accumulatedWorkCountBeforeReset + Math.max(0, currentDelta);
     workCountInput.value = Math.max(0, workCount); // Don't allow negative values
@@ -2640,6 +2691,8 @@ socket.on('variable-updated', (data) => {
 
 // Update UI with variable data
 function updateUIWithVariables(variables) {
+  // 検査台 tablets have no OPC: ignore any broadcast variables
+  if (isManualInputMode) return;
   console.log('🎯 Updating UI with variables:', variables);
   
   // 🆕 Use dynamic variable names from equipment config
@@ -2683,6 +2736,7 @@ function updateUIWithVariables(variables) {
 function resetBasicSettings() {
   if (confirm('基本設定をリセットしますか？')) {
     resetKanbanConflictState();
+    if (isManualInputMode) resetManualInputState();
     
     // Reset all user dropdowns to first option (placeholder)
     const dropdownIds = ['poster1', 'poster2', 'poster3'];
@@ -2817,6 +2871,11 @@ function checkStartButtonState() {
     && currentSeisanSuValue === null;
   const hasPoster1 = poster1Select.value !== '';
   const startTimeEmpty = startTimeInput.value === '';
+
+  // 品番 is known but nobody picked a worker yet → turn 投稿員_1 red so they fill it in
+  const needsWorker = hasValidProduct && !hasPoster1 && startTimeEmpty;
+  poster1Select.classList.toggle('needs-worker', needsWorker);
+  document.getElementById('header-poster1')?.classList.toggle('needs-worker', needsWorker);
   
   console.log('🔍 Start button conditions:', {
     hasValidProduct,
@@ -2934,10 +2993,8 @@ function startWork() {
 }
 
 // Placeholder functions for buttons
-async function sendData() {
-  console.log('📤 Send data clicked');
-  
-  try {
+// Validates required fields (highlighting missing ones). Returns null if invalid.
+function validateSubmitRequiredFields() {
     // ✅ VALIDATION: Check required fields
     const startTimeInput = document.getElementById('startTime');
     const poster1Select = document.getElementById('poster1');
@@ -2988,18 +3045,230 @@ async function sendData() {
       const message = `以下の項目を入力してください:\n\nPlease fill in the following fields:\n\n${missingFields.map(f => `• ${f}`).join('\n')}`;
       alert(message);
       console.warn('⚠️ Validation failed - missing required fields:', missingFields);
-      return; // Stop submission
+      return null; // Stop submission
     }
 
-    // Check 作業数 (Work Count) — must be > 0
-    const workCountInput = document.getElementById('workCount');
-    const workCountValue = parseInt(workCountInput?.value) || 0;
-    if (workCountValue === 0) {
-      alert('作業数が 0 です。送信できません。\n\nWork count is 0. Cannot submit.\n\n作業開始後、OPC データが反映されてから送信してください。\nPlease wait for OPC data to update after starting work.');
-      console.warn('⚠️ Validation failed - workCount is 0');
-      return;
+    return { startTimeValue, poster1Value };
+}
+
+// 送信 button: validate, then show the confirmation modal (nothing is sent yet).
+// Every submit path (送信 button, kanban conflict, OPC reset modal) goes through here.
+async function sendData() {
+  console.log('📤 Send data clicked');
+  if (!validateSubmitRequiredFields()) return;
+  openSubmitConfirmModal();
+}
+
+// ============================================================
+// ✅ SUBMIT CONFIRMATION MODAL
+// ============================================================
+// OPC can fail and stop counting, so before every submit the operator confirms
+// 作業数 against the machine and can correct it. The edit only lives in this modal;
+// 合格数 is recalculated from it. The original OPC value is sent for admin audit.
+
+let submitConfirmState = null; // { opcWorkCount, workCount, editing }
+
+// Sum of defects that count against 合格数 (same rule as updateDefectSum)
+function getSubmitCountUpDefectTotal() {
+  let total = 0;
+  document.querySelectorAll('.counter-item').forEach(item => {
+    const button = item.querySelector('.counter-button');
+    const counterNumber = item.querySelector('.counter-number');
+    if (!counterNumber) return;
+    if (!button || button.getAttribute('data-count-up') !== 'false') {
+      total += parseInt(counterNumber.textContent) || 0;
     }
-    
+  });
+  return total;
+}
+
+function getSubmitDefectBreakdown() {
+  const list = [];
+  document.querySelectorAll('.counter-item').forEach(item => {
+    const button = item.querySelector('.counter-button');
+    const counterNumber = item.querySelector('.counter-number');
+    if (!button || !counterNumber) return;
+    const count = parseInt(counterNumber.textContent) || 0;
+    if (count > 0) {
+      list.push({
+        name: button.getAttribute('data-defect') || '',
+        count,
+        countUp: button.getAttribute('data-count-up') !== 'false'
+      });
+    }
+  });
+  return list;
+}
+
+function formatSubmitHours(hours) {
+  const value = Number(hours) || 0;
+  return `${value.toFixed(2)} h`;
+}
+
+function renderSubmitConfirmDetails() {
+  const details = document.getElementById('submitConfirmDetails');
+  if (!details) return;
+
+  updateWorkDuration();
+  const now = new Date();
+  const endPreview = document.getElementById('endTime')?.value
+    || `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const operators = ['poster1', 'poster2']
+    .map(id => document.getElementById(id)?.value || '')
+    .filter(Boolean)
+    .join(' / ');
+  const defects = getSubmitDefectBreakdown();
+  const defectHtml = defects.length > 0
+    ? `<div class="submit-confirm-defects">${defects.map(d =>
+        `<span class="submit-confirm-defect-chip${d.countUp ? '' : ' no-count'}">${escapeHtml(d.name)}: ${d.count}</span>`
+      ).join('')}</div>`
+    : '—';
+
+  const rows = [
+    ['品番', currentProductId],
+    ['製品名', currentProductName],
+    ['看板', isManualProductSelectionMode ? (localStorage.getItem('tablet_manualKanbanId') || '') : (getCurrentRecordKanban() || '')],
+    ['技能員', operators],
+    ['開始 → 終了', `${document.getElementById('startTime')?.value || '—'} → ${endPreview}`],
+    ['休憩 / トラブル', `${formatSubmitHours(totalBreakHours)} / ${formatSubmitHours(totalTroubleHours)}`],
+    ['工数', formatSubmitHours(document.getElementById('manHours')?.value)],
+    ['収容数', hakoIresuValue || '—']
+  ].map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(String(value || '—'))}</dd>`);
+
+  rows.push(`<dt>不良内訳</dt><dd>${defectHtml}</dd>`);
+
+  const otherDetails = document.getElementById('otherDetails')?.textContent?.trim();
+  const remarks = document.getElementById('remarks')?.textContent?.trim();
+  if (otherDetails) rows.push(`<dt>その他詳細</dt><dd>${escapeHtml(otherDetails)}</dd>`);
+  if (remarks) rows.push(`<dt>備考</dt><dd>${escapeHtml(remarks)}</dd>`);
+
+  details.innerHTML = rows.join('');
+}
+
+// Recalculate 不良 / 合格数 from the confirmed 作業数 and refresh the count boxes
+function renderSubmitConfirmCounts() {
+  if (!submitConfirmState) return;
+  const { opcWorkCount, workCount, editing } = submitConfirmState;
+  const defectTotal = getSubmitCountUpDefectTotal();
+  const passCount = Math.max(0, workCount - defectTotal);
+  const isEdited = workCount !== opcWorkCount;
+
+  document.getElementById('submitConfirmWorkValue').textContent = workCount.toLocaleString();
+  document.getElementById('submitConfirmDefectValue').textContent = defectTotal.toLocaleString();
+  document.getElementById('submitConfirmPassValue').textContent = passCount.toLocaleString();
+
+  document.getElementById('submitConfirmWorkValue').style.display = editing ? 'none' : '';
+  document.getElementById('submitConfirmWorkInput').style.display = editing ? '' : 'none';
+  document.getElementById('submitConfirmWorkBox').classList.toggle('edited', isEdited || editing);
+
+  const editBtn = document.getElementById('submitConfirmEditBtn');
+  if (editing) {
+    editBtn.textContent = '保存';
+    editBtn.classList.remove('revert');
+  } else if (isEdited) {
+    editBtn.textContent = '元に戻す';
+    editBtn.classList.add('revert');
+  } else {
+    editBtn.textContent = '編集';
+    editBtn.classList.remove('revert');
+  }
+
+  document.getElementById('submitConfirmOpcNote').textContent = (isEdited || editing)
+    ? `${isManualInputMode ? 'カウント値' : '機械 (OPC) の値'}: ${opcWorkCount.toLocaleString()}`
+    : '';
+
+  const errorEl = document.getElementById('submitConfirmError');
+  const invalid = !(workCount > 0);
+  errorEl.textContent = invalid ? '作業数は 1 以上にしてください' : '';
+  document.getElementById('submitConfirmSendBtn').disabled = invalid || editing;
+}
+
+function openSubmitConfirmModal() {
+  const opcWorkCount = Math.max(0, parseInt(document.getElementById('workCount')?.value, 10) || 0);
+  submitConfirmState = { opcWorkCount, workCount: opcWorkCount, editing: opcWorkCount === 0 };
+
+  const input = document.getElementById('submitConfirmWorkInput');
+  input.value = opcWorkCount > 0 ? String(opcWorkCount) : '';
+  input.oninput = () => {
+    submitConfirmState.workCount = Math.max(0, parseInt(input.value, 10) || 0);
+    renderSubmitConfirmCounts();
+  };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') toggleSubmitConfirmEdit();
+  };
+
+  const subtitle = document.getElementById('submitConfirmSubtitle');
+  if (subtitle) {
+    subtitle.textContent = isManualInputMode
+      ? '作業数が実際の数量と一致しているか確認してください。違う場合は「編集」で修正できます。'
+      : '作業数が機械の数値と一致しているか確認してください。違う場合は「編集」で修正できます。';
+  }
+  renderSubmitConfirmDetails();
+  renderSubmitConfirmCounts();
+  document.getElementById('submitConfirmModalOverlay').classList.add('active');
+  if (submitConfirmState.editing) setTimeout(() => input.focus(), 50);
+  console.log('🧾 Submit confirmation opened — OPC 作業数:', opcWorkCount);
+}
+
+function closeSubmitConfirmModal() {
+  document.getElementById('submitConfirmModalOverlay')?.classList.remove('active');
+  submitConfirmState = null;
+}
+
+// 編集 → open input / OK → apply / 元に戻す → back to the OPC value
+function toggleSubmitConfirmEdit() {
+  if (!submitConfirmState) return;
+  const input = document.getElementById('submitConfirmWorkInput');
+
+  if (submitConfirmState.editing) {
+    submitConfirmState.workCount = Math.max(0, parseInt(input.value, 10) || 0);
+    if (!(submitConfirmState.workCount > 0)) {
+      renderSubmitConfirmCounts();
+      input.focus();
+      return; // stay in edit mode until > 0
+    }
+    submitConfirmState.editing = false;
+  } else if (submitConfirmState.workCount !== submitConfirmState.opcWorkCount) {
+    submitConfirmState.workCount = submitConfirmState.opcWorkCount;
+    input.value = String(submitConfirmState.opcWorkCount);
+  } else {
+    submitConfirmState.editing = true;
+    input.value = submitConfirmState.workCount > 0 ? String(submitConfirmState.workCount) : '';
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+  }
+  renderSubmitConfirmCounts();
+}
+
+async function confirmAndSendData() {
+  if (!submitConfirmState || submitConfirmState.editing) return;
+  const { opcWorkCount, workCount } = submitConfirmState;
+  if (!(workCount > 0)) {
+    renderSubmitConfirmCounts();
+    return;
+  }
+
+  const confirmedCounts = {
+    workCount,
+    passCount: Math.max(0, workCount - getSubmitCountUpDefectTotal()),
+    opcWorkCount,
+    // Only an OPC value corrected by hand counts as 手動修正; 検査台 counts are always manual
+    workCountManual: !isManualInputMode && workCount !== opcWorkCount
+  };
+  closeSubmitConfirmModal();
+  await submitTabletData(confirmedCounts);
+}
+
+// Actually send to the server, using the counts confirmed in the modal.
+async function submitTabletData(confirmedCounts) {
+  try {
+    const validated = validateSubmitRequiredFields();
+    if (!validated) return;
+    const { startTimeValue, poster1Value } = validated;
+    const workCountValue = confirmedCounts.workCount;
+    if (confirmedCounts.workCountManual) {
+      console.warn(`✏️ 作業数 manually edited at submit: OPC ${confirmedCounts.opcWorkCount} → ${workCountValue}`);
+    }
+
     // Auto-set end time to current time
     const endTimeInput = document.getElementById('endTime');
     if (endTimeInput && !endTimeInput.value) {
@@ -3067,7 +3336,7 @@ async function sendData() {
       'LH/RH': resolvedProduct?.['LH/RH'] ?? currentProductLhRh ?? '',
       '技能員①': poster1Value,
       '技能員②': document.getElementById('poster2')?.value || '',
-      良品数: parseInt(document.getElementById('passCount')?.value) || 0,
+      良品数: confirmedCounts.passCount,
       工数: parseFloat(document.getElementById('manHours')?.value) || 0,
       ...defectData,
       その他詳細: document.getElementById('otherDetails')?.textContent || '',
@@ -3078,7 +3347,11 @@ async function sendData() {
       trouble_details: currentTroubleDetails || {},
       機械トラブル時間: totalTroubleHours || 0,
       備考: document.getElementById('remarks')?.textContent || '',
-      '工数（除外工数）': 0
+      '工数（除外工数）': 0,
+      // Audit only — server stores these for the admin page, not Google Sheets
+      opcWorkCount: confirmedCounts.opcWorkCount,
+      workCountManual: confirmedCounts.workCountManual,
+      inputMode: isManualInputMode ? 'manual' : 'opc'
     };
     
     console.log('📊 Submitting data:', submissionData);
@@ -3162,6 +3435,7 @@ async function sendData() {
 // Helper function to clear all fields after submission
 function clearAllFields() {
   resetKanbanConflictState();
+  if (isManualInputMode) resetManualInputState();
   const startTimeInput = document.getElementById('startTime');
   if (startTimeInput) {
     startTimeInput.value = ''; // Clear start time
@@ -3353,6 +3627,7 @@ function editRemarks() {
   const otherDetails = document.getElementById('otherDetails');
   
   if (!remarksDisplay || !otherDetails) return;
+  const editButton = document.getElementById('editRemarksButton');
   
   // Toggle contentEditable for both fields
   if (remarksDisplay.contentEditable === 'true') {
@@ -3364,6 +3639,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'false';
     otherDetails.style.background = '#f9f9f9';
     otherDetails.style.cursor = 'default';
+
+    if (editButton) {
+      editButton.textContent = '編集';
+      editButton.classList.remove('saving');
+    }
     
     // Save to localStorage
     localStorage.setItem('tablet_remarks', remarksDisplay.textContent);
@@ -3382,6 +3662,11 @@ function editRemarks() {
     otherDetails.contentEditable = 'true';
     otherDetails.style.background = '#fff';
     otherDetails.style.cursor = 'text';
+
+    if (editButton) {
+      editButton.textContent = '保存';
+      editButton.classList.add('saving');
+    }
     
     otherDetails.focus();
     console.log('✏️ Remarks edit mode enabled');
@@ -3643,3 +3928,460 @@ function opcResetContinueWorking() {
   hideOpcResetModal();
   console.log('✅ User chose to continue working after OPC reset — accumulated count preserved:', accumulatedWorkCountBeforeReset);
 }
+
+// ============================================================
+// 🧾 MANUAL INPUT MODE (検査台 — no OPC)
+// ============================================================
+// Equipment with inputMode 'manual' is an inspection table: no OPC counter, no kanban.
+// - Product: picked from all factory products, or by scanning a 品番 QR (USB scanner = keyboard + Enter).
+// - Locked once chosen; only データ送信 or 全リセット unlocks it.
+// - 作業数: each further scan of the same 品番 (after 作業開始) adds 収容数; ± adjusts by hand.
+// Rules are expected to change — see docs/manual-inspection-tablet-plan.md.
+
+async function setupManualInputMode(equipment) {
+  variableMappings = { kanban: '', productionCount: '', boxQuantity: '' };
+  isManualProductSelectionMode = true; // reuse the manual product-selection path (restore, submit lookup)
+  hasConfiguredProductionCounter = false;
+
+  kenyokiRHKanbanValue = null;
+  latestObservedKanbanValue = null;
+  localStorage.removeItem('tablet_kanbanID');
+  localStorage.removeItem('tablet_lastKnownKanbanID');
+
+  manualWorkCount = Math.max(0, parseInt(localStorage.getItem(MANUAL_WORK_COUNT_KEY), 10) || 0);
+  document.body.classList.add('manual-input-mode');
+  const changeProductBtn = document.getElementById('changeProductBtn');
+  if (changeProductBtn) changeProductBtn.style.display = 'inline-block';
+
+  const eqName = equipment.設備名 || currentEquipment;
+  const factory = currentFactory || (Array.isArray(equipment.工場) ? equipment.工場[0] : equipment.工場) || '';
+  const products = await loadProductsForEquipment(eqName, factory, { scope: 'factory' });
+  console.log(`🧾 Manual input mode (検査台) — ${products.length} products available`);
+
+  // Restore the product locked before a reload (cleared on submit / reset)
+  const savedId = eqName ? localStorage.getItem(`tablet_manualProductId_${eqName}`) : null;
+  const savedProduct = savedId ? products.find(p => p._id && String(p._id) === savedId) : null;
+  if (savedProduct) {
+    applyProductContext(savedProduct, { kanbanId: savedProduct.kanbanID || '' });
+    console.log('🔒 Restored locked product:', savedProduct.品番);
+  } else {
+    clearCurrentProductContext();
+  }
+  updateManualModeUI();
+}
+
+function isManualProductLocked() {
+  return isManualInputMode && Boolean(currentProductId);
+}
+
+function updateManualModeUI() {
+  if (!isManualInputMode) return;
+  const header = document.getElementById('inspectionAddHeader');
+  if (header) header.textContent = '作業数追加';
+
+  const boxBtn = document.getElementById('manualAddBoxBtn');
+  if (boxBtn) {
+    boxBtn.textContent = hakoIresuValue ? `+${hakoIresuValue}` : '+収容数';
+  }
+
+  const changeProductBtn = document.getElementById('changeProductBtn');
+  if (changeProductBtn) {
+    const locked = isManualProductLocked();
+    changeProductBtn.textContent = locked ? '🔒 製品固定中' : '📦 製品選択 / 品番スキャン';
+    changeProductBtn.classList.toggle('locked', locked);
+  }
+  updateManualQrStatus();
+}
+
+// Called from 全リセット and after a successful submit
+function resetManualInputState() {
+  manualWorkCount = 0;
+  localStorage.removeItem(MANUAL_WORK_COUNT_KEY);
+  if (currentEquipment) localStorage.removeItem(`tablet_manualProductId_${currentEquipment}`);
+  localStorage.removeItem(QR_LOADED_KEY);
+  localStorage.removeItem(QR_USED_KEY);
+  clearCurrentProductContext();
+  updateWorkCount();
+  updateManualModeUI();
+  checkStartButtonState();
+}
+
+function hasManualWorkStarted() {
+  return Boolean(document.getElementById('startTime')?.value);
+}
+
+// Returns true if the count changed
+function addManualWorkCount(delta) {
+  if (!isManualInputMode) return false;
+  if (!currentProductId) {
+    showScanAlert('warn', '製品が選択されていません', '品番をスキャンするか、製品を選択してください。');
+    return false;
+  }
+  if (!hasManualWorkStarted()) {
+    showScanAlert('warn', '作業開始を押してください', '作業開始後にカウントできます。');
+    return false;
+  }
+  const next = Math.max(0, manualWorkCount + delta);
+  if (next === manualWorkCount) return false;
+  manualWorkCount = next;
+  localStorage.setItem(MANUAL_WORK_COUNT_KEY, String(manualWorkCount));
+  updateWorkCount();
+  scheduleTabletSessionSync();
+  console.log(`🧾 Manual 作業数 ${delta > 0 ? '+' : ''}${delta} → ${manualWorkCount}`);
+  return true;
+}
+
+function addManualBoxCount({ silent = false } = {}) {
+  if (!hakoIresuValue) {
+    showScanAlert('warn', '収容数が登録されていません', 'この製品には収容数がありません。「±」で数量を入力してください。');
+    return false;
+  }
+  const added = addManualWorkCount(hakoIresuValue);
+  if (added && !silent) showScanToast(`+${hakoIresuValue}  (作業数 ${manualWorkCount.toLocaleString()})`);
+  return added;
+}
+
+// ± adjust dialog
+function openManualAdjustModal() {
+  if (!currentProductId || !hasManualWorkStarted()) {
+    addManualWorkCount(0); // shows the right warning
+    return;
+  }
+  document.getElementById('manualAdjustCurrent').textContent = manualWorkCount.toLocaleString();
+  document.getElementById('manualAdjustError').textContent = '';
+  const input = document.getElementById('manualAdjustInput');
+  input.value = '';
+  document.getElementById('manualAdjustModalOverlay').classList.add('active');
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeManualAdjustModal() {
+  document.getElementById('manualAdjustModalOverlay')?.classList.remove('active');
+}
+
+function applyManualAdjust(sign) {
+  const amount = parseInt(document.getElementById('manualAdjustInput').value, 10);
+  const errorEl = document.getElementById('manualAdjustError');
+  if (!(amount > 0)) {
+    errorEl.textContent = '1 以上の数量を入力してください';
+    return;
+  }
+  if (sign < 0 && amount > manualWorkCount) {
+    errorEl.textContent = `現在の作業数 (${manualWorkCount}) より多くは減らせません`;
+    return;
+  }
+  closeManualAdjustModal();
+  if (addManualWorkCount(sign * amount)) {
+    showScanToast(`${sign > 0 ? '+' : '−'}${amount}  (作業数 ${manualWorkCount.toLocaleString()})`);
+  }
+}
+
+// Full-screen scan error / warning (tap 閉じる to dismiss)
+function showScanAlert(type, title, detail = '') {
+  const box = document.getElementById('scanAlertBox');
+  if (!box) return;
+  if (typeof closeScanInfo === 'function') closeScanInfo();
+  box.className = `scan-alert ${type === 'error' ? 'error' : 'warn'}`;
+  document.getElementById('scanAlertTitle').textContent = title;
+  document.getElementById('scanAlertDetail').textContent = detail;
+  document.getElementById('scanAlertOverlay').classList.add('active');
+  if (type === 'error') playScanErrorBeep();
+}
+
+function closeScanAlert() {
+  document.getElementById('scanAlertOverlay')?.classList.remove('active');
+}
+
+let scanToastTimer = null;
+function showScanToast(text) {
+  const toast = document.getElementById('scanToast');
+  if (!toast) return;
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(scanToastTimer);
+  scanToastTimer = setTimeout(() => toast.classList.remove('show'), 1500);
+}
+
+// Scan success beep (same sound as nodaSystem's scan beep). Tablets block audio until the
+// page has been touched once, so prime it silently on the first tap.
+const scanSuccessAudio = typeof Audio !== 'undefined' ? new Audio('sounds/scan-success.mp3') : null;
+if (scanSuccessAudio) {
+  scanSuccessAudio.preload = 'auto';
+  const primeScanAudio = () => {
+    scanSuccessAudio.muted = true;
+    scanSuccessAudio.play().then(() => {
+      scanSuccessAudio.pause();
+      scanSuccessAudio.currentTime = 0;
+      scanSuccessAudio.muted = false;
+    }).catch(() => { scanSuccessAudio.muted = false; });
+  };
+  document.addEventListener('pointerdown', primeScanAudio, { once: true, capture: true });
+}
+
+function playScanSuccessSound() {
+  if (!scanSuccessAudio) return;
+  try {
+    scanSuccessAudio.muted = false;
+    scanSuccessAudio.currentTime = 0;
+    scanSuccessAudio.play().catch(() => {});
+  } catch (e) { /* ignore */ }
+}
+
+function playScanErrorBeep() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 440;
+    gain.gain.value = 0.15;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
+  } catch (e) {
+    // sound is optional
+  }
+}
+
+function isTabletBlockingOverlayOpen() {
+  return Boolean(document.querySelector('[class*="modal-overlay"].active, .scan-alert-overlay.active'));
+}
+
+// A scan is either the bare 品番 or a longer kanban QR that contains it, e.g. 入庫かんばん
+// "KSK01@H2611K36086716267-37100-00      YH3R601...". Exact match wins; otherwise take the
+// longest known 品番 found inside the scanned text (no word boundary: the QR runs the
+// issue number straight into the 品番).
+function resolveScannedHinban(code, hinbans) {
+  const list = [...new Set((hinbans || []).map(h => String(h || '').trim()).filter(Boolean))];
+  if (list.includes(code)) return code;
+  const contained = list.filter(h => h.length >= 3 && code.includes(h));
+  if (contained.length === 0) return '';
+  const longest = Math.max(...contained.map(h => h.length));
+  const best = contained.filter(h => h.length === longest);
+  return best.length === 1 ? best[0] : '';
+}
+
+// What to show in scan error messages: the 品番, never the whole QR text.
+// Known 品番 first; else pull a 品番-shaped piece (#####-##### with optional -XX suffix
+// that isn't the QR's "-00" padding) out of a long QR; a short scan is shown as-is.
+function getScanDisplayHinban(code) {
+  const known = resolveScannedHinban(code, equipmentProductsList.map(p => p.品番));
+  if (known) return known;
+  if (code.length <= 20) return code;
+  const match = code.match(/\d{5}-\d{5}(?:-(?!00\b)[A-Z0-9]{1,3})?/);
+  return match ? match[0] : '不明';
+}
+
+// ---- Kanban QR 読込 / 完了 (load → exit) ----------------------------------------
+// Each kanban QR is scanned twice: 1st scan = 読込 (check it is the right 品番, then the
+// kanban goes into the box), 2nd scan of the SAME QR = 完了 (adds 収容数). A counted QR
+// can't be counted again this session. Bare 品番 labels still count on a single scan.
+// tablet_ prefix → cleared on submit / reset.
+const QR_LOADED_KEY = 'tablet_qrLoaded';
+const QR_USED_KEY = 'tablet_qrUsed';
+
+function getLoadedQr() {
+  try { return JSON.parse(localStorage.getItem(QR_LOADED_KEY) || 'null'); } catch { return null; }
+}
+
+function setLoadedQr(value) {
+  if (value) localStorage.setItem(QR_LOADED_KEY, JSON.stringify(value));
+  else localStorage.removeItem(QR_LOADED_KEY);
+  updateManualQrStatus();
+}
+
+function getUsedQrs() {
+  try {
+    const list = JSON.parse(localStorage.getItem(QR_USED_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+function addUsedQr(code) {
+  const list = getUsedQrs();
+  if (!list.includes(code)) list.push(code);
+  localStorage.setItem(QR_USED_KEY, JSON.stringify(list));
+}
+
+function updateManualQrStatus() {
+  const box = document.getElementById('manualQrStatus');
+  const text = document.getElementById('manualQrStatusText');
+  if (!box || !text) return;
+  const loaded = getLoadedQr();
+  box.classList.toggle('active', Boolean(loaded));
+  text.textContent = loaded ? 'QR読込中' : '';
+}
+
+let scanInfoTimer = null;
+function showScanInfo(type, title, detail = '') {
+  const overlay = document.getElementById('scanInfoOverlay');
+  if (!overlay) return;
+  document.getElementById('scanInfoBox').className = `scan-info ${type}`;
+  document.getElementById('scanInfoTitle').textContent = title;
+  document.getElementById('scanInfoDetail').textContent = detail;
+  overlay.classList.add('active');
+  clearTimeout(scanInfoTimer);
+  scanInfoTimer = setTimeout(closeScanInfo, 2000);
+}
+
+function closeScanInfo() {
+  clearTimeout(scanInfoTimer);
+  document.getElementById('scanInfoOverlay')?.classList.remove('active');
+}
+
+function handleKanbanQrScan(code, hinban) {
+  if (getUsedQrs().includes(code)) {
+    showScanAlert('error', 'このQRはカウント済みです', `品番: ${hinban}\nこのかんばんは既に完了スキャンされています。`);
+    return;
+  }
+
+  const loaded = getLoadedQr();
+  if (!loaded) {
+    setLoadedQr({ code, hinban, at: new Date().toISOString() });
+    playScanSuccessSound();
+    showScanInfo('load', `品番 ${hinban} が有効になりました`);
+    return;
+  }
+
+  if (loaded.code !== code) {
+    showScanAlert('warn', '別のQRが読込中です', `読込中の品番: ${loaded.hinban}\n先に読込中のかんばんをもう一度スキャンしてください。`);
+    return;
+  }
+
+  // Same QR again → 完了. Only clear it if the count actually went up
+  // (addManualBoxCount warns when work hasn't started / no 収容数).
+  if (!addManualBoxCount({ silent: true })) return;
+  addUsedQr(code);
+  setLoadedQr(null);
+  playScanSuccessSound();
+  showScanInfo('unload', 'QR完了', `品番: ${hinban}\n+${hakoIresuValue}（作業数 ${manualWorkCount.toLocaleString()}）`);
+}
+
+// One scanned 品番 or kanban QR (from the USB scanner)
+function handleManualScan(rawCode) {
+  if (!isManualInputMode) return;
+  const code = String(rawCode || '').trim();
+  if (!code) return;
+  console.log('📷 Scanned:', code);
+
+  if (isTabletBlockingOverlayOpen()) {
+    console.log('📷 Scan ignored — a dialog is open');
+    return;
+  }
+
+  // 1st scan: choose the product
+  if (!currentProductId) {
+    const hinban = resolveScannedHinban(code, equipmentProductsList.map(p => p.品番));
+    const matches = hinban ? equipmentProductsList.filter(p => String(p.品番 || '').trim() === hinban) : [];
+    if (matches.length === 0) {
+      showScanAlert('error', '製品が見つかりません', `品番: ${getScanDisplayHinban(code)}`);
+      return;
+    }
+    if (matches.length > 1) {
+      openProductSelectModal({
+        products: matches,
+        title: `📦 品番 ${hinban} の製品が複数あります`,
+        subtitle: '該当する製品を選択してください。'
+      });
+      return;
+    }
+    const product = matches[0];
+    applyProductContext(product, { kanbanId: product.kanbanID || '' });
+    if (currentEquipment) {
+      localStorage.setItem(`tablet_manualProductId_${currentEquipment}`, product._id ? String(product._id) : product.品番);
+    }
+    checkStartButtonState();
+    updateManualModeUI();
+    playScanSuccessSound();
+    if (code !== hinban) {
+      // Kanban QR: selecting the product is also this kanban's 読込
+      setLoadedQr({ code, hinban, at: new Date().toISOString() });
+      showScanInfo('load', `品番 ${product.品番} が有効になりました`);
+    } else {
+      showScanToast(`品番 ${product.品番} を選択しました`);
+    }
+    return;
+  }
+
+  // Later scans: same 品番 adds 収容数, a different one is an error
+  const current = String(currentProductId).trim();
+  const scannedHinban = resolveScannedHinban(code, [current, ...equipmentProductsList.map(p => p.品番)]);
+  if (scannedHinban !== current) {
+    showScanAlert('error', '品番が違います', `スキャンした品番: ${getScanDisplayHinban(code)}\n現在の品番: ${currentProductId}`);
+    return;
+  }
+  if (code !== current) {
+    handleKanbanQrScan(code, current);
+    return;
+  }
+  if (addManualBoxCount()) playScanSuccessSound();
+}
+
+// USB barcode scanner = keystrokes ending with Enter. Listen page-wide so no field needs
+// focus; leave real text fields (inputs, 備考) alone so typing still works.
+// No speed requirement (scanners on tablets can be slow); the buffer only resets after a pause.
+// With Japanese IME on, e.key is 'Process', so fall back to the physical key (e.code).
+const SCAN_RESET_AFTER_MS = 1000;
+const SCAN_MIN_LENGTH = 2;
+let scanBuffer = '';
+let scanLastKeyAt = 0;
+
+const SCAN_CODE_CHARS = {
+  Minus: ['-', '_'], Equal: ['=', '+'], Period: ['.', '>'], Comma: [',', '<'], Slash: ['/', '?'],
+  Semicolon: [';', ':'], Quote: ["'", '"'], BracketLeft: ['[', '{'], BracketRight: [']', '}'],
+  Backslash: ['\\', '|'], IntlYen: ['¥', '|'], IntlRo: ['\\', '_'], Space: [' ', ' '],
+  NumpadSubtract: ['-', '-'], NumpadAdd: ['+', '+'], NumpadDecimal: ['.', '.'], NumpadDivide: ['/', '/'], NumpadMultiply: ['*', '*']
+};
+
+function getScanCharFromKeyEvent(e) {
+  if (e.key && e.key.length === 1) return e.key;
+  const code = e.code || '';
+  if (/^Key[A-Z]$/.test(code)) {
+    const letter = code.slice(3);
+    return e.shiftKey ? letter : letter.toLowerCase();
+  }
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  if (SCAN_CODE_CHARS[code]) return SCAN_CODE_CHARS[code][e.shiftKey ? 1 : 0];
+  return '';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!isManualInputMode) return;
+  const target = e.target;
+  const isTextEntry = target && (
+    target.isContentEditable
+    || target.contentEditable === 'true'
+    || target.tagName === 'TEXTAREA'
+    || (target.tagName === 'INPUT' && !target.readOnly && !['checkbox', 'radio', 'button', 'submit'].includes(target.type))
+  );
+  if (isTextEntry) {
+    console.log(`📷 key "${e.key}" ignored — typing in a text field (${target.id || target.tagName})`);
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const now = Date.now();
+  if (now - scanLastKeyAt > SCAN_RESET_AFTER_MS) scanBuffer = '';
+
+  if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' || e.keyCode === 13) {
+    const code = scanBuffer;
+    scanBuffer = '';
+    console.log(`📷 Enter — buffer "${code}"`);
+    if (code.length >= SCAN_MIN_LENGTH) {
+      e.preventDefault(); // don't "press" whatever button has focus
+      handleManualScan(code);
+    }
+    return;
+  }
+
+  const ch = getScanCharFromKeyEvent(e);
+  if (!ch) return;
+  scanBuffer += ch;
+  scanLastKeyAt = now;
+  e.preventDefault(); // keep scanner keystrokes out of focused selects / buttons / IME
+}, true);

@@ -420,6 +420,7 @@ function analyticsBuildParams() {
 
   const operator = document.getElementById('analyticsOperator')?.value.trim() || '';
   const source = document.getElementById('analyticsSource')?.value || 'all';
+  const factory = document.getElementById('analyticsFactory')?.value || 'all';
   const lhRh = document.getElementById('analyticsLhRh')?.value || 'all';
   const focusOperator = document.getElementById('analyticsFocusOperator')?.value || '';
 
@@ -429,6 +430,7 @@ function analyticsBuildParams() {
   if (productName) params.set('productName', productName);
   if (operator) params.set('operator', operator);
   if (source && source !== 'all') params.set('source', source);
+  if (factory && factory !== 'all') params.set('factory', factory);
   if (lhRh && lhRh !== 'all') params.set('lhRh', lhRh);
   if (focusOperator) params.set('focusOperator', focusOperator);
 
@@ -574,6 +576,7 @@ function renderAnalyticsMeta(filters, summary, generatedAt, shiftProfileInput) {
     }
   ];
 
+  if (filters.factory && filters.factory !== 'all') chips.push({ label: t('analytics.filters.factory'), value: analyticsEscapeHtml(filters.factory), tone: 'border-indigo-100 bg-indigo-50' });
   if (filters.source) chips.push({ label: t('analytics.meta.machine'), value: analyticsEscapeHtml(filters.source), tone: 'border-gray-200 bg-white' });
   if (filters.lhRh) chips.push({ label: t('analytics.meta.direction'), value: analyticsEscapeHtml(filters.lhRh), tone: 'border-gray-200 bg-white' });
   if (filters.hinban) chips.push({ label: t('analytics.meta.hinban'), value: analyticsEscapeHtml(filters.hinban), tone: 'border-gray-200 bg-white' });
@@ -2073,6 +2076,7 @@ function renderProductivityRecordInModal(index) {
     'other_description', 'start_time', 'end_time', 'break_time',
     'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
     'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+    'opc_work_count', 'work_count_manual', 'process', 'input_mode',
     'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at',
     '_synthetic'
   ]);
@@ -5321,17 +5325,35 @@ function renderAnalyticsMachineTimeline(machineDaily, selectedDate = null) {
   container.innerHTML = html;
 }
 
+// Per-date breakdown behind each Machine Time Trend bar (filled by renderAnalyticsMachineTrend)
+let analyticsMachineTrendDetails = { dates: [], byDate: {} };
+const ANALYTICS_TREND_CATEGORIES = ['producing', 'idle', 'changeover', 'trouble'];
+
+function analyticsTrendText(key, fallback) {
+  const fullKey = `analytics.machineTrend.${key}`;
+  const value = typeof t === 'function' ? t(fullKey) : '';
+  return value && value !== fullKey ? value : fallback;
+}
+
+function analyticsFormatClock(minutes) {
+  if (minutes == null || !Number.isFinite(minutes)) return '--:--';
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
 function renderAnalyticsMachineTrend(machineDaily) {
   const containerId = 'analyticsMachineTrendChart';
   const machines = machineDaily || [];
 
   if (machines.length === 0) {
+    analyticsMachineTrendDetails = { dates: [], byDate: {} };
     analyticsShowChartEmpty(containerId, t('analytics.empty.noData'));
     return;
   }
 
   // Aggregate stats per day across all machines
   const statsByDate = {};
+  const detailsByDate = {};
   const shiftProfile = analyticsGetShiftProfile();
   const shiftStart = analyticsParseClockMinutes(shiftProfile.start) ?? (8 * 60 + 30);
   let shiftEnd = analyticsParseClockMinutes(shiftProfile.end) ?? (19 * 60);
@@ -5357,11 +5379,13 @@ function renderAnalyticsMachineTrend(machineDaily) {
     let dayChangeover = 0;
     let dayIdle = 0;
     let machineCountForDay = 0;
+    const details = { producing: [], idle: [], changeover: [], trouble: [], machineCount: 0 };
 
     machines.forEach(machine => {
       const dayData = (machine.days || []).find(d => d.date === date);
       if (!dayData) return;
       machineCountForDay++;
+      const machineName = machine.source || '';
 
       const records = dayData.records || [];
       let segments = records.map(record => {
@@ -5373,21 +5397,33 @@ function renderAnalyticsMachineTrend(machineDaily) {
 
       if (segments.length === 0) {
         dayIdle += totalShiftMins;
+        details.idle.push({ machine: machineName, kind: 'noRecords', from: shiftStart, to: shiftEnd, mins: totalShiftMins });
       } else {
         let lastEnd = shiftStart;
 
         segments.forEach((segment, index) => {
+          const productLabel = segment.productName || segment.hinban || '';
           if (segment.start > lastEnd) {
+            const gap = segment.start - lastEnd;
             if (index === 0) {
-              dayIdle += (segment.start - lastEnd);
+              dayIdle += gap;
+              details.idle.push({ machine: machineName, kind: 'beforeFirst', from: lastEnd, to: segment.start, mins: gap });
             } else {
-              const gap = segment.start - lastEnd;
               const prevSeg = segments[index - 1];
               const isSameHinban = prevSeg && ((prevSeg.hinban === segment.hinban) || (prevSeg.productName === segment.productName && prevSeg.productName));
               if (isSameHinban) {
                 dayIdle += gap;
+                details.idle.push({ machine: machineName, kind: 'between', from: lastEnd, to: segment.start, mins: gap, product: productLabel });
               } else {
                 dayChangeover += gap;
+                details.changeover.push({
+                  machine: machineName,
+                  fromProduct: prevSeg ? (prevSeg.productName || prevSeg.hinban || '') : '',
+                  toProduct: productLabel,
+                  from: lastEnd,
+                  to: segment.start,
+                  mins: gap
+                });
               }
             }
           }
@@ -5401,17 +5437,46 @@ function renderAnalyticsMachineTrend(machineDaily) {
           dayBreak += breakMins;
           dayTrouble += troubleMins;
 
+          const recordRef = {
+            machine: machineName,
+            product: productLabel,
+            hinban: segment.hinban || '',
+            from: segment.start,
+            to: segment.end,
+            id: segment.id ? String(segment.id) : '',
+            isLive: !!segment.isLive,
+            operators: Array.isArray(segment.operators) ? segment.operators : []
+          };
+          if (producingMins > 0) {
+            details.producing.push({ ...recordRef, mins: producingMins, goodCount: segment.goodCount || 0 });
+          }
+          if (troubleMins > 0 || breakMins > 0) {
+            details.trouble.push({
+              ...recordRef,
+              mins: troubleMins + breakMins,
+              troubleMins,
+              breakMins,
+              reasons: segment.troubleDetails && typeof segment.troubleDetails === 'object' ? segment.troubleDetails : null,
+              remarks: segment.remarks || ''
+            });
+          }
+
           lastEnd = Math.max(lastEnd, segment.end);
         });
 
         if (lastEnd < shiftEnd) {
           dayIdle += (shiftEnd - lastEnd);
+          details.idle.push({ machine: machineName, kind: 'afterLast', from: lastEnd, to: shiftEnd, mins: shiftEnd - lastEnd });
         }
       }
     });
 
     const maxMins = machineCountForDay * totalShiftMins;
     const efficiency = maxMins > 0 ? (dayProducing / maxMins) * 100 : 0;
+    details.machineCount = machineCountForDay;
+    details.efficiency = efficiency;
+    details.totalShiftMins = totalShiftMins;
+    detailsByDate[date] = details;
 
     statsByDate[date] = {
       producingHrs: dayProducing / 60,
@@ -5421,6 +5486,8 @@ function renderAnalyticsMachineTrend(machineDaily) {
       efficiency: efficiency
     };
   });
+
+  analyticsMachineTrendDetails = { dates: sortedDates, byDate: detailsByDate };
 
   const xAxisData = sortedDates.map(d => {
     const pt = d.split('-');
@@ -5522,6 +5589,234 @@ function renderAnalyticsMachineTrend(machineDaily) {
     ]
   };
   analyticsRenderChart(containerId, option);
+
+  const trendChart = analyticsCharts[containerId];
+  if (trendChart) {
+    trendChart.off('click');
+    trendChart.on('click', params => {
+      const date = analyticsMachineTrendDetails.dates[params.dataIndex];
+      if (!date) return;
+      // Efficiency line → show what counted as producing time
+      const category = ANALYTICS_TREND_CATEGORIES[params.seriesIndex] || 'producing';
+      openAnalyticsTrendBreakdown(date, category);
+    });
+  }
+}
+
+const ANALYTICS_TREND_CATEGORY_STYLE = {
+  producing: { color: '#34d399', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', legendKey: 'analytics.bottleneck.legendProducing', fallback: 'Producing' },
+  idle: { color: '#9ca3af', chip: 'bg-gray-100 text-gray-700 border-gray-200', legendKey: 'analytics.bottleneck.legendIdle', fallback: 'Idle' },
+  changeover: { color: '#fbbf24', chip: 'bg-amber-50 text-amber-700 border-amber-200', legendKey: 'analytics.bottleneck.legendChangeover', fallback: 'Changeover' },
+  trouble: { color: '#fb7185', chip: 'bg-rose-50 text-rose-700 border-rose-200', legendKey: 'analytics.bottleneck.legendTrouble', fallback: 'Trouble' }
+};
+
+function analyticsTrendMins(mins) {
+  const rounded = Math.round(mins || 0);
+  const unit = analyticsTrendText('minutes', 'min');
+  if (rounded >= 60) {
+    return `${rounded} ${unit} <span class="text-gray-400">(${analyticsFormatNumber(rounded / 60, 2)} h)</span>`;
+  }
+  return `${rounded} ${unit}`;
+}
+
+function analyticsTrendBarList(rows, color) {
+  if (!rows.length) return '';
+  const max = Math.max(...rows.map(r => r.mins), 1);
+  return `<div class="space-y-1.5">${rows.map(r => `
+    <div class="flex items-center gap-3 text-sm">
+      <div class="w-40 shrink-0 truncate text-gray-700" title="${analyticsEscapeHtml(r.label)}">${analyticsEscapeHtml(r.label)}</div>
+      <div class="relative h-4 flex-1 rounded bg-gray-100">
+        <div class="absolute inset-y-0 left-0 rounded" style="width:${Math.max(2, (r.mins / max) * 100)}%;background:${r.color || color}"></div>
+      </div>
+      <div class="w-36 shrink-0 text-right tabular-nums text-gray-700">${analyticsTrendMins(r.mins)}</div>
+    </div>`).join('')}</div>`;
+}
+
+function analyticsEnsureTrendBreakdownModal() {
+  let modal = document.getElementById('analyticsTrendBreakdownModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'analyticsTrendBreakdownModal';
+  modal.className = 'fixed inset-0 z-50 hidden flex items-center justify-center bg-black/50 p-4';
+  modal.addEventListener('click', e => { if (e.target === modal) closeAnalyticsTrendBreakdown(); });
+  modal.innerHTML = `
+    <div class="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-white shadow-2xl">
+      <div class="flex items-start justify-between border-b px-6 py-4">
+        <div>
+          <p id="analyticsTrendBreakdownDate" class="text-xs text-gray-400"></p>
+          <h2 id="analyticsTrendBreakdownTitle" class="text-xl font-bold text-gray-800"></h2>
+          <div id="analyticsTrendBreakdownTabs" class="mt-3 flex flex-wrap gap-2"></div>
+        </div>
+        <button type="button" onclick="closeAnalyticsTrendBreakdown()" class="ml-4 text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button>
+      </div>
+      <div id="analyticsTrendBreakdownBody" class="flex-1 space-y-6 overflow-y-auto px-6 py-5"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeAnalyticsTrendBreakdown();
+  });
+  return modal;
+}
+
+function closeAnalyticsTrendBreakdown() {
+  const modal = document.getElementById('analyticsTrendBreakdownModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function openAnalyticsTrendRecord(date, category, index) {
+  const item = analyticsMachineTrendDetails.byDate[date]?.[category]?.[index];
+  if (!item || !item.id || item.isLive || typeof openProductivitySubmittedDetail !== 'function') return;
+  const [, month, day] = date.split('-').map(Number);
+  closeAnalyticsTrendBreakdown();
+  openProductivitySubmittedDetail(
+    { recordIds: [item.id], dateLabel: `${month}/${day}`, day },
+    { machineName: item.machine, productName: item.product, operatorName: (item.operators || []).join(', ') }
+  );
+}
+
+function openAnalyticsTrendBreakdown(date, category) {
+  const details = analyticsMachineTrendDetails.byDate[date];
+  if (!details) return;
+  const modal = analyticsEnsureTrendBreakdownModal();
+  const style = ANALYTICS_TREND_CATEGORY_STYLE[category] || ANALYTICS_TREND_CATEGORY_STYLE.producing;
+  const legend = key => {
+    const s = ANALYTICS_TREND_CATEGORY_STYLE[key];
+    const v = t(s.legendKey);
+    return v && v !== s.legendKey ? v : s.fallback;
+  };
+  const [, month, day] = date.split('-').map(Number);
+  const items = details[category] || [];
+  const totalMins = items.reduce((sum, it) => sum + it.mins, 0);
+  const minsUnit = analyticsTrendText('minutes', 'min');
+
+  document.getElementById('analyticsTrendBreakdownDate').textContent = `${date}`;
+  document.getElementById('analyticsTrendBreakdownTitle').innerHTML =
+    `<span class="inline-block h-3 w-3 rounded-full align-middle" style="background:${style.color}"></span> <span class="align-middle">${month}/${day} · ${analyticsEscapeHtml(legend(category))}</span>`;
+
+  document.getElementById('analyticsTrendBreakdownTabs').innerHTML = ANALYTICS_TREND_CATEGORIES.map(key => {
+    const mins = (details[key] || []).reduce((sum, it) => sum + it.mins, 0);
+    const active = key === category;
+    const s = ANALYTICS_TREND_CATEGORY_STYLE[key];
+    return `<button type="button" onclick="openAnalyticsTrendBreakdown('${date}', '${key}')" class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${active ? s.chip + ' ring-2 ring-offset-1 ring-gray-300' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}">
+      <span class="h-2 w-2 rounded-full" style="background:${s.color}"></span>${analyticsEscapeHtml(legend(key))} <span class="tabular-nums">${analyticsFormatNumber(mins / 60, 2)}h</span>
+    </button>`;
+  }).join('');
+
+  const sections = [];
+
+  // Summary chips
+  const summaryChips = [
+    [analyticsTrendText('total', 'Total'), analyticsTrendMins(totalMins)],
+    [analyticsTrendText('machines', 'Machines'), `${details.machineCount}`]
+  ];
+  if (category === 'trouble') {
+    const troubleMins = items.reduce((sum, it) => sum + it.troubleMins, 0);
+    const breakMins = items.reduce((sum, it) => sum + it.breakMins, 0);
+    summaryChips.push([analyticsTrendText('trouble', 'Trouble'), analyticsTrendMins(troubleMins)]);
+    summaryChips.push([analyticsTrendText('break', 'Break'), analyticsTrendMins(breakMins)]);
+  }
+  if (category === 'producing') {
+    summaryChips.push([t('analytics.timelineSummary.efficiency') || 'Efficiency', `${analyticsFormatNumber(details.efficiency, 1)}%`]);
+  }
+  sections.push(`<div class="flex flex-wrap gap-2">${summaryChips.map(([label, value]) => `
+    <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm"><span class="text-gray-500">${analyticsEscapeHtml(label)}:</span> <strong class="ml-1 font-semibold text-gray-900">${value}</strong></div>`).join('')}</div>`);
+  if (category === 'producing') {
+    sections.push(`<p class="-mt-4 text-xs text-gray-400">${analyticsEscapeHtml(analyticsTrendText('efficiencyNote', 'Efficiency = producing time ÷ (machines × shift length)'))}</p>`);
+  }
+
+  if (items.length === 0) {
+    sections.push(`<div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${analyticsEscapeHtml(analyticsTrendText('noItems', 'Nothing recorded for this day.'))}</div>`);
+  } else {
+    // By reason (trouble only)
+    if (category === 'trouble') {
+      const reasonMap = new Map();
+      let breakTotal = 0;
+      items.forEach(it => {
+        breakTotal += it.breakMins;
+        let explained = 0;
+        if (it.reasons) {
+          Object.entries(it.reasons).forEach(([reason, value]) => {
+            const mins = Number(value) || 0;
+            if (mins <= 0) return;
+            explained += mins;
+            reasonMap.set(reason, (reasonMap.get(reason) || 0) + mins);
+          });
+        }
+        const rest = it.troubleMins - explained;
+        if (rest >= 0.5) {
+          const key = analyticsTrendText('unspecified', 'Reason not recorded');
+          reasonMap.set(key, (reasonMap.get(key) || 0) + rest);
+        }
+      });
+      const reasonRows = [...reasonMap.entries()].map(([label, mins]) => ({ label, mins })).sort((a, b) => b.mins - a.mins);
+      if (breakTotal > 0) reasonRows.push({ label: analyticsTrendText('break', 'Break'), mins: breakTotal, color: '#a78bfa' });
+      sections.push(`<div><h3 class="mb-2 text-sm font-semibold text-gray-900">${analyticsEscapeHtml(analyticsTrendText('byReason', 'By reason'))}</h3>${analyticsTrendBarList(reasonRows, style.color)}</div>`);
+    }
+
+    // By machine
+    const machineMap = new Map();
+    items.forEach(it => machineMap.set(it.machine, (machineMap.get(it.machine) || 0) + it.mins));
+    const machineRows = [...machineMap.entries()].map(([label, mins]) => ({ label, mins })).sort((a, b) => b.mins - a.mins);
+    sections.push(`<div><h3 class="mb-2 text-sm font-semibold text-gray-900">${analyticsEscapeHtml(analyticsTrendText('machine', 'Machine'))}</h3>${analyticsTrendBarList(machineRows, style.color)}</div>`);
+
+    // Detail table
+    const th = label => `<th class="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-gray-500">${analyticsEscapeHtml(label)}</th>`;
+    const kindLabel = kind => analyticsTrendText(kind, kind);
+    let head = '';
+    let rowFn;
+    if (category === 'trouble') {
+      head = [analyticsTrendText('machine', 'Machine'), analyticsTrendText('product', 'Product'), analyticsTrendText('time', 'Time'), analyticsTrendText('trouble', 'Trouble'), analyticsTrendText('break', 'Break'), analyticsTrendText('remarks', 'Remarks')].map(th).join('');
+      rowFn = it => {
+        const reasonChips = it.reasons ? Object.entries(it.reasons).filter(([, v]) => Number(v) > 0)
+          .map(([k, v]) => `<span class="mr-1 mt-1 inline-block rounded bg-rose-50 px-1.5 py-0.5 text-2xs text-rose-700">${analyticsEscapeHtml(k)}: ${Math.round(Number(v))}${analyticsEscapeHtml(minsUnit)}</span>`).join('') : '';
+        return `<td class="px-3 py-2 font-medium text-gray-800">${analyticsEscapeHtml(it.machine)}</td>
+          <td class="px-3 py-2 text-gray-600">${analyticsEscapeHtml(it.product || '-')}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">${analyticsFormatClock(it.from)}–${analyticsFormatClock(it.to)}</td>
+          <td class="px-3 py-2 tabular-nums text-rose-700">${it.troubleMins > 0 ? `${Math.round(it.troubleMins)} ${analyticsEscapeHtml(minsUnit)}` : '-'}<div>${reasonChips}</div></td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-violet-700">${it.breakMins > 0 ? `${Math.round(it.breakMins)} ${analyticsEscapeHtml(minsUnit)}` : '-'}</td>
+          <td class="px-3 py-2 text-xs text-gray-600">${analyticsEscapeHtml(it.remarks || '')}</td>`;
+      };
+    } else if (category === 'changeover') {
+      head = [analyticsTrendText('machine', 'Machine'), analyticsTrendText('product', 'Product'), analyticsTrendText('time', 'Time'), analyticsTrendText('total', 'Total')].map(th).join('');
+      rowFn = it => `<td class="px-3 py-2 font-medium text-gray-800">${analyticsEscapeHtml(it.machine)}</td>
+          <td class="px-3 py-2 text-gray-600">${analyticsEscapeHtml(it.fromProduct || '?')} → ${analyticsEscapeHtml(it.toProduct || '?')}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">${analyticsFormatClock(it.from)}–${analyticsFormatClock(it.to)}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-amber-700">${Math.round(it.mins)} ${analyticsEscapeHtml(minsUnit)}</td>`;
+    } else if (category === 'idle') {
+      head = [analyticsTrendText('machine', 'Machine'), '', analyticsTrendText('time', 'Time'), analyticsTrendText('total', 'Total')].map(th).join('');
+      rowFn = it => `<td class="px-3 py-2 font-medium text-gray-800">${analyticsEscapeHtml(it.machine)}</td>
+          <td class="px-3 py-2 text-gray-600">${analyticsEscapeHtml(kindLabel(it.kind))}${it.product ? ` <span class="text-gray-400">(${analyticsEscapeHtml(it.product)})</span>` : ''}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">${analyticsFormatClock(it.from)}–${analyticsFormatClock(it.to)}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-700">${Math.round(it.mins)} ${analyticsEscapeHtml(minsUnit)}</td>`;
+    } else {
+      head = [analyticsTrendText('machine', 'Machine'), analyticsTrendText('product', 'Product'), analyticsTrendText('time', 'Time'), analyticsTrendText('total', 'Total'), analyticsTrendText('goodCount', 'Good')].map(th).join('');
+      rowFn = it => `<td class="px-3 py-2 font-medium text-gray-800">${analyticsEscapeHtml(it.machine)}${it.isLive ? ` <span class="rounded bg-blue-50 px-1.5 py-0.5 text-2xs text-blue-700">${analyticsEscapeHtml(analyticsTrendText('live', 'Live'))}</span>` : ''}</td>
+          <td class="px-3 py-2 text-gray-600">${analyticsEscapeHtml(it.product || '-')}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">${analyticsFormatClock(it.from)}–${analyticsFormatClock(it.to)}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-emerald-700">${Math.round(it.mins)} ${analyticsEscapeHtml(minsUnit)}</td>
+          <td class="whitespace-nowrap px-3 py-2 tabular-nums text-gray-700">${analyticsFormatNumber(it.goodCount)}</td>`;
+    }
+
+    const ordered = items.map((it, index) => ({ it, index }))
+      .sort((a, b) => (a.it.machine || '').localeCompare(b.it.machine || '', 'ja') || (a.it.from - b.it.from));
+    const clickable = category === 'trouble' || category === 'producing';
+    const rowsHtml = ordered.map(({ it, index }) => {
+      const canOpen = clickable && it.id && !it.isLive;
+      const attrs = canOpen ? ` onclick="openAnalyticsTrendRecord('${date}', '${category}', ${index})" class="cursor-pointer border-t border-gray-100 align-top hover:bg-indigo-50/60"` : ' class="border-t border-gray-100 align-top"';
+      return `<tr${attrs}>${rowFn(it)}</tr>`;
+    }).join('');
+
+    sections.push(`<div>
+      <h3 class="mb-2 text-sm font-semibold text-gray-900">${analyticsEscapeHtml(analyticsTrendText('byMachine', 'By machine / record'))}</h3>
+      ${clickable ? `<p class="mb-2 text-xs text-gray-400">${analyticsEscapeHtml(analyticsTrendText('openRecord', 'Click a row to open the submitted record.'))}</p>` : ''}
+      <div class="overflow-x-auto rounded-xl border border-gray-100">
+        <table class="w-full text-sm"><thead class="bg-gray-50"><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table>
+      </div>
+    </div>`);
+  }
+
+  document.getElementById('analyticsTrendBreakdownBody').innerHTML = sections.join('');
+  modal.classList.remove('hidden');
 }
 
 
@@ -6437,6 +6732,7 @@ function analyticsSaveViewState() {
       startDate: document.getElementById('analyticsStartDate')?.value || '',
       endDate: document.getElementById('analyticsEndDate')?.value || '',
       source: document.getElementById('analyticsSource')?.value || 'all',
+      factory: document.getElementById('analyticsFactory')?.value || 'all',
       lhRh: document.getElementById('analyticsLhRh')?.value || 'all',
       hinban: document.getElementById('analyticsHinban')?.value || '',
       productName: document.getElementById('analyticsProductName')?.value || '',
@@ -6466,7 +6762,7 @@ function analyticsRestoreViewState() {
     assign('analyticsProductName', stored.productName);
     assign('analyticsOperator', stored.operator);
     // Select values restored after options load; stash for later
-    window.__analyticsPendingSelects = { source: stored.source, lhRh: stored.lhRh, productCombined: stored.productCombined };
+    window.__analyticsPendingSelects = { source: stored.source, factory: stored.factory, lhRh: stored.lhRh, productCombined: stored.productCombined };
   } catch (error) {
     console.warn('analytics view state restore error:', error);
   }
@@ -6525,6 +6821,7 @@ async function loadAnalyticsFilterOptions() {
 
     const options = result.options || {};
     analyticsPopulateSelect('analyticsSource', options.sources || [], t('analytics.filters.allSources'));
+    analyticsPopulateSelect('analyticsFactory', options.factories || [], t('analytics.filters.allFactories'));
     analyticsPopulateSelect('analyticsFocusOperator', options.operators || [], t('analytics.filters.autoTopWorker'), true);
     analyticsPopulateSelect('analyticsOperator', options.operators || [], t('analytics.filters.searchOperator'), true);
 
@@ -6564,6 +6861,7 @@ async function loadAnalyticsFilterOptions() {
         }
       };
       applySaved('analyticsSource', pending.source);
+      applySaved('analyticsFactory', pending.factory);
       applySaved('analyticsLhRh', pending.lhRh);
       applySaved('analyticsProductCombined', pending.productCombined);
       if (changed) loadAnalytics();
@@ -6625,6 +6923,8 @@ function resetAnalyticsFilters() {
   const lhRhEl = document.getElementById('analyticsLhRh');
   const focusOperatorEl = document.getElementById('analyticsFocusOperator');
   if (sourceEl) sourceEl.value = 'all';
+  const factoryEl = document.getElementById('analyticsFactory');
+  if (factoryEl) factoryEl.value = 'all';
   if (lhRhEl) lhRhEl.value = 'all';
   if (focusOperatorEl) focusOperatorEl.value = '';
 
@@ -6677,6 +6977,12 @@ function analyticsUpdateFilterOptionLabels() {
   if (sourceSelect) {
     const allOpt = sourceSelect.querySelector('option[value="all"]');
     if (allOpt) allOpt.textContent = t('analytics.filters.allSources');
+  }
+
+  const factorySelect = document.getElementById('analyticsFactory');
+  if (factorySelect) {
+    const allOpt = factorySelect.querySelector('option[value="all"]');
+    if (allOpt) allOpt.textContent = t('analytics.filters.allFactories');
   }
 
   const lhRhSelect = document.getElementById('analyticsLhRh');

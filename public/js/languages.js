@@ -773,6 +773,8 @@ const translations = {
         shiftStart: "Shift start",
         shiftEnd: "Shift end",
         allSources: "All sources",
+        factory: "Factory",
+        allFactories: "All factories",
         allDirections: "All directions",
         autoTopWorker: "Auto (top worker)",
         applyFilters: "Apply filters",
@@ -923,7 +925,29 @@ const translations = {
 
       machineTrend: {
         title: "Machine Time Trend",
-        description: "Trend of efficiency, producing time, idle time, and trouble over the selected period."
+        description: "Trend of efficiency, producing time, idle time, and trouble over the selected period.",
+        clickHint: "Click a bar to see why.",
+        total: "Total",
+        machines: "Machines",
+        byReason: "By reason",
+        byMachine: "By machine / record",
+        trouble: "Trouble",
+        break: "Break",
+        unspecified: "Reason not recorded",
+        machine: "Machine",
+        product: "Product",
+        time: "Time",
+        minutes: "min",
+        remarks: "Remarks",
+        noItems: "Nothing recorded for this day.",
+        beforeFirst: "Before first run",
+        between: "Gap (same product)",
+        afterLast: "After last run",
+        noRecords: "No records all shift",
+        live: "Live",
+        openRecord: "Click a row to open the submitted record.",
+        efficiencyNote: "Efficiency = producing time ÷ (machines × shift length)",
+        goodCount: "Good"
       },
 
       opcEvents: {
@@ -2232,6 +2256,8 @@ const translations = {
         shiftStart: "シフト開始",
         shiftEnd: "シフト終了",
         allSources: "全ソース",
+        factory: "工場",
+        allFactories: "全工場",
         allDirections: "全方向",
         autoTopWorker: "自動（上位作業者）",
         applyFilters: "フィルター適用",
@@ -2382,7 +2408,29 @@ const translations = {
 
       machineTrend: {
         title: "設備稼働トレンド",
-        description: "選択期間における稼働率、生産時間、アイドル時間、トラブル時間の推移を表示します。"
+        description: "選択期間における稼働率、生産時間、アイドル時間、トラブル時間の推移を表示します。",
+        clickHint: "棒をクリックすると内訳を表示します。",
+        total: "合計",
+        machines: "設備数",
+        byReason: "理由別",
+        byMachine: "設備・実績別",
+        trouble: "トラブル",
+        break: "休憩",
+        unspecified: "理由未記録",
+        machine: "設備",
+        product: "製品",
+        time: "時間帯",
+        minutes: "分",
+        remarks: "備考",
+        noItems: "この日の記録はありません。",
+        beforeFirst: "最初の作業前",
+        between: "空き時間（同一製品）",
+        afterLast: "最後の作業後",
+        noRecords: "終日記録なし",
+        live: "作業中",
+        openRecord: "行をクリックすると提出データを表示します。",
+        efficiencyNote: "稼働率 = 生産時間 ÷（設備数 × シフト時間）",
+        goodCount: "良品"
       },
 
       opcEvents: {

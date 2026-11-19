@@ -923,7 +923,7 @@ function renderModalDetails(type, data) {
           <div class="mb-4 relative">
             <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block">
-              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <img id="modalImage" src="${data.imageURL}" alt="Product" class="max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover cursor-zoom-in" onclick="openImagePreview(this.src)" title="クリックで拡大" />
               <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
                 <i class="ri-delete-bin-line text-xs"></i>
               </button>
@@ -936,7 +936,7 @@ function renderModalDetails(type, data) {
           <div class="mb-4">
             <label class="block text-xs font-semibold text-gray-600 mb-1.5">${t('masterDB.productImage')}</label>
             <div id="imagePreviewContainer" class="relative inline-block w-full">
-              <img id="modalImage" src="" alt="Product" class="hidden max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover" />
+              <img id="modalImage" src="" alt="Product" class="hidden max-w-xs max-h-40 w-auto rounded-xl border border-gray-100 shadow-xs object-cover cursor-zoom-in" onclick="openImagePreview(this.src)" title="クリックで拡大" />
               <button id="removeImageBtn" type="button" class="hidden absolute top-2 right-2 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-md transition" onclick="removeImage()">
                 <i class="ri-delete-bin-line text-xs"></i>
               </button>
@@ -1010,7 +1010,9 @@ function renderModalDetails(type, data) {
           </div>
           <div><label class="block text-xs font-semibold text-gray-600 mb-1">${t('common.description')}</label><textarea class="w-full px-3 py-1.5 border border-gray-200 rounded-xl bg-gray-50 text-xs" rows="3" disabled data-field="description">${data.description || ''}</textarea></div>
 
-          <div class="border-t border-gray-100 pt-3.5 mt-2">
+          ${buildEquipmentInputModeField('modalEquipmentInputMode', 'modalEquipmentOpcSection', getEquipmentInputMode(data), { disabled: true, withDataField: true })}
+
+          <div id="modalEquipmentOpcSection" class="border-t border-gray-100 pt-3.5 mt-2 ${getEquipmentInputMode(data) === 'manual' ? 'hidden' : ''}">
             <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
               <i class="ri-line-chart-line mr-1.5 text-indigo-600"></i>
               ${t('masterDB.opcVariableMappings')}
@@ -1601,6 +1603,10 @@ async function saveModalChanges() {
         }
       }
     });
+    // 手動 (検査台) equipment has no OPC: clear its variables so nothing is read from OPC
+    if (updateData.inputMode === 'manual') {
+      updateData.opcVariables = { ...EMPTY_EQUIPMENT_OPC_VARIABLES };
+    }
   }
   
   // Handle image upload
@@ -1649,6 +1655,45 @@ async function saveModalChanges() {
   } catch (err) {
     alert(t('common.updateFailed') + ": " + err.message);
   }
+}
+
+// ============================================================
+// Image preview (lightbox) — shared by any admin image: openImagePreview(src)
+// ============================================================
+function openImagePreview(src, alt = '') {
+  if (!src) return;
+  let overlay = document.getElementById('imagePreviewOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'imagePreviewOverlay';
+    overlay.className = 'fixed inset-0 z-[100] hidden flex items-center justify-center bg-black/80 p-4 cursor-zoom-out';
+    overlay.innerHTML = `
+      <button type="button" aria-label="閉じる"
+              class="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-gray-800 shadow-md hover:bg-white cursor-pointer">
+        <i class="ri-close-line text-xl"></i>
+      </button>
+      <img id="imagePreviewImg" src="" alt="" class="max-h-[90vh] max-w-[95vw] rounded-xl bg-white object-contain shadow-2xl cursor-default" />
+    `;
+    // Close on backdrop / × click; clicks on the image itself keep it open
+    overlay.addEventListener('click', (e) => {
+      if (e.target.id !== 'imagePreviewImg') closeImagePreview();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+        e.stopPropagation();
+        closeImagePreview();
+      }
+    }, true);
+    document.body.appendChild(overlay);
+  }
+  const img = document.getElementById('imagePreviewImg');
+  img.src = src;
+  img.alt = alt;
+  overlay.classList.remove('hidden');
+}
+
+function closeImagePreview() {
+  document.getElementById('imagePreviewOverlay')?.classList.add('hidden');
 }
 
 function previewImage() {
@@ -2356,6 +2401,7 @@ function renderEquipmentTable(equipment) {
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.equipmentName')}</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.factoriesLabel')}</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('common.description')}</th>
+            <th class="px-3 py-2 select-none whitespace-nowrap">入力モード</th>
             <th class="px-3 py-2 select-none whitespace-nowrap">${t('masterDB.opcVariables')}</th>
           </tr>
         </thead>
@@ -2378,10 +2424,13 @@ function renderEquipmentTable(equipment) {
                   ${(eq.工場 || []).map(f => `<span class="tag">${escapeHtml(f)}</span>`).join(" ")}
                 </td>
                 <td class="px-3 py-2 text-gray-600">${escapeHtml(eq.description || "")}</td>
-                <td class="px-3 py-2">${opcDisplay}</td>
+                <td class="px-3 py-2 whitespace-nowrap">${getEquipmentInputMode(eq) === 'manual'
+                  ? '<span class="rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">手動 (検査台)</span>'
+                  : '<span class="rounded-lg bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">自動 (OPC)</span>'}</td>
+                <td class="px-3 py-2">${getEquipmentInputMode(eq) === 'manual' ? '<span class="text-gray-400">—</span>' : opcDisplay}</td>
               </tr>
             `;
-          }).join("") : `<tr><td colspan="5" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
+          }).join("") : `<tr><td colspan="6" class="px-3 py-8 text-center text-xs font-medium text-gray-400">${t('common.noResults') || 'No results found'}</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2391,6 +2440,39 @@ function renderEquipmentTable(equipment) {
   selectedItems = [];
   updateSelectedCount('equipment');
 }
+
+// ============================================================
+// Equipment 入力モード: 'opc' (自動, default) or 'manual' (手動 検査台, no OPC)
+// ============================================================
+function getEquipmentInputMode(eq) {
+  return eq && eq.inputMode === 'manual' ? 'manual' : 'opc';
+}
+
+function buildEquipmentInputModeField(selectId, sectionId, value = 'opc', { disabled = false, withDataField = false } = {}) {
+  const mode = value === 'manual' ? 'manual' : 'opc';
+  const baseClass = disabled ? 'bg-gray-50' : 'bg-white';
+  return `
+    <div>
+      <label class="block text-xs font-semibold text-gray-700 mb-1">入力モード</label>
+      <select id="${selectId}" ${withDataField ? 'data-field="inputMode"' : ''} ${disabled ? 'disabled' : ''}
+              onchange="toggleEquipmentOpcSection('${selectId}', '${sectionId}')"
+              class="w-full px-3 py-1.5 border border-gray-200 rounded-xl ${baseClass} text-xs focus:border-indigo-500 focus:outline-none shadow-2xs">
+        <option value="opc" ${mode === 'opc' ? 'selected' : ''}>自動 (OPC)</option>
+        <option value="manual" ${mode === 'manual' ? 'selected' : ''}>手動 (検査台・OPCなし)</option>
+      </select>
+      <p class="text-2xs text-gray-400 mt-1">手動: 品番スキャン・収容数で作業数をカウントします (検査工程)</p>
+    </div>
+  `;
+}
+
+function toggleEquipmentOpcSection(selectId, sectionId) {
+  const select = document.getElementById(selectId);
+  const section = document.getElementById(sectionId);
+  if (!select || !section) return;
+  section.classList.toggle('hidden', select.value === 'manual');
+}
+
+const EMPTY_EQUIPMENT_OPC_VARIABLES = { kanbanVariable: '', productionCountVariable: '', boxQuantityVariable: '' };
 
 function showCreateEquipmentForm() {
   const container = document.getElementById("equipmentTableContainer");
@@ -2417,7 +2499,10 @@ function showCreateEquipmentForm() {
             ${factoryOptions.map(f => `<option value="${f}">${f}</option>`).join("")}
           </select>
         </div>
-        <div class="md:col-span-2 border-t border-gray-100 pt-3 mt-1">
+        <div class="md:col-span-2">
+          ${buildEquipmentInputModeField('newEqInputMode', 'newEqOpcSection')}
+        </div>
+        <div id="newEqOpcSection" class="md:col-span-2 border-t border-gray-100 pt-3 mt-1">
           <h4 class="text-xs font-semibold text-gray-900 mb-2.5">${t('masterDB.opcVariableMappings')}</h4>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -2482,11 +2567,13 @@ async function submitNewEquipment() {
   const currentUser = JSON.parse(localStorage.getItem("authUser") || "{}");
   const dbName = currentUser.dbName || "KSG";
 
+  const inputMode = document.getElementById("newEqInputMode")?.value === 'manual' ? 'manual' : 'opc';
   const data = {
     設備名: document.getElementById("newEq設備名").value.trim(),
     工場: selectedFactories,
     description: document.getElementById("newEqDescription").value.trim(),
-    opcVariables: {
+    inputMode,
+    opcVariables: inputMode === 'manual' ? { ...EMPTY_EQUIPMENT_OPC_VARIABLES } : {
       kanbanVariable: document.getElementById("newEqKanbanVar")?.value.trim() || "",
       productionCountVariable: document.getElementById("newEqProductionVar")?.value.trim() || "seisanSu",
       boxQuantityVariable: document.getElementById("newEqBoxQtyVar")?.value.trim() || "hakoIresu"
@@ -3057,8 +3144,12 @@ async function showQuickCreateModal() {
           <textarea id="quickEquipmentDesc" class="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-white focus:border-indigo-500 focus:outline-none shadow-2xs" rows="2"></textarea>
         </div>
 
+        <div class="col-span-2">
+          ${buildEquipmentInputModeField('quickEquipmentInputMode', 'quickEquipmentOpcSection')}
+        </div>
+
         <!-- OPC Variable Mappings Section -->
-        <div class="col-span-2 border-t border-gray-100 pt-3 mt-2">
+        <div id="quickEquipmentOpcSection" class="col-span-2 border-t border-gray-100 pt-3 mt-2">
           <h4 class="text-xs font-semibold text-gray-900 mb-2.5 flex items-center">
             <i class="ri-line-chart-line mr-1.5"></i>
             ${t('masterDB.opcVariableMappings')}
@@ -3281,11 +3372,13 @@ async function submitQuickCreate() {
         break;
         
       case 'equipment':
+        const quickInputMode = document.getElementById("quickEquipmentInputMode")?.value === 'manual' ? 'manual' : 'opc';
         data = {
           設備名: document.getElementById("quickEquipmentName").value.trim(),
           工場: selectedQuickEquipmentFactories,
           description: document.getElementById("quickEquipmentDesc").value.trim(),
-          opcVariables: {
+          inputMode: quickInputMode,
+          opcVariables: quickInputMode === 'manual' ? { ...EMPTY_EQUIPMENT_OPC_VARIABLES } : {
             kanbanVariable: document.getElementById("quickEquipmentKanbanVar")?.value.trim() || "",
             productionCountVariable: document.getElementById("quickEquipmentProductionVar")?.value.trim() || "seisanSu",
             boxQuantityVariable: document.getElementById("quickEquipmentBoxQtyVar")?.value.trim() || "hakoIresu"
@@ -3491,6 +3584,8 @@ if (typeof window !== 'undefined') {
   window.cancelEditMode = cancelEditMode;
   window.saveModalChanges = saveModalChanges;
   window.previewImage = previewImage;
+  window.openImagePreview = openImagePreview;
+  window.closeImagePreview = closeImagePreview;
   window.showDeleteConfirmation = showDeleteConfirmation;
   window.closeDeleteConfirmModal = closeDeleteConfirmModal;
   window.confirmDelete = confirmDelete;
@@ -5219,6 +5314,9 @@ function renderNGGroupsTable(groups) {
               <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${escapeHtml(g.createdBy || '-')}</td>
               <td class="px-3 py-2 text-gray-600 tabular-nums whitespace-nowrap">${g.createdAt ? new Date(g.createdAt).toLocaleDateString('ja-JP') : '-'}</td>
               <td class="px-3 py-2 text-right whitespace-nowrap">
+                <button onclick="duplicateNGGroup('${g._id}')" class="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2.5 py-1.5 rounded-xl border border-gray-200 transition cursor-pointer mr-1">
+                  <i class="ri-file-copy-line"></i>複製
+                </button>
                 <button onclick="showNGGroupModal(${JSON.stringify(g).replace(/"/g, '&quot;')})" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 px-2.5 py-1.5 rounded-xl border border-indigo-100 transition cursor-pointer">
                   <i class="ri-edit-line"></i>編集
                 </button>
@@ -5323,6 +5421,27 @@ function showNGGroupModal(group = null) {
   }
 
   modal.classList.remove('hidden');
+}
+
+// 複製: open the editor pre-filled with a copy of the group (no _id → saving creates a new group)
+function duplicateNGGroup(groupId) {
+  const source = allNGGroups.find(g => String(g._id) === String(groupId));
+  if (!source) return;
+
+  const existingNames = new Set(allNGGroups.map(g => String(g.groupName || '')));
+  let copyName = `${source.groupName || ''} のコピー`;
+  for (let n = 2; existingNames.has(copyName); n++) {
+    copyName = `${source.groupName || ''} のコピー (${n})`;
+  }
+
+  showNGGroupModal({
+    groupName: copyName,
+    items: (source.items || []).map(item => ({ name: item.name, color: item.color, countUp: item.countUp !== false }))
+  });
+  document.getElementById('ngGroupModalTitle').textContent = `不良グループ複製: ${source.groupName || ''}`;
+  const nameInput = document.getElementById('ngGroupName');
+  nameInput.focus();
+  nameInput.select();
 }
 
 function closeNGGroupModal() {

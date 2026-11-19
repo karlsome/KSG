@@ -26,6 +26,7 @@ const SDB_FIXED_KEYS = new Set([
   'other_description', 'start_time', 'end_time', 'break_time',
   'trouble_time', 'remarks', 'excluded_man_hours', 'submitted_from',
   'master_record_id', 'ng_group_id', 'non_countup_defect_keys',
+  'opc_work_count', 'work_count_manual', 'process', 'input_mode',
   'is_deleted', 'deleted_at', 'deleted_by', 'deleted_by_role', 'trash_expires_at'
 ]);
 
@@ -513,6 +514,10 @@ function renderSubmittedDBTable(records, total, page, totalPages, limit, summary
       }
 
       const safeValue = sdbEscapeHtml(value);
+      if (col.key === 'good_count' && record.work_count_manual === true) {
+        const tip = sdbEscapeHtml(sdbManualWorkCountNote(record));
+        return `<td class="px-3 py-2 text-sm text-gray-700 whitespace-nowrap" title="${tip}">${safeValue} <span class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-700">✏️ 手動</span></td>`;
+      }
       return `<td class="px-3 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs overflow-hidden text-ellipsis" title="${safeValue}">${safeValue}</td>`;
     }).join('');
 
@@ -1097,6 +1102,15 @@ function sdbRenderModalDefects(record, isEditing) {
   }).join('');
 }
 
+// Tablet operator corrected 作業数 at submit (OPC miscounted). Admin-only info.
+function sdbManualWorkCountNote(record) {
+  const defectTotal = Object.entries(record || {})
+    .filter(([key]) => !SDB_FIXED_KEYS.has(key))
+    .reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
+  const submittedTotal = (parseInt(record?.good_count) || 0) + defectTotal;
+  return `作業数を手動修正: OPC ${Number(record?.opc_work_count ?? 0).toLocaleString()} → 送信 ${submittedTotal.toLocaleString()}`;
+}
+
 function sdbRenderModal(record) {
   if (!record) return;
 
@@ -1133,6 +1147,12 @@ function sdbRenderModal(record) {
   sdbSetModalElementContent('sdbModalGood', isEditing
     ? sdbBuildModalInput('good_count', record.good_count ?? 0, { type: 'number', min: '0', step: '1', integer: true, className: `${metricInputClass} text-green-600` })
     : String(record.good_count ?? '—'), { html: isEditing });
+  const goodNoteEl = document.getElementById('sdbModalGoodNote');
+  if (goodNoteEl) {
+    const isManual = record.work_count_manual === true;
+    goodNoteEl.textContent = isManual ? `✏️ ${sdbManualWorkCountNote(record)}` : '';
+    goodNoteEl.classList.toggle('hidden', !isManual);
+  }
   sdbSetModalElementContent('sdbModalManHours', isEditing
     ? sdbBuildModalInput('man_hours', record.man_hours ?? 0, { type: 'number', min: '0', step: '0.01', className: `${metricInputClass} text-blue-600` })
     : (record.man_hours != null ? Number(record.man_hours).toFixed(2) : '—'), { html: isEditing });
