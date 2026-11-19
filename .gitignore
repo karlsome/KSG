@@ -49,3 +49,8 @@ offline_functions.json
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Word documents (kept local, not on GitHub)
+*.doc
+*.docx
+~$*
