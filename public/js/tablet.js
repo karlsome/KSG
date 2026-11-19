@@ -2871,6 +2871,11 @@ function checkStartButtonState() {
     && currentSeisanSuValue === null;
   const hasPoster1 = poster1Select.value !== '';
   const startTimeEmpty = startTimeInput.value === '';
+
+  // 品番 is known but nobody picked a worker yet → turn 投稿員_1 red so they fill it in
+  const needsWorker = hasValidProduct && !hasPoster1 && startTimeEmpty;
+  poster1Select.classList.toggle('needs-worker', needsWorker);
+  document.getElementById('header-poster1')?.classList.toggle('needs-worker', needsWorker);
   
   console.log('🔍 Start button conditions:', {
     hasValidProduct,
