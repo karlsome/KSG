@@ -4212,7 +4212,7 @@ function handleKanbanQrScan(code, hinban) {
   const loaded = getLoadedQr();
   if (!loaded) {
     setLoadedQr({ code, hinban, at: new Date().toISOString() });
-    showScanInfo('load', 'QR読込OK', `品番: ${hinban}\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+    showScanInfo('load', `品番 ${hinban} が有効になりました`);
     return;
   }
 
@@ -4267,7 +4267,7 @@ function handleManualScan(rawCode) {
     if (code !== hinban) {
       // Kanban QR: selecting the product is also this kanban's 読込
       setLoadedQr({ code, hinban, at: new Date().toISOString() });
-      showScanInfo('load', 'QR読込OK', `品番 ${product.品番} を選択しました\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+      showScanInfo('load', `品番 ${product.品番} が有効になりました`);
     } else {
       showScanToast(`品番 ${product.品番} を選択しました`);
     }
