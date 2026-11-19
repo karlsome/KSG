@@ -168,6 +168,14 @@
             </label>
           </div>
 
+          <!-- Factory (all global-filter tabs) -->
+          <label id="filter-container-factory" class="block text-sm font-medium text-gray-700">
+            <span data-i18n="analytics.filters.factory">Factory</span>
+            <select id="analyticsFactory" class="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700" onchange="loadAnalytics()">
+              <option value="all" data-i18n="analytics.filters.allFactories">All factories</option>
+            </select>
+          </label>
+
           <!-- Contextual: Machine Source -->
           <label id="filter-container-source" class="block text-sm font-medium text-gray-700">
             <span data-i18n="analytics.filters.machineSource">Machine source</span>
@@ -496,7 +504,8 @@
           <h3 class="text-lg font-semibold text-gray-900" data-i18n="analytics.machineTrend.title">Machine Time Trend</h3>
           <p class="mt-1 text-sm text-gray-500" data-i18n="analytics.machineTrend.description">Trend of efficiency, producing time, idle time, and trouble over the selected period.</p>
         </div>
-        <div id="analyticsMachineTrendChart" class="h-[400px] w-full px-2 py-4"></div>
+        <div id="analyticsMachineTrendChart" class="h-[400px] w-full px-2 py-4 cursor-pointer"></div>
+        <p class="px-6 pb-4 -mt-2 text-xs text-gray-400" data-i18n="analytics.machineTrend.clickHint">Click a bar to see why.</p>
       </section>
 
       <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">

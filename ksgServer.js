@@ -2808,6 +2808,7 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
     const kanbanId = String(query.kanbanId ?? '').trim();
     const source = String(query.source ?? '').trim();
     const lhRh = String(query.lhRh ?? '').trim();
+    const factory = String(query.factory ?? '').trim();
 
     if (hinban) {
         filter.hinban = { $regex: escapeSubmittedDBRegex(hinban), $options: 'i' };
@@ -2829,6 +2830,9 @@ function buildSubmittedDBAnalyticsFilter(query = {}) {
     }
     if (lhRh && lhRh !== 'all') {
         filter.lh_rh = lhRh;
+    }
+    if (factory && factory !== 'all') {
+        filter.工場 = factory;
     }
 
     return filter;
@@ -3132,6 +3136,9 @@ function computeSubmittedDBMachineDaily(records = [], liveSessions = [], allMach
             defectCount: totalDefects,
             breakTime: Number(record.break_time ?? 0) || 0,
             troubleTime: Number(record.trouble_time ?? 0) || 0,
+            troubleDetails: (record.trouble_details && typeof record.trouble_details === 'object' && !Array.isArray(record.trouble_details))
+                ? record.trouble_details
+                : null,
             manHours: Number(record.man_hours ?? 0) || 0,
             operators,
             remarks: String(record.remarks ?? '').trim()
@@ -3345,6 +3352,7 @@ async function computeSubmittedDBFinance(db, query = {}) {
         kanbanId: query.kanbanId,
         source: query.source,
         lhRh: query.lhRh,
+        factory: query.factory,
         startDate: yearStart,
         endDate: today.key
     };
@@ -3880,12 +3888,17 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
             SUBMITTED_DB_OPERATOR_FIELDS.map(field => [`${field}Values`, { $addToSet: `$${field}` }])
         );
 
+        const masterFactoryNames = (await db.collection('factory').find({}, { projection: { _id: 0, name: 1 } }).toArray())
+            .map(f => String(f?.name ?? '').trim())
+            .filter(Boolean);
+
         const [optionsDoc = {}] = await collection.aggregate([
             { $match: activeFilter },
             {
                 $group: {
                     _id: null,
                     sources: { $addToSet: '$submitted_from' },
+                    factories: { $addToSet: '$工場' },
                     lhRh: { $addToSet: '$lh_rh' },
                     hinban: { $addToSet: '$hinban' },
                     productNames: { $addToSet: '$product_name' },
@@ -3899,6 +3912,10 @@ app.get('/api/admin/analytics/filter-options', validateSubmittedDBAccess, async 
             success: true,
             options: {
                 sources: normalizeSubmittedDBOptionList(optionsDoc.sources || []),
+                factories: [...new Set([
+                    ...masterFactoryNames,
+                    ...normalizeSubmittedDBOptionList(optionsDoc.factories || [])
+                ])],
                 lhRh: normalizeSubmittedDBOptionList(optionsDoc.lhRh || []),
                 hinban: normalizeSubmittedDBOptionList(optionsDoc.hinban || []),
                 productNames: normalizeSubmittedDBOptionList(optionsDoc.productNames || []),
@@ -3921,9 +3938,13 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
         const db = mongoClient.db(req.dbName || 'KSG');
         const collection = db.collection('submittedDB');
         const filter = buildSubmittedDBAnalyticsFilter(req.query);
+        const requestedFactory = String(req.query.factory ?? '').trim();
+        const machineNamePipeline = (requestedFactory && requestedFactory !== 'all')
+            ? [{ $match: { 工場: requestedFactory } }, { $group: { _id: "$submitted_from" } }]
+            : [{ $group: { _id: "$submitted_from" } }];
         const [records, uniqueAllSourcesDocs] = await Promise.all([
             collection.find(filter).sort({ date_year: 1, date_month: 1, date_day: 1, timestamp: 1 }).toArray(),
-            collection.aggregate([{ $group: { _id: "$submitted_from" } }]).toArray()
+            collection.aggregate(machineNamePipeline).toArray()
         ]);
         const allMachineNames = (uniqueAllSourcesDocs || []).map(doc => doc._id).filter(name => typeof name === 'string' && name.trim().length > 0);
 
@@ -4512,6 +4533,7 @@ app.get('/api/admin/analytics', validateSubmittedDBAccess, async (req, res) => {
                 kanbanId: String(req.query.kanbanId ?? '').trim(),
                 source: String(req.query.source ?? '').trim(),
                 lhRh: String(req.query.lhRh ?? '').trim(),
+                factory: requestedFactory,
                 focusOperator: resolvedFocusOperator
             },
             viewerRole: req.userRole,
