@@ -4187,11 +4187,10 @@ function updateManualQrStatus() {
 }
 
 let scanInfoTimer = null;
-function showScanInfo(type, icon, title, detail = '') {
+function showScanInfo(type, title, detail = '') {
   const overlay = document.getElementById('scanInfoOverlay');
   if (!overlay) return;
   document.getElementById('scanInfoBox').className = `scan-info ${type}`;
-  document.getElementById('scanInfoIcon').textContent = icon;
   document.getElementById('scanInfoTitle').textContent = title;
   document.getElementById('scanInfoDetail').textContent = detail;
   overlay.classList.add('active');
@@ -4213,7 +4212,7 @@ function handleKanbanQrScan(code, hinban) {
   const loaded = getLoadedQr();
   if (!loaded) {
     setLoadedQr({ code, hinban, at: new Date().toISOString() });
-    showScanInfo('load', '📥', 'QR読込OK', `品番: ${hinban}\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+    showScanInfo('load', 'QR読込OK', `品番: ${hinban}\nかんばんを製品に入れて、もう一度スキャンしてください。`);
     return;
   }
 
@@ -4227,7 +4226,7 @@ function handleKanbanQrScan(code, hinban) {
   if (!addManualBoxCount({ silent: true })) return;
   addUsedQr(code);
   setLoadedQr(null);
-  showScanInfo('unload', '📤', 'QR完了', `品番: ${hinban}\n+${hakoIresuValue}（作業数 ${manualWorkCount.toLocaleString()}）`);
+  showScanInfo('unload', 'QR完了', `品番: ${hinban}\n+${hakoIresuValue}（作業数 ${manualWorkCount.toLocaleString()}）`);
 }
 
 // One scanned 品番 or kanban QR (from the USB scanner)
@@ -4268,7 +4267,7 @@ function handleManualScan(rawCode) {
     if (code !== hinban) {
       // Kanban QR: selecting the product is also this kanban's 読込
       setLoadedQr({ code, hinban, at: new Date().toISOString() });
-      showScanInfo('load', '📥', 'QR読込OK', `品番 ${product.品番} を選択しました\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+      showScanInfo('load', 'QR読込OK', `品番 ${product.品番} を選択しました\nかんばんを製品に入れて、もう一度スキャンしてください。`);
     } else {
       showScanToast(`品番 ${product.品番} を選択しました`);
     }
