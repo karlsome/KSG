@@ -1689,8 +1689,7 @@
     .manual-qr-status {
       display: none;
       align-items: center;
-      justify-content: space-between;
-      gap: 6px;
+      justify-content: center;
       margin-top: 6px;
       padding: 6px 8px;
       border-radius: 8px;
@@ -1701,17 +1700,6 @@
       font-weight: 700;
     }
     body.manual-input-mode .manual-qr-status.active { display: flex; }
-    .manual-qr-cancel {
-      border: none;
-      border-radius: 6px;
-      background: #fff;
-      color: #b91c1c;
-      font-size: 12px;
-      font-weight: 800;
-      padding: 4px 8px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
 
     .scan-info-overlay {
       display: none;
@@ -1734,7 +1722,6 @@
     }
     .scan-info.load { background: #16a34a; }
     .scan-info.unload { background: #2563eb; }
-    .scan-info.cancel { background: #475569; }
     .scan-info-icon { font-size: 52px; line-height: 1; margin-bottom: 8px; }
     .scan-info-title { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
     .scan-info-detail { font-size: 19px; line-height: 1.6; white-space: pre-line; }
@@ -2085,7 +2072,6 @@
             </div>
             <div class="manual-qr-status" id="manualQrStatus">
               <span id="manualQrStatusText"></span>
-              <button type="button" class="manual-qr-cancel" onclick="cancelLoadedQr()">取消</button>
             </div>
           </div>
           <div class="button-cell">

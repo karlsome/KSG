@@ -4183,14 +4183,7 @@ function updateManualQrStatus() {
   if (!box || !text) return;
   const loaded = getLoadedQr();
   box.classList.toggle('active', Boolean(loaded));
-  text.textContent = loaded ? `📥 QR読込中: ${loaded.hinban}` : '';
-}
-
-function cancelLoadedQr() {
-  const loaded = getLoadedQr();
-  if (!loaded) return;
-  setLoadedQr(null);
-  showScanInfo('cancel', '↩️', 'QR読込を取消しました', `品番: ${loaded.hinban}\nカウントはされていません。`);
+  text.textContent = loaded ? 'QR読込中' : '';
 }
 
 let scanInfoTimer = null;
@@ -4225,7 +4218,7 @@ function handleKanbanQrScan(code, hinban) {
   }
 
   if (loaded.code !== code) {
-    showScanAlert('warn', '別のQRが読込中です', `読込中の品番: ${loaded.hinban}\n先に読込中のかんばんをもう一度スキャンしてください。\n（やり直す場合は「取消」）`);
+    showScanAlert('warn', '別のQRが読込中です', `読込中の品番: ${loaded.hinban}\n先に読込中のかんばんをもう一度スキャンしてください。`);
     return;
   }
 
