@@ -860,6 +860,7 @@
 
           dashboardAvailableFactories = [...new Set(factoryNames)];
           renderDashboardFactoryOptions();
+          renderDashboardTimelineFactoryOptions(adminDashboardData?.machineDaily || []);
         }
       } catch (err) {
         console.warn('Failed to load factories for dashboard:', err);
@@ -953,6 +954,12 @@
             <div class="flex flex-col gap-3 border-b border-gray-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
               <h3 class="text-lg font-semibold text-gray-900">${dashboardText('machineTimeline') || 'Machine Timeline'}</h3>
               <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-700 shadow-sm">
+                  <i class="ri-building-line text-gray-400"></i>
+                  <select id="dashboardTimelineFactorySelect" onchange="handleDashboardTimelineFactoryChange(this.value)" class="bg-transparent text-sm font-medium text-gray-700 focus:outline-none cursor-pointer">
+                    <option value="all">${dashboardText('allFactories') || 'All Factories'}</option>
+                  </select>
+                </div>
                 <div class="flex items-center gap-2 text-sm text-gray-600">
                   <label for="dashboardTimelineStart" class="text-xs font-medium text-gray-500">${dashboardText('from') || 'From'}</label>
                   <input id="dashboardTimelineStart" type="time" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-700 shadow-sm focus:border-indigo-500 focus:outline-none" value="${dashboardGetTimelineShift().start}" onchange="handleDashboardTimelineShiftChange()">
@@ -1388,12 +1395,97 @@
       return hours * 60 + minutes;
     }
 
+    const DASHBOARD_TIMELINE_FACTORY_KEY = 'dashboardTimelineFactory';
+
+    function dashboardGetTimelineFactory() {
+      try {
+        return localStorage.getItem(DASHBOARD_TIMELINE_FACTORY_KEY) || 'all';
+      } catch (e) {
+        return 'all';
+      }
+    }
+
+    function dashboardSaveTimelineFactory(value) {
+      try {
+        localStorage.setItem(DASHBOARD_TIMELINE_FACTORY_KEY, String(value || 'all').trim() || 'all');
+      } catch (e) {
+        console.warn('Failed to save dashboard timeline factory to localStorage:', e);
+      }
+    }
+
+    // Resolve a machineDaily entry's factory (falls back to live machine status, then その他)
+    function dashboardResolveMachineFactory(machine) {
+      if (machine && machine.factory && String(machine.factory).trim() && machine.factory !== 'その他') {
+        return String(machine.factory).trim();
+      }
+      if (adminDashboardData && Array.isArray(adminDashboardData.machineStatus)) {
+        const matched = adminDashboardData.machineStatus.find(ms =>
+          ms.machineName === machine.source ||
+          ms.machineKey === machine.source ||
+          ms.tabletName === machine.source
+        );
+        if (matched && matched.factory && String(matched.factory).trim()) {
+          return String(matched.factory).trim();
+        }
+      }
+      return (machine && machine.factory) || 'その他';
+    }
+
+    function renderDashboardTimelineFactoryOptions(machines) {
+      const selectEl = document.getElementById('dashboardTimelineFactorySelect');
+      if (!selectEl) return 'all';
+
+      const machineFactories = (machines || []).map(dashboardResolveMachineFactory);
+      const names = [...new Set([...dashboardAvailableFactories, ...machineFactories].filter(Boolean))];
+      // Known factories first (in master order), any extras (e.g. その他) after
+      const ordered = [
+        ...dashboardAvailableFactories.filter(n => names.includes(n)),
+        ...names.filter(n => !dashboardAvailableFactories.includes(n)).sort((a, b) => {
+          if (a === 'その他') return 1;
+          if (b === 'その他') return -1;
+          return a.localeCompare(b, 'ja');
+        })
+      ];
+
+      const allLabel = dashboardText('allFactories') || 'All Factories';
+      const optionsHtml = [
+        `<option value="all">${escapeDashboardHtml(allLabel)}</option>`,
+        ...ordered.map(name => `<option value="${escapeDashboardHtml(name)}">${escapeDashboardHtml(name)}</option>`)
+      ].join('');
+      if (selectEl.innerHTML !== optionsHtml) selectEl.innerHTML = optionsHtml;
+
+      // Keep the saved choice even if it isn't in this load's list (factories may still be loading)
+      const saved = dashboardGetTimelineFactory();
+      if (saved !== 'all' && !selectEl.querySelector(`option[value="${CSS.escape(saved)}"]`)) {
+        const opt = document.createElement('option');
+        opt.value = saved;
+        opt.textContent = saved;
+        selectEl.appendChild(opt);
+      }
+      selectEl.value = saved;
+      return saved;
+    }
+
+    function handleDashboardTimelineFactoryChange(value) {
+      dashboardSaveTimelineFactory(value);
+      if (adminDashboardData && adminDashboardData.machineDaily) {
+        renderDashboardMachineTimeline(adminDashboardData.machineDaily);
+      }
+    }
+
+    window.handleDashboardTimelineFactoryChange = handleDashboardTimelineFactoryChange;
+
     function renderDashboardMachineTimeline(machineDaily) {
       const container = document.getElementById('dashboardMachineTimelineContainer');
       if (!container) return;
 
-      const machines = machineDaily || [];
+      const allMachines = machineDaily || [];
+      const timelineFactory = renderDashboardTimelineFactoryOptions(allMachines);
+      const machines = timelineFactory === 'all'
+        ? allMachines
+        : allMachines.filter(m => dashboardResolveMachineFactory(m) === timelineFactory);
       if (machines.length === 0) {
+        renderDashboardMachineTimelineSummary([]);
         container.innerHTML = `<div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-400">${escapeDashboardHtml(dashboardText('noData') || 'No data')}</div>`;
         return;
       }
@@ -1653,22 +1745,7 @@
       }
       const totalShiftMins = Math.max(1, shiftEnd - shiftStart);
 
-      const resolveMachineFactory = (machine) => {
-        if (machine && machine.factory && String(machine.factory).trim() && machine.factory !== 'その他') {
-          return String(machine.factory).trim();
-        }
-        if (adminDashboardData && Array.isArray(adminDashboardData.machineStatus)) {
-          const matched = adminDashboardData.machineStatus.find(ms =>
-            ms.machineName === machine.source ||
-            ms.machineKey === machine.source ||
-            ms.tabletName === machine.source
-          );
-          if (matched && matched.factory && String(matched.factory).trim()) {
-            return String(matched.factory).trim();
-          }
-        }
-        return (machine && machine.factory) || 'その他';
-      };
+      const resolveMachineFactory = dashboardResolveMachineFactory;
 
       const renderMachineCard = (machine, factoryName, maxFactoryShots = 0) => {
         const dayData = (machine.days || []).find(d => d.date === targetDate);
