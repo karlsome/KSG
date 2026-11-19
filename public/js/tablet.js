@@ -4131,6 +4131,17 @@ function resolveScannedHinban(code, hinbans) {
   return best.length === 1 ? best[0] : '';
 }
 
+// What to show in scan error messages: the 品番, never the whole QR text.
+// Known 品番 first; else pull a 品番-shaped piece (#####-##### with optional -XX suffix
+// that isn't the QR's "-00" padding) out of a long QR; a short scan is shown as-is.
+function getScanDisplayHinban(code) {
+  const known = resolveScannedHinban(code, equipmentProductsList.map(p => p.品番));
+  if (known) return known;
+  if (code.length <= 20) return code;
+  const match = code.match(/\d{5}-\d{5}(?:-(?!00\b)[A-Z0-9]{1,3})?/);
+  return match ? match[0] : '不明';
+}
+
 // One scanned 品番 or kanban QR (from the USB scanner)
 function handleManualScan(rawCode) {
   if (!isManualInputMode) return;
@@ -4148,7 +4159,7 @@ function handleManualScan(rawCode) {
     const hinban = resolveScannedHinban(code, equipmentProductsList.map(p => p.品番));
     const matches = hinban ? equipmentProductsList.filter(p => String(p.品番 || '').trim() === hinban) : [];
     if (matches.length === 0) {
-      showScanAlert('error', '製品が見つかりません', `スキャン: ${code}`);
+      showScanAlert('error', '製品が見つかりません', `品番: ${getScanDisplayHinban(code)}`);
       return;
     }
     if (matches.length > 1) {
@@ -4174,7 +4185,7 @@ function handleManualScan(rawCode) {
   const current = String(currentProductId).trim();
   const scannedHinban = resolveScannedHinban(code, [current, ...equipmentProductsList.map(p => p.品番)]);
   if (scannedHinban !== current) {
-    showScanAlert('error', '品番が違います', `スキャン: ${code}\n現在の品番: ${currentProductId}`);
+    showScanAlert('error', '品番が違います', `スキャンした品番: ${getScanDisplayHinban(code)}\n現在の品番: ${currentProductId}`);
     return;
   }
   addManualBoxCount();
