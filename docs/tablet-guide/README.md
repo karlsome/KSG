@@ -3,6 +3,14 @@
 Source for `KSG_Tablet_Registration_Guide 20261117.docx` (repo root).
 Written 2026-11-17. Read this before updating the guide.
 
+## Japanese admin / leader edition (2026-11-19)
+
+`build_ja.js` → `KSG_タブレット登録ガイド_管理者・リーダー向け 20261119.docx` (repo root). Japanese, admin/office/leader only:
+chapters 1–5 + troubleshooting (renumbered 6) + checklist; drops Pi setup (ch. 6), internals (ch. 8), Pi checklist and dev notes.
+Engineering issues are pointed at 技術担当. Diagrams are Japanese and simplified: `diagrams_ja.py` → `shots/fig_ja_*.png`.
+Fonts: Arial + Yu Gothic (eastAsia). Rebuild with `npm run diagrams:ja && npm run build:ja`, then the same Word TOC step
+(change DEST). If you change a fact in build.js, change it in build_ja.js too.
+
 ## Files
 
 | File | What it is |

@@ -120,6 +120,8 @@ function code(lines) {
 }
 
 let figNo = 0;
+let figLabel = (n) => `Figure ${n}: `;
+const setFigureLabel = (fn) => { figLabel = fn; };
 function figure(file, caption, widthPx = 600) {
   const full = path.join(SHOTS, file);
   const data = fs.readFileSync(full);
@@ -133,7 +135,7 @@ function figure(file, caption, widthPx = 600) {
         altText: { title: caption, description: caption, name: file } }),
     ] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [
-      new TextRun({ text: `Figure ${figNo}: ${caption}`, italics: true, size: 18, color: '475569' }),
+      new TextRun({ text: `${figLabel(figNo)}${caption}`, italics: true, size: 18, color: '475569' }),
     ] }),
   ];
 }
@@ -153,5 +155,5 @@ function imageSize(buf, name) {
 const spacer = () => new Paragraph({ spacing: { after: 120 }, children: [] });
 const pageBreak = () => new Paragraph({ children: [new PageBreak()] });
 
-module.exports = { H1, H2, H3, P, bullets, steps, table, callout, code, figure, spacer, pageBreak, runs,
+module.exports = { setFigureLabel, H1, H2, H3, P, bullets, steps, table, callout, code, figure, spacer, pageBreak, runs,
   numberingConfigs, bulletConfig, FONT, CONTENT_W };

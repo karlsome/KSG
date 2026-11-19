@@ -5,7 +5,9 @@
   "description": "Builds KSG_Tablet_Registration_Guide.docx",
   "scripts": {
     "diagrams": "python3 diagrams.py shots",
-    "build": "node build.js \"../../KSG_Tablet_Registration_Guide 20261117.docx\""
+    "build": "node build.js \"../../KSG_Tablet_Registration_Guide 20261117.docx\"",
+    "diagrams:ja": "python3 diagrams_ja.py shots",
+    "build:ja": "node build_ja.js \"../../KSG_タブレット登録ガイド_管理者・リーダー向け 20261119.docx\""
   },
   "dependencies": {
     "docx": "^9.15.4"
