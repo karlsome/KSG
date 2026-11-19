@@ -3985,6 +3985,7 @@ function updateManualModeUI() {
     changeProductBtn.textContent = locked ? '🔒 製品固定中' : '📦 製品選択 / 品番スキャン';
     changeProductBtn.classList.toggle('locked', locked);
   }
+  updateManualQrStatus();
 }
 
 // Called from 全リセット and after a successful submit
@@ -3992,6 +3993,8 @@ function resetManualInputState() {
   manualWorkCount = 0;
   localStorage.removeItem(MANUAL_WORK_COUNT_KEY);
   if (currentEquipment) localStorage.removeItem(`tablet_manualProductId_${currentEquipment}`);
+  localStorage.removeItem(QR_LOADED_KEY);
+  localStorage.removeItem(QR_USED_KEY);
   clearCurrentProductContext();
   updateWorkCount();
   updateManualModeUI();
@@ -4023,13 +4026,13 @@ function addManualWorkCount(delta) {
   return true;
 }
 
-function addManualBoxCount() {
+function addManualBoxCount({ silent = false } = {}) {
   if (!hakoIresuValue) {
     showScanAlert('warn', '収容数が登録されていません', 'この製品には収容数がありません。「±」で数量を入力してください。');
     return false;
   }
   const added = addManualWorkCount(hakoIresuValue);
-  if (added) showScanToast(`+${hakoIresuValue}  (作業数 ${manualWorkCount.toLocaleString()})`);
+  if (added && !silent) showScanToast(`+${hakoIresuValue}  (作業数 ${manualWorkCount.toLocaleString()})`);
   return added;
 }
 
@@ -4072,6 +4075,7 @@ function applyManualAdjust(sign) {
 function showScanAlert(type, title, detail = '') {
   const box = document.getElementById('scanAlertBox');
   if (!box) return;
+  if (typeof closeScanInfo === 'function') closeScanInfo();
   box.className = `scan-alert ${type === 'error' ? 'error' : 'warn'}`;
   document.getElementById('scanAlertTitle').textContent = title;
   document.getElementById('scanAlertDetail').textContent = detail;
@@ -4142,6 +4146,97 @@ function getScanDisplayHinban(code) {
   return match ? match[0] : '不明';
 }
 
+// ---- Kanban QR 読込 / 完了 (load → exit) ----------------------------------------
+// Each kanban QR is scanned twice: 1st scan = 読込 (check it is the right 品番, then the
+// kanban goes into the box), 2nd scan of the SAME QR = 完了 (adds 収容数). A counted QR
+// can't be counted again this session. Bare 品番 labels still count on a single scan.
+// tablet_ prefix → cleared on submit / reset.
+const QR_LOADED_KEY = 'tablet_qrLoaded';
+const QR_USED_KEY = 'tablet_qrUsed';
+
+function getLoadedQr() {
+  try { return JSON.parse(localStorage.getItem(QR_LOADED_KEY) || 'null'); } catch { return null; }
+}
+
+function setLoadedQr(value) {
+  if (value) localStorage.setItem(QR_LOADED_KEY, JSON.stringify(value));
+  else localStorage.removeItem(QR_LOADED_KEY);
+  updateManualQrStatus();
+}
+
+function getUsedQrs() {
+  try {
+    const list = JSON.parse(localStorage.getItem(QR_USED_KEY) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+function addUsedQr(code) {
+  const list = getUsedQrs();
+  if (!list.includes(code)) list.push(code);
+  localStorage.setItem(QR_USED_KEY, JSON.stringify(list));
+}
+
+function updateManualQrStatus() {
+  const box = document.getElementById('manualQrStatus');
+  const text = document.getElementById('manualQrStatusText');
+  if (!box || !text) return;
+  const loaded = getLoadedQr();
+  box.classList.toggle('active', Boolean(loaded));
+  text.textContent = loaded ? `📥 QR読込中: ${loaded.hinban}` : '';
+}
+
+function cancelLoadedQr() {
+  const loaded = getLoadedQr();
+  if (!loaded) return;
+  setLoadedQr(null);
+  showScanInfo('cancel', '↩️', 'QR読込を取消しました', `品番: ${loaded.hinban}\nカウントはされていません。`);
+}
+
+let scanInfoTimer = null;
+function showScanInfo(type, icon, title, detail = '') {
+  const overlay = document.getElementById('scanInfoOverlay');
+  if (!overlay) return;
+  document.getElementById('scanInfoBox').className = `scan-info ${type}`;
+  document.getElementById('scanInfoIcon').textContent = icon;
+  document.getElementById('scanInfoTitle').textContent = title;
+  document.getElementById('scanInfoDetail').textContent = detail;
+  overlay.classList.add('active');
+  clearTimeout(scanInfoTimer);
+  scanInfoTimer = setTimeout(closeScanInfo, 2000);
+}
+
+function closeScanInfo() {
+  clearTimeout(scanInfoTimer);
+  document.getElementById('scanInfoOverlay')?.classList.remove('active');
+}
+
+function handleKanbanQrScan(code, hinban) {
+  if (getUsedQrs().includes(code)) {
+    showScanAlert('error', 'このQRはカウント済みです', `品番: ${hinban}\nこのかんばんは既に完了スキャンされています。`);
+    return;
+  }
+
+  const loaded = getLoadedQr();
+  if (!loaded) {
+    setLoadedQr({ code, hinban, at: new Date().toISOString() });
+    showScanInfo('load', '📥', 'QR読込OK', `品番: ${hinban}\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+    return;
+  }
+
+  if (loaded.code !== code) {
+    showScanAlert('warn', '別のQRが読込中です', `読込中の品番: ${loaded.hinban}\n先に読込中のかんばんをもう一度スキャンしてください。\n（やり直す場合は「取消」）`);
+    return;
+  }
+
+  // Same QR again → 完了. Only clear it if the count actually went up
+  // (addManualBoxCount warns when work hasn't started / no 収容数).
+  if (!addManualBoxCount({ silent: true })) return;
+  addUsedQr(code);
+  setLoadedQr(null);
+  showScanInfo('unload', '📤', 'QR完了', `品番: ${hinban}\n+${hakoIresuValue}（作業数 ${manualWorkCount.toLocaleString()}）`);
+}
+
 // One scanned 品番 or kanban QR (from the USB scanner)
 function handleManualScan(rawCode) {
   if (!isManualInputMode) return;
@@ -4177,7 +4272,13 @@ function handleManualScan(rawCode) {
     }
     checkStartButtonState();
     updateManualModeUI();
-    showScanToast(`品番 ${product.品番} を選択しました`);
+    if (code !== hinban) {
+      // Kanban QR: selecting the product is also this kanban's 読込
+      setLoadedQr({ code, hinban, at: new Date().toISOString() });
+      showScanInfo('load', '📥', 'QR読込OK', `品番 ${product.品番} を選択しました\nかんばんを製品に入れて、もう一度スキャンしてください。`);
+    } else {
+      showScanToast(`品番 ${product.品番} を選択しました`);
+    }
     return;
   }
 
@@ -4186,6 +4287,10 @@ function handleManualScan(rawCode) {
   const scannedHinban = resolveScannedHinban(code, [current, ...equipmentProductsList.map(p => p.品番)]);
   if (scannedHinban !== current) {
     showScanAlert('error', '品番が違います', `スキャンした品番: ${getScanDisplayHinban(code)}\n現在の品番: ${currentProductId}`);
+    return;
+  }
+  if (code !== current) {
+    handleKanbanQrScan(code, current);
     return;
   }
   addManualBoxCount();

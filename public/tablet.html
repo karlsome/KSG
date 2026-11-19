@@ -1686,6 +1686,59 @@
 
     .scan-toast.show { opacity: 1; }
 
+    .manual-qr-status {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-top: 6px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    body.manual-input-mode .manual-qr-status.active { display: flex; }
+    .manual-qr-cancel {
+      border: none;
+      border-radius: 6px;
+      background: #fff;
+      color: #b91c1c;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .scan-info-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2050;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .scan-info-overlay.active { display: flex; }
+    .scan-info {
+      width: min(520px, 100%);
+      border-radius: 18px;
+      padding: 28px;
+      text-align: center;
+      color: #fff;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+    }
+    .scan-info.load { background: #16a34a; }
+    .scan-info.unload { background: #2563eb; }
+    .scan-info.cancel { background: #475569; }
+    .scan-info-icon { font-size: 52px; line-height: 1; margin-bottom: 8px; }
+    .scan-info-title { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+    .scan-info-detail { font-size: 19px; line-height: 1.6; white-space: pre-line; }
+
     .product-select-search-input {
       width: 100%;
       box-sizing: border-box;
@@ -2030,6 +2083,10 @@
               <button type="button" class="manual-count-btn" id="manualAddBoxBtn" onclick="addManualBoxCount()">+収容数</button>
               <button type="button" class="manual-count-btn adjust" onclick="openManualAdjustModal()">±</button>
             </div>
+            <div class="manual-qr-status" id="manualQrStatus">
+              <span id="manualQrStatusText"></span>
+              <button type="button" class="manual-qr-cancel" onclick="cancelLoadedQr()">取消</button>
+            </div>
           </div>
           <div class="button-cell">
             <div class="action-button" id="sendDataButton" onclick="sendData()">データ送信</div>
@@ -2238,6 +2295,15 @@
     </div>
   </div>
   <div class="scan-toast" id="scanToast"></div>
+
+  <!-- Manual mode: QR 読込 / 完了 pop-up (auto-closes, tap to close; does not block scanning) -->
+  <div class="scan-info-overlay" id="scanInfoOverlay" onclick="closeScanInfo()">
+    <div class="scan-info" id="scanInfoBox">
+      <div class="scan-info-icon" id="scanInfoIcon"></div>
+      <div class="scan-info-title" id="scanInfoTitle"></div>
+      <div class="scan-info-detail" id="scanInfoDetail"></div>
+    </div>
+  </div>
 
   <!-- Product Selection Modal (For Equipments without Kanban Variable) -->
   <div class="product-select-modal-overlay" id="productSelectModalOverlay">
